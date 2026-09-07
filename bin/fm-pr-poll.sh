@@ -61,10 +61,10 @@ case "$provider" in
       .|..|*[!A-Za-z0-9._-]*) exit 0 ;;
     esac
     [ "$url" = "https://github.com/$owner/$repo/pull/$number" ] || exit 0
-    raw=$(gh pr view "$url" --json state,mergeStateStatus,mergeable,headRefOid \
-      -q '[.state, .mergeStateStatus, .mergeable, .headRefOid] | @tsv' 2>/dev/null) || exit 0
+    raw=$(gh pr view "$url" --json state,mergeable,headRefOid,baseRefName \
+      -q '[.state, .mergeable, .headRefOid, .baseRefName] | @tsv' 2>/dev/null) || exit 0
     case "$raw" in ''|*$'\n'*) exit 0 ;; esac
-    IFS=$'\t' read -r state merge_state mergeable head extra <<< "$raw"
+    IFS=$'\t' read -r state mergeable head base extra <<< "$raw"
     [ -z "${extra:-}" ] || exit 0
     if [ "$state" = MERGED ]; then
       printf '%s\n' merged
@@ -77,11 +77,19 @@ case "$provider" in
     esac
     case "${#head}" in 40|64) ;; *) exit 0 ;; esac
     case "$head" in *[!0-9a-f]*) exit 0 ;; esac
-    if [ "$mergeable" = CONFLICTING ] || [ "$merge_state" = DIRTY ]; then
+    if [ "$mergeable" = CONFLICTING ]; then
       printf 'conflict %s\n' "$head"
-    elif [ "$merge_state" = BEHIND ]; then
-      printf 'behind %s\n' "$head"
+      exit 0
     fi
+    # Behind-ness is read from the base ref's own commit relationship rather
+    # than mergeStateStatus, which collapses BEHIND under BLOCKED and DIRTY.
+    [ "${#base}" -ge 1 ] && [ "${#base}" -le 255 ] || exit 0
+    case "$base" in
+      -*|/*|*/|*..*|*[!A-Za-z0-9._/-]*) exit 0 ;;
+    esac
+    behind=$(gh api "repos/$owner/$repo/compare/$base...$head" -q .behind_by 2>/dev/null) || exit 0
+    case "$behind" in ''|*[!0-9]*) exit 0 ;; esac
+    [ "$behind" -gt 0 ] && printf 'behind %s\n' "$head"
     ;;
   gitlab)
     [ "${#host}" -ge 1 ] && [ "${#host}" -le 253 ] || exit 0

@@ -145,15 +145,32 @@ case "${1:-} ${2:-}" in
     exit 0
     ;;
 esac
+case "${1:-}:${2:-}" in
+  api:*/compare/*)
+    [ "${FM_TEST_GH_COMPARE_FAIL:-0}" = 0 ] || exit 1
+    printf '%s\n' "${FM_TEST_GH_BEHIND_BY:-0}"
+    exit 0
+    ;;
+esac
 case " $* " in
-  *" state,mergeStateStatus,mergeable,headRefOid "*)
+  # The collapsed status field the poll no longer keys behind-ness on, kept so
+  # a regression back to reading it answers BLOCKED and fails its test.
+  *" mergeStateStatus "*)
     [ "${FM_TEST_GH_FAIL:-0}" = 0 ] || exit 1
-    [ "${FM_TEST_GH_SLEEP:-0}" = 0 ] || sleep "$FM_TEST_GH_SLEEP"
     printf '%s\t%s\t%s\t%s\n' \
       "${FM_TEST_GH_STATE:-OPEN}" \
       "${FM_TEST_GH_MERGE_STATE:-CLEAN}" \
       "${FM_TEST_GH_MERGEABLE:-MERGEABLE}" \
       "${FM_TEST_GH_HEAD:-0123456789abcdef0123456789abcdef01234567}"
+    ;;
+  *" state,mergeable,headRefOid,baseRefName "*)
+    [ "${FM_TEST_GH_FAIL:-0}" = 0 ] || exit 1
+    [ "${FM_TEST_GH_SLEEP:-0}" = 0 ] || sleep "$FM_TEST_GH_SLEEP"
+    printf '%s\t%s\t%s\t%s\n' \
+      "${FM_TEST_GH_STATE:-OPEN}" \
+      "${FM_TEST_GH_MERGEABLE:-MERGEABLE}" \
+      "${FM_TEST_GH_HEAD:-0123456789abcdef0123456789abcdef01234567}" \
+      "${FM_TEST_GH_BASE:-main}"
     ;;
   *" headRefOid "*) printf '%s\n' "${FM_TEST_GH_HEAD:-0123456789abcdef0123456789abcdef01234567}" ;;
   *" state "*)
@@ -708,15 +725,22 @@ test_static_poll_contract() {
   done
   out=$(FM_TEST_GH_STATE=MERGED run_poll "$dir")
   [ "$out" = merged ] || fail "static poll did not emit exactly one merged line"
-  out=$(FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BEHIND run_poll "$dir")
+  out=$(FM_TEST_GH_STATE=OPEN FM_TEST_GH_BEHIND_BY=1 run_poll "$dir")
   [ "$out" = 'behind 0123456789abcdef0123456789abcdef01234567' ] \
     || fail "static poll did not identify an open PR behind its base"
-  out=$(FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=DIRTY \
-    FM_TEST_GH_MERGEABLE=CONFLICTING run_poll "$dir")
+  out=$(FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGEABLE=CONFLICTING run_poll "$dir")
   [ "$out" = 'conflict 0123456789abcdef0123456789abcdef01234567' ] \
     || fail "static poll did not identify an open PR with a base conflict"
-  out=$(FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BEHIND FM_TEST_GH_HEAD=invalid run_poll "$dir")
+  out=$(FM_TEST_GH_STATE=OPEN FM_TEST_GH_BEHIND_BY=1 FM_TEST_GH_HEAD=invalid run_poll "$dir")
   [ -z "$out" ] || fail "static poll emitted branch currency from an invalid head"
+  out=$(FM_TEST_GH_STATE=OPEN FM_TEST_GH_BEHIND_BY=0 run_poll "$dir")
+  [ -z "$out" ] || fail "static poll called a current branch behind its base"
+  out=$(FM_TEST_GH_STATE=OPEN FM_TEST_GH_COMPARE_FAIL=1 run_poll "$dir")
+  [ -z "$out" ] || fail "static poll emitted behind after an unreadable base comparison"
+  out=$(FM_TEST_GH_STATE=OPEN FM_TEST_GH_BEHIND_BY=many run_poll "$dir")
+  [ -z "$out" ] || fail "static poll emitted behind from a non-numeric comparison"
+  out=$(FM_TEST_GH_STATE=OPEN FM_TEST_GH_BEHIND_BY=1 FM_TEST_GH_BASE='../../etc' run_poll "$dir")
+  [ -z "$out" ] || fail "static poll compared against a traversing base ref"
   out=$(FM_TEST_GH_FAIL=1 run_poll "$dir")
   [ -z "$out" ] || fail "static poll emitted after gh failure"
 
@@ -810,7 +834,7 @@ SH
   chmod +x "$dir/fakebin/fm-crew-state.sh" "$dir/fakebin/fm-refresh-send.sh"
   : > "$dir/refresh-send.log"
   set +e
-  FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BEHIND \
+  FM_TEST_GH_STATE=OPEN FM_TEST_GH_BEHIND_BY=1 \
     FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
     FM_PR_REFRESH_SEND_BIN="$dir/fakebin/fm-refresh-send.sh" \
     FM_TEST_REFRESH_SEND_LOG="$dir/refresh-send.log" \
@@ -836,7 +860,7 @@ SH
   chmod +x "$dir/fakebin/fm-crew-state.sh"
   : > "$dir/refresh-send.log"
   set +e
-  FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=DIRTY FM_TEST_GH_MERGEABLE=CONFLICTING \
+  FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGEABLE=CONFLICTING \
     FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
     FM_PR_REFRESH_SEND_BIN="$dir/fakebin/fm-refresh-send.sh" \
     FM_TEST_REFRESH_SEND_LOG="$dir/refresh-send.log" \
@@ -859,7 +883,7 @@ SH
   ack_watcher_cycle "$state" || fail "branch-currency dispatch acknowledgement failed"
   add_stop_custom_check "$dir"
   set +e
-  FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=DIRTY FM_TEST_GH_MERGEABLE=CONFLICTING \
+  FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGEABLE=CONFLICTING \
     FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
     FM_PR_REFRESH_SEND_BIN="$dir/fakebin/fm-refresh-send.sh" \
     FM_TEST_REFRESH_SEND_LOG="$dir/refresh-send.log" \
@@ -877,7 +901,7 @@ SH
   ack_watcher_cycle "$state" || fail "branch-currency relabel acknowledgement failed"
   add_stop_custom_check "$dir"
   set +e
-  FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BEHIND \
+  FM_TEST_GH_STATE=OPEN FM_TEST_GH_BEHIND_BY=1 \
     FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
     FM_PR_REFRESH_SEND_BIN="$dir/fakebin/fm-refresh-send.sh" \
     FM_TEST_REFRESH_SEND_LOG="$dir/refresh-send.log" \
@@ -901,7 +925,7 @@ SH
   chmod +x "$dir/fakebin/fm-crew-state.sh"
   add_stop_custom_check "$dir"
   set +e
-  FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BEHIND \
+  FM_TEST_GH_STATE=OPEN FM_TEST_GH_BEHIND_BY=1 \
     FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
     FM_PR_REFRESH_SEND_BIN="$dir/fakebin/fm-refresh-send.sh" \
     FM_TEST_REFRESH_SEND_LOG="$dir/refresh-send.log" \
@@ -920,7 +944,7 @@ SH
   ack_watcher_cycle "$state" || fail "branch-currency post-working acknowledgement failed"
   add_stop_custom_check "$dir"
   set +e
-  FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BEHIND \
+  FM_TEST_GH_STATE=OPEN FM_TEST_GH_BEHIND_BY=1 \
     FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
     FM_PR_REFRESH_SEND_BIN="$dir/fakebin/fm-refresh-send.sh" \
     FM_TEST_REFRESH_SEND_LOG="$dir/refresh-send.log" \
@@ -936,7 +960,7 @@ SH
   ack_watcher_cycle "$state" || fail "new-head branch-currency acknowledgement failed"
   add_stop_custom_check "$dir"
   set +e
-  FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BEHIND \
+  FM_TEST_GH_STATE=OPEN FM_TEST_GH_BEHIND_BY=1 \
     FM_TEST_GH_HEAD=89abcdef0123456789abcdef0123456789abcdef \
     FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
     FM_PR_REFRESH_SEND_BIN="$dir/fakebin/fm-refresh-send.sh" \
@@ -978,7 +1002,7 @@ SH
   : > "$dir/refresh-send.log"
 
   set +e
-  FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BEHIND \
+  FM_TEST_GH_STATE=OPEN FM_TEST_GH_BEHIND_BY=1 \
     FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
     FM_PR_REFRESH_SEND_BIN="$dir/fakebin/fm-refresh-send.sh" \
     FM_TEST_REFRESH_SEND_LOG="$dir/refresh-send.log" \
@@ -1025,7 +1049,7 @@ SH
   : > "$dir/refresh-send.log"
 
   set +e
-  FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BEHIND \
+  FM_TEST_GH_STATE=OPEN FM_TEST_GH_BEHIND_BY=1 \
     FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
     FM_PR_REFRESH_SEND_BIN="$dir/fakebin/fm-refresh-send.sh" \
     FM_TEST_REFRESH_SEND_LOG="$dir/refresh-send.log" \
@@ -1061,7 +1085,7 @@ SH
   chmod +x "$dir/fakebin/fm-crew-state.sh"
   : > "$dir/refresh-send.log"
   set +e
-  FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BEHIND \
+  FM_TEST_GH_STATE=OPEN FM_TEST_GH_BEHIND_BY=1 \
     FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
     FM_PR_REFRESH_SEND_BIN="$dir/fakebin/fm-refresh-send.sh" \
     FM_TEST_REFRESH_SEND_LOG="$dir/refresh-send.log" \
@@ -1106,7 +1130,7 @@ SH
   chmod +x "$dir/fakebin/fm-crew-state.sh" "$dir/fakebin/fm-refresh-send.sh"
   : > "$dir/refresh-send.log"
   set +e
-  FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BEHIND \
+  FM_TEST_GH_STATE=OPEN FM_TEST_GH_BEHIND_BY=1 \
     FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
     FM_PR_REFRESH_SEND_BIN="$dir/fakebin/fm-refresh-send.sh" \
     FM_TEST_REFRESH_SEND_LOG="$dir/refresh-send.log" \
@@ -1140,7 +1164,7 @@ SH
   chmod +x "$dir/fakebin/fm-crew-state.sh"
   : > "$dir/refresh-send.log"
   set +e
-  FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BEHIND \
+  FM_TEST_GH_STATE=OPEN FM_TEST_GH_BEHIND_BY=1 \
     FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
     FM_PR_REFRESH_SEND_BIN="$dir/fakebin/fm-refresh-send.sh" \
     FM_TEST_REFRESH_SEND_LOG="$dir/refresh-send.log" \
@@ -1158,7 +1182,7 @@ SH
   ack_watcher_cycle "$state" || fail "restart-before-recorded acknowledgement failed"
   add_stop_custom_check "$dir"
   set +e
-  FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BEHIND \
+  FM_TEST_GH_STATE=OPEN FM_TEST_GH_BEHIND_BY=1 \
     FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
     FM_PR_REFRESH_SEND_BIN="$dir/fakebin/fm-refresh-send.sh" \
     FM_TEST_REFRESH_SEND_LOG="$dir/refresh-send.log" \
@@ -1195,7 +1219,7 @@ printf 'state: done \302\267 source: run-step \302\267 checks green: PR ready fo
 SH
   chmod +x "$dir/fakebin/fm-crew-state.sh"
   set +e
-  FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BEHIND \
+  FM_TEST_GH_STATE=OPEN FM_TEST_GH_BEHIND_BY=1 \
     FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
     run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/first.out" 2> "$dir/first.err"
   rc=$?
@@ -1207,7 +1231,7 @@ SH
   ack_watcher_cycle "$state" || fail "refusal-dedup acknowledgement failed"
   add_stop_custom_check "$dir"
   set +e
-  FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BEHIND \
+  FM_TEST_GH_STATE=OPEN FM_TEST_GH_BEHIND_BY=1 \
     FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
     run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/second.out" 2> "$dir/second.err"
   rc=$?
@@ -1238,7 +1262,7 @@ SH
   chmod +x "$dir/fakebin/fm-crew-state.sh"
   add_stop_custom_check "$dir"
   set +e
-  FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BEHIND \
+  FM_TEST_GH_STATE=OPEN FM_TEST_GH_BEHIND_BY=1 \
     FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
     run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/optout.out" 2> "$dir/optout.err"
   rc=$?
@@ -1253,6 +1277,43 @@ SH
   assert_grep 'behind 0123456789abcdef0123456789abcdef01234567' "$state/.watch-triage.log" \
     "an opted-out home stopped detecting and logging a behind PR"
   pass "an opted-out home logs a behind PR for triage without ever waking the captain"
+}
+
+# GitHub collapses mergeStateStatus into one value, so a PR that is behind its
+# base while any required check or review is outstanding reports BLOCKED rather
+# than BEHIND; behind-ness is read from the base comparison for that reason.
+test_branch_currency_blocked_pr_still_dispatches() {
+  local dir state rc
+
+  dir=$(make_case branch-currency-blocked)
+  state="$dir/home/state"
+  write_task_meta "$dir"
+  enable_pr_refresh "$dir"
+  run_check_entry "$dir" task-a https://github.com/o/r/pull/12 >/dev/null \
+    || fail "could not arm blocked branch-currency fixture"
+  cat > "$dir/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'state: done \302\267 source: run-step \302\267 checks green: PR ready for review\n'
+SH
+  fake_idempotent_refresh_send "$dir"
+  chmod +x "$dir/fakebin/fm-crew-state.sh"
+  add_stop_custom_check "$dir"
+  : > "$dir/refresh-send.log"
+  set +e
+  FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BLOCKED FM_TEST_GH_MERGEABLE=MERGEABLE \
+    FM_TEST_GH_BEHIND_BY=2 \
+    FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
+    FM_PR_REFRESH_SEND_BIN="$dir/fakebin/fm-refresh-send.sh" \
+    FM_TEST_REFRESH_SEND_LOG="$dir/refresh-send.log" \
+    run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/blocked.out" 2> "$dir/blocked.err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || fail "blocked branch-currency watcher failed: $(cat "$dir/blocked.err")"
+  assert_grep 'branch-refresh-dispatched pr=https://github.com/o/r/pull/12 head=0123456789abcdef0123456789abcdef01234567 condition=behind' \
+    "$dir/blocked.out" "a PR behind its base was not refreshed because its checks were failing"
+  [ "$(wc -l < "$dir/refresh-send.log" | tr -d ' ')" -eq 1 ] \
+    || fail "a blocked behind PR did not reactivate exactly one owning worker"
+  pass "a PR behind its base still dispatches while its own checks keep it blocked"
 }
 
 # A worker that keeps acknowledging the instruction without moving the head
@@ -1274,7 +1335,7 @@ SH
   chmod +x "$dir/fakebin/fm-crew-state.sh"
   : > "$dir/refresh-send.log"
   set +e
-  FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BEHIND FM_PR_REFRESH_ATTEMPT_MAX=1 \
+  FM_TEST_GH_STATE=OPEN FM_TEST_GH_BEHIND_BY=1 FM_PR_REFRESH_ATTEMPT_MAX=1 \
     FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
     FM_PR_REFRESH_SEND_BIN="$dir/fakebin/fm-refresh-send.sh" \
     FM_TEST_REFRESH_SEND_LOG="$dir/refresh-send.log" \
@@ -1290,7 +1351,7 @@ SH
     || fail "could not acknowledge the first bounded attempt"
   ack_watcher_cycle "$state" || fail "attempt-cap dispatch acknowledgement failed"
   set +e
-  FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BEHIND FM_PR_REFRESH_ATTEMPT_MAX=1 \
+  FM_TEST_GH_STATE=OPEN FM_TEST_GH_BEHIND_BY=1 FM_PR_REFRESH_ATTEMPT_MAX=1 \
     FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
     FM_PR_REFRESH_SEND_BIN="$dir/fakebin/fm-refresh-send.sh" \
     FM_TEST_REFRESH_SEND_LOG="$dir/refresh-send.log" \
@@ -1306,7 +1367,7 @@ SH
   ack_watcher_cycle "$state" || fail "exhausted attempt-cap acknowledgement failed"
   add_stop_custom_check "$dir"
   set +e
-  FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BEHIND FM_PR_REFRESH_ATTEMPT_MAX=1 \
+  FM_TEST_GH_STATE=OPEN FM_TEST_GH_BEHIND_BY=1 FM_PR_REFRESH_ATTEMPT_MAX=1 \
     FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
     FM_PR_REFRESH_SEND_BIN="$dir/fakebin/fm-refresh-send.sh" \
     FM_TEST_REFRESH_SEND_LOG="$dir/refresh-send.log" \
@@ -2718,6 +2779,7 @@ test_branch_currency_dispatches_after_ordinary_relaunch
 test_branch_currency_remote_secondmate_refused
 test_branch_currency_restart_before_state_recorded
 test_branch_currency_refusal_is_deduplicated
+test_branch_currency_blocked_pr_still_dispatches
 test_branch_currency_attempts_are_bounded
 test_branch_currency_opt_out_by_default
 test_parser_matrix
