@@ -81,16 +81,13 @@ case "$provider" in
       printf 'conflict %s\n' "$head"
       exit 0
     fi
-    # Behind-ness needs both facts the collapsed mergeStateStatus carried at
-    # once: the base enforces branch currency, and this head is actually behind.
-    # docs/architecture.md "Branch-currency dispatch" owns the per-poll cost.
+    # Behind-ness is the head's own divergence from its base, read directly
+    # rather than through mergeStateStatus, which collapses BEHIND under
+    # BLOCKED and DIRTY. docs/architecture.md owns why no other input qualifies.
     [ "${#base}" -ge 1 ] && [ "${#base}" -le 255 ] || exit 0
     case "$base" in
       -*|/*|*/|*..*|*[!A-Za-z0-9._/-]*) exit 0 ;;
     esac
-    strict=$(gh api "repos/$owner/$repo/branches/$base" \
-      -q .protection.required_status_checks.strict 2>/dev/null) || exit 0
-    [ "$strict" = true ] || exit 0
     behind=$(gh api "repos/$owner/$repo/compare/$base...$head" -q .behind_by 2>/dev/null) || exit 0
     case "$behind" in ''|*[!0-9]*) exit 0 ;; esac
     [ "$behind" -gt 0 ] && printf 'behind %s\n' "$head"
