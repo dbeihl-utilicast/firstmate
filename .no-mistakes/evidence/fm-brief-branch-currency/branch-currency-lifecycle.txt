@@ -1,0 +1,35 @@
+
+===== poll 1: base moved, PR is behind at head 0123456 =====
+poll 1 captain wake:
+    check: /private/var/folders/j5/kgdthy6n37j7dgv0r7qr3qd80000gn/T/fm-pr-check-security.qpeyBF/evidence-lifecycle/home/state/task-a.check.sh: branch-refresh-dispatched pr=https://github.com/o/r/pull/42 head=0123456789abcdef0123456789abcdef01234567 condition=behind
+
+instruction delivered to the worker inbox (/private/var/folders/j5/kgdthy6n37j7dgv0r7qr3qd80000gn/T/fm-pr-check-security.qpeyBF/evidence-lifecycle/home/state/task-a.inbox/001.msg):
+    schema=fm-task-inbox.v1
+    at=fixture
+    --
+    FIRSTMATE_OP: v1 branch-currency: Your open pull request https://github.com/o/r/pull/42 is not current with its base (behind or in conflict) at head 0123456789abcdef0123456789abcdef01234567. Re-run this brief's no-mistakes delivery contract with its exact serialized captain intent. Before any edit or branch movement, inspect no-mistakes axi status and do not act while an active run owns the branch. Let the pipeline's rebase step bring the branch current and re-establish every check on the resulting head. If rebase conflicts, report blocked and name the conflicted paths. Report done again only after the current-head checks are green.
+
+===== poll 2: worker acknowledged, rebase still in flight, same head =====
+poll 2 captain wake:
+    check: /private/var/folders/j5/kgdthy6n37j7dgv0r7qr3qd80000gn/T/fm-pr-check-security.qpeyBF/evidence-lifecycle/home/state/z-stop.check.sh: stop-cycle
+poll 2 captain triage log:
+    [2026-09-07T11:28:04-0400] branch-refresh-deferred pr=https://github.com/o/r/pull/42 head=0123456789abcdef0123456789abcdef01234567 condition=behind reason=dispatch-resolved
+
+===== poll 3: base advanced again, head genuinely moved to 2222222 =====
+poll 3 captain wake:
+    check: /private/var/folders/j5/kgdthy6n37j7dgv0r7qr3qd80000gn/T/fm-pr-check-security.qpeyBF/evidence-lifecycle/home/state/task-a.check.sh: branch-refresh-dispatched pr=https://github.com/o/r/pull/42 head=2222222222222222222222222222222222222222 condition=behind
+
+===== poll 4: rebase landed, PR current at 89abcde =====
+poll 4 captain wake:
+    check: /private/var/folders/j5/kgdthy6n37j7dgv0r7qr3qd80000gn/T/fm-pr-check-security.qpeyBF/evidence-lifecycle/home/state/z-stop.check.sh: stop-cycle
+
+===== instructions sent across the whole lifecycle =====
+one per moved head, 2 total:
+    at head 0123456789abcdef0123456789abcdef01234567
+    at head 2222222222222222222222222222222222222222
+
+===== a home that never opted in (no config/pr-refresh) =====
+opted-out poll captain wake: (silent - nothing reached the captain)
+opted-out triage log:
+    check: /private/var/folders/j5/kgdthy6n37j7dgv0r7qr3qd80000gn/T/fm-pr-check-security.qpeyBF/evidence-opted-out/home/state/task-a.check.sh: behind 0123456789abcdef0123456789abcdef01234567
+
