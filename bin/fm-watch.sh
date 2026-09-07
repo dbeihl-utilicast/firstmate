@@ -1365,7 +1365,7 @@ pr_refresh_state_read() {  # <path>; sets PR_REFRESH_*
   tab=$(printf '\t')
   IFS="$tab" read -r PR_REFRESH_STATUS PR_REFRESH_HEAD PR_REFRESH_ATTEMPT PR_REFRESH_RECORD extra < "$path" \
     || return 1
-  case "$PR_REFRESH_STATUS" in dispatched|resolved) ;; *) return 1 ;; esac
+  case "$PR_REFRESH_STATUS" in dispatched|resolved|exhausted) ;; *) return 1 ;; esac
   case "${#PR_REFRESH_HEAD}" in 40|64) ;; *) return 1 ;; esac
   case "$PR_REFRESH_HEAD" in *[!0-9a-f]*) return 1 ;; esac
   case "$PR_REFRESH_ATTEMPT" in ''|*[!0-9]*|0) return 1 ;; esac
@@ -1411,6 +1411,12 @@ pr_refresh_dispatch() {  # <task-id> <url> <behind|conflict> <head>
   local marker="$STATE/$id.pr-refresh-state" meta="$STATE/$id.meta"
   local state_line state mode spawn_gen message attempt record record_path record_state
   local gen_epoch status_mtime
+
+  if [ -f "$marker" ] && pr_refresh_state_read "$marker" && [ "$PR_REFRESH_STATUS" = exhausted ]; then
+    printf 'branch-refresh-blocked pr=%s head=%s condition=%s reason=attempts-exhausted attempts=%s\n' \
+      "$url" "$head" "$condition" "$PR_REFRESH_ATTEMPT"
+    return 2
+  fi
 
   if [ -f "$marker" ] && pr_refresh_state_read "$marker" && [ "$PR_REFRESH_HEAD" = "$head" ] \
     && [ "$PR_REFRESH_STATUS" != resolved ]; then
@@ -1486,12 +1492,16 @@ pr_refresh_dispatch() {  # <task-id> <url> <behind|conflict> <head>
     return $?
   esac
 
-  if [ -f "$marker" ] && pr_refresh_state_read "$marker" \
-    && [ "$PR_REFRESH_HEAD" = "$head" ] && [ "$PR_REFRESH_STATUS" = resolved ]; then
+  if [ -f "$marker" ] && pr_refresh_state_read "$marker"; then
     attempt=$((PR_REFRESH_ATTEMPT + 1))
     if [ "$attempt" -gt "$PR_REFRESH_ATTEMPT_MAX" ]; then
-      pr_refresh_refuse "$id" "$url" "$condition" "$head" attempts-exhausted
-      return $?
+      if ! pr_refresh_state_write "$marker" exhausted "$head" "$PR_REFRESH_ATTEMPT" "$PR_REFRESH_RECORD"; then
+        pr_refresh_refuse "$id" "$url" "$condition" "$head" state-write-failed
+        return $?
+      fi
+      printf 'branch-refresh-blocked pr=%s head=%s condition=%s reason=attempts-exhausted attempts=%s\n' \
+        "$url" "$head" "$condition" "$PR_REFRESH_ATTEMPT"
+      return 1
     fi
   else
     attempt=1

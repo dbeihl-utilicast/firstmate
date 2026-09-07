@@ -1360,6 +1360,65 @@ SH
   pass "a diverged branch dispatches without asking the forge about branch protection"
 }
 
+# The attempt count belongs to the pull request, not to one commit: a base that
+# advances on every poll must consume the same budget rather than reset it.
+test_branch_currency_moving_base_shares_one_budget() {
+  local dir state rc head
+  local heads="1111111111111111111111111111111111111111 2222222222222222222222222222222222222222 3333333333333333333333333333333333333333"
+
+  dir=$(make_case branch-currency-moving-base)
+  state="$dir/home/state"
+  write_task_meta "$dir"
+  enable_pr_refresh "$dir"
+  run_check_entry "$dir" task-a https://github.com/o/r/pull/15 >/dev/null \
+    || fail "could not arm moving-base branch-currency fixture"
+  cat > "$dir/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'state: done \302\267 source: run-step \302\267 checks green: PR ready for review\n'
+SH
+  fake_idempotent_refresh_send "$dir"
+  chmod +x "$dir/fakebin/fm-crew-state.sh"
+  : > "$dir/refresh-send.log"
+
+  for head in $heads; do
+    set +e
+    FM_TEST_GH_STATE=OPEN FM_TEST_GH_BEHIND_BY=1 FM_TEST_GH_HEAD="$head" \
+      FM_PR_REFRESH_ATTEMPT_MAX=2 \
+      FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
+      FM_PR_REFRESH_SEND_BIN="$dir/fakebin/fm-refresh-send.sh" \
+      FM_TEST_REFRESH_SEND_LOG="$dir/refresh-send.log" \
+      run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/moving-$head.out" 2> "$dir/moving-$head.err"
+    rc=$?
+    set -e
+    [ "$rc" -eq 0 ] || fail "moving-base watcher failed at $head: $(cat "$dir/moving-$head.err")"
+    find "$state/task-a.inbox" -maxdepth 1 -name '*.msg' -exec mv {} "$state/task-a.inbox/handled/" \;
+    ack_watcher_cycle "$state" || fail "moving-base acknowledgement failed at $head"
+  done
+
+  [ "$(wc -l < "$dir/refresh-send.log" | tr -d ' ')" -eq 2 ] \
+    || fail "a moving base reset the attempt budget instead of consuming it"
+  assert_grep 'branch-refresh-blocked pr=https://github.com/o/r/pull/15 head=3333333333333333333333333333333333333333 condition=behind reason=attempts-exhausted attempts=2' \
+    "$dir/moving-3333333333333333333333333333333333333333.out" \
+    "an exhausted budget on a moving base was not reported as a blocker naming the PR"
+
+  add_stop_custom_check "$dir"
+  set +e
+  FM_TEST_GH_STATE=OPEN FM_TEST_GH_BEHIND_BY=1 \
+    FM_TEST_GH_HEAD=4444444444444444444444444444444444444444 FM_PR_REFRESH_ATTEMPT_MAX=2 \
+    FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
+    FM_PR_REFRESH_SEND_BIN="$dir/fakebin/fm-refresh-send.sh" \
+    FM_TEST_REFRESH_SEND_LOG="$dir/refresh-send.log" \
+    run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/moving-quiet.out" 2> "$dir/moving-quiet.err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || fail "quiet moving-base watcher failed: $(cat "$dir/moving-quiet.err")"
+  [ "$(wc -l < "$dir/refresh-send.log" | tr -d ' ')" -eq 2 ] \
+    || fail "a further base commit resumed dispatching after the budget was exhausted"
+  assert_no_grep 'branch-refresh-blocked' "$dir/moving-quiet.out" \
+    "an exhausted budget woke the captain again on the next base commit"
+  pass "one pull request spends one refresh budget however often its base moves"
+}
+
 # A worker that keeps acknowledging the instruction without moving the head
 # must not earn a new inbox record and a new wake on every poll forever.
 test_branch_currency_attempts_are_bounded() {
@@ -1405,8 +1464,8 @@ SH
   [ "$rc" -eq 0 ] || fail "exhausted attempt-cap watcher failed: $(cat "$dir/cap2.err")"
   [ "$(wc -l < "$dir/refresh-send.log" | tr -d ' ')" -eq 1 ] \
     || fail "an exhausted attempt ladder queued another refresh instruction"
-  assert_grep 'branch-refresh-refused pr=https://github.com/o/r/pull/11 head=0123456789abcdef0123456789abcdef01234567 condition=behind reason=attempts-exhausted' \
-    "$dir/cap2.out" "an exhausted attempt ladder was not refused and surfaced once"
+  assert_grep 'branch-refresh-blocked pr=https://github.com/o/r/pull/11 head=0123456789abcdef0123456789abcdef01234567 condition=behind reason=attempts-exhausted attempts=1' \
+    "$dir/cap2.out" "an exhausted attempt ladder was not reported as a blocker naming the PR"
 
   ack_watcher_cycle "$state" || fail "exhausted attempt-cap acknowledgement failed"
   add_stop_custom_check "$dir"
@@ -1421,9 +1480,9 @@ SH
   [ "$rc" -eq 0 ] || fail "quiet attempt-cap watcher failed: $(cat "$dir/cap3.err")"
   [ "$(wc -l < "$dir/refresh-send.log" | tr -d ' ')" -eq 1 ] \
     || fail "a stuck head resumed dispatching after its ladder was exhausted"
-  assert_no_grep 'branch-refresh-refused' "$dir/cap3.out" \
+  assert_no_grep 'branch-refresh-blocked' "$dir/cap3.out" \
     "an exhausted attempt ladder woke the captain a second time"
-  assert_grep 'branch-refresh-deferred pr=https://github.com/o/r/pull/11 head=0123456789abcdef0123456789abcdef01234567 condition=behind reason=attempts-exhausted' \
+  assert_grep 'branch-refresh-blocked pr=https://github.com/o/r/pull/11 head=0123456789abcdef0123456789abcdef01234567 condition=behind reason=attempts-exhausted' \
     "$state/.watch-triage.log" "an exhausted attempt ladder was not quietly deferred"
   pass "a stuck head's attempt ladder is bounded, surfaces once, then defers quietly"
 }
@@ -2825,6 +2884,7 @@ test_branch_currency_restart_before_state_recorded
 test_branch_currency_refusal_is_deduplicated
 test_branch_currency_blocked_pr_still_dispatches
 test_branch_currency_dispatches_without_reading_branch_protection
+test_branch_currency_moving_base_shares_one_budget
 test_branch_currency_attempts_are_bounded
 test_branch_currency_opt_out_by_default
 test_parser_matrix
