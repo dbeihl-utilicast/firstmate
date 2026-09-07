@@ -232,7 +232,6 @@ write_poll_meta() {
     "pr=$url"
 }
 
-
 run_check_entry() {
   local dir=$1
   shift
@@ -919,8 +918,8 @@ SH
   assert_grep 'branch-refresh-deferred pr=https://github.com/o/r/pull/2 head=0123456789abcdef0123456789abcdef01234567 condition=behind reason=dispatch-pending' \
     "$state/.watch-triage.log" "a same-head condition relabel was not deferred"
 
-  # An acknowledgement that left the head where it was ends this head's turn:
-  # the worker took the instruction without bringing the branch current.
+  # An acknowledgement is not evidence the branch moved: the worker acknowledges
+  # before it starts the re-run, so this head stays quiet either way.
   mv "$state/task-a.inbox/001.msg" "$state/task-a.inbox/handled/"
   ack_watcher_cycle "$state" || fail "branch-currency working-transit acknowledgement failed"
   cat > "$dir/fakebin/fm-crew-state.sh" <<'SH'
@@ -938,10 +937,12 @@ SH
   rc=$?
   set -e
   [ "$rc" -eq 0 ] || fail "working-transit branch-currency watcher failed: $(cat "$dir/dispatch4.err")"
-  assert_grep $'resolved\t0123456789abcdef0123456789abcdef01234567\t001.msg' \
-    "$state/task-a.pr-refresh-state" "handled branch refresh was not recorded as resolved"
-  assert_grep 'branch-refresh-blocked pr=https://github.com/o/r/pull/2 head=0123456789abcdef0123456789abcdef01234567 condition=behind reason=acknowledged-without-refresh' \
-    "$dir/dispatch4.out" "an instruction taken without moving the head was not reported as a blocker"
+  assert_grep $'dispatched\t0123456789abcdef0123456789abcdef01234567\t001.msg' \
+    "$state/task-a.pr-refresh-state" "an acknowledgement at an unmoved head rewrote the dispatch record"
+  assert_no_grep 'branch-refresh-' "$dir/dispatch4.out" \
+    "an acknowledged instruction woke the captain while the worker was still refreshing"
+  assert_grep 'branch-refresh-deferred pr=https://github.com/o/r/pull/2 head=0123456789abcdef0123456789abcdef01234567 condition=behind reason=dispatch-resolved' \
+    "$state/.watch-triage.log" "an acknowledged instruction at an unmoved head was not deferred quietly"
 
   cat > "$dir/fakebin/fm-crew-state.sh" <<'SH'
 #!/usr/bin/env bash
@@ -961,10 +962,8 @@ SH
   [ "$rc" -eq 0 ] || fail "post-working branch-currency watcher failed: $(cat "$dir/dispatch5.err")"
   [ "$(wc -l < "$dir/refresh-send.log" | tr -d ' ')" -eq 1 ] \
     || fail "an unmoved head earned a second refresh instruction"
-  assert_no_grep 'branch-refresh-blocked' "$dir/dispatch5.out" \
-    "an unmoved head repeated its blocker to the captain"
-  assert_grep 'branch-refresh-blocked pr=https://github.com/o/r/pull/2 head=0123456789abcdef0123456789abcdef01234567 condition=behind reason=acknowledged-without-refresh' \
-    "$state/.watch-triage.log" "a repeated unmoved head was not deferred quietly"
+  assert_no_grep 'branch-refresh-' "$dir/dispatch5.out" \
+    "a later poll at the same unmoved head woke the captain"
 
   ack_watcher_cycle "$state" || fail "new-head branch-currency acknowledgement failed"
   add_stop_custom_check "$dir"
@@ -1407,9 +1406,9 @@ SH
   pass "every head the base moves the branch to earns its own refresh instruction"
 }
 
-# A worker that takes the instruction without moving the head is told once and
-# then left alone: repeating the same nudge every poll would not move it either.
-test_branch_currency_acknowledged_without_refresh_blocks_once() {
+# A worker acknowledges the instruction before it starts the re-run, so a head
+# that has already been dispatched for stays quiet whatever its record is doing.
+test_branch_currency_acknowledged_head_stays_quiet() {
   local dir state rc
 
   dir=$(make_case branch-currency-acknowledged-unmoved)
@@ -1441,6 +1440,7 @@ SH
   mv "$state/task-a.inbox/001.msg" "$state/task-a.inbox/handled/" \
     || fail "could not acknowledge the dispatched instruction"
   ack_watcher_cycle "$state" || fail "acknowledged-unmoved dispatch acknowledgement failed"
+  add_stop_custom_check "$dir"
   set +e
   FM_TEST_GH_STATE=OPEN FM_TEST_GH_BEHIND_BY=1 \
     FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
@@ -1449,13 +1449,15 @@ SH
     run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/cap2.out" 2> "$dir/cap2.err"
   rc=$?
   set -e
-  [ "$rc" -eq 0 ] || fail "acknowledged-unmoved blocker watcher failed: $(cat "$dir/cap2.err")"
+  [ "$rc" -eq 0 ] || fail "acknowledged-unmoved quiet watcher failed: $(cat "$dir/cap2.err")"
   [ "$(wc -l < "$dir/refresh-send.log" | tr -d ' ')" -eq 1 ] \
     || fail "an acknowledgement at an unmoved head queued another refresh instruction"
-  assert_grep 'branch-refresh-blocked pr=https://github.com/o/r/pull/11 head=0123456789abcdef0123456789abcdef01234567 condition=behind reason=acknowledged-without-refresh' \
-    "$dir/cap2.out" "an instruction taken without moving the head was not reported as a blocker naming the PR"
+  assert_no_grep 'branch-refresh-' "$dir/cap2.out" \
+    "an acknowledgement at an unmoved head woke the captain"
+  assert_grep 'branch-refresh-deferred pr=https://github.com/o/r/pull/11 head=0123456789abcdef0123456789abcdef01234567 condition=behind reason=dispatch-resolved' \
+    "$state/.watch-triage.log" "an acknowledged instruction was not deferred quietly into triage"
 
-  ack_watcher_cycle "$state" || fail "acknowledged-unmoved blocker acknowledgement failed"
+  ack_watcher_cycle "$state" || fail "acknowledged-unmoved quiet acknowledgement failed"
   add_stop_custom_check "$dir"
   set +e
   FM_TEST_GH_STATE=OPEN FM_TEST_GH_BEHIND_BY=1 \
@@ -1465,14 +1467,88 @@ SH
     run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/cap3.out" 2> "$dir/cap3.err"
   rc=$?
   set -e
-  [ "$rc" -eq 0 ] || fail "quiet acknowledged-unmoved watcher failed: $(cat "$dir/cap3.err")"
+  [ "$rc" -eq 0 ] || fail "repeated acknowledged-unmoved watcher failed: $(cat "$dir/cap3.err")"
   [ "$(wc -l < "$dir/refresh-send.log" | tr -d ' ')" -eq 1 ] \
-    || fail "a stuck head resumed dispatching after it was reported as a blocker"
-  assert_no_grep 'branch-refresh-blocked' "$dir/cap3.out" \
-    "an unmoved head woke the captain with the same blocker a second time"
-  assert_grep 'branch-refresh-blocked pr=https://github.com/o/r/pull/11 head=0123456789abcdef0123456789abcdef01234567 condition=behind reason=acknowledged-without-refresh' \
-    "$state/.watch-triage.log" "a repeated unmoved head was not quietly deferred"
-  pass "an instruction taken without moving the head blocks once and then stays quiet"
+    || fail "a later poll at the same acknowledged head dispatched again"
+  assert_no_grep 'branch-refresh-' "$dir/cap3.out" \
+    "a later poll at the same acknowledged head woke the captain"
+  pass "an already-dispatched head stays quiet whether its instruction is pending or handled"
+}
+
+# The healthy path end to end: the worker acknowledges, rebases, and the PR goes
+# current, which must cost exactly one instruction and never reach the captain.
+test_branch_currency_normal_refresh_never_reaches_the_captain() {
+  local dir state rc
+
+  dir=$(make_case branch-currency-normal-refresh)
+  state="$dir/home/state"
+  write_task_meta "$dir"
+  enable_pr_refresh "$dir"
+  run_check_entry "$dir" task-a https://github.com/o/r/pull/16 >/dev/null \
+    || fail "could not arm normal-refresh branch-currency fixture"
+  cat > "$dir/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'state: done \302\267 source: run-step \302\267 checks green: PR ready for review\n'
+SH
+  fake_idempotent_refresh_send "$dir"
+  chmod +x "$dir/fakebin/fm-crew-state.sh"
+  : > "$dir/refresh-send.log"
+  set +e
+  FM_TEST_GH_STATE=OPEN FM_TEST_GH_BEHIND_BY=1 \
+    FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
+    FM_PR_REFRESH_SEND_BIN="$dir/fakebin/fm-refresh-send.sh" \
+    FM_TEST_REFRESH_SEND_LOG="$dir/refresh-send.log" \
+    run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/normal1.out" 2> "$dir/normal1.err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || fail "normal-refresh dispatch watcher failed: $(cat "$dir/normal1.err")"
+  assert_grep 'branch-refresh-dispatched pr=https://github.com/o/r/pull/16 head=0123456789abcdef0123456789abcdef01234567 condition=behind' \
+    "$dir/normal1.out" "a behind PR did not receive its refresh instruction"
+
+  # The worker acknowledges and starts the re-run, which takes longer than one
+  # poll: the PR is still behind at the same head while the rebase is in flight.
+  mv "$state/task-a.inbox/001.msg" "$state/task-a.inbox/handled/" \
+    || fail "could not acknowledge the refresh instruction"
+  ack_watcher_cycle "$state" || fail "normal-refresh acknowledgement failed"
+  cat > "$dir/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'state: working \302\267 source: run-step \302\267 validating (running)\n'
+SH
+  chmod +x "$dir/fakebin/fm-crew-state.sh"
+  add_stop_custom_check "$dir"
+  set +e
+  FM_TEST_GH_STATE=OPEN FM_TEST_GH_BEHIND_BY=1 \
+    FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
+    FM_PR_REFRESH_SEND_BIN="$dir/fakebin/fm-refresh-send.sh" \
+    FM_TEST_REFRESH_SEND_LOG="$dir/refresh-send.log" \
+    run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/normal2.out" 2> "$dir/normal2.err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || fail "mid-refresh normal watcher failed: $(cat "$dir/normal2.err")"
+  assert_no_grep 'branch-refresh-' "$dir/normal2.out" \
+    "a worker still bringing the branch current was reported to the captain"
+
+  # The rebase lands: the head moved and the PR is no longer behind.
+  ack_watcher_cycle "$state" || fail "post-refresh acknowledgement failed"
+  add_stop_custom_check "$dir"
+  set +e
+  FM_TEST_GH_STATE=OPEN FM_TEST_GH_BEHIND_BY=0 \
+    FM_TEST_GH_HEAD=89abcdef0123456789abcdef0123456789abcdef \
+    FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
+    FM_PR_REFRESH_SEND_BIN="$dir/fakebin/fm-refresh-send.sh" \
+    FM_TEST_REFRESH_SEND_LOG="$dir/refresh-send.log" \
+    run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/normal3.out" 2> "$dir/normal3.err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || fail "current-again normal watcher failed: $(cat "$dir/normal3.err")"
+  assert_no_grep 'branch-refresh-' "$dir/normal3.out" \
+    "a refreshed PR still reported branch currency to the captain"
+  [ "$(wc -l < "$dir/refresh-send.log" | tr -d ' ')" -eq 1 ] \
+    || fail "one ordinary refresh cost more than one instruction"
+  ! grep -h -F 'branch-refresh-blocked' "$dir"/normal1.out "$dir"/normal2.out "$dir"/normal3.out \
+    "$state/.watch-triage.log" >/dev/null \
+    || fail "an ordinary refresh reported a blocker somewhere along the way"
+  pass "an acknowledged and completed refresh costs one instruction and never reaches the captain"
 }
 
 test_atomic_interruption_leaves_no_partial_artifact() {
@@ -2873,7 +2949,8 @@ test_branch_currency_refusal_is_deduplicated
 test_branch_currency_blocked_pr_still_dispatches
 test_branch_currency_dispatches_without_reading_branch_protection
 test_branch_currency_moved_head_dispatches_each_time
-test_branch_currency_acknowledged_without_refresh_blocks_once
+test_branch_currency_acknowledged_head_stays_quiet
+test_branch_currency_normal_refresh_never_reaches_the_captain
 test_branch_currency_opt_out_by_default
 test_parser_matrix
 test_gitlab_merge_watch

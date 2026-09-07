@@ -1409,26 +1409,12 @@ pr_refresh_dispatch() {  # <task-id> <url> <behind|conflict> <head>
   local gen_epoch status_mtime
 
   if [ -f "$marker" ] && pr_refresh_state_read "$marker" && [ "$PR_REFRESH_HEAD" = "$head" ]; then
-    if [ "$PR_REFRESH_STATUS" = resolved ]; then
-      printf 'branch-refresh-blocked pr=%s head=%s condition=%s reason=acknowledged-without-refresh\n' \
-        "$url" "$head" "$condition"
-      return 2
-    fi
     record_state=$(pr_refresh_record_state "$id" "$PR_REFRESH_RECORD")
     case "$record_state" in
-      pending)
-        printf 'branch-refresh-deferred pr=%s head=%s condition=%s reason=dispatch-pending\n' \
-          "$url" "$head" "$condition"
+      pending|resolved)
+        printf 'branch-refresh-deferred pr=%s head=%s condition=%s reason=dispatch-%s\n' \
+          "$url" "$head" "$condition" "$record_state"
         return 2
-        ;;
-      resolved)
-        if ! pr_refresh_state_write "$marker" resolved "$head" "$PR_REFRESH_RECORD"; then
-          pr_refresh_refuse "$id" "$url" "$condition" "$head" state-write-failed
-          return $?
-        fi
-        printf 'branch-refresh-blocked pr=%s head=%s condition=%s reason=acknowledged-without-refresh\n' \
-          "$url" "$head" "$condition"
-        return 1
         ;;
       *)
         pr_refresh_refuse "$id" "$url" "$condition" "$head" dispatch-record-missing
