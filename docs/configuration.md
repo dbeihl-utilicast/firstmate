@@ -204,7 +204,7 @@ The flag is a home-local supervision-noise preference and is not inherited by se
 ## Branch-currency dispatch (config/pr-refresh)
 
 The optional local, gitignored `config/pr-refresh` presence flag opts this home into a default-off control that keeps a task's open pull request current with its base automatically, instead of leaving the captain to press the forge's own "Update branch" by hand.
-With it present, the watcher's registered PR poll reacting to a `behind` or `conflict` head runs the four-state dispatch lifecycle (Observed, Refused, Dispatched, Resolved) that `bin/fm-watch.sh`'s `pr_refresh_dispatch` owns; with it absent, behind/conflict is still detected and logged for triage exactly as before, with no dispatch attempted and no state recorded.
+With it present, the watcher's registered PR poll reacting to a `behind` or `conflict` head runs the four-state dispatch lifecycle (Observed, Refused, Dispatched, Resolved) that `bin/fm-watch.sh`'s `pr_refresh_dispatch` owns; with it absent, behind/conflict is absorbed into the triage log alone, with no dispatch attempted, no state recorded, and no wake, so the captain's cadence is exactly what it was before this control existed.
 The flag answers the class-gate objection that this is new always-on behavior: a home that has not asked for it sees no behavior change at all.
 [`architecture.md`](architecture.md) owns the state machine and its safety properties, and `bin/fm-watch.sh`'s `pr_refresh_dispatch` header owns the exact mechanics.
 

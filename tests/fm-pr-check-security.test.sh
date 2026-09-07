@@ -1220,9 +1220,9 @@ SH
   pass "an unchanged refusal reason wakes once and defers quietly after that"
 }
 
-# config/pr-refresh absent: behind/conflict is still detected and logged, but
-# no dispatch runs, no state is written - a home that has not opted in sees
-# no change from before this control existed.
+# config/pr-refresh absent: behind/conflict is still detected and logged for
+# triage, but no dispatch runs, no state is written, and the captain is never
+# woken - an unopted home keeps the wake cadence it had before this control.
 test_branch_currency_opt_out_by_default() {
   local dir state rc
 
@@ -1236,6 +1236,7 @@ test_branch_currency_opt_out_by_default() {
 printf 'state: done \302\267 source: run-step \302\267 checks green: PR ready for review\n'
 SH
   chmod +x "$dir/fakebin/fm-crew-state.sh"
+  add_stop_custom_check "$dir"
   set +e
   FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BEHIND \
     FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
@@ -1247,9 +1248,79 @@ SH
     "branch-currency dispatch ran without config/pr-refresh present"
   assert_absent "$state/task-a.pr-refresh-state" "an opted-out home recorded dispatch state"
   assert_absent "$state/task-a.pr-refresh-refused" "an opted-out home recorded a refusal"
-  assert_grep 'behind 0123456789abcdef0123456789abcdef01234567' "$dir/optout.out" \
+  assert_no_grep 'behind 0123456789abcdef0123456789abcdef01234567' "$dir/optout.out" \
+    "an opted-out home woke the captain for a behind PR it never asked to act on"
+  assert_grep 'behind 0123456789abcdef0123456789abcdef01234567' "$state/.watch-triage.log" \
     "an opted-out home stopped detecting and logging a behind PR"
-  pass "an opted-out home behaves exactly as it did before this control existed"
+  pass "an opted-out home logs a behind PR for triage without ever waking the captain"
+}
+
+# A worker that keeps acknowledging the instruction without moving the head
+# must not earn a new inbox record and a new wake on every poll forever.
+test_branch_currency_attempts_are_bounded() {
+  local dir state rc
+
+  dir=$(make_case branch-currency-attempt-cap)
+  state="$dir/home/state"
+  write_task_meta "$dir"
+  enable_pr_refresh "$dir"
+  run_check_entry "$dir" task-a https://github.com/o/r/pull/11 >/dev/null \
+    || fail "could not arm attempt-cap branch-currency fixture"
+  cat > "$dir/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'state: done \302\267 source: run-step \302\267 checks green: PR ready for review\n'
+SH
+  fake_idempotent_refresh_send "$dir"
+  chmod +x "$dir/fakebin/fm-crew-state.sh"
+  : > "$dir/refresh-send.log"
+  set +e
+  FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BEHIND FM_PR_REFRESH_ATTEMPT_MAX=1 \
+    FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
+    FM_PR_REFRESH_SEND_BIN="$dir/fakebin/fm-refresh-send.sh" \
+    FM_TEST_REFRESH_SEND_LOG="$dir/refresh-send.log" \
+    run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/cap1.out" 2> "$dir/cap1.err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || fail "attempt-cap dispatch watcher failed: $(cat "$dir/cap1.err")"
+  assert_grep 'branch-refresh-dispatched pr=https://github.com/o/r/pull/11 head=0123456789abcdef0123456789abcdef01234567 condition=behind' \
+    "$dir/cap1.out" "the first bounded attempt did not dispatch"
+
+  # The worker acknowledges the instruction without the head ever moving.
+  mv "$state/task-a.inbox/001.msg" "$state/task-a.inbox/handled/" \
+    || fail "could not acknowledge the first bounded attempt"
+  ack_watcher_cycle "$state" || fail "attempt-cap dispatch acknowledgement failed"
+  set +e
+  FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BEHIND FM_PR_REFRESH_ATTEMPT_MAX=1 \
+    FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
+    FM_PR_REFRESH_SEND_BIN="$dir/fakebin/fm-refresh-send.sh" \
+    FM_TEST_REFRESH_SEND_LOG="$dir/refresh-send.log" \
+    run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/cap2.out" 2> "$dir/cap2.err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || fail "exhausted attempt-cap watcher failed: $(cat "$dir/cap2.err")"
+  [ "$(wc -l < "$dir/refresh-send.log" | tr -d ' ')" -eq 1 ] \
+    || fail "an exhausted attempt ladder queued another refresh instruction"
+  assert_grep 'branch-refresh-refused pr=https://github.com/o/r/pull/11 head=0123456789abcdef0123456789abcdef01234567 condition=behind reason=attempts-exhausted' \
+    "$dir/cap2.out" "an exhausted attempt ladder was not refused and surfaced once"
+
+  ack_watcher_cycle "$state" || fail "exhausted attempt-cap acknowledgement failed"
+  add_stop_custom_check "$dir"
+  set +e
+  FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BEHIND FM_PR_REFRESH_ATTEMPT_MAX=1 \
+    FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
+    FM_PR_REFRESH_SEND_BIN="$dir/fakebin/fm-refresh-send.sh" \
+    FM_TEST_REFRESH_SEND_LOG="$dir/refresh-send.log" \
+    run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/cap3.out" 2> "$dir/cap3.err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || fail "quiet attempt-cap watcher failed: $(cat "$dir/cap3.err")"
+  [ "$(wc -l < "$dir/refresh-send.log" | tr -d ' ')" -eq 1 ] \
+    || fail "a stuck head resumed dispatching after its ladder was exhausted"
+  assert_no_grep 'branch-refresh-refused' "$dir/cap3.out" \
+    "an exhausted attempt ladder woke the captain a second time"
+  assert_grep 'branch-refresh-deferred pr=https://github.com/o/r/pull/11 head=0123456789abcdef0123456789abcdef01234567 condition=behind reason=attempts-exhausted' \
+    "$state/.watch-triage.log" "an exhausted attempt ladder was not quietly deferred"
+  pass "a stuck head's attempt ladder is bounded, surfaces once, then defers quietly"
 }
 
 test_atomic_interruption_leaves_no_partial_artifact() {
@@ -2647,6 +2718,7 @@ test_branch_currency_dispatches_after_ordinary_relaunch
 test_branch_currency_remote_secondmate_refused
 test_branch_currency_restart_before_state_recorded
 test_branch_currency_refusal_is_deduplicated
+test_branch_currency_attempts_are_bounded
 test_branch_currency_opt_out_by_default
 test_parser_matrix
 test_gitlab_merge_watch

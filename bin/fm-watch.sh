@@ -238,6 +238,9 @@ PAUSE_RESURFACE_SECS=${FM_PAUSE_RESURFACE_SECS:-$FM_PAUSE_RESURFACE_SECS_DEFAULT
 # 5c trigger 3: proven-unreliable-at-runtime). A watcher restart re-probes
 # capability, so a transient herdr hiccup self-heals on the next cycle chain.
 EVENT_CAP_FAIL_MAX=${FM_EVENT_CAP_FAIL_MAX:-3}
+# Branch-currency attempts one head may consume before pr_refresh_dispatch
+# stops re-instructing a worker that keeps acknowledging without moving it.
+PR_REFRESH_ATTEMPT_MAX=${FM_PR_REFRESH_ATTEMPT_MAX:-3}
 # Per-process memo for the push-capability probe (fm_backend_events_capable runs
 # a ~220KB `herdr api schema` read, too heavy to repeat every poll). Keyed by
 # "<backend>:<session>"; re-probed only when that key changes.
@@ -1486,6 +1489,10 @@ pr_refresh_dispatch() {  # <task-id> <url> <behind|conflict> <head>
   if [ -f "$marker" ] && pr_refresh_state_read "$marker" \
     && [ "$PR_REFRESH_HEAD" = "$head" ] && [ "$PR_REFRESH_STATUS" = resolved ]; then
     attempt=$((PR_REFRESH_ATTEMPT + 1))
+    if [ "$attempt" -gt "$PR_REFRESH_ATTEMPT_MAX" ]; then
+      pr_refresh_refuse "$id" "$url" "$condition" "$head" attempts-exhausted
+      return $?
+    fi
   else
     attempt=1
   fi
@@ -2022,11 +2029,15 @@ while :; do
           fi
           wake "$reason"
         fi
-        if [ "$is_pr_poll" -eq 1 ] && [ -e "$CONFIG/pr-refresh" ]; then
+        if [ "$is_pr_poll" -eq 1 ]; then
           condition=${out%% *}
-          head=${out#* }
           case "$condition" in
             behind|conflict)
+              head=${out#* }
+              if [ ! -e "$CONFIG/pr-refresh" ]; then
+                triage_log "$reason"
+                continue
+              fi
               dispatch_out=$(pr_refresh_dispatch "$id" "$url" "$condition" "$head")
               dispatch_rc=$?
               if [ "$dispatch_rc" -eq 2 ]; then
