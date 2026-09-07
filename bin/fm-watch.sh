@@ -1384,20 +1384,20 @@ pr_refresh_record_state() {  # <task-id> <record>; prints pending|resolved|missi
   fi
 }
 
-# Deduplicated refusal: an unchanged (head, reason) never wakes twice. Never
+# Deduplicated refusal: one refusal line per head, whichever reason wins on a
+# given poll, so alternating reasons cannot wake twice for the same head. Never
 # touches $id.pr-refresh-state, so a refusal can't erase the dispatch a prior
 # poll already recorded for this head.
 pr_refresh_refuse() {  # <task-id> <url> <condition> <head> <reason>
   local id=$1 url=$2 condition=$3 head=$4 reason=$5
-  local refused="$STATE/$id.pr-refresh-refused" tab prev_head prev_reason extra
-  tab=$(printf '\t')
+  local refused="$STATE/$id.pr-refresh-refused" prev_head extra
   if [ -f "$refused" ] \
-    && IFS="$tab" read -r prev_head prev_reason extra < "$refused" \
-    && [ -z "$extra" ] && [ "$prev_head" = "$head" ] && [ "$prev_reason" = "$reason" ]; then
+    && read -r prev_head extra < "$refused" \
+    && [ -z "$extra" ] && [ "$prev_head" = "$head" ]; then
     printf 'branch-refresh-deferred pr=%s head=%s condition=%s reason=%s\n' "$url" "$head" "$condition" "$reason"
     return 2
   fi
-  printf '%s\t%s\n' "$head" "$reason" > "$refused" 2>/dev/null || true
+  printf '%s\n' "$head" > "$refused" 2>/dev/null || true
   printf 'branch-refresh-refused pr=%s head=%s condition=%s reason=%s\n' "$url" "$head" "$condition" "$reason"
   return 1
 }

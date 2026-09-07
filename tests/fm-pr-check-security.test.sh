@@ -1249,7 +1249,28 @@ SH
     "an unchanged refusal reason woke the captain a second time"
   assert_grep 'branch-refresh-deferred pr=https://github.com/o/r/pull/8 head=0123456789abcdef0123456789abcdef01234567 condition=behind reason=unsupported-mode' \
     "$state/.watch-triage.log" "the deduplicated refusal was not quietly deferred instead"
-  pass "an unchanged refusal reason wakes once and defers quietly after that"
+
+  # A different reason winning at the same head is the same refusal as far as
+  # the captain is concerned: a crew-state read that flaps must not re-wake.
+  ack_watcher_cycle "$state" || fail "changed-reason refusal acknowledgement failed"
+  cat > "$dir/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'state: blocked \302\267 source: run-step \302\267 waiting on the captain\n'
+SH
+  chmod +x "$dir/fakebin/fm-crew-state.sh"
+  add_stop_custom_check "$dir"
+  set +e
+  FM_TEST_GH_STATE=OPEN FM_TEST_GH_BEHIND_BY=1 \
+    FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
+    run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/third.out" 2> "$dir/third.err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || fail "changed-reason refusal watcher failed: $(cat "$dir/third.err")"
+  assert_no_grep 'branch-refresh-refused' "$dir/third.out" \
+    "a different refusal reason at the same head woke the captain a second time"
+  assert_grep 'branch-refresh-deferred pr=https://github.com/o/r/pull/8 head=0123456789abcdef0123456789abcdef01234567 condition=behind reason=task-state-blocked' \
+    "$state/.watch-triage.log" "a changed refusal reason at the same head was not deferred quietly"
+  pass "one refusal per head wakes once, whichever reason wins on a later poll"
 }
 
 # config/pr-refresh absent: behind/conflict is still detected and logged for
