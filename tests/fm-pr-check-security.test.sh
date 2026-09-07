@@ -151,6 +151,11 @@ case "${1:-}:${2:-}" in
     printf '%s\n' "${FM_TEST_GH_BEHIND_BY:-0}"
     exit 0
     ;;
+  api:*/branches/*)
+    [ "${FM_TEST_GH_STRICT_FAIL:-0}" = 0 ] || exit 1
+    printf '%s\n' "${FM_TEST_GH_STRICT:-true}"
+    exit 0
+    ;;
 esac
 case " $* " in
   # The collapsed status field the poll no longer keys behind-ness on, kept so
@@ -735,6 +740,12 @@ test_static_poll_contract() {
   [ -z "$out" ] || fail "static poll emitted branch currency from an invalid head"
   out=$(FM_TEST_GH_STATE=OPEN FM_TEST_GH_BEHIND_BY=0 run_poll "$dir")
   [ -z "$out" ] || fail "static poll called a current branch behind its base"
+  out=$(FM_TEST_GH_STATE=OPEN FM_TEST_GH_BEHIND_BY=3 FM_TEST_GH_STRICT=false run_poll "$dir")
+  [ -z "$out" ] || fail "static poll emitted behind for a base that merges without currency"
+  out=$(FM_TEST_GH_STATE=OPEN FM_TEST_GH_BEHIND_BY=3 FM_TEST_GH_STRICT=null run_poll "$dir")
+  [ -z "$out" ] || fail "static poll emitted behind for an unprotected base"
+  out=$(FM_TEST_GH_STATE=OPEN FM_TEST_GH_BEHIND_BY=3 FM_TEST_GH_STRICT_FAIL=1 run_poll "$dir")
+  [ -z "$out" ] || fail "static poll emitted behind after an unreadable base protection read"
   out=$(FM_TEST_GH_STATE=OPEN FM_TEST_GH_COMPARE_FAIL=1 run_poll "$dir")
   [ -z "$out" ] || fail "static poll emitted behind after an unreadable base comparison"
   out=$(FM_TEST_GH_STATE=OPEN FM_TEST_GH_BEHIND_BY=many run_poll "$dir")
@@ -1301,7 +1312,7 @@ SH
   : > "$dir/refresh-send.log"
   set +e
   FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BLOCKED FM_TEST_GH_MERGEABLE=MERGEABLE \
-    FM_TEST_GH_BEHIND_BY=2 \
+    FM_TEST_GH_BEHIND_BY=2 FM_TEST_GH_STRICT=true \
     FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
     FM_PR_REFRESH_SEND_BIN="$dir/fakebin/fm-refresh-send.sh" \
     FM_TEST_REFRESH_SEND_LOG="$dir/refresh-send.log" \
@@ -1314,6 +1325,43 @@ SH
   [ "$(wc -l < "$dir/refresh-send.log" | tr -d ' ')" -eq 1 ] \
     || fail "a blocked behind PR did not reactivate exactly one owning worker"
   pass "a PR behind its base still dispatches while its own checks keep it blocked"
+}
+
+# Divergence alone is not a reason to move a branch: a base that merges without
+# requiring currency lands the PR as it stands, so ordinary base traffic must
+# not reactivate a finished worker for a rebase nobody needs.
+test_branch_currency_lenient_base_is_not_dispatched() {
+  local dir state rc
+
+  dir=$(make_case branch-currency-lenient-base)
+  state="$dir/home/state"
+  write_task_meta "$dir"
+  enable_pr_refresh "$dir"
+  run_check_entry "$dir" task-a https://github.com/o/r/pull/13 >/dev/null \
+    || fail "could not arm lenient-base branch-currency fixture"
+  cat > "$dir/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'state: done \302\267 source: run-step \302\267 checks green: PR ready for review\n'
+SH
+  fake_idempotent_refresh_send "$dir"
+  chmod +x "$dir/fakebin/fm-crew-state.sh"
+  add_stop_custom_check "$dir"
+  : > "$dir/refresh-send.log"
+  set +e
+  FM_TEST_GH_STATE=OPEN FM_TEST_GH_BEHIND_BY=3 FM_TEST_GH_STRICT=false \
+    FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
+    FM_PR_REFRESH_SEND_BIN="$dir/fakebin/fm-refresh-send.sh" \
+    FM_TEST_REFRESH_SEND_LOG="$dir/refresh-send.log" \
+    run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/lenient.out" 2> "$dir/lenient.err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || fail "lenient-base branch-currency watcher failed: $(cat "$dir/lenient.err")"
+  [ ! -s "$dir/refresh-send.log" ] \
+    || fail "a branch behind a base that does not require currency was rebased anyway"
+  assert_no_grep 'branch-refresh-' "$dir/lenient.out" \
+    "ordinary base traffic woke the captain about a PR that merges as it stands"
+  assert_absent "$state/task-a.pr-refresh-state" "a lenient base recorded dispatch state"
+  pass "a diverged branch whose base merges without currency is left alone"
 }
 
 # A worker that keeps acknowledging the instruction without moving the head
@@ -2780,6 +2828,7 @@ test_branch_currency_remote_secondmate_refused
 test_branch_currency_restart_before_state_recorded
 test_branch_currency_refusal_is_deduplicated
 test_branch_currency_blocked_pr_still_dispatches
+test_branch_currency_lenient_base_is_not_dispatched
 test_branch_currency_attempts_are_bounded
 test_branch_currency_opt_out_by_default
 test_parser_matrix
