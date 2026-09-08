@@ -582,7 +582,7 @@ fm_lock_owner_is_abandoned() {  # <lockdir> <pid>
     ''|*[!0-9]*|0) return 0 ;;
   esac
   fm_pid_alive "$pid" || return 0
-  IFS= read -r recorded < "$lockdir/pid-identity" || return 1
+  IFS= read -r recorded 2>/dev/null < "$lockdir/pid-identity" || return 1
   [ -n "$recorded" ] || return 1
   current=$(fm_pid_identity "$pid" 2>/dev/null) || return 1
   [ "$current" != "$recorded" ]
