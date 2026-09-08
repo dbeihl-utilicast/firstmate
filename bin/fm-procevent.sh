@@ -54,7 +54,7 @@
 #            watcher's own reconcile call does, by design, so an ordinary poll
 #            cycle never wakes on a transient error) would otherwise lose the
 #            failure entirely, so the first such failure is recorded once at
-#            state/../.procevent-state-insecure and cleared automatically the
+#            $FM_HOME/.procevent-state-insecure and cleared automatically the
 #            next time the root is private again; bin/fm-watch.sh surfaces that
 #            marker as a one-shot wake instead of leaving it to rot unseen.
 # handled    Durably and idempotently record that a captured result has been
@@ -210,7 +210,8 @@ insecure_marker_record() {  # <attempted-state>
   [ ! -e "$INSECURE_MARKER" ] || [ -L "$INSECURE_MARKER" ] || return 0
   tmp=$(umask 077; mktemp "$INSECURE_MARKER.XXXXXX" 2>/dev/null) || return 0
   printf 'fm-procevent-state-insecure-v1\ndetected=%s\nstate=%s\n' "$(date +%s)" "$1" > "$tmp" \
-    2>/dev/null && mv -f -- "$tmp" "$INSECURE_MARKER" 2>/dev/null && return 0
+    2>/dev/null && rm -f -- "$INSECURE_MARKER" 2>/dev/null \
+    && mv -f -- "$tmp" "$INSECURE_MARKER" 2>/dev/null && return 0
   rm -f -- "$tmp" 2>/dev/null || true
 }
 

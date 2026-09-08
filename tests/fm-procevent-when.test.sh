@@ -96,19 +96,34 @@ count_lines() { [ -e "$1" ] && grep -c . "$1" || echo 0; }
 # it. An out path of "-" gives the watcher a stdout reader that is already gone,
 # which is how an actionable wake fails to reach firstmate.
 run_watcher() {  # <home> <out|-> <tenths>
-  local home=$1 out=$2 tenths=$3 pid i
+  local home=$1 out=$2 tenths=$3 pid= wrapper i pidfile
+  pidfile="$home/.run-watcher.pid"
+  rm -f -- "$pidfile"
   if [ "$out" = - ]; then
     ( FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" FM_POLL=1 FM_SIGNAL_GRACE=1 \
-      FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$ROOT/bin/fm-watch.sh" 2>/dev/null | true ) &
+        FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$ROOT/bin/fm-watch.sh" 2>/dev/null &
+      echo $! > "$pidfile"
+      wait ) | true &
   else
-    FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" FM_POLL=1 FM_SIGNAL_GRACE=1 \
-      FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$ROOT/bin/fm-watch.sh" > "$out" 2>/dev/null &
+    ( FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" FM_POLL=1 FM_SIGNAL_GRACE=1 \
+        FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$ROOT/bin/fm-watch.sh" > "$out" 2>/dev/null &
+      echo $! > "$pidfile"
+      wait ) &
   fi
-  pid=$!
+  wrapper=$!
+  i=0
+  while [ "$i" -lt 50 ] && [ -z "$pid" ]; do
+    pid=$(cat "$pidfile" 2>/dev/null)
+    [ -n "$pid" ] && break
+    sleep 0.1
+    i=$((i + 1))
+  done
+  [ -n "$pid" ] || fail "run_watcher could not observe the watcher pid"
   i=0
   while [ "$i" -lt "$tenths" ]; do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; i=$((i + 1)); done
   kill "$pid" 2>/dev/null || true
-  wait "$pid" 2>/dev/null || true
+  wait "$wrapper" 2>/dev/null || true
+  rm -f -- "$pidfile"
 }
 
 # --- arm binds the pair and refuses a duplicate ------------------------------
@@ -446,9 +461,12 @@ pe "$H" reconcile >/dev/null 2>&1
 detected_first=$(awk -F= '$1=="detected"{print $2}' "$H/.procevent-state-insecure" 2>/dev/null)
 [ -n "$detected_first" ] || fail "reconcile against an insecure root left no durable record where the caller swallows the failure"
 assert_grep "state=$H/state" "$H/.procevent-state-insecure" "the durable record names the offending state root"
+printf 'sentinel=first-write\n' >> "$H/.procevent-state-insecure"
 pe "$H" reconcile >/dev/null 2>&1
+assert_grep "sentinel=first-write" "$H/.procevent-state-insecure" \
+  "a repeat failure replaced the durable record instead of keeping the first detection"
 detected_second=$(awk -F= '$1=="detected"{print $2}' "$H/.procevent-state-insecure" 2>/dev/null)
-[ "$detected_first" = "$detected_second" ] || fail "a repeat failure rewrote the durable record instead of keeping the first detection"
+[ "$detected_first" = "$detected_second" ] || fail "a repeat failure rewrote the first detection timestamp"
 chmod 700 "$H/state" || fail "could not restore private permissions"
 pe "$H" reconcile >/dev/null 2>&1 || fail "reconcile against a restored private root should succeed"
 assert_absent "$H/.procevent-state-insecure" "the durable record was not cleared once the root is private again"
@@ -479,6 +497,33 @@ chmod 700 "$H/state" || fail "could not restore private permissions"
 pass "the watcher reports a state root that stopped being private once, only once delivered"
 
 # --- neither marker path can be redirected through a planted symlink ----------------
+# A symlink to a DIRECTORY is the sharp case: `mv file link` renames into the
+# target directory and leaves the link intact, so the marker never lands where
+# its readers look and the suppressor can never commit.
+H="$TMP_ROOT/h-marker-symlink-dir"; new_home "$H"
+mkdir -p "$H/record-target-dir"
+ln -s record-target-dir "$H/.procevent-state-insecure"
+chmod 775 "$H/state" || fail "could not relax the state directory to group-writable"
+pe "$H" reconcile >/dev/null 2>&1
+[ -z "$(ls -A "$H/record-target-dir")" ] || fail "the durable record was written into its symlinked directory"
+[ ! -L "$H/.procevent-state-insecure" ] || fail "the durable record stayed a symlink to a directory"
+assert_grep "state=$H/state" "$H/.procevent-state-insecure" \
+  "the record replacing a symlinked directory names the offending state root"
+
+mkdir -p "$H/surfaced-target-dir"
+ln -s surfaced-target-dir "$H/.procevent-state-insecure-surfaced"
+run_watcher "$H" "$TMP_ROOT/watch-symlink-dir.out" 100
+assert_grep "check: procevent-state-insecure" "$TMP_ROOT/watch-symlink-dir.out" \
+  "a symlinked directory at the suppressor path silenced the wake"
+[ -z "$(ls -A "$H/surfaced-target-dir")" ] || fail "the suppressor was written into its symlinked directory"
+[ ! -L "$H/.procevent-state-insecure-surfaced" ] || fail "the suppressor stayed a symlink to a directory"
+run_watcher "$H" "$TMP_ROOT/watch-symlink-dir-again.out" 30
+if grep -Fq "check: procevent-state-insecure" "$TMP_ROOT/watch-symlink-dir-again.out"; then
+  fail "the suppressor never committed, so the watcher woke again every cycle"
+fi
+chmod 700 "$H/state" || fail "could not restore private permissions"
+pass "a symlinked directory at either marker path is replaced, not written into"
+
 H="$TMP_ROOT/h-marker-symlink"; new_home "$H"
 ln -s marker-target "$H/.procevent-state-insecure"
 chmod 775 "$H/state" || fail "could not relax the state directory to group-writable"

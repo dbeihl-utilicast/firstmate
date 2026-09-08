@@ -1317,6 +1317,7 @@ procevent_state_insecure_after_output() {
   local marker="$FM_HOME/.procevent-state-insecure-surfaced" tmp
   [ "$1" -eq 0 ] || return 0
   tmp=$(umask 077; mktemp "$marker.XXXXXX" 2>/dev/null) || return 1
+  rm -f -- "$marker" 2>/dev/null
   mv -f -- "$tmp" "$marker" 2>/dev/null && return 0
   rm -f -- "$tmp" 2>/dev/null || true
   return 1
