@@ -476,6 +476,54 @@ test_lock_acquires_and_stays_closed_without_process_identity() {
   pass "missing process identity still acquires, holds closed on a live owner, reclaims a dead one"
 }
 
+test_bounded_wait_keeps_its_window_without_process_identity() {
+  local dir state noident lockdir ready release holder out started elapsed i
+  dir=$(make_case lock-bounded-no-identity)
+  state="$dir/state"
+  noident="$dir/noident"
+  lockdir="$state/.bounded.lock"
+  ready="$dir/ready"
+  release="$dir/release"
+  mkdir -p "$noident"
+  printf '#!/bin/sh\nexit 1\n' > "$noident/ps"
+  chmod +x "$noident/ps"
+
+  FM_STATE_OVERRIDE="$state" bash -c '
+    . "$1"
+    fm_lock_acquire_wait "$2" || exit 7
+    : > "$3"
+    while [ ! -e "$4" ]; do sleep 0.05; done
+    fm_lock_release "$2"
+  ' _ "$LIB" "$lockdir" "$ready" "$release" &
+  holder=$!
+  i=0
+  while [ "$i" -lt 100 ] && [ ! -e "$ready" ]; do
+    sleep 0.05
+    i=$((i + 1))
+  done
+  [ -e "$ready" ] || fail "bounded-wait holder did not acquire"
+
+  started=$(date +%s)
+  out=$(PATH="$noident:$PATH" FM_PROC_ROOT_OVERRIDE="$dir/absent-proc" \
+    FM_STATE_OVERRIDE="$state" bash -c '
+    . "$1"
+    fm_lock_acquire_wait_bounded "$2" 3
+    printf "rc=%s held=%s\n" "$?" "${FM_LOCK_HELD_PID:-}"
+  ' _ "$LIB" "$lockdir")
+  elapsed=$(( $(date +%s) - started ))
+  case "$out" in
+    "rc=124 held=$holder") ;;
+    *) fail "bounded wait did not report a live holder without process identity: $out" ;;
+  esac
+  [ "$elapsed" -ge 2 ] \
+    || fail "bounded wait gave up after ${elapsed}s instead of waiting out its 3s window"
+  [ "$(cat "$lockdir/pid" 2>/dev/null || true)" = "$holder" ] \
+    || fail "live owner's lock was replaced during an identity-less bounded wait"
+  : > "$release"
+  wait "$holder" || fail "bounded-wait holder failed"
+  pass "bounded wait keeps its window and its advisory without process identity"
+}
+
 test_lock_create_failure_does_not_recurse_through_steal() {
   local dir state lockdir log out attempts
   dir=$(make_case lock-create-failure)
@@ -1336,6 +1384,7 @@ test_lock_reclaims_reused_pid_and_respects_slow_owner
 test_lock_refuses_unverified_owner_record
 test_lock_acquires_and_stays_closed_without_process_identity
 test_lock_create_failure_does_not_recurse_through_steal
+test_bounded_wait_keeps_its_window_without_process_identity
 test_lock_empty_pid_uses_minimum_grace
 test_lock_late_claim_loses_after_recreate
 test_lock_paused_mid_acquire_claim_fails_during_steal

@@ -600,6 +600,8 @@ fm_lock_mid_acquire_is_fresh() {
   return 1
 }
 
+# An unreadable or absent identity means held, never abandoned: a reused pid must
+# not let a dead owner's record become grounds for stealing a live process's lock.
 fm_lock_owner_is_abandoned() {  # <lockdir> <pid>
   local lockdir=$1 pid=$2 recorded current
   case "$pid" in
@@ -1056,7 +1058,7 @@ _fm_lock_acquire_wait_handoff() {  # <lockdir> <caller-pid>
   local lockdir=$1 caller_pid=$2 caller_identity ownerdir current pid_back identity_back
   case "$caller_pid" in ''|*[!0-9]*) return 1 ;; esac
   fm_pid_alive "$caller_pid" || return 1
-  caller_identity=$(fm_lock_pid_identity "$caller_pid") || return 1
+  caller_identity=$(fm_lock_pid_identity "$caller_pid" 2>/dev/null) || caller_identity=
   trap 'fm_lock_release "$lockdir"; exit 143' TERM INT
   fm_lock_acquire_wait "$lockdir" || return 1
   if [ -L "$lockdir" ]; then
