@@ -403,4 +403,17 @@ assert_absent "$ACTION_TAMPER_LOG" "the mutated action was not executed"
 assert_absent "$H/state/when/when-action-tamper.fired" "no fire was claimed for mutated action bytes"
 pass "mutated action bytes are refused before claiming the fire"
 
+# --- a state root that is group-writable is refused ----------------------------------
+H="$TMP_ROOT/h-group-writable"; new_home "$H"
+chmod 775 "$H/state" || fail "could not set group-writable permissions on state directory"
+if when "$H" arm group-writable-test --condition true --action true 2>"$TMP_ROOT/group-writable.err"; then
+  fail "arming against a group-writable state directory must be refused"
+fi
+assert_grep "process-event state root is not a private directory" "$TMP_ROOT/group-writable.err" "the refusal names the private-directory failure"
+assert_absent "$H/state/when/group-writable-test.spec" "no spec file was written"
+assert_absent "$H/state/when/group-writable-test.trust" "no trust file was written"
+assert_absent "$H/state/procevent/group-writable-test.source" "no registry file was written"
+chmod 700 "$H/state"
+pass "a group-writable state root is refused before any files are written"
+
 printf 'all fm-procevent-when tests passed\n'
