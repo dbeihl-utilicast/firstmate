@@ -92,32 +92,6 @@ fm_pid_identity() {
   printf '%s\n' "$out" | sed 's/^[[:space:]]*//'
 }
 
-# Lock ownership survives exec: process birth distinguishes PID reuse without
-# evicting a live holder that has replaced its shell with slow work.
-fm_lock_pid_identity() {
-  local pid=$1 proc_root stat_line starttime out identity_key
-  local -a stat_fields
-  case "$pid" in ''|*[!0-9]*) return 1 ;; esac
-  proc_root=${FM_PROC_ROOT_OVERRIDE:-/proc}
-  if [ -r "$proc_root/$pid/stat" ]; then
-    stat_line=$(cat "$proc_root/$pid/stat" 2>/dev/null) || return 1
-    read -r -a stat_fields <<< "${stat_line##*)}"
-    [ "${#stat_fields[@]}" -ge 20 ] || return 1
-    starttime=${stat_fields[19]}
-    case "$starttime" in ''|*[!0-9]*) return 1 ;; esac
-    identity_key=proc-starttime
-    [ "$_FM_UNAME" != Linux ] || identity_key=linux-starttime
-    printf '%s=%s\n' "$identity_key" "$starttime"
-    return 0
-  fi
-  out=$(LC_ALL=C ps -p "$pid" -o lstart= 2>/dev/null) || return 1
-  [ -n "$out" ] || return 1
-  out="${out#"${out%%[![:space:]]*}"}"
-  out="${out%"${out##*[![:space:]]}"}"
-  [ -n "$out" ] || return 1
-  printf '%s\n' "$out"
-}
-
 fm_path_mtime() {
   if [ "$_FM_UNAME" = Darwin ]; then
     /usr/bin/stat -f %m "$1" 2>/dev/null
@@ -461,7 +435,7 @@ fm_lock_cache_self_identity() {  # <pid>
   if [ "$FM_LOCK_SELF_PID" = "$mypid" ] && [ -n "$FM_LOCK_SELF_IDENTITY" ]; then
     return 0
   fi
-  identity=$(fm_lock_pid_identity "$mypid" 2>/dev/null) || identity=
+  identity=$(fm_pid_identity "$mypid" 2>/dev/null) || identity=
   FM_LOCK_SELF_PID=$mypid
   FM_LOCK_SELF_IDENTITY=$identity
 }
@@ -610,7 +584,7 @@ fm_lock_owner_is_abandoned() {  # <lockdir> <pid>
   fm_pid_alive "$pid" || return 0
   IFS= read -r recorded < "$lockdir/pid-identity" || return 1
   [ -n "$recorded" ] || return 1
-  current=$(fm_lock_pid_identity "$pid" 2>/dev/null) || return 1
+  current=$(fm_pid_identity "$pid" 2>/dev/null) || return 1
   [ "$current" != "$recorded" ]
 }
 
@@ -1058,7 +1032,7 @@ _fm_lock_acquire_wait_handoff() {  # <lockdir> <caller-pid>
   local lockdir=$1 caller_pid=$2 caller_identity ownerdir current pid_back identity_back
   case "$caller_pid" in ''|*[!0-9]*) return 1 ;; esac
   fm_pid_alive "$caller_pid" || return 1
-  caller_identity=$(fm_lock_pid_identity "$caller_pid" 2>/dev/null) || caller_identity=
+  caller_identity=$(fm_pid_identity "$caller_pid" 2>/dev/null) || caller_identity=
   trap 'fm_lock_release "$lockdir"; exit 143' TERM INT
   fm_lock_acquire_wait "$lockdir" || return 1
   if [ -L "$lockdir" ]; then

@@ -551,6 +551,78 @@ test_lock_create_failure_does_not_recurse_through_steal() {
   pass "an owner-dir creation failure returns instead of recursing through steal locks"
 }
 
+test_lock_honours_production_identity_writer_format() {
+  local dir state lockdir ready release holder out other decoy reused newpid i
+  dir=$(make_case lock-production-identity)
+  state="$dir/state"
+  lockdir="$state/.watch.lock"
+  ready="$dir/holder-ready"
+  release="$dir/holder-release"
+
+  FM_STATE_OVERRIDE="$state" bash -c '
+    . "$1"
+    fm_lock_acquire_wait "$2" || exit 7
+    fm_pid_identity "${BASHPID:-$$}" > "$2/pid-identity" || exit 8
+    : > "$3"
+    while [ ! -e "$4" ]; do sleep 0.05; done
+    fm_lock_release "$2"
+  ' _ "$LIB" "$lockdir" "$ready" "$release" &
+  holder=$!
+  i=0
+  while [ "$i" -lt 100 ] && [ ! -e "$ready" ]; do
+    sleep 0.05
+    i=$((i + 1))
+  done
+  [ -e "$ready" ] || fail "production-identity holder did not acquire"
+  [ -s "$lockdir/pid-identity" ] || fail "production-identity holder recorded no identity"
+
+  out=$(FM_LOCK_STALE_AFTER=0 FM_STATE_OVERRIDE="$state" bash -c '
+    . "$1"
+    if fm_lock_try_acquire "$2"; then rc=0; else rc=1; fi
+    printf "rc=%s held=%s pid=%s\n" "$rc" "${FM_LOCK_HELD_PID:-}" \
+      "$(cat "$2/pid" 2>/dev/null || true)"
+  ' _ "$LIB" "$lockdir")
+  is_live_non_zombie "$holder" || fail "live holder died during the identity-match check"
+  case "$out" in
+    "rc=1 held=$holder pid=$holder") ;;
+    *) fail "live owner recorded by the production identity writer was stolen: $out" ;;
+  esac
+  [ ! -e "$state/.watcher-down" ] \
+    || fail "a live watcher lock was recorded as downtime"
+  : > "$release"
+  wait "$holder" || fail "production-identity holder failed"
+
+  lockdir="$state/.reused.lock"
+  sleep 30 &
+  reused=$!
+  sleep 31 &
+  decoy=$!
+  other=$(FM_STATE_OVERRIDE="$state" bash -c '. "$1"; fm_pid_identity "$2"' _ "$LIB" "$decoy") \
+    || fail "could not build a production-format identity for the decoy process"
+  mkdir "$lockdir"
+  printf '%s\n' "$reused" > "$lockdir/pid"
+  printf '%s\n' "$other" > "$lockdir/pid-identity"
+  out=$(FM_STATE_OVERRIDE="$state" bash -c '
+    . "$1"
+    if fm_lock_try_acquire "$2"; then rc=0; else rc=1; fi
+    printf "rc=%s pid=%s\n" "$rc" "$(cat "$2/pid" 2>/dev/null || true)"
+  ' _ "$LIB" "$lockdir")
+  is_live_non_zombie "$reused" || fail "reclaim signalled the unrelated reused-pid process"
+  kill "$reused" "$decoy" 2>/dev/null || true
+  wait "$reused" 2>/dev/null || true
+  wait "$decoy" 2>/dev/null || true
+  case "$out" in
+    "rc=0 pid="*) ;;
+    *) fail "a production-format identity from another process was not reclaimed: $out" ;;
+  esac
+  newpid=${out#rc=0 pid=}
+  case "$newpid" in
+    ''|*[!0-9]*) fail "reclaimed lock recorded no pid: $out" ;;
+  esac
+  [ "$newpid" != "$reused" ] || fail "reused-pid lock kept the stale owner: $out"
+  pass "the production identity writer's format is honoured for live owners and reclaimed for stale ones"
+}
+
 test_lock_refuses_unverified_owner_record() {
   local dir state lockdir ownerdir field out strays
   dir=$(make_case lock-owner-readback)
@@ -1381,6 +1453,7 @@ test_lock_stale_steal_single_winner_under_concurrency
 test_lock_live_steal_mutex_is_not_reclaimed
 test_lock_does_not_steal_live_lock
 test_lock_reclaims_reused_pid_and_respects_slow_owner
+test_lock_honours_production_identity_writer_format
 test_lock_refuses_unverified_owner_record
 test_lock_acquires_and_stays_closed_without_process_identity
 test_lock_create_failure_does_not_recurse_through_steal

@@ -1681,7 +1681,7 @@ SH
   [ "$recorded_pid" = "$waiter_pid" ] && [ "$(cat "$lock/pid" 2>/dev/null || true)" = "$waiter_pid" ] \
     || { kill "$waiter_pid" 2>/dev/null || true; fail "bounded acquire did not hand lock ownership to its caller"; }
   recorded_identity=$(cat "$lock/pid-identity" 2>/dev/null || true)
-  current_identity=$(FM_STATE_OVERRIDE="$state" bash -c '. "$1"; fm_lock_pid_identity "$2"' _ "$ROOT/bin/fm-wake-lib.sh" "$waiter_pid") \
+  current_identity=$(FM_STATE_OVERRIDE="$state" bash -c '. "$1"; fm_pid_identity "$2"' _ "$ROOT/bin/fm-wake-lib.sh" "$waiter_pid") \
     || { kill "$waiter_pid" 2>/dev/null || true; fail "could not identify bounded lock caller"; }
   [ "$recorded_identity" = "$current_identity" ] \
     || { kill "$waiter_pid" 2>/dev/null || true; fail "bounded acquire did not hand pid identity to its caller"; }
