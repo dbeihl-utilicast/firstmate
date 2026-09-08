@@ -981,12 +981,23 @@ fm_procevent_insecure_marker_identity() {  # <marker>
 }
 
 # Retire the record only when it is still the exact file the caller saw before
-# it observed the root private. A record that appeared or was replaced since
-# that snapshot describes a root that stopped being private after the caller
-# looked, so a stale success must leave it standing to be surfaced.
+# it observed the root private. The claiming rename is what makes that safe
+# concurrently: a record written after the claim lands at the freed path and
+# stands, and a newer one the claim caught is put back untouched.
 fm_procevent_insecure_marker_retire() {  # <marker> <identity-snapshot>
-  local marker=$1
-  [ "$(fm_procevent_insecure_marker_identity "$marker")" = "$2" ] || return 0
-  fm_marker_clear "$marker" || true
+  local marker=$1 seen=$2 claim=$1.retiring-$$
+  if fm_marker_settled "$marker"; then
+    rm -f -- "$claim" 2>/dev/null || true
+    mv -- "$marker" "$claim" 2>/dev/null || return 0
+    if [ "$(fm_pr_file_identity "$claim")" != "$seen" ]; then
+      ln -- "$claim" "$marker" 2>/dev/null || true
+      rm -f -- "$claim" 2>/dev/null || true
+      return 0
+    fi
+    rm -f -- "$claim" 2>/dev/null || true
+  else
+    [ "$seen" = absent ] || return 0
+    fm_marker_clear "$marker" || true
+  fi
   fm_marker_clear "$marker-surfaced" || true
 }

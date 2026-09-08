@@ -666,4 +666,34 @@ assert_absent "$M" "the record the run saw before observing a private root was n
 assert_absent "$M-surfaced" "the one-shot suppressor outlived the record it suppressed"
 pass "the record a run saw before a private observation is retired with its suppressor"
 
+# --- a record written while the retire is deciding still stands -------------------
+# The stub stands in for a concurrent failing command that records at exactly the
+# instant the retire inspects the record it claimed; the retire must not erase it.
+H="$TMP_ROOT/h-retire-race-window"; new_home "$H"
+M="$H/.procevent-state-insecure"
+printf 'fm-procevent-state-insecure-v1\ndetected=1\nstate=%s\n' "$H/state" > "$M"
+seen=$(in_lib fm_procevent_insecure_marker_identity "$M")
+FM_HOME="$TMP_ROOT" bash -c '
+  . "$1/bin/fm-pr-lib.sh"
+  . "$1/bin/fm-wake-lib.sh"
+  . "$1/bin/fm-procevent-lib.sh"
+  marker=$2
+  eval "$(declare -f fm_pr_file_identity | sed "1s/^fm_pr_file_identity/fm_pr_file_identity_real/")"
+  fm_pr_file_identity() {
+    local rc out
+    out=$(fm_pr_file_identity_real "$1"); rc=$?
+    if [ ! -e "$marker.raced" ]; then
+      : > "$marker.raced"
+      printf "fm-procevent-state-insecure-v1\ndetected=2\nstate=concurrent\n" > "$marker.newer"
+      mv -f "$marker.newer" "$marker"
+    fi
+    printf "%s\n" "$out"
+    return "$rc"
+  }
+  fm_procevent_insecure_marker_retire "$marker" "$3"
+' _ "$ROOT" "$M" "$seen"
+assert_present "$M" "the record written during the retire's own decision was erased"
+assert_grep "state=concurrent" "$M" "the surviving record is the one written during the decision"
+pass "a record written while a retire decides is not erased by that retire"
+
 printf 'all fm-procevent-when tests passed\n'
