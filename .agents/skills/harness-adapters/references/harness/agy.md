@@ -21,7 +21,8 @@ It is not a primary or secondmate runtime because it has no verified Firstmate t
 ## Trust persistence
 
 Accepting the prompt persisted workspace trust in `~/.gemini/antigravity-cli/settings.json` under `trustedWorkspaces`.
-The resulting file contained `/Users/davidsair` and `/Users/davidsair/.treehouse/firstmate-8bf1b0/5/firstmate`, so the worktree is an explicit entry rather than an adapter-maintained blanket policy.
+The resulting file contained `/Users/davidsair` and `/Users/davidsair/.treehouse/firstmate-8bf1b0/5/firstmate`.
+This post-accept snapshot does not establish which entry was newly written or whether every worktree appends an entry, so do not treat it as blanket-trust evidence.
 No `enableTerminalSandbox` or `toolPermission=proceed-in-sandbox` field was written during the verification.
 Treat each new worktree as potentially requiring its own prompt and record a newly observed settings shape before broadening this behavior.
 
