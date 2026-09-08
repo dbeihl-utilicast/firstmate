@@ -51,6 +51,131 @@ expect_creation_refusal() {
   [ ! -e "$lock" ] && [ ! -L "$lock" ] || fail "failed acquisition published a lock"
 }
 
+test_reclaim_gap_is_retryable() {
+  local dir gap
+  . "$BIN/fm-timeout-lib.sh"
+  for gap in primary steal; do
+    dir=$(make_case "reclaim-gap-$gap")
+    if ! fm_run_timed 10 env FM_STATE_OVERRIDE="$dir/state" bash -c '
+      set -eu
+      . "$1"
+      dir=$2
+      lock=$FM_WAKE_QUEUE_LOCK
+      gap_lock=$lock
+      held=
+      waiter=
+      cleanup() {
+        if [ -n "$waiter" ]; then
+          kill "$waiter" 2>/dev/null || true
+          wait "$waiter" 2>/dev/null || true
+        fi
+        fm_lock_release "$gap_lock.steal"
+      }
+      trap cleanup EXIT
+      if [ "$3" = steal ]; then
+        bash -c : &
+        held=$!
+        wait "$held"
+        mkdir "$lock"
+        printf "%s\n" "$held" > "$lock/pid"
+        gap_lock="$lock.steal"
+      fi
+      fm_lock_try_acquire "$gap_lock.steal"
+      result=$(bash -c '\''
+        . "$1"
+        if fm_lock_try_acquire "$2"; then rc=0; else rc=$?; fi
+        printf "rc=%s held=%s\n" "$rc" "$FM_LOCK_HELD_PID"
+      '\'' _ "$1" "$lock")
+      [ "$result" = "rc=1 held=$held" ]
+      [ ! -e "$gap_lock" ] && [ ! -L "$gap_lock" ]
+      bash -c '\''
+        . "$1"
+        blocked=$2
+        sleep() { : > "$blocked"; command sleep "$@"; }
+        fm_wake_append signal task "signal: task"
+      '\'' _ "$1" "$dir/blocked" &
+      waiter=$!
+      polls=0
+      while [ ! -e "$dir/blocked" ] && [ "$polls" -lt 100 ]; do
+        sleep 0.02
+        polls=$((polls + 1))
+      done
+      [ -e "$dir/blocked" ]
+      kill -0 "$waiter"
+      [ ! -e "$FM_WAKE_QUEUE" ]
+      fm_lock_release "$gap_lock.steal"
+      wait "$waiter"
+      waiter=
+      [ "$(cat "$STATE/.wake-queue.seq")" = 1 ]
+      awk -F "\t" '\''NF == 5 && $2 == 1 && $3 == "signal" && $4 == "task" { found++ } END { exit (NR != 1 || found != 1) }'\'' "$FM_WAKE_QUEUE"
+      [ ! -e "$lock" ] && [ ! -L "$lock" ]
+    ' _ "$LIB" "$dir" "$gap" > "$dir/out" 2> "$dir/err"; then
+      fail "$gap reclaim gap did not retain contention and retry: $(cat "$dir/err")"
+    fi
+    [ ! -s "$dir/err" ] || fail "$gap reclaim gap emitted a creation-failure diagnostic: $(cat "$dir/err")"
+    pass "$gap reclaim gap remains retryable and wake append waits for the stealer"
+  done
+}
+
+test_reclaim_publication_race_is_contention() {
+  local dir owner
+  for owner in self dead; do
+    dir=$(make_case "reclaim-publication-$owner")
+    if ! FM_STATE_OVERRIDE="$dir/state" bash -c '
+      set -eu
+      . "$1"
+      lock="$STATE/.publication.lock"
+      if [ "$2" = self ]; then
+        fm_lock_try_acquire "$lock"
+      else
+        bash -c : &
+        dead=$!
+        wait "$dead"
+        mkdir "$lock"
+        printf "%s\n" "$dead" > "$lock/pid"
+      fi
+      ln() {
+        [ "${3:-}" != "$lock" ] || return 1
+        command ln "$@"
+      }
+      if fm_lock_try_acquire "$lock"; then rc=0; else rc=$?; fi
+      [ "$rc" -eq 1 ] && [ -z "$FM_LOCK_HELD_PID" ]
+      [ ! -e "$lock" ] && [ ! -L "$lock" ]
+      unset -f ln
+      fm_lock_acquire_wait "$lock"
+      fm_current_pid current
+      [ "$(cat "$lock/pid")" = "$current" ]
+      fm_lock_release "$lock"
+    ' _ "$LIB" "$owner" > "$dir/out" 2> "$dir/err"; then
+      fail "$owner-owner reclaim publication race was not retryable: $(cat "$dir/err")"
+    fi
+    [ ! -s "$dir/err" ] || fail "$owner-owner publication race emitted a creation-failure diagnostic"
+    pass "$owner-owner reclaim publication race retains contention and later acquires"
+  done
+}
+
+test_abandoned_reclaim_gap_recovers() {
+  local dir holder
+  dir=$(make_case abandoned-reclaim-gap)
+  FM_STATE_OVERRIDE="$dir/state" bash -c '
+    . "$1"
+    fm_lock_try_acquire "$FM_WAKE_QUEUE_LOCK.steal"
+  ' _ "$LIB" &
+  holder=$!
+  wait "$holder" || fail "could not plant an exited steal owner"
+  [ "$(cat "$dir/state/.wake-queue.lock.steal/pid")" = "$holder" ] \
+    || fail "exited stealer did not leave its ownership record"
+  if ! fm_run_timed 5 env FM_STATE_OVERRIDE="$dir/state" bash -c '
+    . "$1"
+    fm_wake_append signal task "signal: task"
+  ' _ "$LIB" > "$dir/out" 2> "$dir/err"; then
+    fail "wake append failed to reclaim an abandoned transition: $(cat "$dir/err")"
+  fi
+  [ "$(cat "$dir/state/.wake-queue.seq")" = 1 ] || fail "abandoned transition did not admit the queued wake"
+  [ ! -s "$dir/err" ] || fail "abandoned reclaim gap emitted a creation-failure diagnostic"
+  pass "a stealer that exits in the publication gap is reclaimed"
+}
+
 test_queue_declines_unlocked_append_and_ack() {
   local dir state token allowed
   dir=$(failure_case append)
@@ -201,6 +326,9 @@ test_interrupted_handoff_keeps_live_caller_held() {
   done
 }
 
+test_reclaim_gap_is_retryable
+test_reclaim_publication_race_is_contention
+test_abandoned_reclaim_gap_recovers
 test_queue_declines_unlocked_append_and_ack
 test_grant_declines_unlocked_release
 test_metadata_and_lease_guards_refuse_mutation

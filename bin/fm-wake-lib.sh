@@ -526,14 +526,14 @@ fm_lock_claim() {
 fm_lock_try_create() {
   local lockdir=$1 allowed_steal_owner=${2:-} ownerdir
   FM_LOCK_OWNER_DIR=
-  ownerdir=$(fm_lock_owner_dir "$lockdir") || return 1
+  ownerdir=$(fm_lock_owner_dir "$lockdir") || return 2
   if [ -e "$lockdir" ] || [ -L "$lockdir" ]; then
     fm_lock_discard_owner "$ownerdir"
     return 1
   fi
   if ! fm_lock_prepare_owner "$ownerdir"; then
     fm_lock_discard_owner "$ownerdir"
-    return 1
+    return 2
   fi
   if ln -s "$ownerdir" "$lockdir" 2>/dev/null && fm_lock_points_to_owner "$lockdir" "$ownerdir"; then
     if fm_lock_claim "$lockdir" "$ownerdir" "$allowed_steal_owner"; then
@@ -926,13 +926,17 @@ fm_lock_try_acquire() {
   if [ ! -e "$lockdir" ] && [ ! -L "$lockdir" ]; then
     if fm_lock_try_create "$lockdir"; then
       return 0
+    else
+      rc=$?
     fi
-    if [ ! -e "$lockdir" ] && [ ! -L "$lockdir" ]; then
+    if [ "$rc" -eq 2 ]; then
       printf 'lock: cannot establish owner record for %s\n' "$lockdir" >&2
       return 2
     fi
-    FM_LOCK_HELD_PID=$(cat "$lockdir/pid" 2>/dev/null || true)
-    return 1
+    if [ ! -e "$lockdir.steal" ] && [ ! -L "$lockdir.steal" ]; then
+      FM_LOCK_HELD_PID=$(cat "$lockdir/pid" 2>/dev/null || true)
+      return 1
+    fi
   fi
 
   fm_current_pid current || return 1
@@ -950,8 +954,10 @@ fm_lock_try_acquire() {
     fm_lock_remove_path "$lockdir" || true
     if fm_lock_try_create "$lockdir"; then
       return 0
+    else
+      rc=$?
     fi
-    if [ ! -e "$lockdir" ] && [ ! -L "$lockdir" ]; then
+    if [ "$rc" -eq 2 ]; then
       printf 'lock: cannot establish owner record for %s\n' "$lockdir" >&2
       return 2
     fi
@@ -972,7 +978,10 @@ fm_lock_try_acquire() {
     steal_owner=${FM_LOCK_OWNER_DIR:-}
   else
     rc=$?
-    FM_LOCK_HELD_PID=$(cat "$lockdir/pid" 2>/dev/null || true)
+    FM_LOCK_HELD_PID=
+    if [ "$rc" -eq 1 ]; then
+      FM_LOCK_HELD_PID=$(cat "$lockdir/pid" 2>/dev/null || true)
+    fi
     FM_LOCK_OWNER_DIR=
     return "$rc"
   fi
@@ -1017,19 +1026,21 @@ fm_lock_try_acquire() {
     return 1
   fi
   fm_lock_remove_path "$lockdir" || true
-  rc=1
   if fm_lock_try_create "$lockdir" "$steal_owner"; then
     rc=0
     # shellcheck disable=SC2034 # Read by sourcing callers after lock acquisition.
     FM_LOCK_RECOVERED_PID=$cur
+  else
+    rc=$?
   fi
   if [ "$rc" -ne 0 ]; then
-    if [ ! -e "$lockdir" ] && [ ! -L "$lockdir" ]; then
+    FM_LOCK_HELD_PID=
+    if [ "$rc" -eq 2 ]; then
       printf 'lock: cannot establish owner record for %s\n' "$lockdir" >&2
-      rc=2
+    else
+      FM_LOCK_HELD_PID=$(cat "$lockdir/pid" 2>/dev/null || true)
     fi
     # shellcheck disable=SC2034 # Read by callers after fm_lock_try_acquire returns.
-    FM_LOCK_HELD_PID=$(cat "$lockdir/pid" 2>/dev/null || true)
     FM_LOCK_OWNER_DIR=
   fi
   fm_lock_release "$steal"
