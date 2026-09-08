@@ -1,0 +1,35 @@
+=== CLI transcript: arm refuses a non-private process-event state root (#3929) ===
+firstmate @ fe7fe9b
+
+--- case 1: state root is group-writable (0775) ---
+
+$ stat -f %Sp %N $HOME/loose/state
+drwxrwxr-x $HOME/loose/state
+[exit 0]
+
+$ FM_HOME=$HOME/loose bin/fm-procevent-when.sh arm nightly-batch --condition true --action true
+error: process-event state root is not a private directory
+[exit 1]
+
+$ ls -R $HOME/loose/state
+(no when/ or procevent/ registry directory: nothing was written)
+
+--- case 2: same command, private state root (0700) ---
+
+$ stat -f %Sp %N $HOME/tight/state
+drwx------ $HOME/tight/state
+[exit 0]
+
+$ FM_HOME=$HOME/tight bin/fm-procevent-when.sh arm nightly-batch --condition true --action true
+armed: when-nightly-batch
+starts on the watcher's next cycle; or run: bin/fm-procevent.sh reconcile
+reminder: deterministic, safe, reversible actions only; judgment and destructive actions stay on the wake-and-decide path
+[exit 0]
+
+$ ls $HOME/tight/state/when $HOME/tight/state/procevent
+$HOME/tight/state/procevent:
+when-nightly-batch.source
+
+$HOME/tight/state/when:
+when-nightly-batch.spec
+when-nightly-batch.trust
