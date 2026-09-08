@@ -1,0 +1,74 @@
+Issue 3966 - stale lock reclaim, end to end on this machine (2026-09-08 18:25 EDT, darwin 25.5.0, no /proc)
+
+############ BEFORE the fix - base b84e0e3
+
+--- 1. Supervision start behind a stale lock whose pid got reused (issue 3966) ---
+    the watcher that owned this lock (pid 95831) was killed; its pid slot is now
+    occupied by an unrelated live process, pid 99747
+$ bin/fm-watch.sh
+    /var/folders/j5/kgdthy6n37j7dgv0r7qr3qd80000gn/T//fm3966-7qahl3/s1.out:watcher: already running pid 99747
+    RESULT: watcher refused to start; the stale lock still reads as held -> NOTHING IS SUPERVISING
+
+--- 2. A waiter blocking on that same stale lock ---
+    owner pid 211 is gone; its number is now held by unrelated live pid 3013
+$ fm_lock_acquire_wait_bounded state/.presentation.lock 5      # 5 second deadline
+    exit=124 after 5s        (0 = acquired, 124 = deadline expired)
+    RESULT: waiter waited out its whole window and FAILED on a lock nobody holds
+
+--- 3. A LIVE but slow owner must still be respected ---
+    live owner pid 9181 is busy inside its critical section, not releasing
+$ FM_LOCK_STALE_AFTER=0 fm_lock_try_acquire state/.slow.lock   # most aggressive reclaim setting
+    exit=1 held-by=9181
+    RESULT: slow live owner KEPT its lock (lock pid still 9181)
+
+--- 4. A LIVE owner that exec()s must still be respected ---
+    live owner pid 9485 has exec'd 'sleep 60': same pid, same start time, new argv
+$ FM_LOCK_STALE_AFTER=0 fm_lock_try_acquire state/.exec.lock
+    exit=1 held-by=9485
+    RESULT: exec'ing live owner KEPT its lock (lock pid still 9485)
+
+--- 5. Eight processes reclaim the SAME stale lock simultaneously ---
+    RESULT: 0 of 8 simultaneous reclaimers acquired the lock
+
+--- 6. Control: an owner killed with no pid reuse ---
+    owner pid 41448 was SIGKILLed; nothing has taken its pid number
+$ fm_lock_try_acquire state/.plain.lock
+    exit=0  RESULT: reclaimed
+
+
+############ AFTER the fix - HEAD 6ac892f
+
+--- 1. Supervision start behind a stale lock whose pid got reused (issue 3966) ---
+    the watcher that owned this lock (pid 42014) was killed; its pid slot is now
+    occupied by an unrelated live process, pid 44599
+$ bin/fm-watch.sh
+    /var/folders/j5/kgdthy6n37j7dgv0r7qr3qd80000gn/T//fm3966-SSkwb0/s1.out:check: rearm-resurface
+    RESULT: watcher RECLAIMED the stale lock and is supervising (lock pid now 44600)
+
+--- 2. A waiter blocking on that same stale lock ---
+    owner pid 45779 is gone; its number is now held by unrelated live pid 48918
+$ fm_lock_acquire_wait_bounded state/.presentation.lock 5      # 5 second deadline
+    exit=0 after 0s        (0 = acquired, 124 = deadline expired)
+    RESULT: waiter RECLAIMED the stale lock
+
+--- 3. A LIVE but slow owner must still be respected ---
+    live owner pid 49398 is busy inside its critical section, not releasing
+$ FM_LOCK_STALE_AFTER=0 fm_lock_try_acquire state/.slow.lock   # most aggressive reclaim setting
+    exit=1 held-by=49398
+    RESULT: slow live owner KEPT its lock (lock pid still 49398)
+
+--- 4. A LIVE owner that exec()s must still be respected ---
+    live owner pid 49769 has exec'd 'sleep 60': same pid, same start time, new argv
+$ FM_LOCK_STALE_AFTER=0 fm_lock_try_acquire state/.exec.lock
+    exit=1 held-by=49769
+    RESULT: exec'ing live owner KEPT its lock (lock pid still 49769)
+
+--- 5. Eight processes reclaim the SAME stale lock simultaneously ---
+    winner: pid 52592
+    RESULT: 1 of 8 simultaneous reclaimers acquired the lock
+
+--- 6. Control: an owner killed with no pid reuse ---
+    owner pid 95764 was SIGKILLed; nothing has taken its pid number
+$ fm_lock_try_acquire state/.plain.lock
+    exit=0  RESULT: reclaimed
+

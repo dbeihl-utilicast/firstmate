@@ -1,0 +1,16 @@
+Negative controls: each new regression test run against the library it was written
+against, to show it can return red. The test file is HEAD's; only bin/ is swapped.
+
+=== 1. Reused-pid reclaim, HEAD test vs BASE library (b84e0e3) ===
+$ cd <base tree> && bash tests/fm-watcher-lock.test.sh   # test_lock_reclaims_reused_pid_and_respects_slow_owner
+    not ok - reused-pid lock waited instead of reclaiming: rc=124 held=8555
+
+=== 1b. Same test against HEAD library (6ac892f) ===
+    ok - reused-pid stale lock reclaims while an identity-matched slow owner holds
+
+=== 2. Live exec-ing holder, HEAD test vs the PREVIOUS commit library (4a32ff1) ===
+$ cd <4a32ff1 tree> && bash tests/fm-watcher-lock.test.sh   # test_live_holder_that_execs_keeps_its_lock
+    not ok - a live holder lost its lock after exec replaced its command line: rc=0 held=
+
+=== 2b. Same test against HEAD library (6ac892f) ===
+    ok - a live holder that execs keeps its lock

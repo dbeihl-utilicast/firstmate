@@ -1,0 +1,15 @@
+Regression: a live lock holder that exec()s loses its lock to the next acquirer.
+
+tests/fm-wake-queue.test.sh::test_live_presentation_holder_is_deadlined_without_weakening_ack
+  base b84e0e3 : ok  (whole file passes, 109519 ms)
+  branch HEAD  : not ok - queue deadline did not emit exactly one holder advisory
+                 (tests/fm-wake-queue.test.sh:1742, reproduced on 2 of 2 runs)
+  Its fixture holds the queue lock and then 'exec sleep 30' (line 1721), modelling a
+  live-but-stuck holder. At HEAD the drain reclaims that lock instead of deadlining.
+
+$ ./live-holder-exec-steal.sh
+    holder pid 95309 acquired .probe.lock; lock records pid=95309; holder is alive: yes
+    identity recorded at acquire : Tue Sep  8 16:53:12 2026     bash -c \012  . "$1"\012  fm_lock_acquire_wait "$STATE/.probe.lock" || exit 7\012  printf ready > "$2"\012  exec sleep 30\012 _ /Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M20Z1MYB2PMK55PN53DN8XGH/bin/fm-wake-lib.sh /var/folders/j5/kgdthy6n37j7dgv0r7qr3qd80000gn/T//exec-steal.Jwj44h/ready
+    identity now, after its exec : Tue Sep  8 16:53:12 2026     sleep 30
+    second acquirer  : RECLAIMED the live holder's lock, new owner pid=95439
+    original holder 95309 still running inside its critical section: yes - two owners now

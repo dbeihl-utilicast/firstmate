@@ -1,0 +1,76 @@
+### Scenario 1 - the reported bug.
+### The lock owner is long gone; its pid number is now occupied by an
+### unrelated live process. One wake is queued and waiting to be shown.
+
+-------------------------------------------------------------------------
+library: base b84e0e362face25f3dd8945297a3df1320d7668c
+planted .wake-queue.lock -> pid 98146 (live, unrelated), recorded identity identity-of-the-process-that-died
+kill -0 98146 says: alive - a pid alone cannot tell you the owner died
+queued wake rows: 1
+$ FM_STATE_OVERRIDE=<state> fm-wake-drain.sh        # base b84e0e362face25f3dd8945297a3df1320d7668c
+    WAKE DRAIN SKIPPED: queue lock remains held by live pid 98146 after 6s; retry on the next drain.
+    [exit 0, waited 7s]
+lock afterwards: still held, pid=98146
+unrelated pid 98146 afterwards: still alive, never signalled
+-------------------------------------------------------------------------
+library: branch HEAD
+planted .wake-queue.lock -> pid 2158 (live, unrelated), recorded identity identity-of-the-process-that-died
+kill -0 2158 says: alive - a pid alone cannot tell you the owner died
+queued wake rows: 1
+$ FM_STATE_OVERRIDE=<state> fm-wake-drain.sh        # branch HEAD
+    1788900558	1	signal	captain-check	signal: captain wants the fleet status
+    (stderr) WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 1 --recovery-generation 2075.1788900558.qrutBE
+    [exit 0, waited 0s]
+lock afterwards: reclaimed, used, and released
+unrelated pid 2158 afterwards: still alive, never signalled
+-------------------------------------------------------------------------
+
+### Scenario 2 - a slow but LIVE owner, same drain, same timeout.
+### This lock must NOT be reclaimed. Two writers would be worse than the bug.
+
+-------------------------------------------------------------------------
+library: base b84e0e362face25f3dd8945297a3df1320d7668c
+live holder pid 3588 is inside the critical section, busy, not dead
+$ FM_STATE_OVERRIDE=<state> fm-wake-drain.sh        # base b84e0e362face25f3dd8945297a3df1320d7668c
+    WAKE DRAIN SKIPPED: queue lock remains held by live pid 3588 after 6s; retry on the next drain.
+    [exit 0, waited 6s]
+lock owner afterwards: pid=3588   (the holder is pid 3588)
+holder finished its section and released: yes
+-------------------------------------------------------------------------
+library: branch HEAD
+live holder pid 8315 is inside the critical section, busy, not dead
+$ FM_STATE_OVERRIDE=<state> fm-wake-drain.sh        # branch HEAD
+    WAKE DRAIN SKIPPED: queue lock remains held by live pid 8315 after 6s; retry on the next drain.
+    [exit 0, waited 7s]
+lock owner afterwards: pid=8315   (the holder is pid 8315)
+holder finished its section and released: yes
+-------------------------------------------------------------------------
+
+### Scenario 3 - two waiters arrive at once.
+### 8 real wake appends launched together against one reused-pid stale lock
+### (branch HEAD). Exactly one may reclaim; no row may be lost or doubled.
+
+-------------------------------------------------------------------------
+planted .wake-queue.lock -> pid 13966 (live, unrelated); launching 8 appenders
+    writer 1 exit 0
+    writer 2 exit 0
+    writer 3 exit 0
+    writer 4 exit 0
+    writer 5 exit 0
+    writer 6 exit 0
+    writer 7 exit 0
+    writer 8 exit 0
+resulting queue, 8 rows:
+    1788900572	1	signal	writer-4	signal: concurrent writer 4
+    1788900572	2	signal	writer-6	signal: concurrent writer 6
+    1788900572	3	signal	writer-7	signal: concurrent writer 7
+    1788900572	4	signal	writer-8	signal: concurrent writer 8
+    1788900572	5	signal	writer-5	signal: concurrent writer 5
+    1788900572	6	signal	writer-1	signal: concurrent writer 1
+    1788900572	7	signal	writer-3	signal: concurrent writer 3
+    1788900572	8	signal	writer-2	signal: concurrent writer 2
+distinct sequence numbers: 8 (8 means no writer overwrote another)
+lock afterwards: released by its last owner
+unrelated pid 13966 afterwards: still alive, never signalled
+-------------------------------------------------------------------------
+stale-lock-reclaim-demo.sh: line 15: 13966 Terminated: 15          sleep 120
