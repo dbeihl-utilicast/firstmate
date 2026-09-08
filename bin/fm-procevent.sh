@@ -54,9 +54,12 @@
 #            watcher's own reconcile call does, by design, so an ordinary poll
 #            cycle never wakes on a transient error) would otherwise lose the
 #            failure entirely, so the first such failure is recorded once at
-#            $FM_HOME/.procevent-state-insecure and cleared automatically the
-#            next time the root is private again; bin/fm-watch.sh surfaces that
-#            marker as a one-shot wake instead of leaving it to rot unseen.
+#            $FM_HOME/.procevent-state-insecure and retired automatically the
+#            next time the root is private again - but only the exact record
+#            this run saw before it observed the root, so a slower success
+#            cannot erase a newer failure a concurrent command just recorded.
+#            bin/fm-watch.sh surfaces that marker as a one-shot wake instead of
+#            leaving it to rot unseen.
 # handled    Durably and idempotently record that a captured result has been
 #            fully handled: <source-id> <sequence>. Prints "handled: id seq"
 #            the first time for that exact source-and-sequence generation and
@@ -217,9 +220,9 @@ insecure_marker_record() {  # <attempted-state>
 
 if [ -e "$STATE" ] || [ -L "$STATE" ]; then
   ATTEMPTED_STATE=$STATE
+  INSECURE_SEEN=$(fm_procevent_insecure_marker_identity "$INSECURE_MARKER")
   if state_root_bind; then
-    fm_marker_clear "$INSECURE_MARKER" || true
-    fm_marker_clear "$INSECURE_MARKER-surfaced" || true
+    fm_procevent_insecure_marker_retire "$INSECURE_MARKER" "$INSECURE_SEEN"
   else
     insecure_marker_record "$ATTEMPTED_STATE"
     die "process-event state root is not a private directory"

@@ -631,4 +631,39 @@ if grep -Fq "check: procevent-state-insecure" "$TMP_ROOT/watch-dir-noalarm.out";
 fi
 pass "a directory at the record path cannot claim a private state root stopped being private"
 
+# --- a stale success never erases a record a concurrent command just wrote --------
+# The retire path runs after its own successful observation of the root, so a
+# record that appeared or was replaced since that observation describes a root
+# that stopped being private afterwards. Retiring on the record's identity
+# rather than its mere presence is what keeps that newer record standing.
+in_lib() {  # <argv...>
+  FM_HOME="$TMP_ROOT" bash -c '
+    . "$1/bin/fm-pr-lib.sh"
+    . "$1/bin/fm-wake-lib.sh"
+    . "$1/bin/fm-procevent-lib.sh"
+    fn=$2; shift 2; "$fn" "$@"
+  ' _ "$ROOT" "$@"
+}
+
+H="$TMP_ROOT/h-retire-race"; new_home "$H"
+M="$H/.procevent-state-insecure"
+printf 'fm-procevent-state-insecure-v1\ndetected=1\nstate=%s\n' "$H/state" > "$M"
+printf 'fm-procevent-state-insecure-surfaced-v1\n' > "$M-surfaced"
+seen=$(in_lib fm_procevent_insecure_marker_identity "$M")
+[ "$seen" != absent ] || fail "the snapshot did not identify the record it saw"
+printf 'fm-procevent-state-insecure-v1\ndetected=2\nstate=%s\n' "$H/state" > "$M.newer"
+mv -f "$M.newer" "$M"
+in_lib fm_procevent_insecure_marker_retire "$M" "$seen"
+assert_present "$M" "a record written after the observation was erased by a stale success"
+assert_grep "detected=2" "$M" "the surviving record is the newer detection"
+assert_present "$M-surfaced" "the suppressor was retired against a record the run never saw"
+pass "a stale success leaves a newer insecure-root record standing"
+
+# --- the record a run did see is still retired once the root is private again -----
+seen=$(in_lib fm_procevent_insecure_marker_identity "$M")
+in_lib fm_procevent_insecure_marker_retire "$M" "$seen"
+assert_absent "$M" "the record the run saw before observing a private root was not retired"
+assert_absent "$M-surfaced" "the one-shot suppressor outlived the record it suppressed"
+pass "the record a run saw before a private observation is retired with its suppressor"
+
 printf 'all fm-procevent-when tests passed\n'
