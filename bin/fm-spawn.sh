@@ -122,7 +122,7 @@
 #   profile consultation. A --secondmate spawn is exempt and resolves the SECONDMATE
 #   harness (config/secondmate-harness -> config/crew-harness -> own), so the
 #   secondmate-vs-crewmate split is DURABLE across every respawn (recovery,
-#   /updatefirstmate, restart). A bare adapter name (claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp)
+#   /updatefirstmate, restart). A bare adapter name (claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|agy|omp)
 #   overrides it for this spawn (either kind). A non-flag string containing
 #   whitespace is treated as a RAW launch command - the escape hatch for verifying
 #   new adapters. For pi and pi-signed, fm-spawn resolves the selected executable
@@ -273,6 +273,9 @@
 # only after a TUI readiness gate, then a delivery-confirmation gate - the same
 # launch-then-send shape as kimi. Its busy state is a screen-scrape fallback like
 # grok. rovo is crewmate/scout only and is refused for --secondmate, like muse.
+# agy likewise installs no semantic hook, but its tmux footer transitions
+# independently prove busy and idle. It is tmux crewmate/scout only and never
+# gains primary capability from that rendered fallback.
 # cursor installs no per-task hook either: it writes state/<id>.cursor-session to
 # bind the pane to cursor's own conversation transcript (projects root, the exact
 # workspace path cursor records in .workspace-trusted, and the conversations that
@@ -1317,7 +1320,7 @@ if [ "$RELAUNCH" -eq 1 ]; then
   }
 elif [ "$KIND" = secondmate ]; then
   case "${POS[1]:-}" in
-    ''|claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp)
+    ''|claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|agy|omp)
       ARG3=${POS[1]:-}
       ;;
     *' '*)
@@ -1521,6 +1524,10 @@ launch_template() {
     # Its turn-end and busy-state signals do NOT ride the launch command:
     # they are project hooks written into the worktree below.
     gemini) printf '%s' 'env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS GEMINI_CLI_TRUST_WORKSPACE=true GEMINI_CLI_SYSTEM_SETTINGS_PATH=__GEMINISETTINGS__ gemini -y __MODELFLAG__"$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
+    # Antigravity starts an interactive turn through --prompt-interactive.
+    # Its approved permission bypass is per worker invocation, never a user-wide setting.
+    # A fresh worktree trust dialog is handled only after its exact text appears below.
+    agy) printf '%s' 'env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS -u GEMINI_CLI agy --dangerously-skip-permissions --mode accept-edits __MODELFLAG____EFFORTFLAG__--prompt-interactive="$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
     # Kimi Code rejects a positional prompt, so it launches bare and receives
     # only an absolute brief pointer after the TUI readiness gate below.
     # Its turn-end signal is a globally configured Stop hook plus a guarded
@@ -1616,7 +1623,7 @@ case "$ARG3" in
     ;;
 esac
 
-# muse and gemini are verified as CREWMATE/SCOUT adapters only. A secondmate is
+# muse, gemini, and agy are verified as CREWMATE/SCOUT adapters only. A secondmate is
 # a firstmate instance, so it needs a primary supervision protocol.
 # gemini has none: docs/supervision-protocols/ carries no gemini wake protocol
 # and this task verified only crewmate-side launch, busy state, interrupt, and
@@ -1626,7 +1633,7 @@ esac
 # asyncRewake handlers that firstmate's primary turn-end supervision is built on
 # (muse 0.1.0-R708.1). Refusing here keeps that gap loud instead of standing up a
 # secondmate whose supervision cycle could never be armed.
-if [ "$KIND" = secondmate ] && { [ "$HARNESS" = muse ] || [ "$HARNESS" = gemini ]; }; then
+if [ "$KIND" = secondmate ] && { [ "$HARNESS" = muse ] || [ "$HARNESS" = gemini ] || [ "$HARNESS" = agy ]; }; then
   echo "error: $HARNESS is a verified crewmate/scout adapter only and cannot run a secondmate; it has no primary supervision protocol. Select a harness verified for secondmates." >&2
   exit 1
 fi
@@ -1637,6 +1644,14 @@ fi
 # standing one up with no way to arm its watch cycle.
 if [ "$KIND" = secondmate ] && [ "$HARNESS" = rovo ]; then
   echo "error: rovo is a verified crewmate/scout adapter only and cannot run a secondmate; it has no primary supervision protocol. Select a harness verified for secondmates." >&2
+  exit 1
+fi
+
+# agy's verified composer and liveness evidence is tmux-specific. Refuse every
+# other session provider until its cursor, steering, and recovery lifecycle is
+# proved there, rather than accepting a worker the fleet cannot fully steer.
+if [ "$HARNESS" = agy ] && [ "$BACKEND" != tmux ]; then
+  echo "error: agy is verified only for tmux crewmate/scout work; select --backend tmux or a harness verified for $BACKEND." >&2
   exit 1
 fi
 
@@ -1818,7 +1833,7 @@ model_flag_for_harness() {
   local harness=$1 model=$2
   [ -n "$model" ] && [ "$model" != default ] || return 0
   case "$harness" in
-    claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp)
+    claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|agy|omp)
       printf -- '--model %s ' "$(shell_quote "$model")"
       ;;
   esac
@@ -1876,6 +1891,13 @@ effort_flag_for_harness() {
       case "$effort" in
         low|medium|high|xhigh) printf -- '--reasoning-effort %s ' "$(shell_quote "$effort")" ;;
         max) printf -- '--reasoning-effort %s ' "$(shell_quote ultra)" ;;
+      esac
+      ;;
+    agy)
+      # agy 1.1.27 accepts only low|medium|high through --effort.
+      # xhigh/max remain recorded in task metadata but never reach the CLI.
+      case "$effort" in
+        low|medium|high) printf -- '--effort %s ' "$(shell_quote "$effort")" ;;
       esac
       ;;
     # rovo has no --effort flag on `run`; its effort mapping rides
@@ -2989,7 +3011,7 @@ rovo_wait_for_delivery() {
 rovo_spawn_fail() {  # <detail>
   printf 'failed: %s\n' "$1" >> "$STATE/$ID.status"
   echo "error: $1; inspect window $T" >&2
-  rovo_endpoint_cleanup
+  spawn_endpoint_cleanup
 }
 
 # No task record is ever published on this failure path, so nothing else
@@ -2998,11 +3020,42 @@ rovo_spawn_fail() {  # <detail>
 # orphaned autonomous agent outside task control. Mirrors fm-teardown.sh's own
 # generic non-orca kill call; orca's worktree+terminal are owned by the
 # separate ORCA_ABORT_CLEANUP trap path and are out of scope here.
-rovo_endpoint_cleanup() {
+spawn_endpoint_cleanup() {
   [ "$BACKEND" = orca ] && return 0
   local tab_id=
   [ "$BACKEND" = zellij ] && tab_id=$ZELLIJ_TAB_ID
   fm_backend_kill "$BACKEND" "$T" "$tab_id" "fm-$ID" 2>/dev/null || true
+}
+
+# agy takes the brief at launch but may stop at its workspace trust prompt.
+# Send one Enter only after BOTH exact dialog strings appear; then require its busy footer.
+agy_capture() {
+  fm_backend_capture "$BACKEND" "$T" 120 "$W" 2>/dev/null || true
+}
+
+agy_wait_for_delivery() {
+  local pane i=0 accepted=0 max=${FM_AGY_READY_POLLS:-60} interval=${FM_AGY_POLL_INTERVAL:-0.5}
+  while [ "$i" -lt "$max" ]; do
+    pane=$(agy_capture)
+    if printf '%s\n' "$pane" | fm_busy_agy_tail_busy; then
+      return 0
+    fi
+    if [ "$accepted" -eq 0 ] \
+       && printf '%s\n' "$pane" | grep -Fq 'Do you trust the contents of this project?' \
+       && printf '%s\n' "$pane" | grep -Fq 'Yes, I trust this folder'; then
+      spawn_send_key "$T" Enter || return 1
+      accepted=1
+    fi
+    i=$((i + 1))
+    [ "$i" -ge "$max" ] || sleep "$interval"
+  done
+  return 1
+}
+
+agy_spawn_fail() {  # <detail>
+  printf 'failed: %s\n' "$1" >> "$STATE/$ID.status"
+  echo "error: $1; inspect window $T" >&2
+  spawn_endpoint_cleanup
 }
 
 if [ "$RELAUNCH" -eq 1 ]; then
@@ -3152,9 +3205,9 @@ if [ "$KIND" != secondmate ]; then
   # adapter with a verified semantic source. The launch brief sent below IS a
   # submitted turn, so the seed record is busy/fm-spawn. The minted gen is
   # embedded into each adapter's wiring so an event from a superseded
-  # incarnation is rejected as stale. Grok and rovo stay on their isolated
+  # incarnation is rejected as stale. Grok, rovo, and agy stay on their isolated
   # rendered-tail fallbacks and standalone Kimi stays unknown until
-  # fm_busy_kimi_verified opens, so none of the three is armed here. Gemini IS
+  # fm_busy_kimi_verified opens, so none of the four is armed here. Gemini IS
   # armed: its BeforeAgent / AfterAgent / SessionEnd hooks are a verified
   # open-close pair.
   BUSY_GEN=
@@ -3745,7 +3798,7 @@ case "$HARNESS" in
 esac
 LAUNCH=${LAUNCH//__WORKTREE__/$sq_worktree}
 case "$HARNESS" in
-  claude|codex|opencode|pi|pi-signed|grok|kimi|gemini|muse|rovo)
+  claude|codex|opencode|pi|pi-signed|grok|kimi|gemini|muse|rovo|agy)
     LAUNCH="env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI $LAUNCH"
     ;;
 esac
@@ -3914,6 +3967,12 @@ if [ "$HARNESS" = rovo ]; then
   fi
   if ! rovo_wait_for_delivery; then
     rovo_spawn_fail "rovo brief pointer delivery was not confirmed in window $T"
+    exit 1
+  fi
+fi
+if [ "$HARNESS" = agy ]; then
+  if ! agy_wait_for_delivery; then
+    agy_spawn_fail "agy did not accept the launch brief after its verified trust-and-busy gate in window $T"
     exit 1
   fi
 fi

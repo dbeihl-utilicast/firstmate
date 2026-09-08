@@ -42,7 +42,7 @@
 #   fm-interrupt     the legacy Claude fm-send --key Escape idle event
 #   fm-recovery      a documented recovery reset after relaunch
 # Classifier-only sources (never written into a record):
-#   endpoint-gone, herdr-native, grok-regex, rovo-regex, muse-session-log,
+#   endpoint-gone, herdr-native, grok-regex, rovo-regex, agy-regex, muse-session-log,
 #   cursor-transcript, missing, malformed, gen-mismatch, source-mismatch,
 #   kimi-unverified, codex-unverified, capture-failed, no-target
 #
@@ -53,15 +53,13 @@
 #   3. a valid, gen-matching, source-trusted record -> its state and source
 #   4. no record at all: herdr's native busy verdict is trusted as busy
 #      (generation state is sufficient for busy, not for idle), then the
-#      muse session-log and cursor transcript pull sources, then the Grok/Rovo
-#      temporary regex fallbacks classify a grok or rovo task from its
+#      muse session-log and cursor transcript pull sources, then the Grok/Rovo/agy
+#      temporary regex fallbacks classify those tasks from their
 #      rendered tail, then unknown missing
 #   5. malformed, stale, or untrusted records -> unknown, never a fallback
-# Grok and Rovo are the ONLY rendered-text classifications that survive the
-# redesign, because neither's structured lifecycle was credited-live-verified
-# in the approved audit (Rovo's clean ACP stopReason lives outside the TUI
-# path firstmate drives, see references/harness/rovo.md); each is scoped to
-# its own harness= and can never classify another adapter. The delivery
+# Grok, Rovo, and agy are the ONLY rendered-text classifications because no
+# structured lifecycle source was credited-live-verified for their driven path.
+# Each is scoped to its own harness= and can never classify another adapter. The delivery
 # guards in bin/fm-composer-lib.sh match rendered footers for submit
 # acknowledgement and away-mode supervisor injection only; neither is a
 # recorded worker state source.
@@ -851,6 +849,13 @@ fm_busy_rovo_tail_busy() {
     | grep -qiE "${FM_BUSY_ROVO_REGEX:-Rovo is thinking}"
 }
 
+# fm_busy_agy_tail_busy: agy renders `esc to cancel` only while a turn is in flight.
+# The bottom-anchored tail prevents stale scrollback from keeping a completed worker busy.
+fm_busy_agy_tail_busy() {
+  grep -v '^[[:space:]]*$' | tail -12 \
+    | grep -qiE "${FM_BUSY_AGY_REGEX:-^[[:space:]]*esc to cancel([[:space:]]|$)}"
+}
+
 # fm_busy_classify: semantic classification for a task whose endpoint the
 # caller has already established as present. Prints "<verdict> <source>":
 # busy|idle|unknown plus the producing source (see header). Never probes
@@ -976,6 +981,25 @@ fm_busy_classify() {  # <backend> <target> <harness> <id> <state-dir> [tail40]
         printf 'busy rovo-regex'
       else
         printf 'unknown rovo-regex'
+      fi
+      return 0
+      ;;
+    agy)
+      if [ -z "$tail40" ]; then
+        if command -v fm_backend_capture >/dev/null 2>&1; then
+          tail40=$(fm_backend_capture "$backend" "$target" 40 2>/dev/null) || {
+            printf 'unknown capture-failed'
+            return 0
+          }
+        else
+          printf 'unknown capture-failed'
+          return 0
+        fi
+      fi
+      if printf '%s' "$tail40" | fm_busy_agy_tail_busy; then
+        printf 'busy agy-regex'
+      else
+        printf 'idle agy-regex'
       fi
       return 0
       ;;

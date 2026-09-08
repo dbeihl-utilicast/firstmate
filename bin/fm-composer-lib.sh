@@ -343,6 +343,7 @@ FM_DELIVERY_GROK_BUSY_REGEX_DEFAULT='Ctrl\+c:cancel'
 # bin/fm-busy-lib.sh, never from this row.
 FM_DELIVERY_CURSOR_BUSY_REGEX_DEFAULT='ctrl\+c to stop'
 FM_DELIVERY_KIMI_BUSY_REGEX_DEFAULT='^[[:space:]]*(🌑|🌒|🌓|🌔|🌕|🌖|🌗|🌘)[[:space:]]+·[[:space:]]+'
+FM_DELIVERY_AGY_BUSY_REGEX_DEFAULT='^[[:space:]]*esc to cancel([[:space:]]|$)'
 
 fm_busy_lines_match() {  # [harness]
   local harness=${1:-} lines regex
@@ -359,6 +360,7 @@ fm_busy_lines_match() {  # [harness]
       grok) regex=$FM_DELIVERY_GROK_BUSY_REGEX_DEFAULT ;;
       kimi) regex=$FM_DELIVERY_KIMI_BUSY_REGEX_DEFAULT ;;
       cursor) regex=$FM_DELIVERY_CURSOR_BUSY_REGEX_DEFAULT ;;
+      agy) regex=$FM_DELIVERY_AGY_BUSY_REGEX_DEFAULT ;;
       '') regex=$FM_DELIVERY_BUSY_REGEX_DEFAULT ;;
       *)
         # A supplied harness must never borrow another harness's signature.
@@ -1229,6 +1231,30 @@ EOF
   printf '%s\n' "$joined" | LC_ALL=C awk '{$1=$1; printf "%s", $0}'
 }
 
+# fm_composer_classify_agy_divider_pair: Antigravity CLI's input is a bare `>`
+# enclosed between two full-width divider rows. A shell prompt has neither pair,
+# so this is the positive container proof that the normal bare-shell rule needs.
+# It needs tmux's cursor row and is intentionally unavailable cursor-less.
+fm_composer_classify_agy_divider_pair() {  # <plain-screen> <cursor-row>
+  local screen=$1 row=$2 before current after content
+  case "$row" in ''|*[!0-9]*) return 1 ;; esac
+  [ "$row" -gt 0 ] || return 1
+  before=$(_fm_composer_screen_row "$((row - 1))" "$screen")
+  current=$(_fm_composer_screen_row "$row" "$screen")
+  after=$(_fm_composer_screen_row "$((row + 1))" "$screen")
+  fm_composer_normalize_trim_var before
+  fm_composer_normalize_trim_var current
+  fm_composer_normalize_trim_var after
+  case "$before" in ''|*[!─]*) return 1 ;; esac
+  case "$after" in ''|*[!─]*) return 1 ;; esac
+  case "$current" in
+    '>'*) content=${current#>} ;;
+    *) return 1 ;;
+  esac
+  fm_composer_normalize_trim_var content
+  [ -z "$content" ] && printf 'empty' || printf 'pending'
+}
+
 fm_composer_classify_screen() {  # <caps> <screen> [cursor_row] [identity]
   local caps=$1 screen=$2 cy=${3:-} identity=${4:-}
   local styled=0 cursor=0 has_identity=0 kv plain
@@ -1246,6 +1272,10 @@ EOF
     case "$cy" in *[!0-9]*) printf 'unknown'; return 0 ;; esac
   fi
   plain=$(printf '%s\n' "$screen" | fm_composer_strip_ansi)
+  if [ -n "$cy" ] && verdict=$(fm_composer_classify_agy_divider_pair "$plain" "$cy"); then
+    printf '%s' "$verdict"
+    return 0
+  fi
   _fm_composer_scan_screen "$plain" "$cy"
   if [ -n "$cy" ]; then
     # Cursor mode (tmux): the shape CONTAINING the cursor is the composer.
