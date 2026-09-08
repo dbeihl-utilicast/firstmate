@@ -412,6 +412,57 @@ test_lock_reclaims_reused_pid_and_respects_slow_owner() {
   pass "reused-pid stale lock reclaims while an identity-matched slow owner holds"
 }
 
+test_lock_refuses_unverified_owner_record() {
+  local dir state lockdir ownerdir field out strays
+  dir=$(make_case lock-owner-readback)
+  state="$dir/state"
+  for field in pid pid-identity; do
+    lockdir="$state/.acquire-$field.lock"
+    out=$(FM_STATE_OVERRIDE="$state" FM_TEST_LOST_FIELD="$field" bash -c '
+      . "$1"
+      FM_TEST_LOCK_BASE=$(basename "$2")
+      mktemp() {
+        local made
+        made=$(command mktemp "$@") || return 1
+        case "$made" in
+          */"$FM_TEST_LOCK_BASE".owner.*)
+            ln -s /dev/null "$made/$FM_TEST_LOST_FIELD" 2>/dev/null || return 1 ;;
+        esac
+        printf "%s\n" "$made"
+      }
+      if fm_lock_try_acquire "$2"; then rc=0; else rc=1; fi
+      printf "rc=%s pid=%s identity=%s\n" "$rc" \
+        "$(cat "$2/pid" 2>/dev/null || true)" \
+        "$(cat "$2/pid-identity" 2>/dev/null || true)"
+    ' _ "$LIB" "$lockdir")
+    case "$out" in
+      "rc=1 pid= identity=") ;;
+      *) fail "lock was published with an unverified $field record: $out" ;;
+    esac
+    [ ! -e "$lockdir" ] && [ ! -L "$lockdir" ] \
+      || fail "unverified $field record left a published lock behind"
+    strays=$(find "$state" -maxdepth 1 -name '*.owner.*' 2>/dev/null | wc -l)
+    [ "$strays" -eq 0 ] || fail "unverified $field record left owner dirs behind"
+  done
+
+  lockdir="$state/.claim.lock"
+  ownerdir="$state/.claim.lock.owner.planted"
+  mkdir "$ownerdir"
+  ln -s /dev/null "$ownerdir/pid-identity"
+  ln -s "$ownerdir" "$lockdir"
+  out=$(FM_STATE_OVERRIDE="$state" bash -c '
+    . "$1"
+    if fm_lock_claim "$2" "$3"; then rc=0; else rc=1; fi
+    printf "rc=%s owner=%s\n" "$rc" "$([ -d "$3" ] && printf yes || printf no)"
+  ' _ "$LIB" "$lockdir" "$ownerdir")
+  case "$out" in
+    "rc=1 owner=no") ;;
+    *) fail "claim accepted an owner record it could not read back: $out" ;;
+  esac
+  rm -f "$lockdir"
+  pass "acquisition refuses to publish an owner record that did not land"
+}
+
 test_lock_empty_pid_uses_minimum_grace() {
   local dir state lockdir out
   dir=$(make_case lock-empty-grace)
@@ -1191,6 +1242,7 @@ test_lock_stale_steal_single_winner_under_concurrency
 test_lock_live_steal_mutex_is_not_reclaimed
 test_lock_does_not_steal_live_lock
 test_lock_reclaims_reused_pid_and_respects_slow_owner
+test_lock_refuses_unverified_owner_record
 test_lock_empty_pid_uses_minimum_grace
 test_lock_late_claim_loses_after_recreate
 test_lock_paused_mid_acquire_claim_fails_during_steal

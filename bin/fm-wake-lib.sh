@@ -456,22 +456,33 @@ fm_lock_owner_dir() {
   mktemp -d "${lock_abs}.owner.XXXXXX" 2>/dev/null
 }
 
-fm_lock_prepare_owner() {
-  local ownerdir=$1 mypid identity
-  fm_current_pid mypid || return 1
+fm_lock_cache_self_identity() {  # <pid>
+  local mypid=$1 identity
   if [ "$FM_LOCK_SELF_PID" = "$mypid" ] && [ -n "$FM_LOCK_SELF_IDENTITY" ]; then
-    identity=$FM_LOCK_SELF_IDENTITY
-  else
-    identity=$(fm_lock_pid_identity "$mypid") || return 1
-    FM_LOCK_SELF_PID=$mypid
-    FM_LOCK_SELF_IDENTITY=$identity
+    return 0
   fi
+  identity=$(fm_lock_pid_identity "$mypid") || return 1
+  FM_LOCK_SELF_PID=$mypid
+  FM_LOCK_SELF_IDENTITY=$identity
+}
+
+fm_lock_write_owner_record() {  # <ownerdir> <pid> <identity>
+  local ownerdir=$1 pid=$2 identity=$3
   if ! {
-    printf '%s\n' "$mypid" > "$ownerdir/pid"
+    printf '%s\n' "$pid" > "$ownerdir/pid"
     printf '%s\n' "$identity" > "$ownerdir/pid-identity"
   } 2>/dev/null; then
     return 1
   fi
+  [ "$(cat "$ownerdir/pid" 2>/dev/null || true)" = "$pid" ] || return 1
+  [ "$(cat "$ownerdir/pid-identity" 2>/dev/null || true)" = "$identity" ] || return 1
+}
+
+fm_lock_prepare_owner() {
+  local ownerdir=$1 mypid
+  fm_current_pid mypid || return 1
+  fm_lock_cache_self_identity "$mypid" || return 1
+  fm_lock_write_owner_record "$ownerdir" "$mypid" "$FM_LOCK_SELF_IDENTITY"
 }
 
 fm_lock_link_owner() {
@@ -516,7 +527,13 @@ fm_lock_claim_blocked_by_steal() {
 }
 
 fm_lock_claim() {
-  local lockdir=$1 ownerdir=$2 allowed_steal_owner=${3:-}
+  local lockdir=$1 ownerdir=$2 allowed_steal_owner=${3:-} mypid
+  fm_current_pid mypid || return 1
+  if ! fm_lock_cache_self_identity "$mypid" \
+    || ! fm_lock_write_owner_record "$ownerdir" "$mypid" "$FM_LOCK_SELF_IDENTITY"; then
+    fm_lock_discard_owner "$ownerdir"
+    return 1
+  fi
   if ! fm_lock_points_to_owner "$lockdir" "$ownerdir"; then
     fm_lock_discard_owner "$ownerdir"
     return 1
