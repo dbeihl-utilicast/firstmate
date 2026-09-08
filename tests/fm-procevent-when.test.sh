@@ -410,9 +410,9 @@ if when "$H" arm group-writable-test --condition true --action true 2>"$TMP_ROOT
   fail "arming against a group-writable state directory must be refused"
 fi
 assert_grep "process-event state root is not a private directory" "$TMP_ROOT/group-writable.err" "the refusal names the private-directory failure"
-assert_absent "$H/state/when/group-writable-test.spec" "no spec file was written"
-assert_absent "$H/state/when/group-writable-test.trust" "no trust file was written"
-assert_absent "$H/state/procevent/group-writable-test.source" "no registry file was written"
+assert_absent "$H/state/when/when-group-writable-test.spec" "no spec file was written"
+assert_absent "$H/state/when/when-group-writable-test.trust" "no trust file was written"
+assert_absent "$H/state/procevent/when-group-writable-test.source" "no registry file was written"
 chmod 700 "$H/state"
 pass "a group-writable state root is refused before any files are written"
 
