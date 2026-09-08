@@ -238,14 +238,17 @@ test_lock_steals_dead_pid_lock() {
 }
 
 test_lock_stale_steal_single_winner_under_concurrency() {
-  local dir state lockdir dead marker i pids pid wins
+  local dir state lockdir reused_pid holder marker i pids pid wins
   dir=$(make_case lock-stale-concurrency)
   state="$dir/state"
   lockdir="$state/.contend.lock"
   marker="$dir/wins"
-  dead=$(dead_pid)
+  sleep 30 &
+  holder=$!
+  reused_pid=$holder
   mkdir "$lockdir"
-  printf '%s\n' "$dead" > "$lockdir/pid"
+  printf '%s\n' "$reused_pid" > "$lockdir/pid"
+  printf '%s\n' 'dead-owner-identity' > "$lockdir/pid-identity"
   : > "$marker"
   pids=
   i=1
@@ -263,9 +266,11 @@ test_lock_stale_steal_single_winner_under_concurrency() {
   for pid in $pids; do
     wait "$pid" 2>/dev/null || true
   done
+  kill "$holder" 2>/dev/null || true
+  wait "$holder" 2>/dev/null || true
   wins=$(awk 'NF { c++ } END { print c + 0 }' "$marker")
   [ "$wins" -eq 1 ] || fail "expected exactly one stale-lock stealer, got $wins"
-  pass "concurrent stale-lock steal yields exactly one winner"
+  pass "concurrent reused-pid stale-lock reclaim yields exactly one winner"
 }
 
 test_lock_live_steal_mutex_is_not_reclaimed() {
@@ -335,6 +340,76 @@ test_lock_does_not_steal_live_lock() {
   lockpid=$(cat "$lockdir/pid" 2>/dev/null || true)
   [ "$lockpid" = "$live" ] || fail "live holder's lock pid was clobbered (got '$lockpid')"
   pass "live-held lock is not stolen"
+}
+
+test_lock_reclaims_reused_pid_and_respects_slow_owner() {
+  local dir state lockdir owner reused_pid unrelated out identity newpid ready release holder held recorded i
+  dir=$(make_case lock-reused-pid)
+  state="$dir/state"
+  lockdir="$state/.contend.lock"
+  owner="$state/.contend.lock.owner.dead"
+  sleep 30 &
+  unrelated=$!
+  reused_pid=$unrelated
+  mkdir "$owner"
+  printf '%s\n' "$reused_pid" > "$owner/pid"
+  printf '%s\n' 'dead-owner-identity' > "$owner/pid-identity"
+  ln -s "$owner" "$lockdir"
+  out=$(FM_STATE_OVERRIDE="$state" bash -c '
+    . "$1"
+    if fm_lock_acquire_wait_bounded "$2" 1; then
+      printf "rc=0 pid=%s identity=%s\\n" "$(cat "$2/pid")" "$(cat "$2/pid-identity")"
+      fm_lock_release "$2"
+    else
+      printf "rc=%s held=%s\\n" "$?" "${FM_LOCK_HELD_PID:-}"
+    fi
+  ' _ "$LIB" "$lockdir")
+  is_live_non_zombie "$unrelated" || fail "reclaim signalled the unrelated reused-pid process"
+  kill "$unrelated" 2>/dev/null || true
+  wait "$unrelated" 2>/dev/null || true
+  case "$out" in rc=0\ pid=*) ;; *) fail "reused-pid lock waited instead of reclaiming: $out" ;; esac
+  newpid=${out#rc=0 pid=}
+  newpid=${newpid%% *}
+  case "$newpid" in ''|*[!0-9]*) fail "reused-pid lock was not reclaimed: $out" ;; esac
+  identity=${out#* identity=}
+  [ -n "$identity" ] || fail "reclaimed lock did not record pid identity"
+
+  lockdir="$state/.slow.lock"
+  ready="$dir/slow-ready"
+  release="$dir/slow-release"
+  FM_STATE_OVERRIDE="$state" bash -c '
+    . "$1"
+    fm_lock_acquire_wait "$2" || exit 7
+    : > "$3"
+    while [ ! -e "$4" ]; do sleep 0.05; done
+    fm_lock_release "$2"
+  ' _ "$LIB" "$lockdir" "$ready" "$release" &
+  holder=$!
+  i=0
+  while [ "$i" -lt 50 ] && [ ! -e "$ready" ]; do
+    sleep 0.05
+    i=$((i + 1))
+  done
+  [ -e "$ready" ] || fail "slow live lock holder did not acquire"
+  held=$(cat "$lockdir/pid" 2>/dev/null || true)
+  recorded=$(cat "$lockdir/pid-identity" 2>/dev/null || true)
+  [ "$held" = "$holder" ] || fail "slow holder pid was not recorded"
+  [ -n "$recorded" ] || fail "slow holder identity was not recorded"
+  out=$(FM_STATE_OVERRIDE="$state" bash -c '
+    . "$1"
+    fm_lock_acquire_wait_bounded "$2" 1
+    rc=$?
+    printf "rc=%s held=%s\\n" "$rc" "${FM_LOCK_HELD_PID:-}"
+  ' _ "$LIB" "$lockdir")
+  case "$out" in
+    "rc=124 held=$holder") ;;
+    *) fail "slow live owner was not respected: $out" ;;
+  esac
+  [ "$(cat "$lockdir/pid" 2>/dev/null || true)" = "$holder" ] \
+    || fail "slow live owner lock was replaced"
+  : > "$release"
+  wait "$holder" || fail "slow live lock holder failed"
+  pass "reused-pid stale lock reclaims while an identity-matched slow owner holds"
 }
 
 test_lock_empty_pid_uses_minimum_grace() {
@@ -1115,6 +1190,7 @@ test_lock_steals_dead_pid_lock
 test_lock_stale_steal_single_winner_under_concurrency
 test_lock_live_steal_mutex_is_not_reclaimed
 test_lock_does_not_steal_live_lock
+test_lock_reclaims_reused_pid_and_respects_slow_owner
 test_lock_empty_pid_uses_minimum_grace
 test_lock_late_claim_loses_after_recreate
 test_lock_paused_mid_acquire_claim_fails_during_steal

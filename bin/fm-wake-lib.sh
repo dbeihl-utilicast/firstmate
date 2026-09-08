@@ -9,6 +9,8 @@ STATE="${FM_STATE_OVERRIDE:-${STATE:-$FM_HOME/state}}"
 FM_WAKE_QUEUE="${FM_WAKE_QUEUE:-$STATE/.wake-queue}"
 FM_WAKE_QUEUE_LOCK="${FM_WAKE_QUEUE_LOCK:-$STATE/.wake-queue.lock}"
 FM_LOCK_STALE_AFTER="${FM_LOCK_STALE_AFTER:-2}"
+FM_LOCK_SELF_PID=
+FM_LOCK_SELF_IDENTITY=
 # Resolved once at source time: fm_pid_identity and fm_path_mtime run inside 0.2s
 # confirm and 0.5s attach polls, and forking uname per call is a measurable cost on
 # the platform (Git Bash/MSYS) that already pays the highest fork price.
@@ -88,6 +90,32 @@ fm_pid_identity() {
   out=$(LC_ALL=C ps -p "$pid" -o lstart= -o command= 2>/dev/null) || return 1
   [ -n "$out" ] || return 1
   printf '%s\n' "$out" | sed 's/^[[:space:]]*//'
+}
+
+# Lock ownership survives exec: process birth distinguishes PID reuse without
+# evicting a live holder that has replaced its shell with slow work.
+fm_lock_pid_identity() {
+  local pid=$1 proc_root stat_line starttime out identity_key
+  local -a stat_fields
+  case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+  proc_root=${FM_PROC_ROOT_OVERRIDE:-/proc}
+  if [ -r "$proc_root/$pid/stat" ]; then
+    stat_line=$(cat "$proc_root/$pid/stat" 2>/dev/null) || return 1
+    read -r -a stat_fields <<< "${stat_line##*)}"
+    [ "${#stat_fields[@]}" -ge 20 ] || return 1
+    starttime=${stat_fields[19]}
+    case "$starttime" in ''|*[!0-9]*) return 1 ;; esac
+    identity_key=proc-starttime
+    [ "$_FM_UNAME" != Linux ] || identity_key=linux-starttime
+    printf '%s=%s\n' "$identity_key" "$starttime"
+    return 0
+  fi
+  out=$(LC_ALL=C ps -p "$pid" -o lstart= 2>/dev/null) || return 1
+  [ -n "$out" ] || return 1
+  out="${out#"${out%%[![:space:]]*}"}"
+  out="${out%"${out##*[![:space:]]}"}"
+  [ -n "$out" ] || return 1
+  printf '%s\n' "$out"
 }
 
 fm_path_mtime() {
@@ -429,11 +457,21 @@ fm_lock_owner_dir() {
 }
 
 fm_lock_prepare_owner() {
-  local ownerdir=$1 mypid back
+  local ownerdir=$1 mypid identity
   fm_current_pid mypid || return 1
-  printf '%s\n' "$mypid" > "$ownerdir/pid" 2>/dev/null || return 1
-  back=$(cat "$ownerdir/pid" 2>/dev/null || true)
-  [ "$back" = "$mypid" ]
+  if [ "$FM_LOCK_SELF_PID" = "$mypid" ] && [ -n "$FM_LOCK_SELF_IDENTITY" ]; then
+    identity=$FM_LOCK_SELF_IDENTITY
+  else
+    identity=$(fm_lock_pid_identity "$mypid") || return 1
+    FM_LOCK_SELF_PID=$mypid
+    FM_LOCK_SELF_IDENTITY=$identity
+  fi
+  if ! {
+    printf '%s\n' "$mypid" > "$ownerdir/pid"
+    printf '%s\n' "$identity" > "$ownerdir/pid-identity"
+  } 2>/dev/null; then
+    return 1
+  fi
 }
 
 fm_lock_link_owner() {
@@ -478,17 +516,7 @@ fm_lock_claim_blocked_by_steal() {
 }
 
 fm_lock_claim() {
-  local lockdir=$1 ownerdir=$2 allowed_steal_owner=${3:-} mypid back
-  fm_current_pid mypid || return 1
-  if ! { printf '%s\n' "$mypid" > "$ownerdir/pid"; } 2>/dev/null; then
-    fm_lock_discard_owner "$ownerdir"
-    return 1
-  fi
-  back=$(cat "$ownerdir/pid" 2>/dev/null || true)
-  if [ "$back" != "$mypid" ]; then
-    fm_lock_discard_owner "$ownerdir"
-    return 1
-  fi
+  local lockdir=$1 ownerdir=$2 allowed_steal_owner=${3:-}
   if ! fm_lock_points_to_owner "$lockdir" "$ownerdir"; then
     fm_lock_discard_owner "$ownerdir"
     return 1
@@ -555,6 +583,18 @@ fm_lock_mid_acquire_is_fresh() {
   return 1
 }
 
+fm_lock_owner_is_abandoned() {  # <lockdir> <pid>
+  local lockdir=$1 pid=$2 recorded current
+  case "$pid" in
+    ''|*[!0-9]*|0) return 0 ;;
+  esac
+  fm_pid_alive "$pid" || return 0
+  IFS= read -r recorded < "$lockdir/pid-identity" || return 1
+  [ -n "$recorded" ] || return 1
+  current=$(fm_lock_pid_identity "$pid" 2>/dev/null) || return 1
+  [ "$current" != "$recorded" ]
+}
+
 fm_lock_recheck_stale_owner() {
   local lockdir=$1 expected_owner=$2 expected_pid=$3 actual_pid
   if [ -n "$expected_owner" ]; then
@@ -564,9 +604,7 @@ fm_lock_recheck_stale_owner() {
   fi
   actual_pid=$(cat "$lockdir/pid" 2>/dev/null || true)
   [ "$actual_pid" = "$expected_pid" ] || return 1
-  if fm_pid_alive "$actual_pid"; then
-    return 1
-  fi
+  fm_lock_owner_is_abandoned "$lockdir" "$actual_pid" || return 1
   if fm_lock_mid_acquire_is_fresh "$lockdir" "$actual_pid"; then
     return 1
   fi
@@ -894,7 +932,8 @@ fm_lock_try_acquire() {
 
   fm_current_pid current || return 1
   pid=$(cat "$lockdir/pid" 2>/dev/null || true)
-  if [ -n "$pid" ] && [ "$pid" = "$current" ]; then
+  if [ -n "$pid" ] && [ "$pid" = "$current" ] \
+    && ! fm_lock_owner_is_abandoned "$lockdir" "$pid"; then
     # The recorded holder is THIS very process. Single-threaded bash can only
     # observe that when an interrupting trap abandoned the frame that held the
     # lock mid-critical-section (e.g. TERM inside a recovery-marker section,
@@ -910,7 +949,7 @@ fm_lock_try_acquire() {
     FM_LOCK_HELD_PID=$(cat "$lockdir/pid" 2>/dev/null || true)
     return 1
   fi
-  if fm_pid_alive "$pid"; then
+  if ! fm_lock_owner_is_abandoned "$lockdir" "$pid"; then
     FM_LOCK_HELD_PID=$pid
     return 1
   fi
@@ -928,7 +967,7 @@ fm_lock_try_acquire() {
   steal_owner=${FM_LOCK_OWNER_DIR:-}
 
   cur=$(cat "$lockdir/pid" 2>/dev/null || true)
-  if fm_pid_alive "$cur"; then
+  if ! fm_lock_owner_is_abandoned "$lockdir" "$cur"; then
     fm_lock_release "$steal"
     FM_LOCK_HELD_PID=$cur
     FM_LOCK_OWNER_DIR=
@@ -994,9 +1033,10 @@ fm_lock_acquire_wait() {
 # every interruption safe: before transfer the helper is the owner; after
 # transfer the still-live caller is the owner.
 _fm_lock_acquire_wait_handoff() {  # <lockdir> <caller-pid>
-  local lockdir=$1 caller_pid=$2 ownerdir current back
+  local lockdir=$1 caller_pid=$2 caller_identity ownerdir current pid_back identity_back
   case "$caller_pid" in ''|*[!0-9]*) return 1 ;; esac
   fm_pid_alive "$caller_pid" || return 1
+  caller_identity=$(fm_lock_pid_identity "$caller_pid") || return 1
   trap 'fm_lock_release "$lockdir"; exit 143' TERM INT
   fm_lock_acquire_wait "$lockdir" || return 1
   if [ -L "$lockdir" ]; then
@@ -1008,10 +1048,12 @@ _fm_lock_acquire_wait_handoff() {  # <lockdir> <caller-pid>
     ownerdir=$lockdir
   fi
   fm_current_pid current || { fm_lock_release "$lockdir"; return 1; }
-  back=$(cat "$ownerdir/pid" 2>/dev/null || true)
-  if [ "$back" != "$current" ] \
+  pid_back=$(cat "$ownerdir/pid" 2>/dev/null || true)
+  if [ "$pid_back" != "$current" ] \
     || ! printf '%s\n' "$caller_pid" > "$ownerdir/pid" 2>/dev/null \
-    || [ "$(cat "$ownerdir/pid" 2>/dev/null || true)" != "$caller_pid" ]; then
+    || ! printf '%s\n' "$caller_identity" > "$ownerdir/pid-identity" 2>/dev/null \
+    || [ "$(cat "$ownerdir/pid" 2>/dev/null || true)" != "$caller_pid" ] \
+    || [ "$(cat "$ownerdir/pid-identity" 2>/dev/null || true)" != "$caller_identity" ]; then
     fm_lock_release "$lockdir"
     return 1
   fi
@@ -1065,7 +1107,8 @@ fm_lock_acquire_wait_bounded() {
     case "$owner_pid" in
       ''|*[!0-9]*|0) ;;
       *)
-        if [ "$owner_pid" -gt 0 ] 2>/dev/null && fm_pid_alive "$owner_pid"; then
+        if [ "$owner_pid" -gt 0 ] 2>/dev/null \
+          && ! fm_lock_owner_is_abandoned "$lockdir" "$owner_pid"; then
           FM_LOCK_HELD_PID=$owner_pid
           return 124
         fi
