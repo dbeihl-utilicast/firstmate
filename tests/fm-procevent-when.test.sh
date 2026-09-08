@@ -107,7 +107,7 @@ queue_procevent_anchor() {  # <home> <key>
 }
 
 run_watcher() {  # <home> <out|-> <tenths>
-  local home=$1 out=$2 tenths=$3 pid= wrapper i pidfile
+  local home=$1 out=$2 tenths=$3 pid='' wrapper i pidfile
   pidfile="$home/.run-watcher.pid"
   rm -f -- "$pidfile"
   if [ "$out" = - ]; then
