@@ -585,4 +585,50 @@ pe "$H" reconcile >/dev/null 2>&1 || fail "reconcile against a restored private 
 assert_absent "$H/.procevent-state-insecure" "the record replacing a directory was never cleared"
 pass "a directory at either marker path is replaced, not treated as a valid marker"
 
+# --- a non-empty directory at either marker path cannot silence the mechanism -------
+# Its contents are not this code's to delete, so the path is freed by moving the
+# directory aside; nothing it held may be lost.
+H="$TMP_ROOT/h-marker-dir-nonempty"; new_home "$H"
+mkdir -p "$H/.procevent-state-insecure/kept"
+printf 'do not lose me\n' > "$H/.procevent-state-insecure/kept/payload"
+chmod 775 "$H/state" || fail "could not relax the state directory to group-writable"
+pe "$H" reconcile >/dev/null 2>&1
+[ ! -d "$H/.procevent-state-insecure" ] \
+  || fail "a non-empty directory at the record path was read as a valid record"
+assert_grep "state=$H/state" "$H/.procevent-state-insecure" \
+  "the record replacing a non-empty directory names the offending state root"
+displaced=$(printf '%s\n' "$H"/.procevent-state-insecure.displaced-* | head -1)
+[ "$(cat "$displaced/kept/payload" 2>/dev/null)" = 'do not lose me' ] \
+  || fail "the displaced directory's contents were destroyed instead of moved aside"
+
+mkdir -p "$H/.procevent-state-insecure-surfaced/kept"
+run_watcher "$H" "$TMP_ROOT/watch-dir-nonempty.out" 100
+assert_grep "check: procevent-state-insecure" "$TMP_ROOT/watch-dir-nonempty.out" \
+  "a non-empty directory at the suppressor path silenced the wake"
+[ ! -d "$H/.procevent-state-insecure-surfaced" ] || fail "the suppressor stayed a directory"
+queue_procevent_anchor "$H" anchor-dir-nonempty
+run_watcher "$H" "$TMP_ROOT/watch-dir-nonempty-again.out" 100
+assert_grep "process-event result captured" "$TMP_ROOT/watch-dir-nonempty-again.out" \
+  "the run that must not re-report never completed a cycle past the insecure check"
+if grep -Fq "check: procevent-state-insecure" "$TMP_ROOT/watch-dir-nonempty-again.out"; then
+  fail "the suppressor never committed, so the watcher woke again every cycle"
+fi
+chmod 700 "$H/state" || fail "could not restore private permissions"
+pe "$H" reconcile >/dev/null 2>&1 || fail "reconcile against a restored private root should succeed"
+assert_absent "$H/.procevent-state-insecure" "the record was never cleared once the root was private"
+pass "a non-empty directory at either marker path is moved aside, not treated as a marker"
+
+# --- a non-empty directory at the record path never invents a wake -----------------
+H="$TMP_ROOT/h-marker-dir-noalarm"; new_home "$H"
+mkdir -p "$H/.procevent-state-insecure/kept"
+pe "$H" reconcile >/dev/null 2>&1 || fail "reconcile against a private root should succeed"
+queue_procevent_anchor "$H" anchor-noalarm
+run_watcher "$H" "$TMP_ROOT/watch-dir-noalarm.out" 100
+assert_grep "process-event result captured" "$TMP_ROOT/watch-dir-noalarm.out" \
+  "the run never completed a cycle past the insecure check"
+if grep -Fq "check: procevent-state-insecure" "$TMP_ROOT/watch-dir-noalarm.out"; then
+  fail "a directory at the record path made the watcher report a private root as insecure"
+fi
+pass "a directory at the record path cannot claim a private state root stopped being private"
+
 printf 'all fm-procevent-when tests passed\n'
