@@ -56,6 +56,7 @@ test_reclaim_gap_is_retryable() {
   . "$BIN/fm-timeout-lib.sh"
   for gap in primary steal; do
     dir=$(make_case "reclaim-gap-$gap")
+    # shellcheck disable=SC2016 # Variables expand in the child shell, not this test shell.
     if ! fm_run_timed 10 env FM_STATE_OVERRIDE="$dir/state" bash -c '
       set -eu
       . "$1"
@@ -165,6 +166,7 @@ test_abandoned_reclaim_gap_recovers() {
   wait "$holder" || fail "could not plant an exited steal owner"
   [ "$(cat "$dir/state/.wake-queue.lock.steal/pid")" = "$holder" ] \
     || fail "exited stealer did not leave its ownership record"
+  # shellcheck disable=SC2016 # Variables expand in the child shell, not this test shell.
   if ! fm_run_timed 5 env FM_STATE_OVERRIDE="$dir/state" bash -c '
     . "$1"
     fm_wake_append signal task "signal: task"
@@ -180,6 +182,7 @@ test_queue_declines_unlocked_append_and_ack() {
   local dir state token allowed
   dir=$(failure_case append)
   state="$dir/state"
+  # shellcheck disable=SC2016 # Variables expand in the child shell, not this test shell.
   expect_creation_refusal "$dir" "$state/.wake-queue.lock" bash -c '
     . "$1"
     fm_wake_append signal task "signal: task"
@@ -232,6 +235,7 @@ test_metadata_and_lease_guards_refuse_mutation() {
   state="$dir/state"
   printf 'kind=ship\nx_request=request\nx_followups=0\n' > "$state/task.meta"
   cp "$state/task.meta" "$dir/meta-before"
+  # shellcheck disable=SC2016 # Variables expand in the child shell, not this test shell.
   expect_creation_refusal "$dir" "$state/.meta-task.lock" bash -c '
     . "$1/fm-wake-lib.sh"
     . "$1/fm-x-lib.sh"
@@ -244,6 +248,7 @@ test_metadata_and_lease_guards_refuse_mutation() {
   state="$dir/state"
   printf 'actor=branch\nexpires=1\n' > "$state/.lease-task"
   cp "$state/.lease-task" "$dir/lease-before"
+  # shellcheck disable=SC2016 # Variables expand in the child shell, not this test shell.
   expect_creation_refusal "$dir" "$state/.fm-lease-command.lock" bash -c '
     . "$1/fm-wake-lib.sh"
     . "$1/fm-lease-lib.sh"

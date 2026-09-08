@@ -617,6 +617,7 @@ SH
   . "$ROOT/bin/fm-timeout-lib.sh"
   for acquire in fm_lock_try_acquire fm_lock_acquire_wait fm_lock_acquire_wait_bounded _fm_lock_acquire_wait_handoff; do
     : > "$log"
+    # shellcheck disable=SC2016 # Variables expand in the child shell, not this test shell.
     out=$(fm_run_timed 4 env PATH="$dir/fakebin:$PATH" FM_STATE_OVERRIDE="$state" \
       FM_TEST_LOCK="$lockdir" FM_TEST_MKTEMP_LOG="$log" FM_TEST_REAL_MKTEMP="$real_mktemp" \
       bash -c '
@@ -646,6 +647,7 @@ test_lock_honours_production_identity_writer_format() {
   ready="$dir/holder-ready"
   release="$dir/holder-release"
 
+  # shellcheck disable=SC2016 # Body runs in the holder subshell, not this test shell.
   start_lock_holder "$state" "$lockdir" "$ready" "$release" \
     'fm_pid_identity "${BASHPID:-$$}" > "$lockdir/pid-identity"'
   holder=$LOCK_HOLDER_PID
@@ -714,6 +716,7 @@ test_lock_owner_without_identity_is_held_quietly() {
   release="$dir/holder-release"
   err="$dir/waiter.err"
 
+  # shellcheck disable=SC2016 # Body runs in the holder subshell, not this test shell.
   start_lock_holder "$state" "$lockdir" "$ready" "$release" \
     'rm -f "$lockdir/pid-identity"'
   holder=$LOCK_HOLDER_PID
