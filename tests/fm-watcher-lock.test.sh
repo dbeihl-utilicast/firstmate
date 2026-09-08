@@ -565,6 +565,54 @@ test_bounded_wait_keeps_its_window_without_process_identity() {
   pass "bounded wait keeps its window and its advisory without process identity"
 }
 
+test_bounded_deadline_over_a_contended_reclaim_stays_retriable() {
+  local dir state lockdir owner dead ready release holder out
+  dir=$(make_case lock-bounded-contended-reclaim)
+  state="$dir/state"
+  lockdir="$state/.contend.lock"
+  owner="$state/.contend.lock.owner.dead"
+  ready="$dir/steal-ready"
+  release="$dir/steal-release"
+
+  dead=$(dead_pid)
+  mkdir "$owner"
+  printf '%s\n' "$dead" > "$owner/pid"
+  printf '%s\n' 'dead-owner-identity' > "$owner/pid-identity"
+  ln -s "$owner" "$lockdir"
+  start_lock_holder "$state" "$lockdir.steal" "$ready" "$release"
+  holder=$LOCK_HOLDER_PID
+  wait_lock_holder_ready "$ready" "the reclaim-blocking steal holder"
+
+  out=$(FM_STATE_OVERRIDE="$state" bash -c '
+    . "$1"
+    fm_lock_acquire_wait_bounded "$2" 1
+    printf "rc=%s\n" "$?"
+  ' _ "$LIB" "$lockdir")
+  case "$out" in
+    "rc=124") ;;
+    *) fail "a deadline over a blocked reclaim was reported as an acquire failure: $out" ;;
+  esac
+  [ "$(cat "$lockdir/pid" 2>/dev/null || true)" = "$dead" ] \
+    || fail "the blocked reclaim altered the recorded owner"
+
+  release_lock_holder "$holder" "$release" "the reclaim-blocking steal holder"
+  out=$(FM_STATE_OVERRIDE="$state" bash -c '
+    . "$1"
+    if fm_lock_acquire_wait_bounded "$2" 5; then
+      printf "rc=0 pid=%s\n" "$(cat "$2/pid" 2>/dev/null || true)"
+      fm_lock_release "$2"
+    else
+      printf "rc=%s\n" "$?"
+    fi
+  ' _ "$LIB" "$lockdir")
+  case "$out" in
+    "rc=0 pid=$dead"|"rc=0 pid=") fail "the retried acquire did not record a live owner: $out" ;;
+    "rc=0 pid="*) ;;
+    *) fail "the dead owner was not reclaimed once the reclaim unblocked: $out" ;;
+  esac
+  pass "a bounded deadline over a blocked reclaim stays retriable and reclaims next pass"
+}
+
 test_lock_retries_lost_creation_race() {
   local dir state lockdir out
   dir=$(make_case lock-create-race)
@@ -1638,6 +1686,7 @@ test_lock_acquires_and_stays_closed_without_process_identity
 test_lock_retries_lost_creation_race
 test_lock_create_failure_does_not_recurse_through_steal
 test_bounded_wait_keeps_its_window_without_process_identity
+test_bounded_deadline_over_a_contended_reclaim_stays_retriable
 test_lock_empty_pid_uses_minimum_grace
 test_lock_late_claim_loses_after_recreate
 test_lock_paused_mid_acquire_claim_fails_during_steal

@@ -1144,20 +1144,17 @@ fm_lock_acquire_wait_bounded() {
     [ "$acquire_rc" -eq 1 ] || return "$acquire_rc"
   fi
   if [ "$rc" -eq 124 ]; then
-    owner_pid=$(cat "$lockdir/pid" 2>/dev/null || true)
-    case "$owner_pid" in
-      ''|*[!0-9]*|0) ;;
-      *)
-        if [ "$owner_pid" -gt 0 ] 2>/dev/null \
-          && ! fm_lock_owner_is_abandoned "$lockdir" "$owner_pid"; then
-          FM_LOCK_HELD_PID=$owner_pid
-          return 124
-        fi
+    # The refusing acquire above already ruled on the owner and named it. Deriving
+    # the holder again here races the next owner of a hot lock, and reports a
+    # contended lock as an acquire failure whenever that re-read loses.
+    case "${FM_LOCK_HELD_PID:-}" in
+      ''|*[!0-9]*|0)
+        # shellcheck disable=SC2034 # Output read by callers after bounded acquisition.
+        FM_LOCK_HELD_PID=
+        return 1
         ;;
     esac
-    # shellcheck disable=SC2034 # Output read by callers after bounded acquisition.
-    FM_LOCK_HELD_PID=
-    return 1
+    return 124
   fi
   return "$rc"
 }
