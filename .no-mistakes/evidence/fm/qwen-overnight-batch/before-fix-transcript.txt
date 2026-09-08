@@ -1,0 +1,26 @@
+tree under test: base commit 72bfdd0 (before the #3929 fix)
+
+=== 1. arm a condition->action watch while state/ is private (700)
+    armed: when-demo-watch
+    starts on the watcher's next cycle; or run: bin/fm-procevent.sh reconcile
+    reminder: deterministic, safe, reversible actions only; judgment and destructive actions stay on the wake-and-decide path
+
+=== 2. an operator relaxes the state root (umask, chmod -R, a helper tool)
+    drwxrwxr-x@ 4 davidsair  staff  128 Sep  8 08:52 /var/folders/j5/kgdthy6n37j7dgv0r7qr3qd80000gn/T//fm-3929-demo.CkLBVJ/state
+
+=== 3. the watcher's own reconcile call, verbatim: exit and output discarded
+    operator sees: (nothing - that is the swallow)
+
+=== 4. is there any durable record of the refusal?
+    NONE - the failure vanished
+
+=== 5. what the captain actually sees from the real watcher (one poll window)
+    no wake about the state root at all
+
+=== 6. does it become a stream? second watcher window, same broken root
+    anchor proving the cycle ran past the check: 1
+    repeat insecure-root wakes this window: 0
+
+=== 7. operator restores private permissions and reconciles
+    reconcile: ok
+    nothing to clear - there never was a record

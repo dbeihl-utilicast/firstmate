@@ -1,0 +1,17 @@
+tree under test: bfb9cf6 (before "reject any directory as a settled marker")
+
+=== plant a non-empty directory at BOTH marker paths
+    .procevent-state-insecure
+    .procevent-state-insecure-surfaced
+
+=== relax the state root, then run the swallowed reconcile
+    NO record - the planted directory was read as a valid one
+
+=== one watcher window: does the captain hear about the broken root?
+    anchor proving the cycle ran past the check: 1
+    SILENT - the planted directory latched the wake away
+
+=== was the planted directory content preserved?
+    left in place untouched
+
+home: /var/folders/j5/kgdthy6n37j7dgv0r7qr3qd80000gn/T//fm-3929-dirmarker.yH4mwE

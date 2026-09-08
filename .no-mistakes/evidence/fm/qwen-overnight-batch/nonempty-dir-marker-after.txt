@@ -1,0 +1,20 @@
+tree under test: 6b937c8 (this change)
+
+=== plant a non-empty directory at BOTH marker paths
+    .procevent-state-insecure
+    .procevent-state-insecure-surfaced
+
+=== relax the state root, then run the swallowed reconcile
+    durable record written:
+      fm-procevent-state-insecure-v1
+      detected=1788873198
+      state=/var/folders/j5/kgdthy6n37j7dgv0r7qr3qd80000gn/T//fm-3929-dirmarker.ZIZvMS/state
+
+=== one watcher window: does the captain hear about the broken root?
+    anchor proving the cycle ran past the check: 0
+    check: procevent-state-insecure
+
+=== was the planted directory content preserved?
+    moved aside to .procevent-state-insecure.displaced-68262-30150, payload intact: do not lose me
+
+home: /var/folders/j5/kgdthy6n37j7dgv0r7qr3qd80000gn/T//fm-3929-dirmarker.ZIZvMS
