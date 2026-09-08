@@ -92,6 +92,25 @@ chmod +x "$ACT"
 
 count_lines() { [ -e "$1" ] && grep -c . "$1" || echo 0; }
 
+# Run the real watcher against <home> for at most <tenths> deciseconds, then stop
+# it. An out path of "-" gives the watcher a stdout reader that is already gone,
+# which is how an actionable wake fails to reach firstmate.
+run_watcher() {  # <home> <out|-> <tenths>
+  local home=$1 out=$2 tenths=$3 pid i
+  if [ "$out" = - ]; then
+    ( FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" FM_POLL=1 FM_SIGNAL_GRACE=1 \
+      FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$ROOT/bin/fm-watch.sh" 2>/dev/null | true ) &
+  else
+    FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" FM_POLL=1 FM_SIGNAL_GRACE=1 \
+      FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$ROOT/bin/fm-watch.sh" > "$out" 2>/dev/null &
+  fi
+  pid=$!
+  i=0
+  while [ "$i" -lt "$tenths" ]; do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; i=$((i + 1)); done
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+}
+
 # --- arm binds the pair and refuses a duplicate ------------------------------
 H="$TMP_ROOT/h-arm"; new_home "$H"
 out=$(when "$H" arm arm-test --interval 0.1 \
@@ -434,5 +453,48 @@ chmod 700 "$H/state" || fail "could not restore private permissions"
 pe "$H" reconcile >/dev/null 2>&1 || fail "reconcile against a restored private root should succeed"
 assert_absent "$H/.procevent-state-insecure" "the durable record was not cleared once the root is private again"
 pass "a state root that turns insecure after arming leaves a durable record instead of vanishing"
+
+# --- the watcher turns the swallowed failure into one delivered wake ----------------
+H="$TMP_ROOT/h-watch-insecure"; new_home "$H"
+when "$H" arm watch-surfaces --interval 0.1 \
+  --condition "$COND" "$TMP_ROOT/never" "$TMP_ROOT/watch-surfaces-count" \
+  --action "$ACT" "$TMP_ROOT/watch-surfaces-act" >/dev/null \
+  || fail "could not arm against a private state root"
+chmod 775 "$H/state" || fail "could not relax the state directory to group-writable"
+run_watcher "$H" - 100
+assert_present "$H/.procevent-state-insecure" "the watcher's own swallowed reconcile left the durable record"
+assert_absent "$H/.procevent-state-insecure-surfaced" \
+  "a wake that never reached firstmate latched the one-shot suppressor anyway"
+
+run_watcher "$H" "$TMP_ROOT/watch-insecure.out" 100
+assert_grep "check: procevent-state-insecure" "$TMP_ROOT/watch-insecure.out" \
+  "the watcher surfaced the state root that stopped being private"
+assert_present "$H/.procevent-state-insecure-surfaced" "the delivered wake latched the one-shot suppressor"
+
+run_watcher "$H" "$TMP_ROOT/watch-insecure-again.out" 30
+if grep -Fq "check: procevent-state-insecure" "$TMP_ROOT/watch-insecure-again.out"; then
+  fail "the watcher re-reported the same insecure state root on a later cycle"
+fi
+chmod 700 "$H/state" || fail "could not restore private permissions"
+pass "the watcher reports a state root that stopped being private once, only once delivered"
+
+# --- neither marker path can be redirected through a planted symlink ----------------
+H="$TMP_ROOT/h-marker-symlink"; new_home "$H"
+ln -s marker-target "$H/.procevent-state-insecure"
+chmod 775 "$H/state" || fail "could not relax the state directory to group-writable"
+pe "$H" reconcile >/dev/null 2>&1
+[ ! -e "$H/marker-target" ] || fail "the durable record wrote through its dangling symlink target"
+[ ! -L "$H/.procevent-state-insecure" ] || fail "the durable record stayed a symlink"
+assert_grep "state=$H/state" "$H/.procevent-state-insecure" "the replacing record names the offending state root"
+
+printf 'preserve me too\n' > "$H/surfaced-target"
+ln -s surfaced-target "$H/.procevent-state-insecure-surfaced"
+run_watcher "$H" "$TMP_ROOT/watch-symlink.out" 100
+assert_grep "check: procevent-state-insecure" "$TMP_ROOT/watch-symlink.out" \
+  "a symlink planted at the suppressor path silenced the wake"
+[ "$(cat "$H/surfaced-target")" = 'preserve me too' ] || fail "the suppressor wrote through its symlink target"
+[ ! -L "$H/.procevent-state-insecure-surfaced" ] || fail "the suppressor stayed a symlink"
+chmod 700 "$H/state" || fail "could not restore private permissions"
+pass "a planted symlink cannot redirect or silence either marker"
 
 printf 'all fm-procevent-when tests passed\n'

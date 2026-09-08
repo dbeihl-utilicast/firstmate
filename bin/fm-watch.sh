@@ -1310,6 +1310,18 @@ procevent_surface_after_output() {
   return "$status"
 }
 
+# Commit the one-shot suppressor for the insecure-state-root record only once
+# the wake actually reached firstmate, so a cycle that failed to deliver stays
+# reportable instead of being latched away by a wake nobody received.
+procevent_state_insecure_after_output() {
+  local marker="$FM_HOME/.procevent-state-insecure-surfaced" tmp
+  [ "$1" -eq 0 ] || return 0
+  tmp=$(umask 077; mktemp "$marker.XXXXXX" 2>/dev/null) || return 1
+  mv -f -- "$tmp" "$marker" 2>/dev/null && return 0
+  rm -f -- "$tmp" 2>/dev/null || true
+  return 1
+}
+
 procevent_surface_queued() {
   local key reason
   PROCEVENT_SURFACED=
@@ -1821,8 +1833,11 @@ while :; do
   # itself records that specific failure once at .procevent-state-insecure and
   # clears it the next time the root is private again; surface it here exactly
   # once rather than every cycle it stays broken.
-  if [ -e "$FM_HOME/.procevent-state-insecure" ] && [ ! -e "$FM_HOME/.procevent-state-insecure-surfaced" ]; then
-    : > "$FM_HOME/.procevent-state-insecure-surfaced" 2>/dev/null || true
+  if [ -e "$FM_HOME/.procevent-state-insecure" ] \
+    && { [ ! -e "$FM_HOME/.procevent-state-insecure-surfaced" ] \
+      || [ -L "$FM_HOME/.procevent-state-insecure-surfaced" ]; }; then
+    # shellcheck disable=SC2034 # Consumed by wake() in the separately linted transition owner.
+    FM_WAKE_POST_OUTPUT_ACTION=procevent_state_insecure_after_output
     wake "check: procevent-state-insecure"
   fi
   # Then deliver any queued-but-unsurfaced result, including one a runner
