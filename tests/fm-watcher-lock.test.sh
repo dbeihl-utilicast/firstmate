@@ -524,6 +524,37 @@ test_bounded_wait_keeps_its_window_without_process_identity() {
   pass "bounded wait keeps its window and its advisory without process identity"
 }
 
+test_lock_retries_lost_creation_race() {
+  local dir state lockdir out
+  dir=$(make_case lock-create-race)
+  state="$dir/state"
+  lockdir="$state/.contend.lock"
+  out=$(FM_STATE_OVERRIDE="$state" bash -c '
+    . "$1"
+    attempts=0
+    ln() {
+      attempts=$((attempts + 1))
+      [ "$attempts" -ne 1 ] || return 1
+      command ln "$@"
+    }
+    if fm_lock_try_acquire "$2"; then
+      fm_current_pid current || exit 7
+      [ "$(cat "$2/pid")" = "$current" ] || exit 8
+      fm_lock_points_to_owner "$2" "$FM_LOCK_OWNER_DIR" || exit 9
+      rc=0
+      fm_lock_release "$2"
+    else
+      rc=1
+    fi
+    printf "rc=%s attempts=%s\n" "$rc" "$attempts"
+  ' _ "$LIB" "$lockdir")
+  [ "$out" = "rc=0 attempts=2" ] \
+    || fail "lost creation race did not retry and acquire the available lock: $out"
+  [ ! -e "$lockdir" ] && [ ! -L "$lockdir" ] \
+    || fail "retried acquisition did not release its owned lock"
+  pass "a lost creation race retries once and acquires the available lock"
+}
+
 test_lock_create_failure_does_not_recurse_through_steal() {
   local dir state lockdir log out attempts
   dir=$(make_case lock-create-failure)
@@ -541,8 +572,8 @@ test_lock_create_failure_does_not_recurse_through_steal() {
     printf "rc=%s\n" "$rc"
   ' _ "$LIB" "$lockdir" 2>"$dir/stderr")
   [ "$out" = "rc=1" ] || fail "unusable owner-dir creation did not fail the acquire: $out"
-  ! grep -q 'steal\.steal' "$log" \
-    || fail "acquire recursed into a nested steal lock after a creation failure"
+  ! grep -q '\.steal' "$log" \
+    || fail "acquire attempted a steal lock after an owner-dir creation failure"
   attempts=$(wc -l < "$log")
   [ "$attempts" -le 2 ] \
     || fail "acquire retried owner-dir creation $attempts times after a creation failure"
@@ -1514,6 +1545,7 @@ test_lock_honours_production_identity_writer_format
 test_lock_owner_without_identity_is_held_quietly
 test_lock_refuses_unverified_owner_record
 test_lock_acquires_and_stays_closed_without_process_identity
+test_lock_retries_lost_creation_race
 test_lock_create_failure_does_not_recurse_through_steal
 test_bounded_wait_keeps_its_window_without_process_identity
 test_lock_empty_pid_uses_minimum_grace
