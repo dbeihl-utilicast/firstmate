@@ -22,6 +22,71 @@ ARM_FAIL_EXIT_POLLS=400
 
 TMP_ROOT=$(fm_test_tmproot fm-watcher-lock-tests)
 
+# Background lock holders bound their own wait on the release sentinel and
+# release through an exit trap, and every one is reaped when this file exits, so
+# an aborted case can neither strand a live holder nor leave a lock published.
+FM_LOCK_HOLDER_MAX_WAIT_SECONDS=${FM_LOCK_HOLDER_MAX_WAIT_SECONDS:-120}
+FM_LOCK_HOLDER_PIDS=()
+
+reap_lock_holders() {
+  local pid
+  for pid in ${FM_LOCK_HOLDER_PIDS[@]+"${FM_LOCK_HOLDER_PIDS[@]}"}; do
+    kill "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+  done
+  FM_LOCK_HOLDER_PIDS=()
+}
+
+fm_watcher_lock_cleanup() {
+  reap_lock_holders
+  fm_test_cleanup
+}
+trap fm_watcher_lock_cleanup EXIT
+trap 'fm_watcher_lock_cleanup; exit 130' INT
+trap 'fm_watcher_lock_cleanup; exit 143' TERM
+
+# start_lock_holder <state> <lockdir> <ready> <release> [post-acquire-shell]
+# Sets LOCK_HOLDER_PID to the holding process.
+start_lock_holder() {
+  local state=$1 lockdir=$2 ready=$3 release=$4 post=${5:-}
+  FM_STATE_OVERRIDE="$state" bash -c '
+    lib=$1 lockdir=$2 ready=$3 release=$4 post=$5 polls=$6 waited=0
+    . "$lib"
+    fm_lock_acquire_wait "$lockdir" || exit 7
+    trap '"'"'fm_lock_release "$lockdir" >/dev/null 2>&1'"'"' EXIT
+    [ -z "$post" ] || eval "$post" || exit 8
+    : > "$ready"
+    while [ ! -e "$release" ]; do
+      sleep 0.05
+      waited=$((waited + 1))
+      if [ "$waited" -ge "$polls" ]; then
+        printf "lock holder gave up waiting for release sentinel %s\n" "$release" >&2
+        exit 9
+      fi
+    done
+  ' _ "$LIB" "$lockdir" "$ready" "$release" "$post" \
+    "$((FM_LOCK_HOLDER_MAX_WAIT_SECONDS * 20))" &
+  LOCK_HOLDER_PID=$!
+  FM_LOCK_HOLDER_PIDS+=("$LOCK_HOLDER_PID")
+}
+
+# wait_lock_holder_ready <ready> <what>
+wait_lock_holder_ready() {
+  local ready=$1 what=$2 i=0
+  while [ "$i" -lt 200 ] && [ ! -e "$ready" ]; do
+    sleep 0.05
+    i=$((i + 1))
+  done
+  [ -e "$ready" ] || fail "$what never published its ready sentinel $ready"
+}
+
+# release_lock_holder <holder-pid> <release> <what>
+release_lock_holder() {
+  local holder=$1 release=$2 what=$3
+  : > "$release"
+  wait "$holder" || fail "$what failed"
+}
+
 drain_and_ack() {  # <state>
   local state=$1 err sequence generation
   err="$state/.test-drain.err"
@@ -377,20 +442,9 @@ test_lock_reclaims_reused_pid_and_respects_slow_owner() {
   lockdir="$state/.slow.lock"
   ready="$dir/slow-ready"
   release="$dir/slow-release"
-  FM_STATE_OVERRIDE="$state" bash -c '
-    . "$1"
-    fm_lock_acquire_wait "$2" || exit 7
-    : > "$3"
-    while [ ! -e "$4" ]; do sleep 0.05; done
-    fm_lock_release "$2"
-  ' _ "$LIB" "$lockdir" "$ready" "$release" &
-  holder=$!
-  i=0
-  while [ "$i" -lt 50 ] && [ ! -e "$ready" ]; do
-    sleep 0.05
-    i=$((i + 1))
-  done
-  [ -e "$ready" ] || fail "slow live lock holder did not acquire"
+  start_lock_holder "$state" "$lockdir" "$ready" "$release"
+  holder=$LOCK_HOLDER_PID
+  wait_lock_holder_ready "$ready" "the slow live lock holder"
   held=$(cat "$lockdir/pid" 2>/dev/null || true)
   recorded=$(cat "$lockdir/pid-identity" 2>/dev/null || true)
   [ "$held" = "$holder" ] || fail "slow holder pid was not recorded"
@@ -407,8 +461,7 @@ test_lock_reclaims_reused_pid_and_respects_slow_owner() {
   esac
   [ "$(cat "$lockdir/pid" 2>/dev/null || true)" = "$holder" ] \
     || fail "slow live owner lock was replaced"
-  : > "$release"
-  wait "$holder" || fail "slow live lock holder failed"
+  release_lock_holder "$holder" "$release" "the slow live lock holder"
   pass "reused-pid stale lock reclaims while an identity-matched slow owner holds"
 }
 
@@ -488,20 +541,9 @@ test_bounded_wait_keeps_its_window_without_process_identity() {
   printf '#!/bin/sh\nexit 1\n' > "$noident/ps"
   chmod +x "$noident/ps"
 
-  FM_STATE_OVERRIDE="$state" bash -c '
-    . "$1"
-    fm_lock_acquire_wait "$2" || exit 7
-    : > "$3"
-    while [ ! -e "$4" ]; do sleep 0.05; done
-    fm_lock_release "$2"
-  ' _ "$LIB" "$lockdir" "$ready" "$release" &
-  holder=$!
-  i=0
-  while [ "$i" -lt 100 ] && [ ! -e "$ready" ]; do
-    sleep 0.05
-    i=$((i + 1))
-  done
-  [ -e "$ready" ] || fail "bounded-wait holder did not acquire"
+  start_lock_holder "$state" "$lockdir" "$ready" "$release"
+  holder=$LOCK_HOLDER_PID
+  wait_lock_holder_ready "$ready" "the bounded-wait holder"
 
   started=$(date +%s)
   out=$(PATH="$noident:$PATH" FM_PROC_ROOT_OVERRIDE="$dir/absent-proc" \
@@ -519,8 +561,7 @@ test_bounded_wait_keeps_its_window_without_process_identity() {
     || fail "bounded wait gave up after ${elapsed}s instead of waiting out its 3s window"
   [ "$(cat "$lockdir/pid" 2>/dev/null || true)" = "$holder" ] \
     || fail "live owner's lock was replaced during an identity-less bounded wait"
-  : > "$release"
-  wait "$holder" || fail "bounded-wait holder failed"
+  release_lock_holder "$holder" "$release" "the bounded-wait holder"
   pass "bounded wait keeps its window and its advisory without process identity"
 }
 
@@ -598,28 +639,17 @@ SH
 }
 
 test_lock_honours_production_identity_writer_format() {
-  local dir state lockdir ready release holder out other decoy reused newpid i
+  local dir state lockdir ready release holder out other decoy reused reused_identity newpid i
   dir=$(make_case lock-production-identity)
   state="$dir/state"
   lockdir="$state/.watch.lock"
   ready="$dir/holder-ready"
   release="$dir/holder-release"
 
-  FM_STATE_OVERRIDE="$state" bash -c '
-    . "$1"
-    fm_lock_acquire_wait "$2" || exit 7
-    fm_pid_identity "${BASHPID:-$$}" > "$2/pid-identity" || exit 8
-    : > "$3"
-    while [ ! -e "$4" ]; do sleep 0.05; done
-    fm_lock_release "$2"
-  ' _ "$LIB" "$lockdir" "$ready" "$release" &
-  holder=$!
-  i=0
-  while [ "$i" -lt 100 ] && [ ! -e "$ready" ]; do
-    sleep 0.05
-    i=$((i + 1))
-  done
-  [ -e "$ready" ] || fail "production-identity holder did not acquire"
+  start_lock_holder "$state" "$lockdir" "$ready" "$release" \
+    'fm_pid_identity "${BASHPID:-$$}" > "$lockdir/pid-identity"'
+  holder=$LOCK_HOLDER_PID
+  wait_lock_holder_ready "$ready" "the production-identity holder"
   [ -s "$lockdir/pid-identity" ] || fail "production-identity holder recorded no identity"
 
   out=$(FM_LOCK_STALE_AFTER=0 FM_STATE_OVERRIDE="$state" bash -c '
@@ -635,16 +665,22 @@ test_lock_honours_production_identity_writer_format() {
   esac
   [ ! -e "$state/.watcher-down" ] \
     || fail "a live watcher lock was recorded as downtime"
-  : > "$release"
-  wait "$holder" || fail "production-identity holder failed"
+  release_lock_holder "$holder" "$release" "the production-identity holder"
 
   lockdir="$state/.reused.lock"
-  sleep 30 &
-  reused=$!
   sleep 31 &
   decoy=$!
+  # The portable ps fallback records start time at one-second resolution, so the
+  # decoy has to start a full second before the pid whose record it stands in for.
+  sleep 1.5
+  sleep 30 &
+  reused=$!
   other=$(FM_STATE_OVERRIDE="$state" bash -c '. "$1"; fm_pid_identity "$2"' _ "$LIB" "$decoy") \
     || fail "could not build a production-format identity for the decoy process"
+  reused_identity=$(FM_STATE_OVERRIDE="$state" bash -c '. "$1"; fm_pid_identity "$2"' _ "$LIB" "$reused") \
+    || fail "could not read the reused pid's own identity"
+  [ "$other" != "$reused_identity" ] \
+    || fail "decoy and reused-pid processes share a start time, so the fixture proves nothing"
   mkdir "$lockdir"
   printf '%s\n' "$reused" > "$lockdir/pid"
   printf '%s\n' "$other" > "$lockdir/pid-identity"
@@ -678,21 +714,10 @@ test_lock_owner_without_identity_is_held_quietly() {
   release="$dir/holder-release"
   err="$dir/waiter.err"
 
-  FM_STATE_OVERRIDE="$state" bash -c '
-    . "$1"
-    fm_lock_acquire_wait "$2" || exit 7
-    rm -f "$2/pid-identity"
-    : > "$3"
-    while [ ! -e "$4" ]; do sleep 0.05; done
-    fm_lock_release "$2"
-  ' _ "$LIB" "$lockdir" "$ready" "$release" &
-  holder=$!
-  i=0
-  while [ "$i" -lt 100 ] && [ ! -e "$ready" ]; do
-    sleep 0.05
-    i=$((i + 1))
-  done
-  [ -e "$ready" ] || fail "identity-less holder did not acquire"
+  start_lock_holder "$state" "$lockdir" "$ready" "$release" \
+    'rm -f "$lockdir/pid-identity"'
+  holder=$LOCK_HOLDER_PID
+  wait_lock_holder_ready "$ready" "the identity-less holder"
   [ ! -e "$lockdir/pid-identity" ] || fail "identity-less holder still has an identity record"
 
   out=$(FM_LOCK_STALE_AFTER=0 FM_STATE_OVERRIDE="$state" bash -c '
@@ -707,8 +732,7 @@ test_lock_owner_without_identity_is_held_quietly() {
   esac
   [ ! -s "$err" ] \
     || fail "waiting on an identity-less owner wrote to stderr: $(head -1 "$err")"
-  : > "$release"
-  wait "$holder" || fail "identity-less holder failed"
+  release_lock_holder "$holder" "$release" "the identity-less holder"
 
   lockdir="$state/.dead.lock"
   dead=$(dead_pid)
@@ -1419,7 +1443,7 @@ SH
   # Keep the real ps fallback exercised wherever it supports the portable -o fields.
   real_first=
   real_second=
-  if LC_ALL=C ps -p "$live" -o lstart= -o command= >/dev/null 2>&1; then
+  if LC_ALL=C ps -p "$live" -o lstart= >/dev/null 2>&1; then
     real_first=$(FM_PROC_ROOT_OVERRIDE="$no_proc" LC_ALL=C bash -c '. "$1"; fm_pid_identity "$2"' _ "$LIB" "$live" 2>/dev/null)
     real_second=$(FM_PROC_ROOT_OVERRIDE="$no_proc" LC_TIME=ko_KR.UTF-8 bash -c 'unset LC_ALL; . "$1"; fm_pid_identity "$2"' _ "$LIB" "$live" 2>/dev/null)
   fi
@@ -1448,8 +1472,50 @@ write_fake_proc_identity() {
   printf 'bash\0/path with spaces/fm-watch.sh\0--flag\0' > "$proc_root/$pid/cmdline"
 }
 
+# A live holder that exec()s keeps its lock. exec preserves the pid and the process
+# start time while replacing argv, so an identity carrying argv would read the
+# holder as abandoned and hand its lock to the next acquirer: two owners in a
+# section meant for one.
+test_live_holder_that_execs_keeps_its_lock() {
+  local dir state lockdir ready holder out lockpid
+  dir=$(make_case lock-live-exec-holder)
+  state="$dir/state"
+  lockdir="$state/.exec.lock"
+  ready="$dir/exec-ready"
+
+  FM_STATE_OVERRIDE="$state" bash -c '
+    . "$1"
+    fm_lock_acquire_wait "$2" || exit 7
+    : > "$3"
+    exec sleep "$4"
+  ' _ "$LIB" "$lockdir" "$ready" "$FM_LOCK_HOLDER_MAX_WAIT_SECONDS" &
+  holder=$!
+  FM_LOCK_HOLDER_PIDS+=("$holder")
+  wait_lock_holder_ready "$ready" "the exec'ing holder"
+  [ "$(cat "$lockdir/pid" 2>/dev/null || true)" = "$holder" ] \
+    || fail "exec'ing holder did not record its own pid"
+  is_live_non_zombie "$holder" || fail "exec'ing holder died before the takeover attempt"
+
+  out=$(FM_LOCK_STALE_AFTER=0 FM_STATE_OVERRIDE="$state" bash -c '
+    . "$1"
+    if fm_lock_try_acquire "$2"; then rc=0; else rc=1; fi
+    printf "rc=%s held=%s\n" "$rc" "${FM_LOCK_HELD_PID:-}"
+  ' _ "$LIB" "$lockdir")
+  is_live_non_zombie "$holder" || fail "exec'ing holder died during the takeover attempt"
+  case "$out" in
+    "rc=1 held=$holder") ;;
+    *) fail "a live holder lost its lock after exec replaced its command line: $out" ;;
+  esac
+  lockpid=$(cat "$lockdir/pid" 2>/dev/null || true)
+  [ "$lockpid" = "$holder" ] || fail "exec'ing holder's lock pid was replaced (got '$lockpid')"
+
+  kill "$holder" 2>/dev/null || true
+  wait "$holder" 2>/dev/null || true
+  pass "a live holder that execs keeps its lock"
+}
+
 test_proc_pid_identity_ignores_wall_clock_and_detects_pid_reuse() {
-  local dir state proc_root pid identity_key before after_time_jump after_pid_reuse
+  local dir state proc_root pid identity_key before after_time_jump after_pid_reuse after_exec
   dir=$(make_case proc-pid-identity)
   state="$dir/state"
   proc_root="$dir/proc"
@@ -1468,9 +1534,14 @@ test_proc_pid_identity_ignores_wall_clock_and_detects_pid_reuse() {
 
   [ "$after_time_jump" = "$before" ] \
     || fail "/proc process identity changed with btime (before '$before', after '$after_time_jump')"
-  [ "$before" = "$identity_key=987654 cmdline-hex=62617368002f706174682077697468207370616365732f666d2d77617463682e7368002d2d666c616700" ] \
-    || fail "/proc process identity did not combine parsed starttime field 22 with the full cmdline ('$before')"
-  pass "/proc process identity ignores simulated btime changes"
+  [ "$before" = "$identity_key=987654" ] \
+    || fail "/proc process identity was not the parsed starttime field 22 alone ('$before')"
+  printf 'sleep\0300\0' > "$proc_root/$pid/cmdline"
+  after_exec=$(FM_PROC_ROOT_OVERRIDE="$proc_root" FM_STATE_OVERRIDE="$state" bash -c '. "$1"; fm_pid_identity "$2"' _ "$LIB" "$pid") \
+    || fail "could not re-read fake Linux process identity after a command-line replacement"
+  [ "$after_exec" = "$before" ] \
+    || fail "/proc process identity changed when exec replaced argv (before '$before', after '$after_exec')"
+  pass "/proc process identity ignores simulated btime changes and argv replacement"
 
   write_fake_proc_identity "$proc_root" "$pid" 987655
   after_pid_reuse=$(FM_PROC_ROOT_OVERRIDE="$proc_root" FM_STATE_OVERRIDE="$state" bash -c '. "$1"; fm_pid_identity "$2"' _ "$LIB" "$pid") \
@@ -1536,7 +1607,7 @@ test_msys_pid_identity_uses_proc() {
   kill "$live" 2>/dev/null || true
   wait "$live" 2>/dev/null || true
   case "$identity" in
-    proc-starttime=*" cmdline-hex="*) ;;
+    proc-starttime=[0-9]*) ;;
     *) fail "MSYS process identity did not use compatible /proc fields ('$identity')" ;;
   esac
   pass "MSYS process identity uses compatible /proc fields"
@@ -1544,6 +1615,7 @@ test_msys_pid_identity_uses_proc() {
 
 test_singleton_start
 test_pid_identity_is_locale_invariant
+test_live_holder_that_execs_keeps_its_lock
 test_proc_pid_identity_ignores_wall_clock_and_detects_pid_reuse
 test_msys_pid_identity_uses_proc
 test_stale_watch_lock_reclaimed
