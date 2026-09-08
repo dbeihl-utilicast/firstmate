@@ -443,7 +443,8 @@ fm_lock_cache_self_identity() {  # <pid>
 fm_lock_write_owner_record() {  # <ownerdir> <pid> <identity>
   local ownerdir=$1 pid=$2 identity=$3
   if ! {
-    printf '%s\n' "$pid" > "$ownerdir/pid"
+    printf '\n' > "$ownerdir/pid-identity" &&
+    printf '%s\n' "$pid" > "$ownerdir/pid" &&
     printf '%s\n' "$identity" > "$ownerdir/pid-identity"
   } 2>/dev/null; then
     return 1
@@ -926,7 +927,10 @@ fm_lock_try_acquire() {
     if fm_lock_try_create "$lockdir"; then
       return 0
     fi
-    [ -e "$lockdir" ] || [ -L "$lockdir" ] || return 2
+    if [ ! -e "$lockdir" ] && [ ! -L "$lockdir" ]; then
+      printf 'lock: cannot establish owner record for %s\n' "$lockdir" >&2
+      return 2
+    fi
     FM_LOCK_HELD_PID=$(cat "$lockdir/pid" 2>/dev/null || true)
     return 1
   fi
@@ -947,7 +951,10 @@ fm_lock_try_acquire() {
     if fm_lock_try_create "$lockdir"; then
       return 0
     fi
-    [ -e "$lockdir" ] || [ -L "$lockdir" ] || return 2
+    if [ ! -e "$lockdir" ] && [ ! -L "$lockdir" ]; then
+      printf 'lock: cannot establish owner record for %s\n' "$lockdir" >&2
+      return 2
+    fi
     FM_LOCK_HELD_PID=$(cat "$lockdir/pid" 2>/dev/null || true)
     return 1
   fi
@@ -1018,6 +1025,7 @@ fm_lock_try_acquire() {
   fi
   if [ "$rc" -ne 0 ]; then
     if [ ! -e "$lockdir" ] && [ ! -L "$lockdir" ]; then
+      printf 'lock: cannot establish owner record for %s\n' "$lockdir" >&2
       rc=2
     fi
     # shellcheck disable=SC2034 # Read by callers after fm_lock_try_acquire returns.
@@ -1059,6 +1067,7 @@ _fm_lock_acquire_wait_handoff() {  # <lockdir> <caller-pid>
   fm_current_pid current || { fm_lock_release "$lockdir"; return 1; }
   pid_back=$(cat "$ownerdir/pid" 2>/dev/null || true)
   if [ "$pid_back" != "$current" ] \
+    || ! printf '\n' > "$ownerdir/pid-identity" 2>/dev/null \
     || ! printf '%s\n' "$caller_pid" > "$ownerdir/pid" 2>/dev/null \
     || ! printf '%s\n' "$caller_identity" > "$ownerdir/pid-identity" 2>/dev/null \
     || [ "$(cat "$ownerdir/pid" 2>/dev/null || true)" != "$caller_pid" ] \
@@ -1105,6 +1114,7 @@ fm_lock_acquire_wait_bounded() {
 
   if [ "$rc" -eq 2 ]; then
     FM_LOCK_HELD_PID=
+    printf 'lock: cannot establish owner record for %s\n' "$lockdir" >&2
     return "$rc"
   fi
   owner_pid=$(cat "$lockdir/pid" 2>/dev/null || true)
@@ -1690,7 +1700,7 @@ fm_wake_append() {
   recovery_marker="$STATE/.watcher-down"
   status=0
 
-  fm_lock_acquire_wait "$FM_WAKE_QUEUE_LOCK"
+  fm_lock_acquire_wait "$FM_WAKE_QUEUE_LOCK" || return "$?"
   _fm_recovery_marker_publish "$recovery_marker" downtime || status=$?
   if [ "$status" -eq 0 ]; then
     seq=$(cat "$seq_file" 2>/dev/null || echo 0)
@@ -1719,7 +1729,7 @@ fm_wake_queued_keys() {
     signal|stale|check|heartbeat) ;;
     *) printf 'fm_wake_queued_keys: invalid wake kind: %s\n' "$kind" >&2; return 2 ;;
   esac
-  fm_lock_acquire_wait "$FM_WAKE_QUEUE_LOCK"
+  fm_lock_acquire_wait "$FM_WAKE_QUEUE_LOCK" || return "$?"
   fm_wake_queued_keys_locked "$kind"
   fm_lock_release "$FM_WAKE_QUEUE_LOCK"
 }
