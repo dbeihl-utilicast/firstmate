@@ -556,30 +556,45 @@ test_lock_retries_lost_creation_race() {
 }
 
 test_lock_create_failure_does_not_recurse_through_steal() {
-  local dir state lockdir log out attempts
+  local dir state lockdir log out attempts acquire real_mktemp
   dir=$(make_case lock-create-failure)
   state="$dir/state"
   lockdir="$state/.uncreatable.lock"
   log="$dir/mktemp-templates"
-  : > "$log"
-  out=$(FM_STATE_OVERRIDE="$state" FM_TEST_MKTEMP_LOG="$log" bash -c '
-    . "$1"
-    mktemp() {
-      printf "%s\n" "$*" >> "$FM_TEST_MKTEMP_LOG"
-      return 1
-    }
-    if fm_lock_try_acquire "$2"; then rc=0; else rc=1; fi
-    printf "rc=%s\n" "$rc"
-  ' _ "$LIB" "$lockdir" 2>"$dir/stderr")
-  [ "$out" = "rc=1" ] || fail "unusable owner-dir creation did not fail the acquire: $out"
-  ! grep -q '\.steal' "$log" \
-    || fail "acquire attempted a steal lock after an owner-dir creation failure"
-  attempts=$(wc -l < "$log")
-  [ "$attempts" -le 2 ] \
-    || fail "acquire retried owner-dir creation $attempts times after a creation failure"
-  [ ! -e "$lockdir" ] && [ ! -L "$lockdir" ] \
-    || fail "failed acquire published a lock anyway"
-  pass "an owner-dir creation failure returns instead of recursing through steal locks"
+  real_mktemp=$(command -v mktemp)
+  cat > "$dir/fakebin/mktemp" <<'SH'
+#!/usr/bin/env bash
+case "$*" in
+  *"$FM_TEST_LOCK"*)
+    printf '%s\n' "$*" >> "$FM_TEST_MKTEMP_LOG"
+    exit 1
+    ;;
+esac
+exec "$FM_TEST_REAL_MKTEMP" "$@"
+SH
+  chmod +x "$dir/fakebin/mktemp"
+  . "$ROOT/bin/fm-timeout-lib.sh"
+  for acquire in fm_lock_try_acquire fm_lock_acquire_wait fm_lock_acquire_wait_bounded _fm_lock_acquire_wait_handoff; do
+    : > "$log"
+    out=$(fm_run_timed 4 env PATH="$dir/fakebin:$PATH" FM_STATE_OVERRIDE="$state" \
+      FM_TEST_LOCK="$lockdir" FM_TEST_MKTEMP_LOG="$log" FM_TEST_REAL_MKTEMP="$real_mktemp" \
+      bash -c '
+        . "$1"
+        if [ "$3" = _fm_lock_acquire_wait_handoff ]; then argument=$4; else argument=10; fi
+        if "$3" "$2" "$argument"; then rc=0; else rc=$?; fi
+        printf "rc=%s held=%s\n" "$rc" "${FM_LOCK_HELD_PID:-}"
+      ' _ "$LIB" "$lockdir" "$acquire" "$$" 2>"$dir/stderr")
+    [ "$out" = "rc=2 held=" ] \
+      || fail "$acquire did not promptly distinguish creation failure from contention: $out"
+    ! grep -q '\.steal' "$log" \
+      || fail "$acquire attempted a steal lock after an owner-dir creation failure"
+    attempts=$(wc -l < "$log")
+    [ "$attempts" -eq 2 ] \
+      || fail "$acquire made $attempts owner-dir attempts instead of returning after two"
+    [ ! -e "$lockdir" ] && [ ! -L "$lockdir" ] \
+      || fail "$acquire published a lock after creation failed"
+    pass "$acquire promptly returns creation failure without polling or steal recursion"
+  done
 }
 
 test_lock_honours_production_identity_writer_format() {
