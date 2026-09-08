@@ -461,7 +461,7 @@ fm_lock_cache_self_identity() {  # <pid>
   if [ "$FM_LOCK_SELF_PID" = "$mypid" ] && [ -n "$FM_LOCK_SELF_IDENTITY" ]; then
     return 0
   fi
-  identity=$(fm_lock_pid_identity "$mypid") || return 1
+  identity=$(fm_lock_pid_identity "$mypid" 2>/dev/null) || identity=
   FM_LOCK_SELF_PID=$mypid
   FM_LOCK_SELF_IDENTITY=$identity
 }
@@ -481,7 +481,7 @@ fm_lock_write_owner_record() {  # <ownerdir> <pid> <identity>
 fm_lock_prepare_owner() {
   local ownerdir=$1 mypid
   fm_current_pid mypid || return 1
-  fm_lock_cache_self_identity "$mypid" || return 1
+  fm_lock_cache_self_identity "$mypid"
   fm_lock_write_owner_record "$ownerdir" "$mypid" "$FM_LOCK_SELF_IDENTITY"
 }
 
@@ -529,8 +529,8 @@ fm_lock_claim_blocked_by_steal() {
 fm_lock_claim() {
   local lockdir=$1 ownerdir=$2 allowed_steal_owner=${3:-} mypid
   fm_current_pid mypid || return 1
-  if ! fm_lock_cache_self_identity "$mypid" \
-    || ! fm_lock_write_owner_record "$ownerdir" "$mypid" "$FM_LOCK_SELF_IDENTITY"; then
+  fm_lock_cache_self_identity "$mypid"
+  if ! fm_lock_write_owner_record "$ownerdir" "$mypid" "$FM_LOCK_SELF_IDENTITY"; then
     fm_lock_discard_owner "$ownerdir"
     return 1
   fi
@@ -945,6 +945,9 @@ fm_lock_try_acquire() {
 
   if fm_lock_try_create "$lockdir"; then
     return 0
+  fi
+  if [ ! -e "$lockdir" ] && [ ! -L "$lockdir" ]; then
+    return 1
   fi
 
   fm_current_pid current || return 1

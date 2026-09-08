@@ -412,6 +412,97 @@ test_lock_reclaims_reused_pid_and_respects_slow_owner() {
   pass "reused-pid stale lock reclaims while an identity-matched slow owner holds"
 }
 
+test_lock_acquires_and_stays_closed_without_process_identity() {
+  local dir state noident lockdir out live dead recorded
+  dir=$(make_case lock-no-identity)
+  state="$dir/state"
+  noident="$dir/noident"
+  mkdir -p "$noident"
+  printf '#!/bin/sh\nexit 1\n' > "$noident/ps"
+  chmod +x "$noident/ps"
+
+  lockdir="$state/.noident.lock"
+  out=$(PATH="$noident:$PATH" FM_PROC_ROOT_OVERRIDE="$dir/absent-proc" \
+    FM_STATE_OVERRIDE="$state" bash -c '
+    . "$1"
+    if fm_lock_try_acquire "$2"; then rc=0; else rc=1; fi
+    printf "rc=%s pid=%s identity=[%s]\n" "$rc" \
+      "$(cat "$2/pid" 2>/dev/null || true)" \
+      "$(cat "$2/pid-identity" 2>/dev/null || true)"
+  ' _ "$LIB" "$lockdir")
+  case "$out" in
+    "rc=0 pid="*" identity=[]") ;;
+    *) fail "lock could not be acquired without readable process identity: $out" ;;
+  esac
+  rm -rf "$lockdir" "$state"/.noident.lock.owner.*
+
+  sleep 30 &
+  live=$!
+  mkdir "$lockdir"
+  printf '%s\n' "$live" > "$lockdir/pid"
+  : > "$lockdir/pid-identity"
+  out=$(FM_LOCK_STALE_AFTER=0 FM_STATE_OVERRIDE="$state" bash -c '
+    . "$1"
+    if fm_lock_try_acquire "$2"; then rc=0; else rc=1; fi
+    printf "rc=%s held=%s\n" "$rc" "${FM_LOCK_HELD_PID:-}"
+  ' _ "$LIB" "$lockdir")
+  is_live_non_zombie "$live" || fail "identity-less lock check signalled the live owner"
+  kill "$live" 2>/dev/null || true
+  wait "$live" 2>/dev/null || true
+  case "$out" in
+    "rc=1 held=$live") ;;
+    *) fail "identity-less lock was stolen from a live owner: $out" ;;
+  esac
+  recorded=$(cat "$lockdir/pid" 2>/dev/null || true)
+  [ "$recorded" = "$live" ] || fail "identity-less live owner's pid was clobbered (got '$recorded')"
+  rm -rf "$lockdir"
+
+  dead=$(dead_pid)
+  mkdir "$lockdir"
+  printf '%s\n' "$dead" > "$lockdir/pid"
+  : > "$lockdir/pid-identity"
+  out=$(FM_STATE_OVERRIDE="$state" bash -c '
+    . "$1"
+    if fm_lock_acquire_wait_bounded "$2" 5; then rc=0; else rc=$?; fi
+    printf "rc=%s pid=%s\n" "$rc" "$(cat "$2/pid" 2>/dev/null || true)"
+  ' _ "$LIB" "$lockdir")
+  case "$out" in
+    "rc=0 pid="*) ;;
+    *) fail "identity-less dead-owner lock was not reclaimed: $out" ;;
+  esac
+  case "${out#rc=0 pid=}" in
+    "$dead"|''|*[!0-9]*) fail "identity-less dead-owner lock kept the dead pid: $out" ;;
+  esac
+  pass "missing process identity still acquires, holds closed on a live owner, reclaims a dead one"
+}
+
+test_lock_create_failure_does_not_recurse_through_steal() {
+  local dir state lockdir log out attempts
+  dir=$(make_case lock-create-failure)
+  state="$dir/state"
+  lockdir="$state/.uncreatable.lock"
+  log="$dir/mktemp-templates"
+  : > "$log"
+  out=$(FM_STATE_OVERRIDE="$state" FM_TEST_MKTEMP_LOG="$log" bash -c '
+    . "$1"
+    mktemp() {
+      printf "%s\n" "$*" >> "$FM_TEST_MKTEMP_LOG"
+      return 1
+    }
+    if fm_lock_try_acquire "$2"; then rc=0; else rc=1; fi
+    printf "rc=%s\n" "$rc"
+  ' _ "$LIB" "$lockdir" 2>"$dir/stderr")
+  [ "$out" = "rc=1" ] || fail "unusable owner-dir creation did not fail the acquire: $out"
+  ! grep -q 'steal\.steal' "$log" \
+    || fail "acquire recursed into a nested steal lock after a creation failure"
+  attempts=$(wc -l < "$log")
+  [ "$attempts" -le 2 ] \
+    || fail "acquire retried owner-dir creation $attempts times after a creation failure"
+  [ ! -e "$lockdir" ] && [ ! -L "$lockdir" ] \
+    || fail "failed acquire published a lock anyway"
+  pass "an owner-dir creation failure returns instead of recursing through steal locks"
+}
+
 test_lock_refuses_unverified_owner_record() {
   local dir state lockdir ownerdir field out strays
   dir=$(make_case lock-owner-readback)
@@ -1243,6 +1334,8 @@ test_lock_live_steal_mutex_is_not_reclaimed
 test_lock_does_not_steal_live_lock
 test_lock_reclaims_reused_pid_and_respects_slow_owner
 test_lock_refuses_unverified_owner_record
+test_lock_acquires_and_stays_closed_without_process_identity
+test_lock_create_failure_does_not_recurse_through_steal
 test_lock_empty_pid_uses_minimum_grace
 test_lock_late_claim_loses_after_recreate
 test_lock_paused_mid_acquire_claim_fails_during_steal
