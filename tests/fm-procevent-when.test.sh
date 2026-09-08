@@ -416,4 +416,23 @@ assert_absent "$H/state/procevent/when-group-writable-test.source" "no registry 
 chmod 700 "$H/state"
 pass "a group-writable state root is refused before any files are written"
 
+
+# --- a state root that turns insecure after arming is no longer swallowed silently ---
+H="$TMP_ROOT/h-insecure-after-arm"; new_home "$H"
+when "$H" arm survives-relax --interval 0.1 --stable 1 --condition true --action true >/dev/null \
+  || fail "could not arm against a private state root"
+assert_absent "$H/.procevent-state-insecure" "no insecure marker before the root is relaxed"
+chmod 775 "$H/state" || fail "could not relax the state directory to group-writable"
+pe "$H" reconcile >/dev/null 2>&1
+detected_first=$(awk -F= '$1=="detected"{print $2}' "$H/.procevent-state-insecure" 2>/dev/null)
+[ -n "$detected_first" ] || fail "reconcile against an insecure root left no durable record where the caller swallows the failure"
+assert_grep "state=$H/state" "$H/.procevent-state-insecure" "the durable record names the offending state root"
+pe "$H" reconcile >/dev/null 2>&1
+detected_second=$(awk -F= '$1=="detected"{print $2}' "$H/.procevent-state-insecure" 2>/dev/null)
+[ "$detected_first" = "$detected_second" ] || fail "a repeat failure rewrote the durable record instead of keeping the first detection"
+chmod 700 "$H/state" || fail "could not restore private permissions"
+pe "$H" reconcile >/dev/null 2>&1 || fail "reconcile against a restored private root should succeed"
+assert_absent "$H/.procevent-state-insecure" "the durable record was not cleared once the root is private again"
+pass "a state root that turns insecure after arming leaves a durable record instead of vanishing"
+
 printf 'all fm-procevent-when tests passed\n'
