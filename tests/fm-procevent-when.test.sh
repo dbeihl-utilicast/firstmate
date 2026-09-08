@@ -696,4 +696,35 @@ assert_present "$M" "the record written during the retire's own decision was era
 assert_grep "state=concurrent" "$M" "the surviving record is the one written during the decision"
 pass "a record written while a retire decides is not erased by that retire"
 
+# --- a record that appears while a run with no record of its own retires ----------
+# The snapshot was `absent`, so nothing of this run's is at the path; a concurrent
+# failing command lands its record there while the retire is still running. The
+# stub installs it on the retire's first fm_marker_clear, which is the exact
+# instant the previous code unlinked the path.
+H="$TMP_ROOT/h-retire-race-absent"; new_home "$H"
+M="$H/.procevent-state-insecure"
+printf 'fm-procevent-state-insecure-surfaced-v1\n' > "$M-surfaced"
+seen=$(in_lib fm_procevent_insecure_marker_identity "$M")
+[ "$seen" = absent ] || fail "the snapshot claimed a record where none exists"
+FM_HOME="$TMP_ROOT" bash -c '
+  . "$1/bin/fm-pr-lib.sh"
+  . "$1/bin/fm-wake-lib.sh"
+  . "$1/bin/fm-procevent-lib.sh"
+  marker=$2
+  eval "$(declare -f fm_marker_clear | sed "1s/^fm_marker_clear/fm_marker_clear_real/")"
+  fm_marker_clear() {
+    if [ ! -e "$marker.raced" ]; then
+      : > "$marker.raced"
+      printf "fm-procevent-state-insecure-v1\ndetected=2\nstate=concurrent\n" > "$marker.newer"
+      mv -f "$marker.newer" "$marker"
+    fi
+    fm_marker_clear_real "$@"
+  }
+  fm_procevent_insecure_marker_retire "$marker" "$3"
+' _ "$ROOT" "$M" "$seen"
+assert_present "$M" "a record that appeared during a no-record retire was erased"
+assert_grep "state=concurrent" "$M" "the surviving record is the one written during the retire"
+assert_absent "$M-surfaced" "the stale suppressor outlived the record it suppressed"
+pass "a retire that saw no record cannot erase one that appears while it runs"
+
 printf 'all fm-procevent-when tests passed\n'
