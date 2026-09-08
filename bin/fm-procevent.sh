@@ -207,10 +207,10 @@ INSECURE_MARKER="$FM_HOME/.procevent-state-insecure"
 
 insecure_marker_record() {  # <attempted-state>
   local tmp
-  [ ! -e "$INSECURE_MARKER" ] || [ -L "$INSECURE_MARKER" ] || return 0
+  ! fm_marker_settled "$INSECURE_MARKER" || return 0
   tmp=$(umask 077; mktemp "$INSECURE_MARKER.XXXXXX" 2>/dev/null) || return 0
   printf 'fm-procevent-state-insecure-v1\ndetected=%s\nstate=%s\n' "$(date +%s)" "$1" > "$tmp" \
-    2>/dev/null && rm -f -- "$INSECURE_MARKER" 2>/dev/null \
+    2>/dev/null && fm_marker_clear "$INSECURE_MARKER" \
     && mv -f -- "$tmp" "$INSECURE_MARKER" 2>/dev/null && return 0
   rm -f -- "$tmp" 2>/dev/null || true
 }
@@ -218,7 +218,8 @@ insecure_marker_record() {  # <attempted-state>
 if [ -e "$STATE" ] || [ -L "$STATE" ]; then
   ATTEMPTED_STATE=$STATE
   if state_root_bind; then
-    rm -f -- "$INSECURE_MARKER" "$INSECURE_MARKER-surfaced" 2>/dev/null || true
+    fm_marker_clear "$INSECURE_MARKER" || true
+    fm_marker_clear "$INSECURE_MARKER-surfaced" || true
   else
     insecure_marker_record "$ATTEMPTED_STATE"
     die "process-event state root is not a private directory"

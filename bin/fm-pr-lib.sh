@@ -271,6 +271,27 @@ fm_pr_private_file_valid() {
   [ "$(fm_pr_file_link_count "$path")" = 1 ]
 }
 
+# A marker this repo stages with mktemp+rename counts as settled when the path
+# holds the regular file that code writes, or something a rename cannot replace,
+# so an unreplaceable path suppresses the mechanism rather than repeating it.
+fm_marker_settled() {  # <path>
+  local path=$1
+  [ ! -L "$path" ] || return 1
+  [ -f "$path" ] && return 0
+  [ -d "$path" ] && [ -n "$(ls -A "$path" 2>/dev/null)" ]
+}
+
+# Free <path> so a staged rename replaces it instead of writing through a
+# symlink or into a directory. Fails when the path is still occupied.
+fm_marker_clear() {  # <path>
+  local path=$1
+  rm -f -- "$path" 2>/dev/null || true
+  if [ -e "$path" ] || [ -L "$path" ]; then
+    rmdir -- "$path" 2>/dev/null || true
+  fi
+  [ ! -e "$path" ] && [ ! -L "$path" ]
+}
+
 fm_pr_regular_destination_or_absent() {
   local path=$1
   [ ! -L "$path" ] || return 1

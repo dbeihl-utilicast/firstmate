@@ -1317,8 +1317,7 @@ procevent_state_insecure_after_output() {
   local marker="$FM_HOME/.procevent-state-insecure-surfaced" tmp
   [ "$1" -eq 0 ] || return 0
   tmp=$(umask 077; mktemp "$marker.XXXXXX" 2>/dev/null) || return 1
-  rm -f -- "$marker" 2>/dev/null
-  mv -f -- "$tmp" "$marker" 2>/dev/null && return 0
+  fm_marker_clear "$marker" && mv -f -- "$tmp" "$marker" 2>/dev/null && return 0
   rm -f -- "$tmp" 2>/dev/null || true
   return 1
 }
@@ -1834,9 +1833,8 @@ while :; do
   # itself records that specific failure once at .procevent-state-insecure and
   # clears it the next time the root is private again; surface it here exactly
   # once rather than every cycle it stays broken.
-  if [ -e "$FM_HOME/.procevent-state-insecure" ] \
-    && { [ ! -e "$FM_HOME/.procevent-state-insecure-surfaced" ] \
-      || [ -L "$FM_HOME/.procevent-state-insecure-surfaced" ]; }; then
+  if fm_marker_settled "$FM_HOME/.procevent-state-insecure" \
+    && ! fm_marker_settled "$FM_HOME/.procevent-state-insecure-surfaced"; then
     # shellcheck disable=SC2034 # Consumed by wake() in the separately linted transition owner.
     FM_WAKE_POST_OUTPUT_ACTION=procevent_state_insecure_after_output
     wake "check: procevent-state-insecure"

@@ -95,6 +95,17 @@ count_lines() { [ -e "$1" ] && grep -c . "$1" || echo 0; }
 # Run the real watcher against <home> for at most <tenths> deciseconds, then stop
 # it. An out path of "-" gives the watcher a stdout reader that is already gone,
 # which is how an actionable wake fails to reach firstmate.
+# Queue a process-event wake so a run that must NOT report the insecure state
+# root still ends in an observable wake. procevent_surface_queued sits directly
+# after the insecure check, so seeing its reason proves the cycle got past it.
+queue_procevent_anchor() {  # <home> <key>
+  FM_STATE_OVERRIDE="$1/state" bash -c '
+    # shellcheck disable=SC1090,SC1091
+    . "$1"
+    fm_wake_append check "procevent:$2" "check: process-event result captured: $2"
+  ' _ "$ROOT/bin/fm-wake-lib.sh" "$2"
+}
+
 run_watcher() {  # <home> <out|-> <tenths>
   local home=$1 out=$2 tenths=$3 pid= wrapper i pidfile
   pidfile="$home/.run-watcher.pid"
@@ -489,7 +500,10 @@ assert_grep "check: procevent-state-insecure" "$TMP_ROOT/watch-insecure.out" \
   "the watcher surfaced the state root that stopped being private"
 assert_present "$H/.procevent-state-insecure-surfaced" "the delivered wake latched the one-shot suppressor"
 
-run_watcher "$H" "$TMP_ROOT/watch-insecure-again.out" 30
+queue_procevent_anchor "$H" anchor-again
+run_watcher "$H" "$TMP_ROOT/watch-insecure-again.out" 100
+assert_grep "process-event result captured" "$TMP_ROOT/watch-insecure-again.out" \
+  "the run that must not re-report never completed a cycle past the insecure check"
 if grep -Fq "check: procevent-state-insecure" "$TMP_ROOT/watch-insecure-again.out"; then
   fail "the watcher re-reported the same insecure state root on a later cycle"
 fi
@@ -517,7 +531,10 @@ assert_grep "check: procevent-state-insecure" "$TMP_ROOT/watch-symlink-dir.out" 
   "a symlinked directory at the suppressor path silenced the wake"
 [ -z "$(ls -A "$H/surfaced-target-dir")" ] || fail "the suppressor was written into its symlinked directory"
 [ ! -L "$H/.procevent-state-insecure-surfaced" ] || fail "the suppressor stayed a symlink to a directory"
-run_watcher "$H" "$TMP_ROOT/watch-symlink-dir-again.out" 30
+queue_procevent_anchor "$H" anchor-symlink-dir
+run_watcher "$H" "$TMP_ROOT/watch-symlink-dir-again.out" 100
+assert_grep "process-event result captured" "$TMP_ROOT/watch-symlink-dir-again.out" \
+  "the run that must not re-report never completed a cycle past the insecure check"
 if grep -Fq "check: procevent-state-insecure" "$TMP_ROOT/watch-symlink-dir-again.out"; then
   fail "the suppressor never committed, so the watcher woke again every cycle"
 fi
@@ -541,5 +558,31 @@ assert_grep "check: procevent-state-insecure" "$TMP_ROOT/watch-symlink.out" \
 [ ! -L "$H/.procevent-state-insecure-surfaced" ] || fail "the suppressor stayed a symlink"
 chmod 700 "$H/state" || fail "could not restore private permissions"
 pass "a planted symlink cannot redirect or silence either marker"
+
+# --- a plain directory at either marker path cannot silence the mechanism -----------
+H="$TMP_ROOT/h-marker-dir"; new_home "$H"
+mkdir "$H/.procevent-state-insecure"
+chmod 775 "$H/state" || fail "could not relax the state directory to group-writable"
+pe "$H" reconcile >/dev/null 2>&1
+[ ! -d "$H/.procevent-state-insecure" ] || fail "a directory at the record path was read as a valid record"
+assert_grep "state=$H/state" "$H/.procevent-state-insecure" \
+  "the record replacing a directory names the offending state root"
+
+mkdir "$H/.procevent-state-insecure-surfaced"
+run_watcher "$H" "$TMP_ROOT/watch-marker-dir.out" 100
+assert_grep "check: procevent-state-insecure" "$TMP_ROOT/watch-marker-dir.out" \
+  "a directory at the suppressor path silenced the wake"
+[ ! -d "$H/.procevent-state-insecure-surfaced" ] || fail "the suppressor stayed a directory"
+queue_procevent_anchor "$H" anchor-marker-dir
+run_watcher "$H" "$TMP_ROOT/watch-marker-dir-again.out" 100
+assert_grep "process-event result captured" "$TMP_ROOT/watch-marker-dir-again.out" \
+  "the run that must not re-report never completed a cycle past the insecure check"
+if grep -Fq "check: procevent-state-insecure" "$TMP_ROOT/watch-marker-dir-again.out"; then
+  fail "the suppressor never committed, so the watcher woke again every cycle"
+fi
+chmod 700 "$H/state" || fail "could not restore private permissions"
+pe "$H" reconcile >/dev/null 2>&1 || fail "reconcile against a restored private root should succeed"
+assert_absent "$H/.procevent-state-insecure" "the record replacing a directory was never cleared"
+pass "a directory at either marker path is replaced, not treated as a valid marker"
 
 printf 'all fm-procevent-when tests passed\n'
