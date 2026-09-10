@@ -393,6 +393,7 @@ fm_lock_clean_known_files() {
   rm -f \
     "$lockdir/pid" \
     "$lockdir/fm-home" \
+    "$lockdir/pid-handoff" \
     "$lockdir/pid-identity" \
     "$lockdir/role" \
     "$lockdir/watcher-path" \
@@ -441,17 +442,27 @@ fm_lock_cache_self_identity() {  # <pid>
   FM_LOCK_SELF_IDENTITY=$identity
 }
 
-fm_lock_write_owner_record() {  # <ownerdir> <pid> <identity>
-  local ownerdir=$1 pid=$2 identity=$3
-  if ! {
-    printf '\n' > "$ownerdir/pid-identity" &&
-    printf '%s\n' "$pid" > "$ownerdir/pid" &&
-    printf '%s\n' "$identity" > "$ownerdir/pid-identity"
-  } 2>/dev/null; then
+_fm_lock_atomic_write() {  # <path> <content>
+  local path=$1 content=$2 tmp dir
+  [ ! -L "$path" ] || return 1
+  dir=$(dirname "$path") || return 1
+  dir=$(dirname "$dir") || return 1
+  tmp=$(mktemp "$dir/.fm-lock-record.XXXXXX") || return 1
+  if ! printf '%s\n' "$content" > "$tmp" || ! _fm_atomic_replace "$tmp" "$path" 2>/dev/null; then
+    rm -f "$tmp" 2>/dev/null || true
     return 1
   fi
+}
+
+fm_lock_write_owner_record() {  # <ownerdir> <pid> <identity>
+  local ownerdir=$1 pid=$2 identity=$3 handoff
+  handoff="$ownerdir/pid-handoff"
+  _fm_lock_atomic_write "$handoff" "$pid"$'\n'"$identity" || return 1
+  _fm_lock_atomic_write "$ownerdir/pid" "$pid" || return 1
+  _fm_lock_atomic_write "$ownerdir/pid-identity" "$identity" || return 1
   [ "$(cat "$ownerdir/pid" 2>/dev/null || true)" = "$pid" ] || return 1
   [ "$(cat "$ownerdir/pid-identity" 2>/dev/null || true)" = "$identity" ] || return 1
+  rm -f "$handoff" 2>/dev/null || true
 }
 
 fm_lock_prepare_owner() {
@@ -576,6 +587,20 @@ fm_lock_mid_acquire_is_fresh() {
   return 1
 }
 
+fm_lock_read_owner_identity() {  # <lockdir> <pid>
+  local lockdir=$1 pid=$2 handoff handoff_pid='' handoff_identity='' recorded
+  FM_LOCK_OWNER_IDENTITY=
+  handoff="$lockdir/pid-handoff"
+  if [ -f "$handoff" ] && [ ! -L "$handoff" ] \
+    && { IFS= read -r handoff_pid && IFS= read -r handoff_identity; } < "$handoff" \
+    && [ "$handoff_pid" = "$pid" ]; then
+    FM_LOCK_OWNER_IDENTITY=$handoff_identity
+    return 0
+  fi
+  IFS= read -r recorded 2>/dev/null < "$lockdir/pid-identity" || return 1
+  FM_LOCK_OWNER_IDENTITY=$recorded
+}
+
 # An unreadable or absent identity means held, never abandoned: a reused pid must
 # not let a dead owner's record become grounds for stealing a live process's lock.
 fm_lock_owner_is_abandoned() {  # <lockdir> <pid>
@@ -584,7 +609,8 @@ fm_lock_owner_is_abandoned() {  # <lockdir> <pid>
     ''|*[!0-9]*|0) return 0 ;;
   esac
   fm_pid_alive "$pid" || return 0
-  IFS= read -r recorded 2>/dev/null < "$lockdir/pid-identity" || return 1
+  fm_lock_read_owner_identity "$lockdir" "$pid" || return 1
+  recorded=$FM_LOCK_OWNER_IDENTITY
   [ -n "$recorded" ] || return 1
   current=$(fm_pid_identity "$pid" 2>/dev/null) || return 1
   [ "$current" != "$recorded" ]
@@ -1062,7 +1088,7 @@ fm_lock_acquire_wait() {
 # every interruption safe: before transfer the helper is the owner; after
 # transfer the still-live caller is the owner.
 _fm_lock_acquire_wait_handoff() {  # <lockdir> <caller-pid>
-  local lockdir=$1 caller_pid=$2 caller_identity ownerdir current pid_back identity_back
+  local lockdir=$1 caller_pid=$2 caller_identity ownerdir current pid_back
   case "$caller_pid" in ''|*[!0-9]*) return 1 ;; esac
   fm_pid_alive "$caller_pid" || return 1
   caller_identity=$(fm_pid_identity "$caller_pid" 2>/dev/null) || caller_identity=
@@ -1079,11 +1105,7 @@ _fm_lock_acquire_wait_handoff() {  # <lockdir> <caller-pid>
   fm_current_pid current || { fm_lock_release "$lockdir"; return 1; }
   pid_back=$(cat "$ownerdir/pid" 2>/dev/null || true)
   if [ "$pid_back" != "$current" ] \
-    || ! printf '\n' > "$ownerdir/pid-identity" 2>/dev/null \
-    || ! printf '%s\n' "$caller_pid" > "$ownerdir/pid" 2>/dev/null \
-    || ! printf '%s\n' "$caller_identity" > "$ownerdir/pid-identity" 2>/dev/null \
-    || [ "$(cat "$ownerdir/pid" 2>/dev/null || true)" != "$caller_pid" ] \
-    || [ "$(cat "$ownerdir/pid-identity" 2>/dev/null || true)" != "$caller_identity" ]; then
+    || ! fm_lock_write_owner_record "$ownerdir" "$caller_pid" "$caller_identity"; then
     fm_lock_release "$lockdir"
     return 1
   fi

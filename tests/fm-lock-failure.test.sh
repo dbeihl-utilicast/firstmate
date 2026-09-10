@@ -291,44 +291,76 @@ test_supervision_startup_reports_creation_failure() {
   done
 }
 
-test_interrupted_handoff_keeps_live_caller_held() {
-  local dir state lockdir holder helper rc out fault
-  for fault in kill write-failure; do
-    dir=$(failure_case "handoff-$fault")
-    state="$dir/state"
-    lockdir="$state/.handoff.lock"
-    holder=$$
-    FM_STATE_OVERRIDE="$state" bash -c '
-      . "$1"
-      caller=$3
-      fault=$4
-      caller_identity=$(fm_pid_identity "$caller") || exit 7
-      printf() {
-        if [ "$fault" = write-failure ] && [ "${2:-}" = "$caller_identity" ]; then
-          return 1
-        fi
-        command printf "$@"
-        if [ "$fault" = kill ] && [ "${2:-}" = "$caller" ]; then
-          kill -KILL "${BASHPID:-$$}"
-        fi
-      }
-      _fm_lock_acquire_wait_handoff "$2" "$caller"
-    ' _ "$LIB" "$lockdir" "$holder" "$fault" > "$dir/helper.out" 2> "$dir/helper.err" &
-    helper=$!
-    rc=0
-    wait "$helper" 2>/dev/null || rc=$?
-    [ "$rc" -ne 0 ] || fail "handoff fault did not interrupt the helper"
-    [ "$(cat "$lockdir/pid")" = "$holder" ] || fail "handoff did not reach caller pid publication"
-    [ ! -s "$lockdir/pid-identity" ] || [ -z "$(cat "$lockdir/pid-identity")" ] \
-      || fail "handoff paired its new pid with an earlier identity"
-    out=$(FM_STATE_OVERRIDE="$state" bash -c '
-      . "$1"
-      if fm_lock_try_acquire "$2"; then rc=0; else rc=$?; fi
-      printf "rc=%s held=%s pid=%s\n" "$rc" "$FM_LOCK_HELD_PID" "$(cat "$2/pid")"
-    ' _ "$LIB" "$lockdir")
-    [ "$out" = "rc=1 held=$holder pid=$holder" ] || fail "interrupted handoff allowed a live caller to lose its lock: $out"
-    pass "$fault during handoff preserves the live caller with a conservative empty identity"
-  done
+test_interrupted_handoff_reclaims_a_reused_caller_pid() {
+  local dir state lockdir caller helper rc out caller_identity recorded decoy newpid
+  dir=$(failure_case handoff-kill)
+  state="$dir/state"
+  lockdir="$state/.handoff.lock"
+  sleep 30 &
+  caller=$!
+  FM_LOCK_HOLDER_PIDS+=("$caller")
+  caller_identity=$(FM_STATE_OVERRIDE="$state" bash -c '. "$1"; fm_pid_identity "$2"' _ "$LIB" "$caller") \
+    || fail "could not identify the bounded-wait caller"
+  FM_STATE_OVERRIDE="$state" bash -c '
+    . "$1"
+    pid_writes=0
+    mv() {
+      local dest= rc
+      for dest; do :; done
+      command mv "$@"
+      rc=$?
+      case "$dest" in
+        */pid)
+          pid_writes=$((pid_writes + 1))
+          [ "$rc" -ne 0 ] || [ "$pid_writes" -ne 3 ] || kill -KILL "${BASHPID:-$$}"
+          ;;
+      esac
+      return "$rc"
+    }
+    _fm_lock_acquire_wait_handoff "$2" "$3"
+  ' _ "$LIB" "$lockdir" "$caller" > "$dir/helper.out" 2> "$dir/helper.err" &
+  helper=$!
+  rc=0
+  wait "$helper" 2>/dev/null || rc=$?
+  [ "$rc" -ne 0 ] || fail "handoff interruption did not kill the helper after caller publication"
+  [ "$(cat "$lockdir/pid")" = "$caller" ] || fail "handoff did not publish the caller pid before interruption"
+  recorded=$(cat "$lockdir/pid-identity" 2>/dev/null || true)
+  [ -n "$recorded" ] || fail "handoff interruption left an identity-less caller record"
+  [ "$(cat "$lockdir/pid-handoff" 2>/dev/null || true)" = "$caller"$'\n'"$caller_identity" ] \
+    || fail "handoff interruption did not preserve the caller identity transaction"
+  out=$(FM_STATE_OVERRIDE="$state" bash -c '
+    . "$1"
+    if fm_lock_try_acquire "$2"; then rc=0; else rc=$?; fi
+    printf "rc=%s held=%s pid=%s\n" "$rc" "$FM_LOCK_HELD_PID" "$(cat "$2/pid")"
+  ' _ "$LIB" "$lockdir")
+  [ "$out" = "rc=1 held=$caller pid=$caller" ] \
+    || fail "interrupted handoff allowed a live caller to lose its lock: $out"
+
+  kill "$caller" 2>/dev/null || true
+  wait "$caller" 2>/dev/null || true
+  sleep 1.1
+  sleep 30 &
+  decoy=$!
+  FM_LOCK_HOLDER_PIDS+=("$decoy")
+  printf '%s\n' "$decoy" > "$lockdir/pid"
+  out=$(FM_STATE_OVERRIDE="$state" bash -c '
+    . "$1"
+    if fm_lock_try_acquire "$2"; then
+      printf "rc=0 pid=%s\n" "$(cat "$2/pid")"
+      fm_lock_release "$2"
+    else
+      printf "rc=%s held=%s\n" "$?" "$FM_LOCK_HELD_PID"
+    fi
+  ' _ "$LIB" "$lockdir")
+  kill "$decoy" 2>/dev/null || true
+  wait "$decoy" 2>/dev/null || true
+  case "$out" in
+    "rc=0 pid="*) ;;
+    *) fail "interrupted handoff stayed held after the caller pid was reused: $out" ;;
+  esac
+  newpid=${out#rc=0 pid=}
+  case "$newpid" in "$decoy"|''|*[!0-9]*) fail "reused caller lock was not replaced: $out" ;; esac
+  pass "an interrupted handoff keeps its live caller and reclaims a reused caller pid"
 }
 
 test_reclaim_gap_is_retryable
@@ -339,4 +371,4 @@ test_grant_declines_unlocked_release
 test_metadata_and_lease_guards_refuse_mutation
 test_startup_harvest_refuses_unlocked_receipt
 test_supervision_startup_reports_creation_failure
-test_interrupted_handoff_keeps_live_caller_held
+test_interrupted_handoff_reclaims_a_reused_caller_pid
