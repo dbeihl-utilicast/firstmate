@@ -2393,7 +2393,8 @@ test_merged_poll_reregistration_after_notification_is_absorbed() {
   set -e
   [ "$rc" -eq 0 ] || fail "first merged watcher cycle failed: $(cat "$dir/watch-1.err")"
   first=$(cat "$dir/watch-1.out")
-  case "$first" in check:*task-a.check.sh:*merged) ;; *) fail "first merge confirmation was not delivered: $first" ;; esac
+  [ "$(grep -cxF "check: $state/task-a.check.sh: merged" "$dir/watch-1.out")" -eq 1 ] \
+    || fail "first merge confirmation was not delivered: $first"
   ack_watcher_cycle "$state" || fail "first merge confirmation acknowledgement failed"
   assert_poll_absent "$state" task-a
   [ -f "$state/task-a.pr-poll-merge-notified" ] || fail "the merge-notified marker was not recorded"
@@ -2580,10 +2581,8 @@ test_merged_poll_reports_upward_from_a_secondmate_home_once() {
   rc=$?
   set -e
   [ "$rc" -eq 0 ] || fail "merged-poll-upward: watcher failed: $(cat "$dir/watch-1.err")"
-  case "$(cat "$dir/watch-1.out")" in
-    check:*task-a.check.sh:*merged) ;;
-    *) fail "merged-poll-upward: the poll's own row was lost: $(cat "$dir/watch-1.out")" ;;
-  esac
+  [ "$(grep -cxF "check: $state/task-a.check.sh: merged" "$dir/watch-1.out")" -eq 1 ] \
+    || fail "merged-poll-upward: the poll's own row was lost: $(cat "$dir/watch-1.out")"
   assert_grep "done [key=merged-task-a]: merged task-a $url" "$replies" \
     "merged-poll-upward: a merge this home did not perform was never reported upward"
   [ "$(grep -c -F "$url" "$replies")" -eq 1 ] \
