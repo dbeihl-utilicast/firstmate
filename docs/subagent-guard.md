@@ -138,6 +138,7 @@ This is the same predicate `bin/fm-sessionstart-nudge.sh` and `bin/fm-turnend-gu
 
 A home is in scope when it has `AGENTS.md`, a `bin/` directory, an existing state directory, and either a plain checkout where git-dir equals git-common-dir, a valid `.fm-secondmate-home` marker, or a linked worktree that is its own leased primary home: its own `state/.lock` is held by this session's harness ancestry and no worktree of the repository records it as a task worktree (see [`turnend-guard.md`](turnend-guard.md)).
 The ancestry walk runs only inside a linked worktree, so a plain checkout or marked home pays no extra process checks per tool call.
+A no-mistakes gate worktree is refused before either test, so a gate agent stays out of scope for this hook exactly as it does for the session-open hooks.
 A marked secondmate home is in scope on purpose: it operates its own fleet and must dispatch through it for the same durability reasons.
 
 A crewmate's disposable task worktree is out of scope because no session of its own holds its lock, and because the home that spawned it records it as a task worktree.

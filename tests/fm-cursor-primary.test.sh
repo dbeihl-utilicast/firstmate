@@ -159,7 +159,8 @@ run_park() {  # <dir> [loop_count] [loop_ceiling]
 }
 
 # Run the park as a child of the fake cursor harness WITHOUT taking the home
-# lock: the shape of a crew/scout worktree, which never takes a home's helm.
+# lock: the shape of a crew/scout worktree that never ran session start, so no
+# session of its own ever claimed state/.lock.
 run_park_unlocked() {  # <dir>
   local dir=$1 payload
   payload='{"session_id":"sess-cursor","generation_id":"gen-0","loop_count":0,"status":"completed","hook_event_name":"stop","cursor_version":"2026.08.11-e8db854"}'
@@ -587,6 +588,8 @@ test_park_stands_down_after_session_takeover() {
   pass "cursor park: session takeover stops polling without output or state mutation"
 }
 
+# A firstmate-of-itself task worktree that ran session start DOES hold its own
+# live, self-owned lock; only its parent home's state/<id>.meta keeps it inert.
 test_park_inert_in_child_worktree() {
   local base child out
   base=$(make_primary_dir "$TMP_ROOT/park-base")
@@ -595,11 +598,31 @@ test_park_inert_in_child_worktree() {
   mkdir -p "$child/state"
   : > "$child/AGENTS.md"
   install_scripts "$child"
+  printf 'worktree=%s\nkind=ship\n' "$child" > "$base/state/park-child.meta"
+  grep -qx "worktree=$child" "$base/state/park-child.meta" \
+    || fail "park-child fixture: base meta does not name the child worktree"
+  : > "$child/state/task1.meta"
+  write_arm_fixture "$child" actionable
+  out=$(run_park "$child")
+  [ -z "$out" ] || fail "a crewmate worktree must stay outside primary scope: $out"
+  [ ! -e "$child/state/arm-ran" ] || fail "the park armed inside a parent-recorded task worktree"
+  pass "cursor park: inert inside a child crewmate worktree holding its own live lock"
+}
+
+test_park_inert_in_unlocked_child_worktree() {
+  local base child out
+  base=$(make_primary_dir "$TMP_ROOT/park-base-unlocked")
+  child="$TMP_ROOT/park-child-unlocked"
+  fm_git_worktree "$base" "$child" fm/cursor-park-child-unlocked
+  mkdir -p "$child/state"
+  : > "$child/AGENTS.md"
+  install_scripts "$child"
   : > "$child/state/task1.meta"
   write_arm_fixture "$child" actionable
   out=$(run_park_unlocked "$child")
-  [ -z "$out" ] || fail "a crewmate worktree must stay outside primary scope: $out"
-  pass "cursor park: inert inside a child crewmate worktree"
+  [ -z "$out" ] || fail "a never-locked crewmate worktree must stay outside primary scope: $out"
+  [ ! -e "$child/state/arm-ran" ] || fail "the park armed inside a never-locked task worktree"
+  pass "cursor park: inert inside a child crewmate worktree that never took a lock"
 }
 
 test_park_ignores_malformed_payload() {
@@ -710,6 +733,7 @@ test_park_stands_down_when_away_mode_activates_before_commit
 test_park_inert_without_session_lock
 test_park_stands_down_after_session_takeover
 test_park_inert_in_child_worktree
+test_park_inert_in_unlocked_child_worktree
 test_park_ignores_malformed_payload
 test_sessionstart_emits_additional_context
 test_sessionstart_silent_in_child_worktree

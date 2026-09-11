@@ -28,6 +28,7 @@ install_autoarm_scripts() {
   mkdir -p "$dir/bin"
   cp "$ROOT/bin/fm-claude-stop-autoarm.sh" "$dir/bin/fm-claude-stop-autoarm.sh"
   cp "$ROOT/bin/fm-primary-scope-lib.sh" "$dir/bin/fm-primary-scope-lib.sh"
+  cp "$ROOT/bin/fm-gate-refuse-lib.sh" "$dir/bin/fm-gate-refuse-lib.sh"
   cp "$ROOT/bin/fm-supervision-lib.sh" "$dir/bin/fm-supervision-lib.sh"
   cp "$ROOT/bin/fm-wake-lib.sh" "$dir/bin/fm-wake-lib.sh"
   cp "$ROOT/bin/fm-session-lock-lib.sh" "$dir/bin/fm-session-lock-lib.sh"
@@ -383,6 +384,29 @@ test_arms_in_linked_worktree_holding_own_live_lock() {
   [ -f "$dir/state/.claude-autoarm-epoch" ] || fail "hook wrote no epoch in a linked worktree holding its own live session lock"
   [ "$(epoch_outcome "$dir")" = rewake ] || fail "epoch must record outcome=rewake, got: $(epoch_outcome "$dir")"
   pass "auto-arm: claims a linked worktree that is its own home with the helm taken"
+}
+
+# The gate exemption: the same fixture that IS admitted above must stay inert
+# for a no-mistakes gate agent, which reaches fm-lock.sh through AGENTS.md
+# section 3 and so holds its own live, self-owned lock in a linked worktree.
+test_inert_in_gate_worktree_holding_own_live_lock() {
+  local base dir out status rc=0
+  base="$TMP_ROOT/gate-primary-base"
+  dir="$TMP_ROOT/gate-primary-home"
+  make_crewmate_worktree_dir "$base" "$dir" >/dev/null
+  : > "$dir/state/task.meta"
+  write_arm_fixture "$dir" actionable
+  out=$(printf '%s\n' '{"session_id":"sess-autoarm","stop_hook_active":false}' \
+    | env -u FM_GATE_REFUSE_BYPASS NO_MISTAKES_GATE=1 FM_HOME="$dir" "$FAKE_CLAUDE" -c '
+        printf "%s\n" "$$" > "$FM_HOME/state/.lock"
+        "$FM_HOME/bin/fm-claude-stop-autoarm.sh"
+      ' 2>/dev/null) || rc=$?
+  status=$rc
+  expect_code 0 "$status" "hook must stay inert for a no-mistakes gate agent in its own gate worktree"
+  [ -z "$out" ] || fail "hook emitted output inside a no-mistakes gate worktree: $out"
+  [ ! -e "$dir/state/arm-ran" ] || fail "hook armed inside a no-mistakes gate worktree"
+  [ ! -e "$dir/state/.claude-autoarm-epoch" ] || fail "hook wrote an epoch inside a no-mistakes gate worktree"
+  pass "auto-arm: inert in a no-mistakes gate worktree holding its own live session lock"
 }
 
 test_inert_without_session_lock() {
@@ -1334,6 +1358,7 @@ test_inert_in_task_worktree_recorded_by_parent_home
 test_inert_in_task_worktree_of_leased_home
 test_inert_in_linked_worktree_with_foreign_live_lock
 test_arms_in_linked_worktree_holding_own_live_lock
+test_inert_in_gate_worktree_holding_own_live_lock
 test_inert_without_session_lock
 test_reclaims_stale_session_lock_before_arming
 test_inert_when_lock_held_by_other_harness

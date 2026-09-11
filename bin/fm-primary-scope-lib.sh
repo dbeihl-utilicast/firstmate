@@ -18,11 +18,19 @@ fm_root_is_secondmate_home() {
 }
 
 # Return 0 when linked worktree $1 is a leased primary home: $2 is its own state/,
-# no worktree of this repository records $1 as a task worktree in state/<id>.meta,
-# and the session lock there is held by this harness ancestry (docs/turnend-guard.md).
+# $1 is not a no-mistakes gate worktree, no worktree of this repository records $1
+# as a task worktree in state/<id>.meta, and the session lock there is held by this
+# harness ancestry (docs/turnend-guard.md).
 fm_linked_root_is_own_home() {
   local root=$1 state=$2 list home meta value lib
   [ "$state" -ef "$root/state" ] || return 1
+  if ! declare -F fm_is_gate_agent >/dev/null; then
+    lib="$(dirname -- "${BASH_SOURCE[0]}")/fm-gate-refuse-lib.sh"
+    [ -f "$lib" ] || return 1
+    # shellcheck source=bin/fm-gate-refuse-lib.sh
+    . "$lib"
+  fi
+  fm_is_gate_agent "$root" && return 1
   list=$(git -C "$root" worktree list --porcelain 2>/dev/null) || return 1
   while IFS= read -r home; do
     [ -n "$home" ] || continue
@@ -46,7 +54,8 @@ fm_linked_root_is_own_home() {
 # Return 0 when $1 is a genuine primary root whose effective state dir is $2.
 # A valid secondmate marker force-includes a linked secondmate home, and a
 # linked worktree that is its own home (fm_linked_root_is_own_home) is a leased
-# primary; otherwise only a plain checkout is primary, never a task worktree.
+# primary; otherwise only a plain checkout is primary, never a task worktree and
+# never a no-mistakes gate worktree.
 fm_primary_scope_matches() {
   local root=$1 state=$2 git_dir git_common_dir
   if ! fm_root_is_secondmate_home "$root"; then

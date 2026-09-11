@@ -26,6 +26,7 @@ The marker must be a regular non-symlink file whose whitespace-stripped first li
 An unmarked checkout or invalid marker falls through to the git-dir check.
 That check keeps crewmate and scout linked worktrees inert because their git dir differs from their git common dir.
 A linked worktree is still in scope as a leased primary home only when the effective state directory is its own `state/`, no worktree of the repository records it as a task worktree in `state/<id>.meta`, and `state/.lock` there is held by this process's own harness ancestry; a task worktree fails that recorded-worktree test even after running session start, and a lock naming any other process fails the ancestry test.
+A no-mistakes gate worktree is refused outright through `fm_is_gate_agent` from `bin/fm-gate-refuse-lib.sh`, so a gate agent that runs session start in its own linked worktree never becomes a leased primary home for any tracked hook.
 That admission exists only once the session holds the lock: `bin/fm-sessionstart-run.sh` evaluates scope before the lock is written, so on a fresh start in a leased primary home the SessionStart wrapper still stands down and the agent takes the helm per `AGENTS.md` section 3.
 It also requires `AGENTS.md`, `bin/`, and the effective state directory.
 
