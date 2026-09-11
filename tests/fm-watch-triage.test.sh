@@ -4317,9 +4317,10 @@ test_procevent_insecure_state_root_surfaces_once() {
   pass "an insecure process-event state root surfaces once, and only after the wake is delivered"
 }
 
-# A home that never registered a source has no per-cycle reconcile to swallow,
-# so the record a refused command left there is the caller's to report - waking
-# on it here would burn the one-shot on a home this watcher cannot repair.
+# A home that never registered a source has no per-cycle reconcile to swallow:
+# the command that refused exited nonzero with its error on stderr, so nothing
+# here is silent, and this watcher never runs the reconcile that clears the
+# record - waking would burn the one-shot on a home it cannot repair.
 test_procevent_insecure_marker_without_registry_stays_quiet() {
   local dir state out pid
   dir=$(make_case procevent-insecure-no-registry); state="$dir/state"; out="$dir/watch.out"
