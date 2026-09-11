@@ -1,0 +1,7 @@
+Original asynchronous register -> reconcile -> captured queue -> retire -> watcher -> drain path
+
+check: process-event result captured: procevent:delivery-src:1
+1789167172	2	check	procevent:delivery-src:1	check: procevent lavish delivery-src 1
+
+Unacknowledged replay:
+1789167176	3	check	procevent:delivery-src:1	check: procevent lavish delivery-src 1

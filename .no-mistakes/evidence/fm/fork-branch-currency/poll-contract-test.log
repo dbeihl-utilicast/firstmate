@@ -1,0 +1,6 @@
+FM_TEST_BEGIN 2026-09-11T22:49:05Z tests/fm-pr-check-security.test.sh family=pr-forge expected_gate_skip=none
+ok - static poll detects branch ancestry independently of merge readiness and remains watcher-bounded
+FM_TEST_END 2026-09-11T22:49:10Z tests/fm-pr-check-security.test.sh exit=0 duration_ms=5187 gate_skip=false
+FM_TEST_SUMMARY total=1 failed=0 skipped_gate=0 duration_ms=5249
+FM_TEST_SUMMARY_FAMILY family=pr-forge count=1 duration_ms=5187 failed=0
+FM_TEST_SLOWEST rank=1 script=tests/fm-pr-check-security.test.sh duration_ms=5187

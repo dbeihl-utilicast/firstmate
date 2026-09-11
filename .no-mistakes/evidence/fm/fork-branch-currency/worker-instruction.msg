@@ -1,0 +1,4 @@
+schema=fm-task-inbox.v1
+at=2026-09-11T22:49:44Z
+--
+FIRSTMATE_OP: v1 branch-currency attempt 1: Your open pull request https://github.com/o/r/pull/5 is not current with its base (behind or in conflict) at head 0123456789abcdef0123456789abcdef01234567. Re-run this brief's no-mistakes delivery contract with its exact serialized captain intent. Before any edit or branch movement, inspect no-mistakes axi status and do not act while an active run owns the branch. Let the pipeline's rebase step bring the branch current and re-establish every check on the resulting head. If rebase conflicts, report blocked and name the conflicted paths. Report done again only after the current-head checks are green.

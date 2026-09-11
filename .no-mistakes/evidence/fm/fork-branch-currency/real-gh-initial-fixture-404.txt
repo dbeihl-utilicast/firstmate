@@ -1,0 +1,44 @@
+gh "--version"
+gh version 2.99.0 (2026-09-01)
+https://github.com/cli/cli/releases/tag/v2.99.0
+exit=0
+gh "api" "http://127.0.0.1:52885/payload?base=release%2Fv1%2Bhotfix" "--jq" "[.state, .mergeStateStatus, .mergeable, .headRefOid, .baseRefName, (.baseRefName | @uri)] | @tsv"
+OPEN	BLOCKED	MERGEABLE	0123456789abcdef0123456789abcdef01234567	release/v1+hotfix	release%2Fv1%2Bhotfix
+exit=0
+gh "api" "http://127.0.0.1:52885/payload?base=main%23x" "--jq" "[.state, .mergeStateStatus, .mergeable, .headRefOid, .baseRefName, (.baseRefName | @uri)] | @tsv"
+OPEN	BLOCKED	MERGEABLE	0123456789abcdef0123456789abcdef01234567	main#x	main%23x
+exit=0
+gh "api" "http://127.0.0.1:52885/payload?base=main%252Fx" "--jq" "[.state, .mergeStateStatus, .mergeable, .headRefOid, .baseRefName, (.baseRefName | @uri)] | @tsv"
+OPEN	BLOCKED	MERGEABLE	0123456789abcdef0123456789abcdef01234567	main%2Fx	main%252Fx
+exit=0
+gh "api" "http://127.0.0.1:52885/payload?base=release%2Fa%26b%3Dc" "--jq" "[.state, .mergeStateStatus, .mergeable, .headRefOid, .baseRefName, (.baseRefName | @uri)] | @tsv"
+OPEN	BLOCKED	MERGEABLE	0123456789abcdef0123456789abcdef01234567	release/a&b=c	release%2Fa%26b%3Dc
+exit=0
+gh "api" "http://127.0.0.1:52885/payload?base=release%2Fcaf%C3%A9" "--jq" "[.state, .mergeStateStatus, .mergeable, .headRefOid, .baseRefName, (.baseRefName | @uri)] | @tsv"
+OPEN	BLOCKED	MERGEABLE	0123456789abcdef0123456789abcdef01234567	release/café	release%2Fcaf%C3%A9
+exit=0
+gh "api" "http://127.0.0.1:52885/repos/o/r/branches/release%2Fv1%2Bhotfix/protection/required_status_checks" "--jq" ".strict == true and (((.checks // []) + (.contexts // [])) | length > 0)"
+true
+exit=0
+gh "api" "http://127.0.0.1:52885/repos/o/r/rules/branches/release%2Fv1%2Bhotfix" "--paginate" "--jq" ".[] | select(.type == \"required_status_checks\" and .parameters.strict_required_status_checks_policy == true and ((.parameters.required_status_checks // []) | length > 0)) | \"true\""
+gh: HTTP 404
+exit=1
+node:internal/modules/run_main:123
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+1 !== 0
+
+    at file:///Users/davidsair/.no-mistakes/evidence/01M295FW69QR2TJ5G0SBE0ZPMF/real-gh-contract.mjs:44:10
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5) {
+  generatedMessage: true,
+  code: 'ERR_ASSERTION',
+  actual: 1,
+  expected: 0,
+  operator: 'strictEqual',
+  diff: 'simple'
+}
+
+Node.js v22.22.3

@@ -1,0 +1,25 @@
+{
+  "base": "21c4ec6053bffbf0e383a08301525a7496909df4",
+  "head": "1d22f3b353d806c12e6e478c3e08b3b4631794b1",
+  "base_is_ancestor": true,
+  "worktree_unchanged": true,
+  "artifacts": [
+    "branch-refresh-transcript.txt",
+    "worker-instruction.msg",
+    "refresh-receipt.tsv",
+    "base-ref-before-after.txt",
+    "real-gh-transcript.txt",
+    "refresh-safety-transcript.txt",
+    "retirement-transcript.txt",
+    "procevent-delivery-transcript.txt"
+  ],
+  "limits": [
+    "GitHub response and tmux boundaries are fixtures in the public dispatch test.",
+    "Real gh URI formatting, encoded HTTP paths and pagination verified against a local HTTP fixture.",
+    "No live worker branch movement, push, PR, CI, broad suite, lint, formatter or static analysis executed."
+  ],
+  "fixture_repairs": [
+    "Local HTTP fixture now accepts gh paginate per_page=100 query.",
+    "Evidence capture removed a nonexistent optional doorbell log; persisted inbox and receipt captured successfully."
+  ]
+}

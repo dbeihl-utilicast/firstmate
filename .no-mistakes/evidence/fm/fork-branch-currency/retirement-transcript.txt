@@ -1,0 +1,46 @@
+Public retire with owned fixture processes. ps boundary releases/reaps the matched runner before or after PGID lookup; unreadable live PGID remains refused.
+
+Scenario: retire-pgid-exited
+fm-procevent.sh register lavish pgid-src -- /bin/true
+registered: pgid-src (lavish)
+exit=0
+
+Scenario: retire-pgid-exited
+fm-procevent.sh retire pgid-src
+retired: pgid-src
+exit=0
+
+Scenario: retire-pgid-exited
+fm-procevent.sh retire pgid-src
+retired: pgid-src
+exit=0
+
+Scenario: retire-pgid-exited-after-pgid
+fm-procevent.sh register lavish pgid-src -- /bin/true
+registered: pgid-src (lavish)
+exit=0
+
+Scenario: retire-pgid-exited-after-pgid
+fm-procevent.sh retire pgid-src
+retired: pgid-src
+exit=0
+
+Scenario: retire-pgid-exited-after-pgid
+fm-procevent.sh retire pgid-src
+retired: pgid-src
+exit=0
+
+Scenario: retire-pgid-unreadable
+fm-procevent.sh register lavish pgid-src -- /bin/true
+registered: pgid-src (lavish)
+exit=0
+
+Scenario: retire-pgid-unreadable
+fm-procevent.sh retire pgid-src
+error: cannot confirm runner identity; source remains registered: pgid-src
+exit=1
+
+Scenario: retire-pgid-unreadable
+fm-procevent.sh retire pgid-src
+retired: pgid-src
+exit=0

@@ -1,0 +1,39 @@
+Public path: fm-pr-check -> fm-watch -> fm-send -> durable worker inbox
+Fixture: OPEN PR, base release/v1+hotfix, behind by 1; classic protection unavailable; strict ruleset on page 2.
+GitHub responses and tmux delivery are fixtures; registration, watcher, locks, fm-send, inbox and receipts are production code.
+
+
+SCENARIO: capture-replaced
+check: /private/var/folders/j5/kgdthy6n37j7dgv0r7qr3qd80000gn/T/fm-pr-check-security.9AHc4j/branch-currency-poll-capture-replaced/home/state/task-a.check.sh: branch-refresh-refused pr=https://github.com/o/r/pull/5 head=0123456789abcdef0123456789abcdef01234567 condition=behind reason=worker-dispatch-failed
+Pending inbox records:        0
+
+SCENARIO: capture-rearmed
+check: /private/var/folders/j5/kgdthy6n37j7dgv0r7qr3qd80000gn/T/fm-pr-check-security.9AHc4j/branch-currency-poll-capture-rearmed/home/state/task-a.check.sh: branch-refresh-refused pr=https://github.com/o/r/pull/5 head=0123456789abcdef0123456789abcdef01234567 condition=behind reason=worker-dispatch-failed
+Pending inbox records:        0
+
+SCENARIO: replaced
+check: /private/var/folders/j5/kgdthy6n37j7dgv0r7qr3qd80000gn/T/fm-pr-check-security.9AHc4j/branch-currency-poll-replaced/home/state/task-a.check.sh: branch-refresh-refused pr=https://github.com/o/r/pull/5 head=0123456789abcdef0123456789abcdef01234567 condition=behind reason=worker-dispatch-failed
+Pending inbox records:        0
+
+SCENARIO: rearmed
+check: /private/var/folders/j5/kgdthy6n37j7dgv0r7qr3qd80000gn/T/fm-pr-check-security.9AHc4j/branch-currency-poll-rearmed/home/state/task-a.check.sh: branch-refresh-refused pr=https://github.com/o/r/pull/5 head=0123456789abcdef0123456789abcdef01234567 condition=behind reason=worker-dispatch-failed
+Pending inbox records:        0
+
+SCENARIO: unchanged
+check: /private/var/folders/j5/kgdthy6n37j7dgv0r7qr3qd80000gn/T/fm-pr-check-security.9AHc4j/branch-currency-poll-unchanged/home/state/task-a.check.sh: branch-refresh-dispatched pr=https://github.com/o/r/pull/5 head=0123456789abcdef0123456789abcdef01234567 condition=behind
+Pending inbox records:        1
+
+Actual GitHub CLI arguments:
+pr view https://github.com/o/r/pull/5 --json headRefOid -q .headRefOid
+pr view https://github.com/o/r/pull/5 --json state,mergeStateStatus,mergeable,headRefOid,baseRefName -q [.state, .mergeStateStatus, .mergeable, .headRefOid, .baseRefName, (.baseRefName | @uri)] | @tsv
+api --hostname github.com repos/o/r/branches/release%2Fv1%2Bhotfix/protection/required_status_checks --jq .strict == true and (((.checks // []) + (.contexts // [])) | length > 0)
+api --hostname github.com repos/o/r/rules/branches/release%2Fv1%2Bhotfix --paginate --jq .[] | select(.type == "required_status_checks" and .parameters.strict_required_status_checks_policy == true and ((.parameters.required_status_checks // []) | length > 0)) | "true"
+api --hostname github.com repos/o/r/compare/release%2Fv1%2Bhotfix...0123456789abcdef0123456789abcdef01234567 --jq .behind_by
+
+Persisted worker instruction:
+schema=fm-task-inbox.v1
+at=2026-09-11T22:49:44Z
+--
+FIRSTMATE_OP: v1 branch-currency attempt 1: Your open pull request https://github.com/o/r/pull/5 is not current with its base (behind or in conflict) at head 0123456789abcdef0123456789abcdef01234567. Re-run this brief's no-mistakes delivery contract with its exact serialized captain intent. Before any edit or branch movement, inspect no-mistakes axi status and do not act while an active run owns the branch. Let the pipeline's rebase step bring the branch current and re-establish every check on the resulting head. If rebase conflicts, report blocked and name the conflicted paths. Report done again only after the current-head checks are green.
+Persisted refresh receipt:
+dispatched	0123456789abcdef0123456789abcdef01234567	1	001.msg	1789166983	1789166983	https://github.com/o/r/pull/5
