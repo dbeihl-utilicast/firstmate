@@ -1914,17 +1914,17 @@ while :; do
   # whose owner is gone. It is a no-op with nothing registered.
   if [ -d "$STATE/procevent" ]; then
     FM_HOME="$FM_HOME" "$SCRIPT_DIR/fm-procevent.sh" reconcile >/dev/null 2>&1 || true
-  fi
-  # The reconcile call above swallows its own exit and output on purpose, so a
-  # state root that has stopped being a private directory would otherwise vanish
-  # silently instead of only failing quietly for this one cycle. fm-procevent.sh
-  # itself records that specific failure once at .procevent-state-insecure and
-  # clears it the next time the root is private again; surface it here exactly
-  # once rather than every cycle it stays broken.
-  if [ -e "$FM_HOME/.procevent-state-insecure" ] && [ ! -e "$FM_HOME/.procevent-state-insecure-surfaced" ]; then
-    # shellcheck disable=SC2034 # Consumed by wake() in the separately linted transition owner.
-    FM_WAKE_POST_OUTPUT_ACTION=procevent_state_insecure_after_output
-    wake "check: procevent-state-insecure"
+    # The reconcile call above swallows its own exit and output on purpose, so a
+    # state root that has stopped being a private directory would otherwise vanish
+    # silently instead of only failing quietly for this one cycle. fm-procevent.sh
+    # itself records that specific failure once at .procevent-state-insecure and
+    # clears it the next time the root is private again; surface it here exactly
+    # once rather than every cycle it stays broken.
+    if [ -e "$FM_HOME/.procevent-state-insecure" ] && [ ! -e "$FM_HOME/.procevent-state-insecure-surfaced" ]; then
+      # shellcheck disable=SC2034 # Consumed by wake() in the separately linted transition owner.
+      FM_WAKE_POST_OUTPUT_ACTION=procevent_state_insecure_after_output
+      wake "check: procevent-state-insecure"
+    fi
   fi
   # Then deliver any queued-but-unsurfaced result, including one a runner
   # published while this watcher was between cycles.

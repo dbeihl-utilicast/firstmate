@@ -4317,6 +4317,31 @@ test_procevent_insecure_state_root_surfaces_once() {
   pass "an insecure process-event state root surfaces once, and only after the wake is delivered"
 }
 
+# A home that never registered a source has no per-cycle reconcile to swallow,
+# so the record a refused command left there is the caller's to report - waking
+# on it here would burn the one-shot on a home this watcher cannot repair.
+test_procevent_insecure_marker_without_registry_stays_quiet() {
+  local dir state out pid
+  dir=$(make_case procevent-insecure-no-registry); state="$dir/state"; out="$dir/watch.out"
+  chmod 775 "$state" || fail "could not relax the fixture state root"
+  pe_case "$dir" register lavish no-registry-src -- /bin/true >/dev/null 2>&1 \
+    && fail "registering against an insecure state root must be refused"
+  [ -e "$dir/.procevent-state-insecure" ] \
+    || fail "the refused registration left no durable record"
+  [ ! -d "$state/procevent" ] || fail "the refused registration created a registry directory"
+  procevent_watch_bg "$dir" "$out"; pid=$!
+  sleep 2
+  kill -0 "$pid" 2>/dev/null \
+    || fail "the watcher woke for a home with no process-event registry: $(cat "$out")"
+  reap "$pid"
+  grep -F 'procevent-state-insecure' "$out" >/dev/null \
+    && fail "an unreconciled home surfaced the insecure state root: $(cat "$out")"
+  [ ! -e "$dir/.procevent-state-insecure-surfaced" ] \
+    || fail "an unreconciled home committed the one-shot suppression"
+  chmod 700 "$state" || fail "could not restore the fixture state root"
+  pass "an insecure record in a home with no registry is left to its caller, not the watcher"
+}
+
 
 # --- heartbeat: no-change absorbed, backstop surfaces a missed status --------
 
@@ -4830,6 +4855,7 @@ test_procevent_surface_serializes_with_drain
 test_procevent_surface_crash_boundaries
 test_procevent_marker_failure_exits_and_replays
 test_procevent_insecure_state_root_surfaces_once
+test_procevent_insecure_marker_without_registry_stays_quiet
 test_heartbeat_no_change_absorbed
 test_heartbeat_backstop_surfaces_unsurfaced_status
 test_heartbeat_backstop_surfaces_a_masked_status
