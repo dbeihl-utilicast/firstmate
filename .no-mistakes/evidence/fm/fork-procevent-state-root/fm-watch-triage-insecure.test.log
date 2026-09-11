@@ -1,0 +1,5 @@
+ok - queue failure preserves retryability and the daemon receives both pending notifications
+/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M287E3TCG0XZAVVG4897C2SX/bin/fm-push-transition-lib.sh: line 96: echo: write error: Broken pipe
+ok - an insecure process-event state root surfaces once, and only after the wake is delivered
+ok - an insecure record in a home with no registry is left to its caller, not the watcher
+selected insecure-root watcher tests passed

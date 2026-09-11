@@ -1,0 +1,30 @@
+$ chmod 775 $H/state   # state root not private
+$ fm-procevent-when.sh arm demo --condition false --action true
+error: process-event state root is not a private directory
+exit=1
+$ ls $H/state   # nothing written
+
+$ chmod 700 $H/state; fm-procevent-when.sh arm demo --interval 5 --condition false --action true
+armed: when-demo
+starts on the watcher's next cycle; or run: bin/fm-procevent.sh reconcile
+reminder: deterministic, safe, reversible actions only; judgment and destructive actions stay on the wake-and-decide path
+exit=0
+$ chmod 775 $H/state   # root stops being private after arming
+$ fm-procevent.sh reconcile >/dev/null 2>&1 || true   # how the watcher calls it
+$ cat $H/.procevent-state-insecure
+fm-procevent-state-insecure-v1
+detected=1789135221
+state=$H/state
+$ fm-procevent.sh reconcile   # stderr visible
+error: process-event state root is not a private directory
+exit=1
+
+$ chmod 700 $H/state; fm-procevent.sh reconcile
+reconciled: published=0 started=1 stopped=0 uncertain=0
+exit=0
+$ ls -A $H | grep procevent-state-insecure || echo "(marker cleared)"
+(marker cleared)
+$ fm-procevent-when.sh retire demo
+retired: when-demo
+retired: when-demo
+exit=0
