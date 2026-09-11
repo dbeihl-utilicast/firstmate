@@ -376,6 +376,225 @@ test_lock_exec_holder_is_not_stolen() {
   pass "a holder that exec'd a new program keeps its lock"
 }
 
+test_lock_interrupted_handoff() (
+  phase=${1:-published}
+  signal=${2:-TERM}
+  dir=$(make_case "handoff-$phase-$signal")
+  lock="$dir/state/.handoff.lock"
+  caller=
+  helper=
+  trap 'kill -KILL ${helper:-} ${caller:-} 2>/dev/null || true; wait 2>/dev/null || true' EXIT
+  sleep 60 &
+  caller=$!
+  write_fake_proc_identity "$dir/proc" "$caller" 987654
+  FM_STATE_OVERRIDE="$dir/state" FM_PROC_ROOT_OVERRIDE="$dir/proc" bash -c '
+    . "$1"
+    lock=$2 caller=$3 fixture=$4 phase=$5
+    checkpoint() {
+      [ "${FUNCNAME[1]:-}" = _fm_lock_acquire_wait_handoff ] || return 0
+      [ ! -e "$fixture/paused" ] || return 0
+      local pid identity
+      pid=$(cat "$lock/pid" 2>/dev/null || true)
+      identity=$(cat "$lock/pid-identity" 2>/dev/null || true)
+      case "$phase" in
+        pending) [ -s "$lock/pid.pending" ] && [ -n "$identity" ] || return 0 ;;
+        withdrawn) [ "$pid" = "$$" ] && [ -s "$lock/pid.pending" ] && [ -z "$identity" ] || return 0 ;;
+        published) [ "$pid" = "$caller" ] || return 0 ;;
+        complete) [ "$pid" = "$caller" ] && [ -n "$identity" ] || return 0 ;;
+      esac
+      printf "paused\n" > "$fixture/paused"
+      kill -STOP "$$"
+    }
+    while [ ! -e "$fixture/start" ]; do sleep 0.02; done
+    set -T
+    trap checkpoint DEBUG
+    _fm_lock_acquire_wait_handoff "$lock" "$caller"
+  ' _ "$LIB" "$lock" "$caller" "$dir" "$phase" &
+  helper=$!
+  write_fake_proc_identity "$dir/proc" "$helper" 987655
+  : > "$dir/start"
+  i=0
+  while [ "$i" -lt 200 ] && [ ! -e "$dir/paused" ]; do
+    sleep 0.05
+    i=$((i + 1))
+  done
+  [ -e "$dir/paused" ] || fail "handoff did not reach $phase"
+  owner=$(readlink "$lock")
+  if FM_STATE_OVERRIDE="$dir/state" FM_PROC_ROOT_OVERRIDE="$dir/proc" \
+    bash -c '. "$1"; fm_lock_try_acquire "$2"' _ "$LIB" "$lock"; then
+    fail "contender stole the live handoff at $phase"
+  fi
+  kill "-$signal" "$helper"
+  kill -CONT "$helper" 2>/dev/null || true
+  wait "$helper" 2>/dev/null || true
+  previous_helper=$helper
+  helper=
+  case "$phase:$signal" in
+    pending:TERM|withdrawn:TERM)
+      [ ! -e "$lock" ] && [ ! -L "$lock" ] && [ ! -d "$owner" ] \
+        || fail "interrupted helper did not release its pending handoff"
+      ;;
+    *)
+      if FM_STATE_OVERRIDE="$dir/state" FM_PROC_ROOT_OVERRIDE="$dir/proc" \
+        bash -c '. "$1"; fm_lock_try_acquire "$2"' _ "$LIB" "$lock"; then
+        fail "contender stole the interrupted handoff at $phase/$signal"
+      fi
+      ;;
+  esac
+  if [ "$phase" = complete ]; then
+    if FM_STATE_OVERRIDE="$dir/state" FM_PROC_ROOT_OVERRIDE="$dir/proc" \
+      bash -c '. "$1"; fm_lock_owner_is_abandoned "$2" "$3"' _ "$LIB" "$lock" "$previous_helper"; then
+      fail "completed handoff accepted a dead helper snapshot as abandonment"
+    fi
+  fi
+  kill "$caller"
+  wait "$caller" 2>/dev/null || true
+  caller=
+  FM_STATE_OVERRIDE="$dir/state" FM_PROC_ROOT_OVERRIDE="$dir/proc" bash -c '
+    . "$1"
+    fm_lock_try_acquire "$2" || exit 1
+    fm_lock_release "$2"
+  ' _ "$LIB" "$lock" || fail "dead interrupted handoff could not be reclaimed"
+  pass "handoff at $phase/$signal preserves a single holder and remains reclaimable"
+)
+
+test_bounded_handoff_recovers_killed_helper() (
+  dir=$(make_case bounded-handoff-killed-helper)
+  lock="$dir/state/.handoff.lock"
+  caller=
+  holder=
+  trap 'kill -KILL ${caller:-} ${holder:-} 2>/dev/null || true; wait 2>/dev/null || true' EXIT
+  sleep 60 &
+  holder=$!
+  mkdir "$lock"
+  printf '%s\n' "$holder" > "$lock/pid"
+  cat > "$dir/interrupt.sh" <<'SH'
+if [ -z "${FM_HANDOFF_CALLER:-}" ]; then
+  export FM_HANDOFF_CALLER=$$
+elif [ "$$" != "$FM_HANDOFF_CALLER" ]; then
+  printf 'contending\n' > "$FM_HANDOFF_FIXTURE/contending"
+fi
+handoff_checkpoint() {
+  local pid pending
+  [ -s "$FM_HANDOFF_LOCK/pid.pending" ] || return 0
+  IFS= read -r pid < "$FM_HANDOFF_LOCK/pid" || return 0
+  IFS= read -r pending < "$FM_HANDOFF_LOCK/pid.pending" || return 0
+  [ "$pid" = "$$" ] && [ "$pending" = "$FM_HANDOFF_CALLER" ] || return 0
+  printf 'interrupted\n' > "$FM_HANDOFF_FIXTURE/interrupted"
+  kill -KILL "$$"
+}
+set -T
+trap handoff_checkpoint DEBUG
+SH
+  FM_STATE_OVERRIDE="$dir/state" FM_HANDOFF_LOCK="$lock" FM_HANDOFF_FIXTURE="$dir" \
+    BASH_ENV="$dir/interrupt.sh" bash -c '
+    . "$1"
+    fm_lock_acquire_wait_bounded "$2" 5 || exit 7
+    [ "$(cat "$2/pid")" = "$$" ] && [ ! -e "$2/pid.pending" ] || exit 8
+    if bash -c '\''. "$1"; fm_lock_try_acquire "$2"'\'' _ "$1" "$2"; then exit 9; fi
+    fm_lock_release "$2"
+  ' _ "$LIB" "$lock" > "$dir/caller.out" 2>&1 &
+  caller=$!
+  i=0
+  while [ "$i" -lt 200 ] && [ ! -e "$dir/contending" ]; do
+    sleep 0.05
+    i=$((i + 1))
+  done
+  [ -e "$dir/contending" ] || fail "bounded handoff helper never entered contention"
+  kill "$holder"
+  wait "$holder" 2>/dev/null || true
+  holder=
+  wait_for_exit "$caller" 200 || fail "bounded caller failed to recover its killed helper: $(cat "$dir/caller.out")"
+  caller=
+  [ -e "$dir/interrupted" ] || fail "bounded helper interruption did not run"
+  [ ! -e "$lock" ] && [ ! -L "$lock" ] || fail "bounded caller could not release the recovered handoff"
+  pass "bounded caller retires its killed helper's pending transfer and keeps exclusive ownership"
+)
+
+test_live_startup_lock_is_not_stolen() (
+  role=${1:-watcher}
+  dir=$(make_case "startup-lock-$role")
+  state="$dir/state"
+  holder=
+  contender=
+  trap 'kill -TERM ${contender:-} ${holder:-} 2>/dev/null || true; kill -CONT ${holder:-} 2>/dev/null || true; wait 2>/dev/null || true' EXIT
+  case "$role" in
+    watcher) lock="$state/.watch.lock"; ready_after="$lock/watcher-path"; entry=$WATCH ;;
+    daemon) lock="$state/.supervise-daemon.lock"; ready_after="$state/.supervise-daemon.pid"; entry="$ROOT/bin/fm-supervise-daemon.sh" ;;
+  esac
+  cat > "$dir/pause-startup.sh" <<'SH'
+startup_checkpoint() {
+  [ -f "$FM_STARTUP_READY_AFTER" ] && [ ! -e "$FM_STARTUP_PAUSED" ] || return 0
+  printf '%s\n' "$$" > "$FM_STARTUP_PAUSED"
+  kill -STOP "$$"
+}
+set -T
+trap startup_checkpoint DEBUG
+SH
+  PATH="$dir/fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$state" \
+    FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+    FM_SUPERVISOR_BACKEND=tmux FM_SUPERVISOR_TARGET=fixture \
+    FM_STARTUP_READY_AFTER="$ready_after" FM_STARTUP_PAUSED="$dir/paused" \
+    BASH_ENV="$dir/pause-startup.sh" "$entry" > "$dir/holder.out" 2>&1 &
+  holder=$!
+  i=0
+  while [ "$i" -lt 400 ] && [ ! -e "$dir/paused" ]; do
+    sleep 0.05
+    i=$((i + 1))
+  done
+  [ -e "$dir/paused" ] || fail "$role never reached startup publication: $(cat "$dir/holder.out")"
+  [ "$(cat "$dir/paused")" = "$holder" ] || fail "$role fixture paused a different process"
+  owner=$(readlink "$lock")
+  identity=$(cat "$lock/pid-identity")
+  current=$(FM_STATE_OVERRIDE="$state" bash -c '. "$1"; fm_lock_pid_identity "$2"' _ "$LIB" "$holder")
+  full=$(FM_STATE_OVERRIDE="$state" bash -c '. "$1"; fm_pid_identity "$2"' _ "$LIB" "$holder")
+  [ -n "$identity" ] && [ "$identity" = "$current" ] && [ "$identity" != "$full" ] \
+    || fail "$role fixture did not expose a starttime-only startup record"
+  case "$role" in
+    watcher)
+      PATH="$dir/fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$state" \
+        FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+        FM_ARM_CONFIRM_TIMEOUT=1 "$WATCH_ARM" --restart > "$dir/contender.out" 2>&1 &
+      contender=$!
+      wait_for_exit "$contender" 100
+      rc=$?
+      [ "$rc" -ne 124 ] || fail "restart never finished its startup refusal"
+      contender=
+      [ ! -e "$state/.watcher-down" ] || fail "restart published false downtime for a starting watcher"
+      ;;
+    daemon)
+      PATH="$dir/fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$state" \
+        "$ROOT/bin/fm-afk-start.sh" > "$dir/contender.out" 2>&1 &
+      contender=$!
+      wait_for_exit "$contender" 100 || fail "afk-start did not recognize the starting daemon"
+      contender=
+      grep -Fx "afk: daemon already running pid=$holder" "$dir/contender.out" >/dev/null \
+        || fail "afk-start launched a duplicate during daemon startup"
+      ;;
+  esac
+  [ "$(readlink "$lock")" = "$owner" ] && [ "$(cat "$lock/pid")" = "$holder" ] \
+    && [ "$(cat "$lock/pid-identity")" = "$identity" ] \
+    || fail "$role startup lock ownership changed under contention"
+  is_live_non_zombie "$holder" || fail "$role startup holder was signaled"
+  if [ "$role" = daemon ]; then
+    printf '%s\n' "$full" > "$lock/pid-identity"
+    FM_HOME="$dir" FM_STATE_OVERRIDE="$state" "$ROOT/bin/fm-afk-start.sh" > "$dir/full.out" 2>&1 \
+      || fail "afk-start did not recognize the full daemon identity"
+    grep -Fx "afk: daemon already running pid=$holder" "$dir/full.out" >/dev/null \
+      || fail "afk-start failed to preserve the full-identity holder"
+    write_fake_proc_identity "$dir/unreadable-proc" "$holder" 777777
+    : > "$dir/unreadable-proc/$holder/cmdline"
+    if FM_HOME="$dir" FM_STATE_OVERRIDE="$state" FM_PROC_ROOT_OVERRIDE="$dir/unreadable-proc" \
+      "$ROOT/bin/fm-afk-start.sh" > "$dir/unreadable.out" 2>&1; then
+      fail "afk-start accepted an unverifiable daemon identity"
+    fi
+    [ "$(readlink "$lock")" = "$owner" ] && [ "$(cat "$lock/pid")" = "$holder" ] \
+      && [ "$(cat "$lock/pid-identity")" = "$full" ] \
+      || fail "afk-start replaced an unverifiable live owner"
+  fi
+  pass "live $role startup keeps its lock under a competing entry"
+)
+
 test_lock_stale_steal_single_winner_under_concurrency() {
   local dir state lockdir dead marker i pids pid wins
   dir=$(make_case lock-stale-concurrency)
@@ -1256,6 +1475,16 @@ test_lock_steals_reused_pid_lock
 test_lock_matching_identity_is_not_stolen
 test_lock_unreadable_full_identity_is_not_stolen
 test_lock_exec_holder_is_not_stolen
+test_lock_interrupted_handoff pending TERM || exit 1
+test_lock_interrupted_handoff withdrawn TERM || exit 1
+test_lock_interrupted_handoff published TERM || exit 1
+test_lock_interrupted_handoff complete TERM || exit 1
+test_lock_interrupted_handoff pending KILL || exit 1
+test_lock_interrupted_handoff withdrawn KILL || exit 1
+test_lock_interrupted_handoff published KILL || exit 1
+test_bounded_handoff_recovers_killed_helper || exit 1
+test_live_startup_lock_is_not_stolen watcher || exit 1
+test_live_startup_lock_is_not_stolen daemon || exit 1
 test_lock_stale_steal_single_winner_under_concurrency
 test_lock_live_steal_mutex_is_not_reclaimed
 test_lock_does_not_steal_live_lock

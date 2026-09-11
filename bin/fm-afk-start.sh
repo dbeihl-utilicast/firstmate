@@ -85,6 +85,9 @@ daemon_pid_matches() {
   local pid=$1 owner=$2 identity current command
   identity=$(cat "$owner/pid-identity" 2>/dev/null || true)
   if [ -n "$identity" ]; then
+    if current=$(fm_lock_pid_identity "$pid") && [ "$current" = "$identity" ]; then
+      return 0
+    fi
     current=$(fm_pid_identity "$pid") || return 1
     [ "$current" = "$identity" ]
     return
@@ -151,8 +154,9 @@ fm_afk_start_main() {
     return 0
   fi
 
-  if fm_pid_alive "$pid" && [ -n "$pid" ]; then
-    fm_lock_remove_path "$FM_AFK_LOCK" 2>/dev/null || true
+  if fm_pid_alive "$pid" && ! fm_lock_owner_is_abandoned "$FM_AFK_LOCK" "$pid"; then
+    echo "afk: cannot verify the live daemon lock owner (pid=$pid); refusing a second daemon" >&2
+    return 1
   fi
 
   # Fresh start: clear the previous away session's stale delivery artifacts
