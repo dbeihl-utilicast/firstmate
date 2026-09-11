@@ -2,20 +2,22 @@
 # Merge a task's PR or MR after recording pr= and any available pr_head= through
 # bin/fm-pr-check.sh, so teardown can verify landed work after squash merges.
 # The full canonical URL is parsed by bin/fm-pr-lib.sh. A GitHub pull request is
-# addressed through gh-axi by the derived owner and repository; a GitLab merge
-# request is addressed through glab by the project URL rebuilt from the parsed
-# host and path, so any instance works and no host is hardcoded.
+# addressed by the derived owner and repository; ordinary merges use gh-axi,
+# while the GitHub-only --admin exception described below uses gh directly. An
+# eligible GitLab merge request is addressed through glab by the project URL
+# rebuilt from the parsed host and path, so any instance works and no host is
+# hardcoded.
 #
 # Merge method on GitHub defaults to --squash when the caller passes none of
 # --squash, --merge, --rebase, or --method after the optional -- separator.
-# The gh-axi merge abstraction always performs the merge; the outcome read that
-# follows it never becomes a prerequisite for reaching that abstraction. After
-# gh-axi returns success, GitHub's live state is read back and accepted only
-# when the pull request is merged or in the merge queue. gh's GraphQL API
-# supplies that queue-aware read when gh is on PATH; when gh is absent or its
-# read fails, gh-axi's own view still proves a landed merge, and every outcome
-# it cannot prove refuses, reporting the single failed read when gh is absent
-# and naming both failed reads when gh is present and its own read failed.
+# The outcome read never becomes a prerequisite for the selected forge command:
+# the ordinary path invokes gh-axi, while the --admin exception invokes gh.
+# After that command returns success, GitHub's live state is read back and
+# accepted only when the pull request is merged or in the merge queue. When gh
+# is on PATH, its GraphQL API supplies that queue-aware read; when gh is absent
+# or its read fails, gh-axi's own view still proves a landed merge, and every
+# outcome it cannot prove refuses, reporting the single failed read when gh is
+# absent and naming both failed reads when gh is present and its own read failed.
 # If the pull request remains open and the base branch has an effective
 # merge_queue rule, the refusal names the queue's configured merge method and
 # the exact -- --auto --<method> retry flags, unless the caller already passed
@@ -65,13 +67,13 @@
 # URL, nor --sha on GitLab because the head comes only from the live read.
 # On GitHub, --admin among those extra arguments is a first-class path: this
 # script records pr= and any available pr_head= first, then invokes gh pr merge
-# (not gh-axi pr merge), translates --method forms to gh's native method flags,
-# and applies the same default --squash rule unless the caller named a method.
-# The existing outcome read-back
-# still accepts only a merged or queued pull request and refuses an open
-# unqueued one. gh is required for that path; if it is absent the merge is
-# refused with a named error and never falls back to gh-axi. On GitLab, --admin
-# is refused before any state is recorded because it is GitHub-only.
+# directly, translates --method forms to gh's native method flags, and applies
+# the same default --squash rule unless the caller named a method.
+# The existing outcome read-back still accepts only a merged or queued pull
+# request and refuses an open unqueued one. gh is required for that path; if it
+# is absent the merge is refused with a named error and never falls back to
+# gh-axi. On GitLab, --admin is refused before any state is recorded because it
+# is GitHub-only.
 #
 # On GitLab, this script confirms the MR is actually merged before reporting it;
 # an auto-merge-queued or unconfirmed request leaves the poll armed and records
