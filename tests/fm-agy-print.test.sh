@@ -11,6 +11,7 @@ set -u
 # shellcheck source=tests/lib.sh disable=SC1091
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
+JQ_BIN=$(command -v jq) || fail "jq is required for fm-agy-print tests"
 BASE_PATH=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
 TMP_ROOT=$(fm_test_tmproot fm-agy-print-tests)
 SCRIPT="$ROOT/bin/fm-agy-print.sh"
@@ -20,6 +21,7 @@ STDIN_SENTINEL='SENTINEL-STDIN-MUST-NOT-REACH-AGY'
 make_fakebin() {
   local dir=$1 fakebin
   fakebin=$(fm_fakebin "$dir")
+  ln -s "$JQ_BIN" "$fakebin/jq"
   cat > "$fakebin/agy" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FM_FAKE_AGY_LOG"
@@ -72,6 +74,11 @@ case "${FM_FAKE_AGY_MODE:-success}" in
     ;;
   nonzero-error)
     printf '%s\n' '{"conversation_id":"cid-11","status":"ERROR","response":"unknown model"}'
+    exit 1
+    ;;
+  delayed-timeout-envelope)
+    sleep 2
+    printf '%s\n' '{"conversation_id":"cid-12","status":"ERROR","response":"print timeout"}'
     exit 1
     ;;
   hang)
@@ -365,6 +372,12 @@ test_print_timeout_is_passed_and_hangs_are_bounded() {
   expect_code 0 "$RUN_RC" "custom timeout still succeeds"
   assert_contains "$(cat "$RUN_LOG")" '--print-timeout 2m' 'caller timeout is passed through'
 
+  run_print timeout-envelope --prompt "$PROMPT_ARG" --model "$MODEL_ARG" --effort "$EFFORT_ARG" --print-timeout 1s --env "FM_FAKE_AGY_MODE=delayed-timeout-envelope"
+  expect_code 1 "$RUN_RC" "agy timeout envelope remains a failure"
+  assert_equals '{"conversation_id":"cid-12","status":"ERROR","response":"print timeout"}' \
+    "$RUN_OUT" "the outer bound leaves time for agy's timeout envelope"
+  assert_equals '' "$RUN_ERR" "a parsed timeout envelope needs no second error signal"
+
   local started finished
   started=$(date +%s)
   run_print hang --prompt "$PROMPT_ARG" --model "$MODEL_ARG" --effort "$EFFORT_ARG" --print-timeout 1s --env "FM_FAKE_AGY_MODE=hang"
@@ -380,6 +393,7 @@ test_missing_agy_is_a_run_failure() {
   local case_dir fakebin rc=0
   case_dir="$TMP_ROOT/agy-absent"
   mkdir -p "$case_dir/workspace" "$case_dir/fakebin"
+  ln -s "$JQ_BIN" "$case_dir/fakebin/jq"
   env "PATH=$case_dir/fakebin:$BASE_PATH" \
     "$SCRIPT" --prompt p --model m --effort low --cwd "$case_dir/workspace" \
     >/dev/null 2>"$case_dir/err" || rc=$?

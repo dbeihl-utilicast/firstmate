@@ -48,6 +48,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/fm-timeout-lib.sh"
 
 DEFAULT_TIMEOUT_SPEC=5m
+HARD_TIMEOUT_MARGIN_SECONDS=5
 
 usage() {
   cat <<'EOF'
@@ -206,7 +207,7 @@ esac
 TIMEOUT_SECONDS=$(parse_timeout_seconds "$TIMEOUT_SPEC") \
   || die_usage "invalid --print-timeout: $TIMEOUT_SPEC"
 AGY_TIMEOUT_SPEC=$TIMEOUT_SPEC
-HARD_SECONDS=$TIMEOUT_SECONDS
+HARD_SECONDS=$((TIMEOUT_SECONDS + HARD_TIMEOUT_MARGIN_SECONDS))
 
 [ -d "$CWD" ] || die "cwd is not a directory: $CWD"
 CWD=$(cd "$CWD" && pwd -P) || die "cwd is not a directory: $CWD"
