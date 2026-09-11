@@ -65,8 +65,9 @@
 # URL, nor --sha on GitLab because the head comes only from the live read.
 # On GitHub, --admin among those extra arguments is a first-class path: this
 # script records pr= and any available pr_head= first, then invokes gh pr merge
-# (not gh-axi pr merge) with the same default --squash rule unless the caller
-# already named a method, including --admin. The existing outcome read-back
+# (not gh-axi pr merge), translates --method forms to gh's native method flags,
+# and applies the same default --squash rule unless the caller named a method.
+# The existing outcome read-back
 # still accepts only a merged or queued pull request and refuses an open
 # unqueued one. gh is required for that path; if it is absent the merge is
 # refused with a named error and never falls back to gh-axi. On GitLab, --admin
@@ -143,6 +144,29 @@ caller_merge_method() {
     esac
   done
   printf '%s' "$method"
+}
+
+normalize_gh_merge_args() {
+  local arg pending=false
+  GH_MERGE_ARGS=()
+  for arg in "$@"; do
+    if [ "$pending" = true ]; then
+      case "$arg" in
+        squash|merge|rebase) GH_MERGE_ARGS+=("--$arg") ;;
+        *) GH_MERGE_ARGS+=(--method "$arg") ;;
+      esac
+      pending=false
+      continue
+    fi
+    case "$arg" in
+      --method) pending=true ;;
+      --method=squash) GH_MERGE_ARGS+=(--squash) ;;
+      --method=merge) GH_MERGE_ARGS+=(--merge) ;;
+      --method=rebase) GH_MERGE_ARGS+=(--rebase) ;;
+      *) GH_MERGE_ARGS+=("$arg") ;;
+    esac
+  done
+  [ "$pending" = false ] || GH_MERGE_ARGS+=(--method)
 }
 
 # Whether the caller's own extra arguments asked for auto-merge, including the
@@ -717,9 +741,12 @@ case "$PROVIDER" in
   github)
     merge_output=
     merge_args=()
+    merge_forward_args=("$@")
     merge_cli=gh-axi
     if caller_requested_admin "$@"; then
       merge_cli=gh
+      normalize_gh_merge_args "$@"
+      merge_forward_args=("${GH_MERGE_ARGS[@]+"${GH_MERGE_ARGS[@]}"}")
     fi
     if ! caller_has_merge_method "$@"; then
       merge_args=(--squash)
@@ -731,7 +758,8 @@ case "$PROVIDER" in
     require_released_captain_hold || exit 1
     merge_status=0
     merge_output=$("$merge_cli" pr merge "$PR_NUMBER" --repo "$PR_OWNER/$PR_REPO" \
-      "${merge_args[@]+"${merge_args[@]}"}" "$@" 2>&1) || merge_status=$?
+      "${merge_args[@]+"${merge_args[@]}"}" \
+      "${merge_forward_args[@]+"${merge_forward_args[@]}"}" 2>&1) || merge_status=$?
     fm_lock_release "$MERGE_CONTROL_LOCK" || true
     MERGE_CONTROL_LOCK=
     if [ "$merge_status" -eq 0 ]; then

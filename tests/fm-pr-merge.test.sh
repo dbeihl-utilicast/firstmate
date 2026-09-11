@@ -73,6 +73,7 @@
 #   (ay) an admin merge of an open unqueued PR still refuses and still records
 #   (az) an admin merge without gh refuses and does not fall back to gh-axi
 #   (ba) GitLab --admin is refused before any state is recorded
+#   (bb) admin merges translate both wrapper --method forms for native gh
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -148,6 +149,14 @@ case "\${1:-} \${2:-}" in
     case " \$* " in
       *headRefOid*) printf '%s\n' '$head' ; exit 0 ;;
     esac
+    ;;
+  "pr merge")
+    for arg in "\$@"; do
+      case "\$arg" in
+        --method|--method=*) echo 'unknown flag: --method' >&2 ; exit 1 ;;
+      esac
+    done
+    exit 0
     ;;
   "api graphql")
     cat "\$FM_TEST_GH_OUTCOME"
@@ -1926,6 +1935,33 @@ test_github_admin_explicit_method_not_overridden() {
   pass "fm-pr-merge keeps a caller merge method on the GitHub --admin path"
 }
 
+test_github_admin_normalizes_wrapper_method_forms() {
+  local case_dir expected spelling
+  for spelling in equals separate; do
+    case_dir=$(make_case "github-admin-method-$spelling")
+    mkdir -p "$case_dir/wt"
+    add_gh_mocks "$case_dir" 9191919191919191919191919191919191919191
+    : > "$case_dir/gh-axi.log"
+    : > "$case_dir/gh.log"
+    if [ "$spelling" = equals ]; then
+      run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/87 \
+        -- --method=squash --admin > "$case_dir/stdout" 2> "$case_dir/stderr" \
+        || fail "github-admin-method-equals: fm-pr-merge failed"
+      expected='pr merge 87 --repo example/repo --squash --admin'
+    else
+      run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/87 \
+        -- --method rebase --admin > "$case_dir/stdout" 2> "$case_dir/stderr" \
+        || fail "github-admin-method-separate: fm-pr-merge failed"
+      expected='pr merge 87 --repo example/repo --rebase --admin'
+    fi
+    grep -qxF "$expected" "$case_dir/gh.log" \
+      || fail "github-admin-method-$spelling: gh did not receive a native method flag"
+    assert_no_grep '--method' "$case_dir/gh.log" \
+      "github-admin-method-$spelling: gh received a wrapper-only method flag"
+  done
+  pass "fm-pr-merge translates wrapper method forms for GitHub admin merges"
+}
+
 test_github_admin_records_pr_before_the_forge_call() {
   local case_dir rc
   case_dir=$(make_case github-admin-records-ahead-of-forge)
@@ -2316,6 +2352,7 @@ test_github_admin_merge_uses_gh_and_records
 test_github_admin_open_unqueued_outcome_refuses
 test_github_admin_without_gh_refuses
 test_github_admin_explicit_method_not_overridden
+test_github_admin_normalizes_wrapper_method_forms
 test_github_admin_records_pr_before_the_forge_call
 test_gitlab_admin_refuses_before_recording
 test_gitlab_url_resolves_and_merges
