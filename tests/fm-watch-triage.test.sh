@@ -4260,6 +4260,64 @@ test_procevent_marker_failure_exits_and_replays() {
   pass "marker failure exits through the shared wake owner, releases its lock, and replays later"
 }
 
+# A state root that stops being a private directory makes every per-cycle
+# reconcile die where the watcher swallows its exit, so the durable record
+# fm-procevent.sh leaves must reach the supervisor exactly once per episode.
+insecure_state_root_case() {  # <name>
+  local dir=$1
+  dir=$(make_case "$dir")
+  mkdir -p "$dir/state/procevent"
+  chmod 775 "$dir/state" || return 1
+  printf '%s\n' "$dir"
+}
+
+test_procevent_insecure_state_root_surfaces_once() {
+  local dir state out fifo pid reader exit_status
+  dir=$(insecure_state_root_case procevent-insecure-output-fail) \
+    || fail "could not relax the fixture state root"
+  fifo="$dir/output.fifo"; out="$dir/watch.out"
+  mkfifo "$fifo"
+  sh -c ': < "$1"' _ "$fifo" & reader=$!
+  PATH="$dir/fakebin:$PATH" FM_HOME="$dir" FM_PROCEVENT_CLAIM_ROOT="$dir/claims" \
+    FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" FM_POLL=0.2 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$fifo" &
+  pid=$!
+  wait "$reader" || true
+  wait_for_exit "$pid" 100
+  exit_status=$?
+  [ "$exit_status" -ne 124 ] || fail "the watcher survived a failed insecure-root output write"
+  [ -e "$dir/.procevent-state-insecure" ] \
+    || fail "the swallowed reconcile left no durable record of the insecure state root"
+  [ ! -e "$dir/.procevent-state-insecure-surfaced" ] \
+    || fail "a failed output committed the one-shot suppression"
+  procevent_watch_bg "$dir" "$out"; pid=$!
+  wait_for_exit "$pid" 100 \
+    || fail "the insecure state root was not replayable after output failure: $(cat "$out")"
+  grep -Fx 'check: procevent-state-insecure' "$out" >/dev/null \
+    || fail "the replay did not report the insecure state root: $(cat "$out")"
+  [ -e "$dir/.procevent-state-insecure-surfaced" ] \
+    || fail "a delivered wake did not commit its one-shot suppression"
+
+  dir=$(insecure_state_root_case procevent-insecure-once) \
+    || fail "could not relax the repeat-cycle fixture state root"
+  state="$dir/state"; out="$dir/watch.out"
+  procevent_watch_bg "$dir" "$out"; pid=$!
+  wait_for_exit "$pid" 100 \
+    || fail "a healthy watcher never surfaced the insecure state root: $(cat "$out")"
+  grep -Fx 'check: procevent-state-insecure' "$out" >/dev/null \
+    || fail "the actionable reason did not name the insecure state root: $(cat "$out")"
+  procevent_watch_bg "$dir" "$out.repeat"; pid=$!
+  sleep 2
+  kill -0 "$pid" 2>/dev/null \
+    || fail "the successor watcher woke again for an already-surfaced insecure root: $(cat "$out.repeat")"
+  reap "$pid"
+  grep -F 'procevent-state-insecure' "$out.repeat" >/dev/null \
+    && fail "the insecure state root was surfaced a second time: $(cat "$out.repeat")"
+  chmod 700 "$state" || fail "could not restore the fixture state root"
+  pass "an insecure process-event state root surfaces once, and only after the wake is delivered"
+}
+
+
 # --- heartbeat: no-change absorbed, backstop surfaces a missed status --------
 
 test_heartbeat_no_change_absorbed() {
@@ -4771,6 +4829,7 @@ test_procevent_marker_keys_are_injective
 test_procevent_surface_serializes_with_drain
 test_procevent_surface_crash_boundaries
 test_procevent_marker_failure_exits_and_replays
+test_procevent_insecure_state_root_surfaces_once
 test_heartbeat_no_change_absorbed
 test_heartbeat_backstop_surfaces_unsurfaced_status
 test_heartbeat_backstop_surfaces_a_masked_status

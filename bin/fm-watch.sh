@@ -1405,6 +1405,11 @@ procevent_surface_after_output() {
   return "$status"
 }
 
+procevent_state_insecure_after_output() {  # <output-status>
+  [ "$1" -eq 0 ] || return 0
+  : > "$FM_HOME/.procevent-state-insecure-surfaced" 2>/dev/null || true
+}
+
 procevent_surface_queued() {
   local key reason
   PROCEVENT_SURFACED=
@@ -1917,7 +1922,8 @@ while :; do
   # clears it the next time the root is private again; surface it here exactly
   # once rather than every cycle it stays broken.
   if [ -e "$FM_HOME/.procevent-state-insecure" ] && [ ! -e "$FM_HOME/.procevent-state-insecure-surfaced" ]; then
-    : > "$FM_HOME/.procevent-state-insecure-surfaced" 2>/dev/null || true
+    # shellcheck disable=SC2034 # Consumed by wake() in the separately linted transition owner.
+    FM_WAKE_POST_OUTPUT_ACTION=procevent_state_insecure_after_output
     wake "check: procevent-state-insecure"
   fi
   # Then deliver any queued-but-unsurfaced result, including one a runner
