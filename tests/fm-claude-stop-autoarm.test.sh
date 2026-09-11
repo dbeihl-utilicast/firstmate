@@ -1352,12 +1352,65 @@ test_fm_lock_status_still_works_with_shared_lib() {
   pass "fm-lock: shared session-lock lib preserves the status path"
 }
 
+test_linked_home_real_watcher_round_trip() {
+  local base dir out status sequence generation
+  base="$TMP_ROOT/round-trip-base"
+  dir="$TMP_ROOT/round-trip-home"
+  make_crewmate_worktree_dir "$base" "$dir" >/dev/null
+  cp -R "$ROOT/bin/." "$dir/bin/"
+  mkdir -p "$dir/docs"
+  cp -R "$ROOT/docs/supervision-protocols" "$dir/docs/"
+  cat > "$dir/state/round-trip.check.sh" <<'SH'
+#!/usr/bin/env bash
+sleep 1
+printf 'linked-home delivery verified\n'
+SH
+  chmod 700 "$dir/state/round-trip.check.sh"
+  out=$(FM_HOME="$dir" "$dir/bin/fm-check-register.sh" round-trip) \
+    || fail "could not register the local round-trip check"
+  printf '%s\n' "$out"
+  out=$(FM_POLL=1 FM_CHECK_INTERVAL=1 run_autoarm "$dir" 2>/dev/null); status=$?
+  printf 'Claude Stop exit=%s\n%s\n' "$status" "$out"
+  expect_code 2 "$status" "the real watcher must deliver a rewake from a leased home"
+  assert_contains "$out" 'linked-home delivery verified' "Stop lost the real check result"
+  [ "$(epoch_outcome "$dir")" = rewake ] || fail "real watcher delivery recorded no rewake"
+  assert_contains "$(cat "$dir/state/.wake-queue")" 'linked-home delivery verified' \
+    "real watcher delivery was not durable"
+  printf 'Persisted watcher cycle:\n'
+  cat "$dir/state/.watch-cycle-exits.log"
+  printf 'Persisted wake queue:\n'
+  cat "$dir/state/.wake-queue"
+  out=$(FM_HOME="$dir" "$dir/bin/fm-wake-drain.sh" 2>&1); status=$?
+  printf 'Wake drain exit=%s\n%s\n' "$status" "$out"
+  expect_code 0 "$status" "the captain's next supervision turn must be able to drain the wake"
+  assert_contains "$out" 'linked-home delivery verified' "drain lost the real check result"
+  read -r sequence generation <<< "$(printf '%s\n' "$out" | sed -n \
+    's/^WAKE_ACK_REQUIRED:.*--ack-through \([0-9][0-9]*\) --recovery-generation \([A-Za-z0-9._-][A-Za-z0-9._-]*\)$/\1 \2/p')"
+  [ -n "$sequence" ] && [ -n "$generation" ] || fail "drain emitted no acknowledgement command"
+  FM_HOME="$dir" "$dir/bin/fm-check-unregister.sh" round-trip \
+    || fail "could not retire the handled check"
+  FM_HOME="$dir" "$dir/bin/fm-wake-drain.sh" --ack-through "$sequence" \
+    --recovery-generation "$generation" || fail "could not acknowledge the handled wake"
+  [ ! -s "$dir/state/.wake-queue" ] || fail "acknowledged wake remains queued"
+  out=$(run_autoarm "$dir" 2>/dev/null); status=$?
+  expect_code 0 "$status" "the next Stop must be idle after the check is handled"
+  [ -z "$out" ] || fail "the handled check caused another wake: $out"
+  printf 'After acknowledgement: queue=empty next-Stop-exit=0 output=empty\n'
+  pass "auto-arm: linked home delivers and acknowledges a real registered check, then becomes idle"
+}
+
+if [ "${1:-}" = --linked-home-round-trip ]; then
+  test_linked_home_real_watcher_round_trip
+  exit 0
+fi
+
 test_inert_in_child_worktree
 test_inert_in_linked_worktree_with_dead_lock
 test_inert_in_task_worktree_recorded_by_parent_home
 test_inert_in_task_worktree_of_leased_home
 test_inert_in_linked_worktree_with_foreign_live_lock
 test_arms_in_linked_worktree_holding_own_live_lock
+test_linked_home_real_watcher_round_trip
 test_inert_in_gate_worktree_holding_own_live_lock
 test_inert_without_session_lock
 test_reclaims_stale_session_lock_before_arming
