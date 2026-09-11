@@ -144,16 +144,30 @@ case "${1:-} ${2:-}" in
       'base=main'
     exit 0
     ;;
+  "api --hostname")
+    [ "$#" -eq 6 ] && [ "$3" = github.com ] && [ "$5" = --jq ] && [ "$6" = .behind_by ] || exit 2
+    [ "$4" = "repos/o/r/compare/${FM_TEST_GH_BASE:-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}...${FM_TEST_GH_HEAD:-0123456789abcdef0123456789abcdef01234567}" ] || exit 2
+    [ "${FM_TEST_GH_COMPARE_FAIL:-0}" = 0 ] || exit 1
+    behind=0
+    [ "${FM_TEST_GH_MERGE_STATE:-CLEAN}" != BEHIND ] || behind=1
+    printf '%s\n' "${FM_TEST_GH_BEHIND_BY-$behind}"
+    exit 0
+    ;;
 esac
 case " $* " in
-  *" state,mergeStateStatus,mergeable,headRefOid "*)
+  *" state,mergeStateStatus,mergeable,headRefOid "*|*" state,mergeStateStatus,mergeable,headRefOid,baseRefOid "*)
     [ "${FM_TEST_GH_FAIL:-0}" = 0 ] || exit 1
     [ "${FM_TEST_GH_SLEEP:-0}" = 0 ] || sleep "$FM_TEST_GH_SLEEP"
-    printf '%s\t%s\t%s\t%s\n' \
+    printf '%s\t%s\t%s\t%s' \
       "${FM_TEST_GH_STATE:-OPEN}" \
       "${FM_TEST_GH_MERGE_STATE:-CLEAN}" \
       "${FM_TEST_GH_MERGEABLE:-MERGEABLE}" \
       "${FM_TEST_GH_HEAD:-0123456789abcdef0123456789abcdef01234567}"
+    case " $* " in
+      *" state,mergeStateStatus,mergeable,headRefOid,baseRefOid "*)
+        printf '\t%s' "${FM_TEST_GH_BASE-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}" ;;
+    esac
+    printf '\n'
     ;;
   *" headRefOid "*) printf '%s\n' "${FM_TEST_GH_HEAD:-0123456789abcdef0123456789abcdef01234567}" ;;
   *" state "*)
@@ -693,7 +707,7 @@ run_poll() {
 }
 
 test_static_poll_contract() {
-  local dir state out rc
+  local dir state out rc merge_state behind
   dir=$(make_case poll-contract)
   make_poll_fixture "$dir"
 
@@ -711,6 +725,29 @@ test_static_poll_contract() {
   out=$(FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BEHIND run_poll "$dir")
   [ "$out" = 'behind 0123456789abcdef0123456789abcdef01234567' ] \
     || fail "static poll did not identify an open PR behind its base"
+  for merge_state in BLOCKED DRAFT CLEAN; do
+    out=$(FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE="$merge_state" FM_TEST_GH_BEHIND_BY=2 run_poll "$dir")
+    [ "$out" = 'behind 0123456789abcdef0123456789abcdef01234567' ] \
+      || fail "static poll missed a behind head with merge state $merge_state"
+  done
+  for behind in 0 '' null invalid -1 1.5 $'1\n2'; do
+    out=$(FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BEHIND FM_TEST_GH_BEHIND_BY="$behind" run_poll "$dir")
+    [ -z "$out" ] || fail "static poll emitted behind without a positive compare count"
+  done
+  out=$(FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BLOCKED FM_TEST_GH_BEHIND_BY=2 \
+    FM_TEST_GH_COMPARE_FAIL=1 run_poll "$dir")
+  [ -z "$out" ] || fail "static poll emitted behind after compare failure"
+  for state in '' invalid aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaz; do
+    : > "$dir/gh.log"
+    out=$(FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BLOCKED FM_TEST_GH_BEHIND_BY=2 \
+      FM_TEST_GH_BASE="$state" run_poll "$dir")
+    [ -z "$out" ] || fail "static poll emitted behind for an invalid base"
+    assert_no_grep 'api --hostname' "$dir/gh.log" "static poll compared an invalid base"
+  done
+  out=$(FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BLOCKED FM_TEST_GH_MERGEABLE=CONFLICTING \
+    FM_TEST_GH_COMPARE_FAIL=1 run_poll "$dir")
+  [ "$out" = 'conflict 0123456789abcdef0123456789abcdef01234567' ] \
+    || fail "static poll lost conflict detection when comparison was unavailable"
   out=$(FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=DIRTY \
     FM_TEST_GH_MERGEABLE=CONFLICTING run_poll "$dir")
   [ "$out" = 'conflict 0123456789abcdef0123456789abcdef01234567' ] \
@@ -752,7 +789,7 @@ test_static_poll_contract() {
   set -e
   [ "$rc" -eq 0 ] || fail "watcher did not surface merged poll"
   [ "$(grep -c '^check: .*: merged$' "$dir/watch.out")" -eq 1 ] || fail "watcher did not convert merged output into exactly one wake"
-  pass "static poll is silent except for one merged line and remains watcher-bounded"
+  pass "static poll detects branch ancestry independently of merge readiness and remains watcher-bounded"
 }
 
 enable_pr_refresh() {  # <dir>
@@ -796,6 +833,37 @@ fi
 printf '%s\n' "$record"
 SH
   chmod +x "$1/fakebin/fm-refresh-send.sh"
+}
+
+test_branch_currency_blocked_head_dispatch() {
+  local dir rc
+  dir=$(make_case branch-currency-blocked-head)
+  write_task_meta "$dir"
+  enable_pr_refresh "$dir"
+  run_check_entry "$dir" task-a https://github.com/o/r/pull/1 >/dev/null \
+    || fail "could not arm a review-blocked branch-currency fixture"
+  cat > "$dir/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'state: done\n'
+SH
+  chmod +x "$dir/fakebin/fm-crew-state.sh"
+  fake_idempotent_refresh_send "$dir"
+  : > "$dir/refresh-send.log"
+  set +e
+  FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BLOCKED FM_TEST_GH_BEHIND_BY=2 \
+    FM_TEST_GH_LOG="$dir/gh.log" \
+    FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
+    FM_PR_REFRESH_SEND_BIN="$dir/fakebin/fm-refresh-send.sh" \
+    FM_TEST_REFRESH_SEND_LOG="$dir/refresh-send.log" \
+    run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/dispatch.out" 2> "$dir/dispatch.err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || fail "review-blocked watcher failed: $(cat "$dir/dispatch.err")"
+  assert_grep 'branch-refresh-dispatched pr=https://github.com/o/r/pull/1 head=0123456789abcdef0123456789abcdef01234567 condition=behind' \
+    "$dir/dispatch.out" "a review-blocked behind head never reached refresh dispatch"
+  [ "$(wc -l < "$dir/refresh-send.log" | tr -d ' ')" -eq 1 ] \
+    || fail "a review-blocked behind head did not reactivate exactly one owning worker"
+  pass "a review-blocked behind head reaches the opted-in owning worker"
 }
 
 test_branch_currency_dispatch_and_active_refusal() {
@@ -2858,6 +2926,7 @@ test_invalid_entrypoints_have_zero_side_effects
 test_valid_recording_and_merge_derivation
 test_rejected_metacharacter_bytes_are_inert
 test_static_poll_contract
+test_branch_currency_blocked_head_dispatch
 test_atomic_interruption_leaves_no_partial_artifact
 test_concurrent_watcher_sees_only_complete_publication
 test_poll_publication_refuses_unsafe_destinations

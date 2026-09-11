@@ -218,8 +218,9 @@ Once the budget expires, an acknowledged refresh whose worker is eligible and `d
 A later head starts its own budget.
 
 Upgrading firstmate across a change to `bin/fm-pr-poll.sh` invalidates every already-armed PR poll, because the watcher accepts a poll only when the task's armed byte copy is identical to the current template.
+This branch-currency upgrade includes detecting behind heads through the GitHub compare API's `behind_by` count for the PR's base and head commits, including PRs whose merge state is `BLOCKED` while awaiting required review.
 The watcher suspends merge detection for the affected task and prints one diagnostic with the exact command to re-run `bin/fm-pr-check.sh <task-id> <pr-url>`, including the home, state directory, and script path.
-Run that command for each affected task after upgrading; merge detection resumes after re-arming.
+Run that command once for each affected task after installing this upgrade; the re-arm covers both branch-currency detection and the compare query, and merge detection resumes afterward.
 The watcher keeps the armed bytes unchanged, and repeated sweeps remain quiet until the poll is re-armed or its registration or template changes.
 Unregistered or tampered poll bytes still produce the unauthenticated-check rejection.
 

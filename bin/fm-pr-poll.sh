@@ -61,10 +61,10 @@ case "$provider" in
       .|..|*[!A-Za-z0-9._-]*) exit 0 ;;
     esac
     [ "$url" = "https://github.com/$owner/$repo/pull/$number" ] || exit 0
-    raw=$(gh pr view "$url" --json state,mergeStateStatus,mergeable,headRefOid \
-      -q '[.state, .mergeStateStatus, .mergeable, .headRefOid] | @tsv' 2>/dev/null) || exit 0
+    raw=$(gh pr view "$url" --json state,mergeStateStatus,mergeable,headRefOid,baseRefOid \
+      -q '[.state, .mergeStateStatus, .mergeable, .headRefOid, .baseRefOid] | @tsv' 2>/dev/null) || exit 0
     case "$raw" in ''|*$'\n'*) exit 0 ;; esac
-    IFS=$'\t' read -r state merge_state mergeable head extra <<< "$raw"
+    IFS=$'\t' read -r state merge_state mergeable head base extra <<< "$raw"
     [ -z "${extra:-}" ] || exit 0
     if [ "$state" = MERGED ]; then
       printf '%s\n' merged
@@ -79,8 +79,13 @@ case "$provider" in
     case "$head" in *[!0-9a-f]*) exit 0 ;; esac
     if [ "$mergeable" = CONFLICTING ] || [ "$merge_state" = DIRTY ]; then
       printf 'conflict %s\n' "$head"
-    elif [ "$merge_state" = BEHIND ]; then
-      printf 'behind %s\n' "$head"
+    else
+      case "${#base}" in 40|64) ;; *) exit 0 ;; esac
+      case "$base" in *[!0-9a-f]*) exit 0 ;; esac
+      behind=$(gh api --hostname "$host" "repos/$path/compare/$base...$head" \
+        --jq '.behind_by' 2>/dev/null) || exit 0
+      case "$behind" in ''|*[!0-9]*) exit 0 ;; esac
+      [ "$behind" -gt 0 ] 2>/dev/null && printf 'behind %s\n' "$head"
     fi
     ;;
   gitlab)
