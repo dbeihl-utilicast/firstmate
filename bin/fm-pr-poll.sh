@@ -87,11 +87,11 @@ case "$provider" in
       strict=$(gh api --hostname "$host" "repos/$path/branches/$base_ref/protection/required_status_checks" \
         --jq '.strict == true and (((.checks // []) + (.contexts // [])) | length > 0)' 2>/dev/null) || strict=
       if [ "$strict" != true ]; then
-        strict=$(gh api --hostname "$host" "repos/$path/rules/branches/$base_ref" --paginate --slurp \
-          --jq 'any(.[][]; .type == "required_status_checks" and .parameters.strict_required_status_checks_policy == true and (.parameters.required_status_checks | length > 0))' \
+        strict=$(gh api --hostname "$host" "repos/$path/rules/branches/$base_ref" --paginate \
+          --jq '.[] | select(.type == "required_status_checks" and .parameters.strict_required_status_checks_policy == true and ((.parameters.required_status_checks // []) | length > 0)) | "true"' \
           2>/dev/null) || exit 0
       fi
-      [ "$strict" = true ] || exit 0
+      printf '%s\n' "$strict" | grep -qx true || exit 0
       behind=$(gh api --hostname "$host" "repos/$path/compare/$base_ref...$head" \
         --jq '.behind_by' 2>/dev/null) || exit 0
       case "$behind" in ''|*[!0-9]*) exit 0 ;; esac

@@ -226,6 +226,7 @@ A positive `behind_by` triggers refresh only when classic branch protection or a
 This includes a pull request whose merge state is `BLOCKED` while awaiting required review, which the former `mergeStateStatus == BEHIND` trigger skipped.
 Absent, disabled, or unreadable protection never authorizes a behind refresh; conflict detection remains independent of protection and comparison.
 Classic protection inspection needs GitHub Administration read permission, while active ruleset inspection needs Metadata read permission.
+The shared poll performs these checks even without `config/pr-refresh`, adding up to three GitHub API requests per open, non-conflicting PR per check sweep; tokens without Administration read can receive a classic-protection permission error on every sweep.
 The watcher suspends merge detection for affected tasks and batches their diagnostics into one sweep wake, with the exact command to re-run `bin/fm-pr-check.sh <task-id> <pr-url>`, including the home, state directory, and script path.
 Run that command once for each affected task after installing this upgrade; the re-arm covers both branch-currency detection and the compare query, and merge detection resumes afterward.
 The watcher keeps the armed bytes unchanged, and repeated sweeps remain quiet until the poll is re-armed or its registration or template changes.

@@ -135,7 +135,12 @@ SH
   ln -s "$REAL_JQ" "$fakebin/jq"
   cat > "$fakebin/gh" <<'SH'
 #!/usr/bin/env bash
+set -o pipefail
 printf '%s\n' "$*" >> "$FM_TEST_GH_LOG"
+if [[ " $* " == *" --slurp "* && " $* " == *" --jq "* ]]; then
+  printf '%s\n' 'the `--slurp` option is not supported with `--jq` or `--template`' >&2
+  exit 1
+fi
 case "${1:-} ${2:-}" in
   "api graphql")
     printf '%s\n' \
@@ -167,9 +172,9 @@ case "${1:-} ${2:-}" in
         printf '{"strict":%s,"contexts":%s}\n' "${FM_TEST_GH_STRICT-true}" "$checks" | jq -r "$6"
         ;;
       "repos/o/r/rules/branches/$base_name")
-        [ "$#" -eq 8 ] && [ "$5" = --paginate ] && [ "$6" = --slurp ] && [ "$7" = --jq ] || exit 2
+        [ "$#" -eq 7 ] && [ "$5" = --paginate ] && [ "$6" = --jq ] || exit 2
         [ "${FM_TEST_GH_RULES_FAIL:-0}" = 0 ] || exit 1
-        printf '%s\n' "${FM_TEST_GH_RULE_PAGES-[[]]}" | jq -r "$8"
+        printf '%s\n' "${FM_TEST_GH_RULE_PAGES-[[]]}" | jq -c '.[]' | jq -r "$7"
         ;;
       *) exit 2 ;;
     esac
@@ -782,6 +787,13 @@ test_static_poll_contract() {
     FM_TEST_GH_RULE_PAGES='[[],[{"type":"required_status_checks","parameters":{"strict_required_status_checks_policy":true,"required_status_checks":[{"context":"ci"}]}}]]' run_poll "$dir")
   [ "$out" = 'behind 0123456789abcdef0123456789abcdef01234567' ] \
     || fail "an active strict rule on a later page did not authorize refresh"
+  out=$(FM_TEST_GH_MERGE_STATE=BLOCKED FM_TEST_GH_BEHIND_BY=2 FM_TEST_GH_STRICT=false \
+    FM_TEST_GH_RULE_PAGES='[[{"type":"required_status_checks","parameters":{"strict_required_status_checks_policy":true,"required_status_checks":[{"context":"ci"}]}}],[{"type":"required_status_checks","parameters":{"strict_required_status_checks_policy":true,"required_status_checks":[{"context":"lint"}]}}]]' run_poll "$dir")
+  [ "$out" = 'behind 0123456789abcdef0123456789abcdef01234567' ] \
+    || fail "multiple strict rules across pages did not authorize refresh"
+  out=$(FM_TEST_GH_MERGE_STATE=BLOCKED FM_TEST_GH_BEHIND_BY=2 FM_TEST_GH_STRICT=false \
+    FM_TEST_GH_RULE_PAGES='[[],[{"type":"required_status_checks","parameters":{"strict_required_status_checks_policy":false,"required_status_checks":[{"context":"ci"}]}}]]' run_poll "$dir")
+  [ -z "$out" ] || fail "non-strict rules on a later page authorized refresh"
   out=$(FM_TEST_GH_MERGE_STATE=BLOCKED FM_TEST_GH_BEHIND_BY=2 FM_TEST_GH_STRICT=false \
     FM_TEST_GH_RULE_PAGES='[[{"type":"required_status_checks","parameters":{"strict_required_status_checks_policy":true,"required_status_checks":[]}}]]' run_poll "$dir")
   [ -z "$out" ] || fail "a ruleset without required checks authorized refresh"
