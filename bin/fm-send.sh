@@ -243,6 +243,8 @@ fi
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 # shellcheck source=bin/fm-task-inbox-lib.sh
 . "$SCRIPT_DIR/fm-task-inbox-lib.sh"
+# shellcheck source=bin/fm-pr-lib.sh
+. "$SCRIPT_DIR/fm-pr-lib.sh"
 # shellcheck source=bin/fm-timeout-lib.sh
 . "$SCRIPT_DIR/fm-timeout-lib.sh"
 
@@ -252,6 +254,20 @@ fm_send_id_from_meta() {  # <meta-file>
   local base
   base=${1##*/}
   printf '%s' "${base%.meta}"
+}
+
+fm_send_pr_poll_matches() {
+  local extra
+  [ -n "${FM_SEND_EXPECTED_PR_POLL_SNAPSHOT:-}" ] || return 0
+  case "$FM_SEND_EXPECTED_PR_POLL_SNAPSHOT" in *$'\n'*) return 1 ;; esac
+  IFS=$'\t' read -r FM_PR_POLL_SNAPSHOT_ID FM_PR_POLL_SNAPSHOT_PROVIDER \
+    FM_PR_POLL_SNAPSHOT_URL FM_PR_POLL_SNAPSHOT_HOST \
+    FM_PR_POLL_SNAPSHOT_PATH FM_PR_POLL_SNAPSHOT_NUMBER \
+    FM_PR_POLL_SNAPSHOT_DATA_HASH FM_PR_POLL_SNAPSHOT_TEMPLATE_HASH \
+    FM_PR_POLL_SNAPSHOT_DATA_IDENTITY FM_PR_POLL_SNAPSHOT_CHECK_IDENTITY \
+    FM_PR_POLL_SNAPSHOT_REG_HASH FM_PR_POLL_SNAPSHOT_REG_IDENTITY extra \
+    <<< "$FM_SEND_EXPECTED_PR_POLL_SNAPSHOT" || return 1
+  [ -z "$extra" ] && fm_pr_poll_snapshot_matches "$STATE" "$1" "$SCRIPT_DIR/fm-pr-poll.sh"
 }
 
 # fm_send_clear_after_interrupt: muse RESTORES the interrupted prompt back into
@@ -842,6 +858,7 @@ else
     if [ "$CURRENT_REMOTE_ID" != "$TARGET_REMOTE_ID" ] \
       || { [ -n "${FM_SEND_EXPECTED_SPAWN_GEN:-}" ] \
         && [ "$CURRENT_REMOTE_SPAWN_GEN" != "$FM_SEND_EXPECTED_SPAWN_GEN" ]; } \
+      || [ -n "${FM_SEND_EXPECTED_PR_POLL_SNAPSHOT:-}" ] \
       || { [ -n "${FM_SEND_EXPECTED_REMOTE_HOST:-}" ] \
         && [ "$CURRENT_REMOTE_HOST" != "$FM_SEND_EXPECTED_REMOTE_HOST" ]; } \
       || [ -z "$CURRENT_REMOTE_HOST" ] \
@@ -950,6 +967,7 @@ else
       || [ "$CURRENT_INBOX_BACKEND" != "$TARGET_BACKEND" ] \
       || { [ -n "${FM_SEND_EXPECTED_SPAWN_GEN:-}" ] \
         && [ "$CURRENT_INBOX_SPAWN_GEN" != "$FM_SEND_EXPECTED_SPAWN_GEN" ]; } \
+      || ! fm_send_pr_poll_matches "$INBOX_TASK_ID" \
       || [ -n "$(fm_meta_get "$TARGET_META" remote_host)" ]; then
       fm_lock_release "$INBOX_META_LOCK"
       if [ "$PENDING_REPLY_CREATED" = 1 ] && [ -n "$PENDING_REPLY_CORR" ]; then

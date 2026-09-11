@@ -1742,6 +1742,13 @@ pr_refresh_dispatch() {  # <task-id> <url> <behind|conflict> <head>
 
   if ! record_path=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
     FM_SEND_EXPECTED_SPAWN_GEN="$spawn_gen" FM_SEND_IDEMPOTENT=1 FM_SEND_PRINT_INBOX_RECORD=1 \
+    FM_SEND_EXPECTED_PR_POLL_SNAPSHOT="$(printf '%s\t' \
+      "$FM_PR_POLL_SNAPSHOT_ID" "$FM_PR_POLL_SNAPSHOT_PROVIDER" \
+      "$FM_PR_POLL_SNAPSHOT_URL" "$FM_PR_POLL_SNAPSHOT_HOST" \
+      "$FM_PR_POLL_SNAPSHOT_PATH" "$FM_PR_POLL_SNAPSHOT_NUMBER" \
+      "$FM_PR_POLL_SNAPSHOT_DATA_HASH" "$FM_PR_POLL_SNAPSHOT_TEMPLATE_HASH" \
+      "$FM_PR_POLL_SNAPSHOT_DATA_IDENTITY" "$FM_PR_POLL_SNAPSHOT_CHECK_IDENTITY" \
+      "$FM_PR_POLL_SNAPSHOT_REG_HASH" "$FM_PR_POLL_SNAPSHOT_REG_IDENTITY")" \
     "$FM_PR_REFRESH_SEND_BIN" "$id" "$message" 2>/dev/null); then
     pr_refresh_refuse "$id" "$url" "$condition" "$head" worker-dispatch-failed
     return $?

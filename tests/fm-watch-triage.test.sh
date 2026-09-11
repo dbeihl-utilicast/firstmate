@@ -4009,14 +4009,16 @@ pe_case() {  # <dir> <command>...
    FM_PROCEVENT_CLAIM_ROOT="$dir/claims" FM_HOME="$dir" "$ROOT/bin/fm-procevent.sh" "$@")
 }
 
-# Capture one real result with an attached runner, reaped before retirement.
-# The fixture retains one durably captured, unhandled, queued result and no
-# remaining poll work.
 seed_captured_procevent_result() {  # <dir>
-  local dir=$1
+  local dir=$1 i=0
   pe_case "$dir" register lavish delivery-src -- \
     /bin/sh -c 'printf "session:\n  file: /a.html\n  status: waiting\n"' >/dev/null || return 1
-  pe_case "$dir" start delivery-src >/dev/null || return 1
+  pe_case "$dir" reconcile >/dev/null || return 1
+  while [ "$i" -lt 100 ]; do
+    [ -s "$dir/state/.wake-queue" ] && break
+    sleep 0.1
+    i=$((i + 1))
+  done
   pe_case "$dir" retire delivery-src >/dev/null || return 1
   [ -s "$dir/state/.wake-queue" ]
 }
@@ -4789,6 +4791,11 @@ test_paused_until_that_passed_is_rechecked_before_the_cadence() {
   pass "a declared wait whose until time has passed is rechecked at once, then held to the cadence"
 }
 
+
+if [ -n "${FM_TEST_ONLY:-}" ]; then
+  "$FM_TEST_ONLY"
+  exit $?
+fi
 
 test_status_span_actionable_classifier
 test_status_span_survives_a_later_routine_append

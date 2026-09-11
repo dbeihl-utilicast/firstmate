@@ -185,6 +185,7 @@ case " $* " in
   *" state,mergeStateStatus,mergeable,headRefOid"*)
     [ "${FM_TEST_GH_FAIL:-0}" = 0 ] || exit 1
     [ "${FM_TEST_GH_SLEEP:-0}" = 0 ] || sleep "$FM_TEST_GH_SLEEP"
+    [ -z "${FM_TEST_GH_POLL_HOOK:-}" ] || "$FM_TEST_GH_POLL_HOOK" || exit 1
     jq -nr --arg state "${FM_TEST_GH_STATE:-OPEN}" \
       --arg merge_state "${FM_TEST_GH_MERGE_STATE:-CLEAN}" \
       --arg mergeable "${FM_TEST_GH_MERGEABLE:-MERGEABLE}" \
@@ -1149,6 +1150,102 @@ SH
   assert_grep 'branch-refresh-dispatched pr=https://github.com/o/r/pull/2 head=89abcdef0123456789abcdef0123456789abcdef condition=behind' \
     "$dir/new-head.out" "a changed stale head did not act again"
   pass "branch currency deduplicates pending work and reactivates resolved or changed heads"
+}
+
+test_branch_currency_replaced_poll_refuses() {
+  local mode dir state suffix replacement_url hook poll_hook capture_hook real_shasum
+  real_shasum=$(command -v shasum) || fail "snapshot fixture requires shasum"
+  for mode in capture-replaced capture-rearmed replaced rearmed unchanged; do
+    dir=$(make_case "branch-currency-poll-$mode")
+    state="$dir/home/state"
+    write_task_meta "$dir"
+    enable_pr_refresh "$dir"
+    run_check_entry "$dir" task-a https://github.com/o/r/pull/5 >/dev/null \
+      || fail "could not arm captured branch-currency poll"
+    hook=''
+    if [ "$mode" != unchanged ]; then
+      mkdir "$dir/original" "$dir/replacement"
+      for suffix in meta check.sh pr-poll pr-poll-registration; do
+        mv "$state/task-a.$suffix" "$dir/original/"
+      done
+      cp -p "$dir/original/task-a.meta" "$state/task-a.meta"
+      replacement_url=https://github.com/o/r/pull/6
+      case "$mode" in *rearmed) replacement_url=https://github.com/o/r/pull/5 ;; esac
+      run_check_entry "$dir" task-a "$replacement_url" >/dev/null \
+        || fail "could not prepare replacement branch-currency poll"
+      for suffix in meta check.sh pr-poll pr-poll-registration; do
+        mv "$state/task-a.$suffix" "$dir/replacement/"
+        mv "$dir/original/task-a.$suffix" "$state/"
+      done
+      hook="$dir/replace-poll.sh"
+      cat > "$hook" <<'SH'
+#!/usr/bin/env bash
+set -eu
+. "$FM_TEST_REVIEW_ROOT/bin/fm-wake-lib.sh"
+lock=$(fm_meta_lock_path "$FM_HOME/state/task-a.meta")
+fm_lock_acquire_wait "$lock"
+trap 'fm_lock_release "$lock"' EXIT
+for artifact in "$FM_HOME/../replacement/"*; do
+  [ -f "$artifact" ] || continue
+  mv "$artifact" "$FM_HOME/state/${artifact##*/}"
+done
+printf 'replaced\n' > "$FM_HOME/replaced"
+SH
+      chmod +x "$hook"
+    fi
+    poll_hook="$hook"
+    capture_hook=''
+    case "$mode" in
+      capture-*)
+        poll_hook=''
+        capture_hook="$hook"
+        cat > "$dir/fakebin/shasum" <<'SH'
+#!/usr/bin/env bash
+if [ -n "${FM_TEST_PR_SNAPSHOT_HOOK:-}" ] && [ ! -e "$FM_HOME/replaced" ] \
+  && [ "$*" = "-a 256 $FM_HOME/state/task-a.pr-poll-registration" ]; then
+  "$FM_TEST_PR_SNAPSHOT_HOOK" || exit 1
+fi
+exec "$FM_TEST_REAL_SHASUM" "$@"
+SH
+        chmod +x "$dir/fakebin/shasum"
+        ;;
+    esac
+    cat > "$dir/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'state: done\n'
+SH
+    cat > "$dir/fakebin/tmux" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}" in
+  display-message) printf 'fakepane\n' ;;
+  list-windows) printf 'firstmate:fm-task-a\n' ;;
+  capture-pane) printf '╭────╮\n│    │\n╰────╯\n' ;;
+  send-keys) printf '%s\n' "$*" >> "$FM_HOME/send.log" ;;
+esac
+exit 0
+SH
+    chmod +x "$dir/fakebin/fm-crew-state.sh" "$dir/fakebin/tmux"
+    FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BEHIND FM_TEST_GH_POLL_HOOK="$poll_hook" \
+      FM_TEST_PR_SNAPSHOT_HOOK="$capture_hook" FM_TEST_REAL_SHASUM="$real_shasum" \
+      FM_TEST_GH_LOG="$dir/gh.log" FM_TEST_REVIEW_ROOT="$ROOT" \
+      FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" FM_PR_REFRESH_SEND_BIN="$ROOT/bin/fm-send.sh" \
+      FM_SEND_SETTLE=0 run_watcher_bounded "$dir/home" "$dir/fakebin" \
+      > "$dir/watch.out" 2> "$dir/watch.err" \
+      || fail "$mode poll watcher failed: $(cat "$dir/watch.err")"
+    if [ "$mode" = unchanged ]; then
+      assert_present "$state/task-a.inbox/001.msg" "an unchanged poll did not enqueue its refresh"
+      assert_grep 'https://github.com/o/r/pull/5' "$state/task-a.inbox/001.msg" "refresh lost its PR identity"
+      assert_grep 'branch-refresh-dispatched' "$dir/watch.out" "an unchanged poll was refused"
+    else
+      assert_present "$dir/home/replaced" "poll fixture did not replace its registration in flight"
+      assert_absent "$state/task-a.inbox/001.msg" "a superseded poll queued refresh work"
+      assert_absent "$state/task-a.pr-refresh-state" "a superseded poll recorded a refresh dispatch"
+      assert_grep 'reason=worker-dispatch-failed' "$dir/watch.out" "delivery accepted a superseded poll"
+      fm_pr_poll_artifacts_valid "$state" task-a "$POLL" || fail "delivery damaged the replacement poll"
+      [ "$FM_PR_DATA_URL" = "$replacement_url" ] || fail "delivery changed the replacement PR"
+    fi
+    pass "branch-currency delivery validates the $mode poll registration"
+  done
 }
 
 test_branch_currency_generation_race_defers() {
@@ -3027,6 +3124,7 @@ if [ -n "${FM_TEST_ONLY:-}" ]; then
 fi
 
 test_branch_currency_dispatch_and_active_refusal
+test_branch_currency_replaced_poll_refuses
 test_branch_currency_generation_race_defers
 test_branch_currency_stale_status_log_refuses
 test_branch_currency_dispatches_after_ordinary_relaunch
