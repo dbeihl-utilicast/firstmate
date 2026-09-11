@@ -612,7 +612,7 @@ fm_lock_owner_is_abandoned() {  # <lockdir> <pid>
   [ -n "$recorded" ] || return 1
   current_lock=$(fm_lock_pid_identity "$pid" 2>/dev/null) || return 1
   [ "$recorded" != "$current_lock" ] || return 1
-  current_full=$(fm_pid_identity "$pid" 2>/dev/null) || return 0
+  current_full=$(fm_pid_identity "$pid" 2>/dev/null) || return 1
   [ "$recorded" != "$current_full" ]
 }
 

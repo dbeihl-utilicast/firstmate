@@ -304,8 +304,38 @@ test_lock_matching_identity_is_not_stolen() {
   pass "a live pid whose recorded identity still matches is not reclaimed"
 }
 
+test_lock_unreadable_full_identity_is_not_stolen() {
+  local dir state lockdir proc_root live rc
+  dir=$(make_case lock-unreadable-full-identity)
+  state="$dir/state"
+  lockdir="$state/.contend.lock"
+  proc_root="$dir/proc"
+  sleep 30 &
+  live=$!
+  write_fake_proc_identity "$proc_root" "$live" 987654
+  mkdir "$lockdir"
+  printf '%s\n' "$live" > "$lockdir/pid"
+  rc=0
+  FM_PROC_ROOT_OVERRIDE="$proc_root" FM_STATE_OVERRIDE="$state" bash -c '
+    . "$1"
+    fm_pid_identity "$3" > "$2/pid-identity" || exit 7
+    recorded=$(cat "$2/pid-identity")
+    : > "$FM_PROC_ROOT_OVERRIDE/$3/cmdline"
+    fm_lock_pid_identity "$3" >/dev/null || exit 8
+    if fm_pid_identity "$3" >/dev/null; then exit 9; fi
+    if fm_lock_try_acquire "$2"; then exit 10; fi
+    [ "$FM_LOCK_HELD_PID" = "$3" ] || exit 11
+    [ "$(cat "$2/pid")" = "$3" ] || exit 12
+    [ "$(cat "$2/pid-identity")" = "$recorded" ] || exit 13
+  ' _ "$LIB" "$lockdir" "$live" || rc=$?
+  kill "$live" 2>/dev/null || true
+  wait "$live" 2>/dev/null || true
+  [ "$rc" -eq 0 ] || fail "unreadable full identity did not preserve the live lock (rc=$rc)"
+  pass "a live lock stays held when its full identity cannot be read"
+}
+
 test_lock_exec_holder_is_not_stolen() {
-  local dir state lockdir holder recorded i rc
+  local dir state lockdir holder recorded program i rc
   dir=$(make_case lock-exec-holder)
   state="$dir/state"
   lockdir="$state/.contend.lock"
@@ -316,15 +346,22 @@ test_lock_exec_holder_is_not_stolen() {
   ' _ "$LIB" "$lockdir" &
   holder=$!
   i=0
-  while [ "$i" -lt 200 ] && [ "$(cat "$lockdir/pid" 2>/dev/null || true)" != "$holder" ]; do
+  program=
+  while [ "$i" -lt 200 ]; do
+    if [ -r "/proc/$holder/cmdline" ]; then
+      IFS= read -r -d '' program < "/proc/$holder/cmdline" || program=
+    else
+      program=$(LC_ALL=C ps -p "$holder" -o comm= 2>/dev/null) || program=
+    fi
+    case "${program##*/}" in sleep|sleep.exe) break ;; esac
     sleep 0.05
     i=$((i + 1))
   done
   recorded=$(cat "$lockdir/pid" 2>/dev/null || true)
-  if [ "$recorded" != "$holder" ]; then
+  if [ "$recorded" != "$holder" ] || [ "$i" -ge 200 ]; then
     kill "$holder" 2>/dev/null || true
     wait "$holder" 2>/dev/null || true
-    fail "holder never recorded its pid on the lock (got '$recorded')"
+    fail "holder did not acquire the lock and exec sleep (pid='$recorded', program='$program')"
   fi
   rc=0
   FM_STATE_OVERRIDE="$state" bash -c '
@@ -1217,6 +1254,7 @@ test_lock_steals_dead_pid_lock
 test_lock_prepare_writes_pid_identity
 test_lock_steals_reused_pid_lock
 test_lock_matching_identity_is_not_stolen
+test_lock_unreadable_full_identity_is_not_stolen
 test_lock_exec_holder_is_not_stolen
 test_lock_stale_steal_single_winner_under_concurrency
 test_lock_live_steal_mutex_is_not_reclaimed
