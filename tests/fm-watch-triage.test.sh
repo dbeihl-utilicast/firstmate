@@ -4009,19 +4009,14 @@ pe_case() {  # <dir> <command>...
    FM_PROCEVENT_CLAIM_ROOT="$dir/claims" FM_HOME="$dir" "$ROOT/bin/fm-procevent.sh" "$@")
 }
 
-# Capture one real process-event result into <dir>'s home, then retire the
-# source so the fixture holds exactly the reported end state: one durably
-# captured, unhandled, queued result and no remaining poll work.
+# Capture one real result with an attached runner, reaped before retirement.
+# The fixture retains one durably captured, unhandled, queued result and no
+# remaining poll work.
 seed_captured_procevent_result() {  # <dir>
-  local dir=$1 i=0
+  local dir=$1
   pe_case "$dir" register lavish delivery-src -- \
     /bin/sh -c 'printf "session:\n  file: /a.html\n  status: waiting\n"' >/dev/null || return 1
-  pe_case "$dir" reconcile >/dev/null || return 1
-  while [ "$i" -lt 100 ]; do
-    [ -s "$dir/state/.wake-queue" ] && break
-    sleep 0.1
-    i=$((i + 1))
-  done
+  pe_case "$dir" start delivery-src >/dev/null || return 1
   pe_case "$dir" retire delivery-src >/dev/null || return 1
   [ -s "$dir/state/.wake-queue" ]
 }
