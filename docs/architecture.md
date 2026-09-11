@@ -256,6 +256,13 @@ Secondmate launches are exempt because they resolve the secondmate harness and a
 Unsupported effort values are still recorded in task meta when passed to `fm-spawn.sh`, but the launch template omits any effort flag that the selected harness does not accept.
 That keeps spawn launch compatible across claude, codex, opencode, pi, pi-signed, grok, kimi, cursor, gemini, muse, rovo, and omp while preserving the requested profile for later audit.
 
+## One-shot Antigravity print path
+
+Antigravity `agy` is not a verified worker runtime.
+[`bin/fm-agy-print.sh`](../bin/fm-agy-print.sh) is a Firstmate-owned one-shot helper for review and second-reading: one prompt in, one JSON envelope out, then exit.
+It is not `fm-spawn`, has no busy or idle classifier, and does not belong on the verified harness list.
+The [`agy-print` skill](../.agents/skills/agy-print/SKILL.md) owns when to invoke it; the helper's header and `--help` own the flags.
+
 ## Optional secondmates
 
 `data/secondmates.md` records persistent secondmates with natural-language scopes, project clone lists, and home paths.
