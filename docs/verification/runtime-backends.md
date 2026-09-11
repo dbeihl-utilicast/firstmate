@@ -8,8 +8,8 @@ Exact task chronology, branch names, temporary homes, local paths, process ids, 
 
 ## One-shot Antigravity print
 
-Antigravity `agy` remains outside the verified worker-runtime list.
-Its Firstmate-owned helper contract was verified on 2026-09-11 with agy 1.2.1, model `gemini-3.8-flash-low`, and explicit low effort.
+The [`agy-print` skill](../../.agents/skills/agy-print/SKILL.md) owns the non-worker boundary for this path.
+The live `status` and `structured_output` envelope fields used by the helper were verified on 2026-09-11 with agy 1.2.1, model `gemini-3.8-flash-low`, and explicit low effort.
 
 ```sh
 FM_AGY_PRINT_LIVE_E2E=1 bin/fm-test-run.sh tests/fm-agy-print-live-e2e.test.sh

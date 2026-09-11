@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # fm-agy-print.sh - Firstmate-owned one-shot Antigravity print path.
 #
-# One prompt in, one JSON envelope out, then exit. This is not a worker
-# runtime, not a harness adapter, and not a TUI spawn. There is no busy or
-# idle classifier, no steer, no interrupt, no relaunch, and no resume.
-# `agy` stays off the verified runtime list.
+# One prompt in, one JSON envelope out, then exit.
+# .agents/skills/agy-print/SKILL.md owns the invocation trigger and the
+# non-worker boundary.
 #
 # The helper always runs `agy` in an isolated cwd the caller names. It never
 # passes `--dangerously-skip-permissions`, `--prompt-interactive`,

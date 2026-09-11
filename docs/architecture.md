@@ -258,10 +258,8 @@ That keeps spawn launch compatible across claude, codex, opencode, pi, pi-signed
 
 ## One-shot Antigravity print path
 
-Antigravity `agy` is not a verified worker runtime.
-[`bin/fm-agy-print.sh`](../bin/fm-agy-print.sh) is a Firstmate-owned one-shot helper for review and second-reading: one prompt in, one JSON envelope out, then exit.
-It is not `fm-spawn`, has no busy or idle classifier, and does not belong on the verified harness list.
-The [`agy-print` skill](../.agents/skills/agy-print/SKILL.md) owns when to invoke it; the helper's header and `--help` own the flags.
+[`bin/fm-agy-print.sh`](../bin/fm-agy-print.sh) is a Firstmate-owned one-shot helper for review and second-reading, deliberately separate from `fm-spawn` and the harness-adapter tree.
+The [`agy-print` skill](../.agents/skills/agy-print/SKILL.md) owns when to invoke it and its non-worker boundary; the helper's header and `--help` own the exact invocation, output, and gating contract.
 
 ## Optional secondmates
 
