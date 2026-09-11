@@ -127,11 +127,11 @@ hold_source_lock_then_handle() {  # <home> <source-id> <sequence> <ready-file> <
   HOLDER_PID=$!
 }
 
-test_retire_runner_exits_before_pgid() (
+test_retire_runner_exits_during_stop() (
   local mode home tools runner='' launcher='' identity rc out real_ps
   real_ps=$(command -v ps) || fail "PGID fixture requires ps"
   trap '[ -z "$runner" ] || kill -KILL -"$runner" 2>/dev/null || true; [ -z "$launcher" ] || wait "$launcher" 2>/dev/null || true' EXIT
-  for mode in exited unreadable; do
+  for mode in exited exited-after-pgid unreadable; do
     home="$TMP_ROOT/retire-pgid-$mode"
     new_home "$home"
     pe_register "$home" lavish pgid-src -- /bin/true >/dev/null || fail "could not register PGID fixture"
@@ -169,12 +169,22 @@ test_retire_runner_exits_before_pgid() (
 #!/usr/bin/env bash
 if [ "$*" = "-o pgid= -p $FM_TEST_RETIRE_PID" ]; then
   printf 'observed\n' > "$FM_HOME/pgid-observed"
-  if [ "$FM_TEST_RETIRE_MODE" = exited ]; then
+  if [ "$FM_TEST_RETIRE_MODE" = exited-after-pgid ]; then
+    pgid=$("$FM_TEST_REAL_PS" "$@" | tr -d '[:space:]')
+    [ "$pgid" = "$FM_TEST_RETIRE_PID" ] || exit 1
+    printf '%s\n' "$pgid" > "$FM_HOME/pgid-before-exit"
+  fi
+  if [ "$FM_TEST_RETIRE_MODE" != unreadable ]; then
     touch "$FM_HOME/release"
     for _ in $(seq 1 100); do
       [ ! -s "$FM_HOME/reaped" ] || break
       sleep 0.1
     done
+  fi
+  if [ "$FM_TEST_RETIRE_MODE" = exited-after-pgid ]; then
+    [ -s "$FM_HOME/reaped" ] || exit 1
+    printf '%s\n' "$pgid"
+    exit 0
   fi
   exit 1
 fi
@@ -186,11 +196,14 @@ SH
       FM_TEST_RETIRE_PID="$runner" FM_TEST_RETIRE_MODE="$mode" \
       pe "$home" retire pgid-src 2>&1) || rc=$?
     assert_present "$home/pgid-observed" "retire never reached PGID inspection after matching the runner"
-    if [ "$mode" = exited ]; then
+    if [ "$mode" != unreadable ]; then
       [ "$(cat "$home/reaped")" = 0 ] || fail "PGID fixture did not exit normally"
       ! kill -0 "$runner" 2>/dev/null || fail "PGID fixture process survived"
       ! kill -0 -"$runner" 2>/dev/null || fail "PGID fixture group survived"
-      [ "$rc" -eq 0 ] || fail "retire refused an already-exited matched runner: $out"
+      if [ "$mode" = exited-after-pgid ]; then
+        [ "$(cat "$home/pgid-before-exit")" = "$runner" ] || fail "PGID fixture never observed the matched group"
+      fi
+      [ "$rc" -eq 0 ] || fail "retire refused an already-exited matched runner ($mode): $out"
       assert_absent "$home/state/procevent/pgid-src.source" "retire kept an exited runner registered"
       assert_absent "$FM_PROCEVENT_CLAIM_ROOT/pgid-src.claim" "retire kept an exited runner claimed"
     else
@@ -215,7 +228,7 @@ if [ -n "${FM_TEST_ONLY:-}" ]; then
   exit $?
 fi
 
-test_retire_runner_exits_before_pgid || exit $?
+test_retire_runner_exits_during_stop || exit $?
 
 # --- inert with nothing configured ------------------------------------------
 IDLE="$TMP_ROOT/idle"; mkdir -p "$IDLE"

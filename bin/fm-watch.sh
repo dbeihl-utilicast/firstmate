@@ -1597,16 +1597,24 @@ pr_refresh_record_state() {  # <task-id> <record>; prints pending|resolved|missi
 # prior dispatch on this head earned.
 pr_refresh_refuse() {  # <task-id> <url> <condition> <head> <reason>
   local id=$1 url=$2 condition=$3 head=$4 reason=$5
-  local refused="$STATE/$id.pr-refresh-refused" tab prev_head prev_reason extra
+  local refused="$STATE/$id.pr-refresh-refused" tab prev_head prev_reason extra notification
   tab=$(printf '\t')
+  fm_lock_acquire_wait "$FM_WAKE_QUEUE_LOCK"
   if [ -f "$refused" ] \
     && IFS="$tab" read -r prev_head prev_reason extra < "$refused" \
     && [ -z "$extra" ] && [ "$prev_head" = "$head" ] && [ "$prev_reason" = "$reason" ]; then
+    fm_lock_release "$FM_WAKE_QUEUE_LOCK"
     printf 'branch-refresh-deferred pr=%s head=%s condition=%s reason=%s\n' "$url" "$head" "$condition" "$reason"
     return 2
   fi
+  notification="branch-refresh-refused pr=$url head=$head condition=$condition reason=$reason"
+  if ! fm_wake_append_locked check "$STATE/$id.check.sh" "check: $STATE/$id.check.sh: $notification"; then
+    fm_lock_release "$FM_WAKE_QUEUE_LOCK"
+    return 3
+  fi
   printf '%s\t%s\n' "$head" "$reason" > "$refused" 2>/dev/null || true
-  printf 'branch-refresh-refused pr=%s head=%s condition=%s reason=%s\n' "$url" "$head" "$condition" "$reason"
+  fm_lock_release "$FM_WAKE_QUEUE_LOCK"
+  printf '%s\n' "$notification"
   return 1
 }
 
@@ -1614,7 +1622,7 @@ pr_refresh_dispatch() {  # <task-id> <url> <behind|conflict> <head>
   local id=$1 url=$2 condition=$3 head=$4
   local marker="$STATE/$id.pr-refresh-state" meta="$STATE/$id.meta"
   local state_line state mode spawn_gen message attempt first record record_path record_state
-  local gen_epoch status_mtime stale_secs now
+  local gen_epoch status_mtime stale_secs now notification
 
   if [ -f "$marker" ] && pr_refresh_state_read "$marker" && [ "$PR_REFRESH_HEAD" = "$head" ] \
     && { [ -z "$PR_REFRESH_URL" ] || [ "$PR_REFRESH_URL" = "$url" ]; } \
@@ -1704,13 +1712,20 @@ pr_refresh_dispatch() {  # <task-id> <url> <behind|conflict> <head>
     && [ "$PR_REFRESH_HEAD" = "$head" ] && [ "$PR_REFRESH_STATUS" = resolved ]; then
     stale_secs=$(pr_refresh_stale_secs)
     if [ "$(( $(date +%s) - PR_REFRESH_FIRST ))" -ge "$stale_secs" ]; then
+      notification="branch-refresh-blocked pr=$url head=$head condition=$condition attempts=$PR_REFRESH_ATTEMPT reason=head-never-moved-after-${stale_secs}s-no-further-dispatch"
+      fm_lock_acquire_wait "$FM_WAKE_QUEUE_LOCK"
+      if ! fm_wake_append_locked check "$STATE/$id.check.sh" "check: $STATE/$id.check.sh: $notification"; then
+        fm_lock_release "$FM_WAKE_QUEUE_LOCK"
+        return 3
+      fi
       pr_refresh_state_write "$marker" blocked "$head" "$PR_REFRESH_ATTEMPT" "$PR_REFRESH_RECORD" \
         "$PR_REFRESH_FIRST" "$PR_REFRESH_LAST" "$url" || {
+        fm_lock_release "$FM_WAKE_QUEUE_LOCK"
         pr_refresh_refuse "$id" "$url" "$condition" "$head" state-write-failed
         return $?
       }
-      printf 'branch-refresh-blocked pr=%s head=%s condition=%s attempts=%s reason=head-never-moved-after-%ss-no-further-dispatch\n' \
-        "$url" "$head" "$condition" "$PR_REFRESH_ATTEMPT" "$stale_secs"
+      fm_lock_release "$FM_WAKE_QUEUE_LOCK"
+      printf '%s\n' "$notification"
       return 1
     fi
     attempt=$((PR_REFRESH_ATTEMPT + 1))
@@ -2302,7 +2317,12 @@ while :; do
                 triage_log "$dispatch_out"
                 continue
               fi
+              [ "$dispatch_rc" -le 1 ] || exit 1
               reason="check: $c: $dispatch_out"
+              if [ "$dispatch_rc" -eq 1 ]; then
+                check_reasons="${check_reasons:+$check_reasons$'\n'}$reason"
+                continue
+              fi
               ;;
           esac
         fi

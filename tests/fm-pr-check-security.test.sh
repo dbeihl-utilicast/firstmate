@@ -1516,6 +1516,107 @@ SH
   pass "an unchanged refusal reason wakes once and defers quietly after that"
 }
 
+run_refresh_notification_poll() {
+  local dir=$1 label=$2
+  FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BEHIND FM_TEST_GH_LOG="$dir/gh.log" \
+    FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
+    FM_PR_REFRESH_SEND_BIN="$dir/fakebin/fm-refresh-send.sh" FM_TEST_REAL_MV="$REAL_MV" \
+    run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/$label.out" 2> "$dir/$label.err"
+}
+
+run_refresh_notification_failure() {
+  local kind=$1 fault=$2 dir state head url first before='' rc
+  dir=$(make_case "refresh-notification-$kind-$fault")
+  state="$dir/home/state"
+  head=0123456789abcdef0123456789abcdef01234567
+  url=https://github.com/o/r/pull/8
+  write_task_meta "$dir"
+  enable_pr_refresh "$dir"
+  run_check_entry "$dir" task-a "$url" >/dev/null || fail "could not arm notification fixture"
+  if [ "$kind" = refused ]; then
+    sed 's/^mode=.*/mode=manual/' "$state/task-a.meta" > "$state/task-a.meta.next"
+    mv "$state/task-a.meta.next" "$state/task-a.meta"
+  else
+    first=$(( $(date +%s) - 2100 ))
+    printf 'resolved\t%s\t1\t001.msg\t%s\t%s\t%s\n' "$head" "$first" "$first" "$url" \
+      > "$state/task-a.pr-refresh-state"
+    chmod 0600 "$state/task-a.pr-refresh-state"
+    before=$(cat "$state/task-a.pr-refresh-state")
+  fi
+  cat > "$dir/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+touch "$FM_HOME/notification-ready"
+printf 'state: done\n'
+SH
+  cat > "$dir/fakebin/fm-refresh-send.sh" <<'SH'
+#!/usr/bin/env bash
+touch "$FM_HOME/unexpected-send"
+exit 1
+SH
+  chmod +x "$dir/fakebin/fm-crew-state.sh" "$dir/fakebin/fm-refresh-send.sh"
+  if [ "$fault" = queue-failure ]; then
+    mkdir "$state/.wake-queue.seq"
+  else
+    cat > "$dir/fakebin/mv" <<'SH'
+#!/usr/bin/env bash
+if [ "${!#}" = "$FM_HOME/state/.watcher-down" ] \
+  && [ -e "$FM_HOME/notification-ready" ] && [ ! -e "$FM_HOME/notification-interrupted" ]; then
+  printf 'interrupted\n' > "$FM_HOME/notification-interrupted"
+  kill -KILL "$PPID"
+  exit 1
+fi
+exec "$FM_TEST_REAL_MV" "$@"
+SH
+    chmod +x "$dir/fakebin/mv"
+  fi
+  rc=0
+  run_refresh_notification_poll "$dir" failed || rc=$?
+  assert_present "$dir/home/notification-ready" "notification fixture never reached the idle worker"
+  if [ "$fault" = queue-failure ]; then
+    [ "$rc" -ne 0 ] || fail "watcher accepted failed $kind notification publication"
+    rmdir "$state/.wake-queue.seq"
+  else
+    assert_present "$dir/home/notification-interrupted" "notification fixture did not interrupt publication"
+    rm -f "$dir/fakebin/mv"
+  fi
+  assert_no_grep "branch-refresh-$kind" "$state/.wake-queue" "notification fault occurred after publication"
+  assert_absent "$state/task-a.pr-refresh-refused" "$kind $fault committed refusal suppression before publication"
+  if [ "$kind" = blocked ]; then
+    [ "$(cat "$state/task-a.pr-refresh-state")" = "$before" ] \
+      || fail "$kind $fault committed blocked suppression before publication"
+  else
+    assert_absent "$state/task-a.pr-refresh-state" "refusal changed refresh dispatch state"
+  fi
+  add_stop_custom_check "$dir"
+  run_refresh_notification_poll "$dir" retry || fail "notification retry failed: $(cat "$dir/retry.err")"
+  if ! grep -qF "branch-refresh-$kind" "$state/.wake-queue"; then
+    assert_grep 'check: rearm-resurface' "$dir/retry.out" "notification retry was silently suppressed"
+    ack_watcher_cycle "$state" || fail "notification recovery acknowledgement failed"
+    run_refresh_notification_poll "$dir" recovered \
+      || fail "notification recovery failed: $(cat "$dir/recovered.err")"
+  fi
+  [ "$(grep -cF "branch-refresh-$kind" "$state/.wake-queue")" -eq 1 ] \
+    || fail "notification retry did not durably publish exactly one $kind notice"
+  if [ "$kind" = blocked ]; then
+    [ "$(cut -f1 "$state/task-a.pr-refresh-state")" = blocked ] \
+      || fail "durable notification did not commit blocked suppression"
+  else
+    [ "$(cat "$state/task-a.pr-refresh-refused")" = "$(printf '%s\tunsupported-mode' "$head")" ] \
+      || fail "durable notification did not commit refusal suppression"
+  fi
+  ack_watcher_cycle "$state" || fail "notification acknowledgement failed"
+  run_refresh_notification_poll "$dir" quiet || fail "notification deduplication failed: $(cat "$dir/quiet.err")"
+  assert_no_grep "branch-refresh-$kind" "$state/.wake-queue" "acknowledged notification was queued again"
+  assert_no_grep "branch-refresh-$kind" "$dir/quiet.out" "acknowledged notification woke again"
+  assert_absent "$dir/home/unexpected-send" "notification recovery dispatched a worker"
+  pass "$kind notification survives $fault and suppresses only after durable publication"
+}
+
+test_branch_currency_refusal_queue_failure() { run_refresh_notification_failure refused queue-failure; }
+test_branch_currency_blocked_queue_failure() { run_refresh_notification_failure blocked queue-failure; }
+test_branch_currency_refusal_interruption() { run_refresh_notification_failure refused interruption; }
+test_branch_currency_blocked_interruption() { run_refresh_notification_failure blocked interruption; }
+
 # config/pr-refresh absent: behind/conflict is still detected and logged, but
 # no dispatch runs, no state is written - a home that has not opted in sees
 # no change from before this control existed.
@@ -3131,6 +3232,10 @@ test_branch_currency_dispatches_after_ordinary_relaunch
 test_branch_currency_remote_secondmate_refused
 test_branch_currency_restart_before_state_recorded
 test_branch_currency_refusal_is_deduplicated
+test_branch_currency_refusal_queue_failure
+test_branch_currency_blocked_queue_failure
+test_branch_currency_refusal_interruption
+test_branch_currency_blocked_interruption
 test_branch_currency_opt_out_by_default
 test_branch_currency_gives_up_on_an_unreachable_head
 test_upgraded_poll_template_names_its_rearm_command

@@ -1347,7 +1347,10 @@ runner_group_signal() {  # <signal> <pid> <identity> [proved]
   fi
   # KNOWN LIMIT: portable shell cannot make this verification and signal atomic,
   # so the PID and group could be reused in the interval between them.
-  kill -"$signal" -"$pid" 2>/dev/null || return 2
+  if ! kill -"$signal" -"$pid" 2>/dev/null; then
+    ! fm_pid_alive "$pid" && ! fm_procevent_group_alive "$pid" && return 1
+    return 2
+  fi
 }
 
 stop_runner_pid() {  # <pid> <identity>
