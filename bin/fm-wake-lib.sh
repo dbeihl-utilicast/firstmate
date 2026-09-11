@@ -53,9 +53,27 @@ fm_pid_alive() {
   kill -0 "$pid" 2>/dev/null
 }
 
-fm_pid_identity() {
-  local pid=$1 out proc_root stat_line starttime cmdline_hex identity_key
+# Both identity formats are compared against each other in
+# fm_lock_owner_is_abandoned, so the key name and stat field index define once.
+_fm_proc_starttime_identity() {  # <pid>
+  local pid=$1 proc_root stat_line starttime identity_key
   local -a stat_fields
+  proc_root=${FM_PROC_ROOT_OVERRIDE:-/proc}
+  stat_line=$(cat "$proc_root/$pid/stat" 2>/dev/null) || return 1
+  # After the final comm delimiter, array index 19 is proc stat field 22.
+  read -r -a stat_fields <<< "${stat_line##*)}"
+  [ "${#stat_fields[@]}" -ge 20 ] || return 1
+  starttime=${stat_fields[19]}
+  case "$starttime" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  identity_key=proc-starttime
+  [ "$_FM_UNAME" != Linux ] || identity_key=linux-starttime
+  printf '%s=%s\n' "$identity_key" "$starttime"
+}
+
+fm_pid_identity() {
+  local pid=$1 out proc_root starttime_identity cmdline_hex
   case "$pid" in
     ''|*[!0-9]*) return 1 ;;
   esac
@@ -67,19 +85,10 @@ fm_pid_identity() {
   # Git Bash/MSYS exposes these compatible files but its Cygwin ps rejects the
   # portable fallback's -o fields, so capability detection must not key on uname.
   if [ -r "$proc_root/$pid/stat" ] && [ -r "$proc_root/$pid/cmdline" ]; then
-    stat_line=$(cat "$proc_root/$pid/stat" 2>/dev/null) || return 1
-    # After the final comm delimiter, array index 19 is proc stat field 22.
-    read -r -a stat_fields <<< "${stat_line##*)}"
-    [ "${#stat_fields[@]}" -ge 20 ] || return 1
-    starttime=${stat_fields[19]}
-    case "$starttime" in
-      ''|*[!0-9]*) return 1 ;;
-    esac
+    starttime_identity=$(_fm_proc_starttime_identity "$pid") || return 1
     cmdline_hex=$(od -An -v -tx1 "$proc_root/$pid/cmdline" 2>/dev/null | tr -d '[:space:]') || return 1
     [ -n "$cmdline_hex" ] || return 1
-    identity_key=proc-starttime
-    [ "$_FM_UNAME" != Linux ] || identity_key=linux-starttime
-    printf '%s=%s cmdline-hex=%s\n' "$identity_key" "$starttime" "$cmdline_hex"
+    printf '%s cmdline-hex=%s\n' "$starttime_identity" "$cmdline_hex"
     return 0
   fi
   # Pin LC_ALL=C so lstart's date format is locale-invariant: the identity is
@@ -93,23 +102,13 @@ fm_pid_identity() {
 # Lock ownership survives exec: process birth distinguishes PID reuse without
 # evicting a live holder that has replaced its shell with slow work.
 fm_lock_pid_identity() {
-  local pid=$1 proc_root stat_line starttime out identity_key
-  local -a stat_fields
+  local pid=$1 proc_root out
   case "$pid" in
     ''|*[!0-9]*) return 1 ;;
   esac
   proc_root=${FM_PROC_ROOT_OVERRIDE:-/proc}
   if [ -r "$proc_root/$pid/stat" ]; then
-    stat_line=$(cat "$proc_root/$pid/stat" 2>/dev/null) || return 1
-    read -r -a stat_fields <<< "${stat_line##*)}"
-    [ "${#stat_fields[@]}" -ge 20 ] || return 1
-    starttime=${stat_fields[19]}
-    case "$starttime" in
-      ''|*[!0-9]*) return 1 ;;
-    esac
-    identity_key=proc-starttime
-    [ "$_FM_UNAME" != Linux ] || identity_key=linux-starttime
-    printf '%s=%s\n' "$identity_key" "$starttime"
+    _fm_proc_starttime_identity "$pid" || return 1
     return 0
   fi
   out=$(LC_ALL=C ps -p "$pid" -o lstart= 2>/dev/null) || return 1

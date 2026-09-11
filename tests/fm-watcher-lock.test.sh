@@ -304,6 +304,41 @@ test_lock_matching_identity_is_not_stolen() {
   pass "a live pid whose recorded identity still matches is not reclaimed"
 }
 
+test_lock_exec_holder_is_not_stolen() {
+  local dir state lockdir holder recorded i rc
+  dir=$(make_case lock-exec-holder)
+  state="$dir/state"
+  lockdir="$state/.contend.lock"
+  FM_STATE_OVERRIDE="$state" bash -c '
+    . "$1"
+    fm_lock_try_acquire "$2" || exit 7
+    exec sleep 30
+  ' _ "$LIB" "$lockdir" &
+  holder=$!
+  i=0
+  while [ "$i" -lt 200 ] && [ "$(cat "$lockdir/pid" 2>/dev/null || true)" != "$holder" ]; do
+    sleep 0.05
+    i=$((i + 1))
+  done
+  recorded=$(cat "$lockdir/pid" 2>/dev/null || true)
+  if [ "$recorded" != "$holder" ]; then
+    kill "$holder" 2>/dev/null || true
+    wait "$holder" 2>/dev/null || true
+    fail "holder never recorded its pid on the lock (got '$recorded')"
+  fi
+  rc=0
+  FM_STATE_OVERRIDE="$state" bash -c '
+    . "$1"
+    fm_lock_try_acquire "$2"
+  ' _ "$LIB" "$lockdir" || rc=$?
+  kill "$holder" 2>/dev/null || true
+  wait "$holder" 2>/dev/null || true
+  [ "$rc" -ne 0 ] || fail "lock held across exec was stolen"
+  [ "$(cat "$lockdir/pid" 2>/dev/null || true)" = "$holder" ] \
+    || fail "lock held across exec had its pid replaced"
+  pass "a holder that exec'd a new program keeps its lock"
+}
+
 test_lock_stale_steal_single_winner_under_concurrency() {
   local dir state lockdir dead marker i pids pid wins
   dir=$(make_case lock-stale-concurrency)
@@ -1182,6 +1217,7 @@ test_lock_steals_dead_pid_lock
 test_lock_prepare_writes_pid_identity
 test_lock_steals_reused_pid_lock
 test_lock_matching_identity_is_not_stolen
+test_lock_exec_holder_is_not_stolen
 test_lock_stale_steal_single_winner_under_concurrency
 test_lock_live_steal_mutex_is_not_reclaimed
 test_lock_does_not_steal_live_lock
