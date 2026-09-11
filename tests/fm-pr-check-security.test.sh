@@ -132,6 +132,7 @@ make_case() {
 printf 'guard\n' >> "$FM_TEST_GUARD_LOG"
 SH
   chmod +x "$fake_root/bin/fm-guard.sh"
+  ln -s "$REAL_JQ" "$fakebin/jq"
   cat > "$fakebin/gh" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FM_TEST_GH_LOG"
@@ -145,30 +146,49 @@ case "${1:-} ${2:-}" in
     exit 0
     ;;
   "api --hostname")
-    [ "$#" -eq 6 ] && [ "$3" = github.com ] && [ "$5" = --jq ] && [ "$6" = .behind_by ] || exit 2
-    [ "$4" = "repos/o/r/compare/${FM_TEST_GH_BASE:-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}...${FM_TEST_GH_HEAD:-0123456789abcdef0123456789abcdef01234567}" ] || exit 2
-    [ "${FM_TEST_GH_COMPARE_FAIL:-0}" = 0 ] || exit 1
-    behind=0
-    [ "${FM_TEST_GH_MERGE_STATE:-CLEAN}" != BEHIND ] || behind=1
-    printf '%s\n' "${FM_TEST_GH_BEHIND_BY-$behind}"
-    exit 0
+    [ "$3" = github.com ] || exit 2
+    base_name=${FM_TEST_GH_BASE_NAME:-main}
+    base_name=${base_name//\//%2F}
+    case "$4" in
+      "repos/o/r/compare/${FM_TEST_GH_BASE_OID:-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}...${FM_TEST_GH_HEAD:-0123456789abcdef0123456789abcdef01234567}")
+        printf '0\n'
+        ;;
+      "repos/o/r/compare/$base_name...${FM_TEST_GH_HEAD:-0123456789abcdef0123456789abcdef01234567}")
+        [ "$#" -eq 6 ] && [ "$5" = --jq ] || exit 2
+        [ "${FM_TEST_GH_COMPARE_FAIL:-0}" = 0 ] || exit 1
+        behind=0
+        [ "${FM_TEST_GH_MERGE_STATE:-CLEAN}" != BEHIND ] || behind=1
+        printf '%s\n' "${FM_TEST_GH_BEHIND_BY-$behind}"
+        ;;
+      "repos/o/r/branches/$base_name/protection/required_status_checks")
+        [ "$#" -eq 6 ] && [ "$5" = --jq ] || exit 2
+        [ "${FM_TEST_GH_PROTECTION_FAIL:-0}" = 0 ] || exit 1
+        checks=${FM_TEST_GH_REQUIRED_CHECKS-'["ci"]'}
+        printf '{"strict":%s,"contexts":%s}\n' "${FM_TEST_GH_STRICT-true}" "$checks" | jq -r "$6"
+        ;;
+      "repos/o/r/rules/branches/$base_name")
+        [ "$#" -eq 8 ] && [ "$5" = --paginate ] && [ "$6" = --slurp ] && [ "$7" = --jq ] || exit 2
+        [ "${FM_TEST_GH_RULES_FAIL:-0}" = 0 ] || exit 1
+        printf '%s\n' "${FM_TEST_GH_RULE_PAGES-[[]]}" | jq -r "$8"
+        ;;
+      *) exit 2 ;;
+    esac
+    exit $?
     ;;
 esac
 case " $* " in
-  *" state,mergeStateStatus,mergeable,headRefOid "*|*" state,mergeStateStatus,mergeable,headRefOid,baseRefOid "*)
+  *" state,mergeStateStatus,mergeable,headRefOid"*)
     [ "${FM_TEST_GH_FAIL:-0}" = 0 ] || exit 1
     [ "${FM_TEST_GH_SLEEP:-0}" = 0 ] || sleep "$FM_TEST_GH_SLEEP"
-    printf '%s\t%s\t%s\t%s' \
-      "${FM_TEST_GH_STATE:-OPEN}" \
-      "${FM_TEST_GH_MERGE_STATE:-CLEAN}" \
-      "${FM_TEST_GH_MERGEABLE:-MERGEABLE}" \
-      "${FM_TEST_GH_HEAD:-0123456789abcdef0123456789abcdef01234567}"
-    case " $* " in
-      *" state,mergeStateStatus,mergeable,headRefOid,baseRefOid "*)
-        printf '\t%s' "${FM_TEST_GH_BASE-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}" ;;
-    esac
-    printf '\n'
+    jq -nr --arg state "${FM_TEST_GH_STATE:-OPEN}" \
+      --arg merge_state "${FM_TEST_GH_MERGE_STATE:-CLEAN}" \
+      --arg mergeable "${FM_TEST_GH_MERGEABLE:-MERGEABLE}" \
+      --arg head "${FM_TEST_GH_HEAD:-0123456789abcdef0123456789abcdef01234567}" \
+      --arg base_name "${FM_TEST_GH_BASE_NAME-main}" \
+      --arg base_oid "${FM_TEST_GH_BASE_OID-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}" \
+      '{state: $state, mergeStateStatus: $merge_state, mergeable: $mergeable, headRefOid: $head, baseRefName: $base_name, baseRefOid: $base_oid} | '"$7"
     ;;
+
   *" headRefOid "*) printf '%s\n' "${FM_TEST_GH_HEAD:-0123456789abcdef0123456789abcdef01234567}" ;;
   *" state "*)
     [ "${FM_TEST_GH_FAIL:-0}" = 0 ] || exit 1
@@ -737,15 +757,36 @@ test_static_poll_contract() {
   out=$(FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BLOCKED FM_TEST_GH_BEHIND_BY=2 \
     FM_TEST_GH_COMPARE_FAIL=1 run_poll "$dir")
   [ -z "$out" ] || fail "static poll emitted behind after compare failure"
-  for state in '' invalid aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaz; do
+  for state in '' '../main' '-main' '/main' 'main?x=1' 'main#x' 'main%2Fx' 'main.lock' 'main//x'; do
     : > "$dir/gh.log"
     out=$(FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BLOCKED FM_TEST_GH_BEHIND_BY=2 \
-      FM_TEST_GH_BASE="$state" run_poll "$dir")
+      FM_TEST_GH_BASE_NAME="$state" run_poll "$dir")
     [ -z "$out" ] || fail "static poll emitted behind for an invalid base"
     assert_no_grep 'api --hostname' "$dir/gh.log" "static poll compared an invalid base"
   done
+  out=$(FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BLOCKED FM_TEST_GH_BEHIND_BY=2 \
+    FM_TEST_GH_BASE_NAME=release/v1 run_poll "$dir")
+  [ "$out" = 'behind 0123456789abcdef0123456789abcdef01234567' ] \
+    || fail "static poll missed the current base branch with a slash"
+  for state in false null '"true"'; do
+    out=$(FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BLOCKED FM_TEST_GH_BEHIND_BY=2 \
+      FM_TEST_GH_STRICT="$state" run_poll "$dir")
+    [ -z "$out" ] || fail "unconfirmed protection authorized a behind refresh"
+  done
+  out=$(FM_TEST_GH_MERGE_STATE=BLOCKED FM_TEST_GH_BEHIND_BY=2 FM_TEST_GH_REQUIRED_CHECKS='[]' run_poll "$dir")
+  [ -z "$out" ] || fail "strict protection with no required checks authorized refresh"
+  out=$(FM_TEST_GH_MERGE_STATE=BLOCKED FM_TEST_GH_BEHIND_BY=2 \
+    FM_TEST_GH_PROTECTION_FAIL=1 FM_TEST_GH_RULES_FAIL=1 run_poll "$dir")
+  [ -z "$out" ] || fail "unreadable protection authorized a behind refresh"
+  out=$(FM_TEST_GH_MERGE_STATE=BLOCKED FM_TEST_GH_BEHIND_BY=2 FM_TEST_GH_PROTECTION_FAIL=1 \
+    FM_TEST_GH_RULE_PAGES='[[],[{"type":"required_status_checks","parameters":{"strict_required_status_checks_policy":true,"required_status_checks":[{"context":"ci"}]}}]]' run_poll "$dir")
+  [ "$out" = 'behind 0123456789abcdef0123456789abcdef01234567' ] \
+    || fail "an active strict rule on a later page did not authorize refresh"
+  out=$(FM_TEST_GH_MERGE_STATE=BLOCKED FM_TEST_GH_BEHIND_BY=2 FM_TEST_GH_STRICT=false \
+    FM_TEST_GH_RULE_PAGES='[[{"type":"required_status_checks","parameters":{"strict_required_status_checks_policy":true,"required_status_checks":[]}}]]' run_poll "$dir")
+  [ -z "$out" ] || fail "a ruleset without required checks authorized refresh"
   out=$(FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BLOCKED FM_TEST_GH_MERGEABLE=CONFLICTING \
-    FM_TEST_GH_COMPARE_FAIL=1 run_poll "$dir")
+    FM_TEST_GH_COMPARE_FAIL=1 FM_TEST_GH_PROTECTION_FAIL=1 FM_TEST_GH_RULES_FAIL=1 run_poll "$dir")
   [ "$out" = 'conflict 0123456789abcdef0123456789abcdef01234567' ] \
     || fail "static poll lost conflict detection when comparison was unavailable"
   out=$(FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=DIRTY \
@@ -799,7 +840,7 @@ enable_pr_refresh() {  # <dir>
 age_pr_refresh_budget() {
   local file="$1/$2.pr-refresh-state" first
   first=$(( $(date +%s) - $3 ))
-  awk -F'\t' -v OFS='\t' -v first="$first" '{ $5 = first; print }' "$file" > "$file.aged" \
+  awk -F'\t' -v OFS='\t' -v first="$first" '{ $5 = first; if (NF >= 6) $6 = first; print }' "$file" > "$file.aged" \
     || fail "could not age the branch-currency budget"
   chmod 0600 "$file.aged"
   mv "$file.aged" "$file"
@@ -864,6 +905,67 @@ SH
   [ "$(wc -l < "$dir/refresh-send.log" | tr -d ' ')" -eq 1 ] \
     || fail "a review-blocked behind head did not reactivate exactly one owning worker"
   pass "a review-blocked behind head reaches the opted-in owning worker"
+}
+
+run_currency_cooldown_poll() {
+  local dir=$1 label=$2
+  if [ -s "$dir/home/state/.wake-queue" ]; then
+    ack_watcher_cycle "$dir/home/state" || fail "cooldown wake acknowledgement failed"
+  fi
+  FM_TEST_GH_MERGE_STATE=BLOCKED FM_TEST_GH_BEHIND_BY=2 \
+    FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
+    FM_PR_REFRESH_SEND_BIN="$dir/fakebin/fm-refresh-send.sh" \
+    FM_TEST_REFRESH_SEND_LOG="$dir/refresh-send.log" \
+    run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/$label.out" 2> "$dir/$label.err" \
+    || fail "cooldown $label watcher failed: $(cat "$dir/$label.err")"
+}
+
+test_branch_currency_cooldown_survives_head_changes() {
+  local dir state head original_head
+  dir=$(make_case branch-currency-cooldown)
+  state="$dir/home/state"
+  original_head=0123456789abcdef0123456789abcdef01234567
+  head=89abcdef0123456789abcdef0123456789abcdef
+  write_task_meta "$dir"
+  enable_pr_refresh "$dir"
+  run_check_entry "$dir" task-a https://github.com/o/r/pull/1 >/dev/null \
+    || fail "could not arm cooldown fixture"
+  add_stop_custom_check "$dir"
+  cat > "$dir/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'state: %s\n' "${FM_TEST_REFRESH_WORKER_STATE:-done}"
+SH
+  chmod +x "$dir/fakebin/fm-crew-state.sh"
+  fake_idempotent_refresh_send "$dir"
+  : > "$dir/refresh-send.log"
+  run_currency_cooldown_poll "$dir" first
+  FM_TEST_GH_HEAD="$head" run_currency_cooldown_poll "$dir" pending
+  assert_grep 'reason=dispatch-pending' "$state/.watch-triage.log" "a changed head bypassed the pending instruction"
+  [ "$(cut -f2 "$state/task-a.pr-refresh-state")" = "$original_head" ] \
+    || fail "a changed head replaced unfinished refresh state"
+  mv "$state/task-a.inbox/001.msg" "$state/task-a.inbox/handled/"
+  FM_TEST_GH_HEAD="$head" FM_TEST_REFRESH_WORKER_STATE=working run_currency_cooldown_poll "$dir" observed
+  [ "$(cut -f1 "$state/task-a.pr-refresh-state")" = resolved ] \
+    || fail "the acknowledgement was not observed before another refresh"
+  FM_TEST_GH_HEAD="$head" run_currency_cooldown_poll "$dir" cooling
+  assert_grep 'reason=dispatch-cooldown' "$state/.watch-triage.log" "a changed head bypassed the default cooldown"
+  [ "$(wc -l < "$dir/refresh-send.log" | tr -d ' ')" -eq 1 ] \
+    || fail "the first refresh triggered another run before the cooldown"
+  age_pr_refresh_budget "$state" task-a 610
+  FM_TEST_GH_HEAD="$head" FM_TEST_REFRESH_WORKER_STATE=working run_currency_cooldown_poll "$dir" active
+  assert_grep 'reason=active-work' "$state/.watch-triage.log" "the elapsed cooldown interrupted active work"
+  [ "$(wc -l < "$dir/refresh-send.log" | tr -d ' ')" -eq 1 ] \
+    || fail "an elapsed cooldown dispatched to an active worker"
+  FM_TEST_GH_HEAD="$head" FM_PR_REFRESH_COOLDOWN_SECS=1200 run_currency_cooldown_poll "$dir" configured
+  assert_no_grep 'branch-refresh-dispatched' "$dir/configured.out" "the configured cooldown was ignored"
+  FM_TEST_GH_HEAD="$head" run_currency_cooldown_poll "$dir" next
+  [ "$(wc -l < "$dir/refresh-send.log" | tr -d ' ')" -eq 2 ] \
+    || fail "an idle observed result did not refresh after the default cooldown"
+  [ "$(cut -f2 "$state/task-a.pr-refresh-state")" = "$head" ] \
+    || fail "the new refresh did not record the observed head"
+  [ "$(cut -f7 "$state/task-a.pr-refresh-state")" = https://github.com/o/r/pull/1 ] \
+    || fail "the cooldown receipt lost its pull request identity"
+  pass "the per-PR cooldown survives head changes and preserves pending and active work"
 }
 
 test_branch_currency_dispatch_and_active_refusal() {
@@ -994,6 +1096,7 @@ SH
 printf 'state: done \302\267 source: run-step \302\267 checks green: PR ready for review\n'
 SH
   chmod +x "$dir/fakebin/fm-crew-state.sh"
+  age_pr_refresh_budget "$state" task-a 600
   ack_watcher_cycle "$state" || fail "branch-currency post-working acknowledgement failed"
   add_stop_custom_check "$dir"
   set +e
@@ -1010,6 +1113,13 @@ SH
   assert_grep 'branch-currency attempt 2:' "$dir/refresh-send.log" \
     "the second stale-head dispatch reused the handled attempt identity"
 
+  mv "$state/task-a.inbox/002.msg" "$state/task-a.inbox/handled/"
+  ack_watcher_cycle "$state" || fail "new-head result acknowledgement failed"
+  FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BEHIND \
+    FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
+    run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/handled.out" 2> "$dir/handled.err" \
+    || fail "new-head result observation failed"
+  age_pr_refresh_budget "$state" task-a 600
   ack_watcher_cycle "$state" || fail "new-head branch-currency acknowledgement failed"
   add_stop_custom_check "$dir"
   set +e
@@ -1447,6 +1557,9 @@ test_upgraded_poll_template_names_its_rearm_command() {
 touch "$FM_HOME/state/stale-poll-executed"
 SH
   seed_canonical_poll "$dir" task-a https://github.com/o/r/pull/5 "$historical_poll"
+  write_poll_meta "$state" task-b https://github.com/o/r/pull/6
+  seed_canonical_poll "$dir" task-b https://github.com/o/r/pull/6 "$historical_poll"
+  add_stop_custom_check "$dir"
   set +e
   FM_TEST_GH_STATE=OPEN run_watcher_bounded "$dir/home" "$dir/fakebin" \
     > "$dir/upgrade.out" 2> "$dir/upgrade.err"
@@ -1459,6 +1572,9 @@ SH
     "the rejection never named the task's exact re-arm command"
   cmp -s "$historical_poll" "$state/task-a.check.sh" \
     || fail "the watcher re-armed the stale poll instead of leaving it to the captain"
+  assert_grep 'task=task-b; merge detection suspended' "$dir/upgrade.out" "the sweep skipped another stale poll"
+  assert_grep 'stop-cycle' "$dir/upgrade.out" "the sweep skipped a valid custom check after stale polls"
+  cmp -s "$historical_poll" "$state/task-b.check.sh" || fail "the sweep rewrote another stale poll"
   assert_absent "$state/stale-poll-executed" "the watcher executed the old template"
   [ "$(grep -c 're-arm:' "$state/.wake-queue")" -eq 1 ] \
     || fail "the watcher did not queue exactly one upgrade diagnostic"
@@ -1480,7 +1596,7 @@ SH
     "the upgrade receipt suppressed a later unauthenticated change"
   assert_no_grep 're-arm:' "$dir/tampered.out" "unregistered bytes were classified as an upgrade"
   assert_absent "$state/stale-poll-executed" "the watcher executed an unauthenticated template"
-  command=$(sed -n 's/^check: .*; re-arm: //p' "$dir/upgrade.out")
+  command=$(sed -n 's/^check: PR poll template mismatch for task=task-a;.*; re-arm: //p' "$dir/upgrade.out")
   [ -n "$command" ] || fail "the watcher emitted no re-arm command"
   FM_ROOT_OVERRIDE="$dir/root" FM_TEST_GUARD_LOG="$dir/guard.log" \
     FM_TEST_GH_LOG="$dir/gh.log" PATH="$dir/fakebin:$BASE_PATH" \
@@ -2927,6 +3043,7 @@ test_valid_recording_and_merge_derivation
 test_rejected_metacharacter_bytes_are_inert
 test_static_poll_contract
 test_branch_currency_blocked_head_dispatch
+test_branch_currency_cooldown_survives_head_changes
 test_atomic_interruption_leaves_no_partial_artifact
 test_concurrent_watcher_sees_only_complete_publication
 test_poll_publication_refuses_unsafe_destinations

@@ -61,10 +61,10 @@ case "$provider" in
       .|..|*[!A-Za-z0-9._-]*) exit 0 ;;
     esac
     [ "$url" = "https://github.com/$owner/$repo/pull/$number" ] || exit 0
-    raw=$(gh pr view "$url" --json state,mergeStateStatus,mergeable,headRefOid,baseRefOid \
-      -q '[.state, .mergeStateStatus, .mergeable, .headRefOid, .baseRefOid] | @tsv' 2>/dev/null) || exit 0
+    raw=$(gh pr view "$url" --json state,mergeStateStatus,mergeable,headRefOid,baseRefName \
+      -q '[.state, .mergeStateStatus, .mergeable, .headRefOid, .baseRefName] | @tsv' 2>/dev/null) || exit 0
     case "$raw" in ''|*$'\n'*) exit 0 ;; esac
-    IFS=$'\t' read -r state merge_state mergeable head base extra <<< "$raw"
+    IFS=$'\t' read -r state merge_state mergeable head base_ref extra <<< "$raw"
     [ -z "${extra:-}" ] || exit 0
     if [ "$state" = MERGED ]; then
       printf '%s\n' merged
@@ -80,9 +80,19 @@ case "$provider" in
     if [ "$mergeable" = CONFLICTING ] || [ "$merge_state" = DIRTY ]; then
       printf 'conflict %s\n' "$head"
     else
-      case "${#base}" in 40|64) ;; *) exit 0 ;; esac
-      case "$base" in *[!0-9a-f]*) exit 0 ;; esac
-      behind=$(gh api --hostname "$host" "repos/$path/compare/$base...$head" \
+      case "$base_ref" in
+        ''|*[!A-Za-z0-9._/-]*|*..*|-*|/*|*/|*//*|.*|*/.*|*.lock|*.lock/*|*.) exit 0 ;;
+      esac
+      base_ref=${base_ref//\//%2F}
+      strict=$(gh api --hostname "$host" "repos/$path/branches/$base_ref/protection/required_status_checks" \
+        --jq '.strict == true and (((.checks // []) + (.contexts // [])) | length > 0)' 2>/dev/null) || strict=
+      if [ "$strict" != true ]; then
+        strict=$(gh api --hostname "$host" "repos/$path/rules/branches/$base_ref" --paginate --slurp \
+          --jq 'any(.[][]; .type == "required_status_checks" and .parameters.strict_required_status_checks_policy == true and (.parameters.required_status_checks | length > 0))' \
+          2>/dev/null) || exit 0
+      fi
+      [ "$strict" = true ] || exit 0
+      behind=$(gh api --hostname "$host" "repos/$path/compare/$base_ref...$head" \
         --jq '.behind_by' 2>/dev/null) || exit 0
       case "$behind" in ''|*[!0-9]*) exit 0 ;; esac
       [ "$behind" -gt 0 ] 2>/dev/null && printf 'behind %s\n' "$head"

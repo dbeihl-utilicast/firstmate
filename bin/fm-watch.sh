@@ -1515,12 +1515,12 @@ run_check_capture() {
   fm_check_output_cleanup
 }
 
-# Four-state branch-currency dispatch (Observed/Refused/Dispatched/Resolved).
+# Branch-currency dispatch (Observed/Refused/Dispatched/Resolved/Blocked).
 # docs/architecture.md owns the state machine and its safety properties.
-pr_refresh_state_write() {  # <path> <dispatched|resolved|blocked> <head> <attempt> <record> <first>
-  local path=$1 status=$2 head=$3 attempt=$4 record=$5 first=$6 tmp
+pr_refresh_state_write() {  # <path> <dispatched|resolved|blocked> <head> <attempt> <record> <first> <last> <url>
+  local path=$1 status=$2 head=$3 attempt=$4 record=$5 first=$6 last=$7 url=$8 tmp
   tmp=$(mktemp "$STATE/.pr-refresh-state.XXXXXX") || return 1
-  if printf '%s\t%s\t%s\t%s\t%s\n' "$status" "$head" "$attempt" "$record" "$first" > "$tmp" \
+  if printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$status" "$head" "$attempt" "$record" "$first" "$last" "$url" > "$tmp" \
     && chmod 0600 "$tmp" && mv "$tmp" "$path"; then
     return 0
   fi
@@ -1532,18 +1532,20 @@ pr_refresh_state_read() {  # <path>; sets PR_REFRESH_*
   local path=$1 extra tab
   tab=$(printf '\t')
   IFS="$tab" read -r PR_REFRESH_STATUS PR_REFRESH_HEAD PR_REFRESH_ATTEMPT PR_REFRESH_RECORD \
-    PR_REFRESH_FIRST extra < "$path" || return 1
+    PR_REFRESH_FIRST PR_REFRESH_LAST PR_REFRESH_URL extra < "$path" || return 1
   case "$PR_REFRESH_STATUS" in dispatched|resolved|blocked) ;; *) return 1 ;; esac
   case "${#PR_REFRESH_HEAD}" in 40|64) ;; *) return 1 ;; esac
   case "$PR_REFRESH_HEAD" in *[!0-9a-f]*) return 1 ;; esac
   case "$PR_REFRESH_ATTEMPT" in ''|*[!0-9]*|0) return 1 ;; esac
   case "$PR_REFRESH_FIRST" in ''|*[!0-9]*) return 1 ;; esac
+  PR_REFRESH_LAST=${PR_REFRESH_LAST:-$PR_REFRESH_FIRST}
+  case "$PR_REFRESH_LAST" in *[!0-9]*) return 1 ;; esac
   [ -z "$extra" ] || return 1
   fm_task_inbox_seq_of "$PR_REFRESH_RECORD" >/dev/null || return 1
 }
 
 pr_poll_template_rearm_notify() {
-  local id=$1 check marker key command reason tmp
+  local id=$1 check marker key command reason
   fm_pr_task_id_valid "$id" || return 1
   check="$STATE/$id.check.sh"
   marker="$STATE/$id.pr-poll-rearm-notified"
@@ -1557,19 +1559,21 @@ pr_poll_template_rearm_notify() {
   printf -v command 'FM_HOME=%q FM_STATE_OVERRIDE=%q %q %q %q' \
     "$FM_HOME" "$STATE" "$SCRIPT_DIR/fm-pr-check.sh" "$id" "$FM_PR_DATA_URL"
   reason="check: PR poll template mismatch for task=$id; merge detection suspended; re-arm: $command"
-  fm_wake_append check "$id.pr-poll-rearm" "$reason" || exit 1
-  tmp=$(mktemp "$STATE/.pr-poll-rearm-notified.XXXXXX") || exit 1
-  if ! printf '%s\n' "$key" > "$tmp" || ! chmod 0600 "$tmp" || ! mv -f "$tmp" "$marker"; then
-    rm -f "$tmp"
-    exit 1
-  fi
-  touch "$STATE/.last-check"
-  wake "$reason"
+  rearm_reasons="${rearm_reasons:+$rearm_reasons$'\n'}$reason"
+  rearm_ids+=("$id")
+  rearm_keys+=("$key")
+  return 0
 }
 
 pr_refresh_stale_secs() {
   local secs=${FM_PR_REFRESH_STALE_SECS:-1800}
   case "$secs" in ''|*[!0-9]*|0) secs=1800 ;; esac
+  printf '%s' "$secs"
+}
+
+pr_refresh_cooldown_secs() {
+  local secs=${FM_PR_REFRESH_COOLDOWN_SECS:-600}
+  case "$secs" in ''|*[!0-9]*|0) secs=600 ;; esac
   printf '%s' "$secs"
 }
 
@@ -1610,17 +1614,18 @@ pr_refresh_dispatch() {  # <task-id> <url> <behind|conflict> <head>
   local id=$1 url=$2 condition=$3 head=$4
   local marker="$STATE/$id.pr-refresh-state" meta="$STATE/$id.meta"
   local state_line state mode spawn_gen message attempt first record record_path record_state
-  local gen_epoch status_mtime stale_secs
+  local gen_epoch status_mtime stale_secs now
 
   if [ -f "$marker" ] && pr_refresh_state_read "$marker" && [ "$PR_REFRESH_HEAD" = "$head" ] \
+    && { [ -z "$PR_REFRESH_URL" ] || [ "$PR_REFRESH_URL" = "$url" ]; } \
     && [ "$PR_REFRESH_STATUS" = blocked ]; then
     printf 'branch-refresh-deferred pr=%s head=%s condition=%s reason=dispatch-blocked\n' \
       "$url" "$head" "$condition"
     return 2
   fi
 
-  if [ -f "$marker" ] && pr_refresh_state_read "$marker" && [ "$PR_REFRESH_HEAD" = "$head" ] \
-    && [ "$PR_REFRESH_STATUS" != resolved ]; then
+  if [ -f "$marker" ] && pr_refresh_state_read "$marker" \
+    && [ "$PR_REFRESH_STATUS" = dispatched ]; then
     record_state=$(pr_refresh_record_state "$id" "$PR_REFRESH_RECORD")
     case "$record_state" in
       pending)
@@ -1629,8 +1634,8 @@ pr_refresh_dispatch() {  # <task-id> <url> <behind|conflict> <head>
         return 2
         ;;
       resolved)
-        pr_refresh_state_write "$marker" resolved "$head" "$PR_REFRESH_ATTEMPT" "$PR_REFRESH_RECORD" \
-          "$PR_REFRESH_FIRST" || {
+        pr_refresh_state_write "$marker" resolved "$PR_REFRESH_HEAD" "$PR_REFRESH_ATTEMPT" "$PR_REFRESH_RECORD" \
+          "$PR_REFRESH_FIRST" "$PR_REFRESH_LAST" "${PR_REFRESH_URL:-$url}" || {
           pr_refresh_refuse "$id" "$url" "$condition" "$head" state-write-failed
           return $?
         }
@@ -1695,11 +1700,12 @@ pr_refresh_dispatch() {  # <task-id> <url> <behind|conflict> <head>
   esac
 
   if [ -f "$marker" ] && pr_refresh_state_read "$marker" \
+    && { [ -z "$PR_REFRESH_URL" ] || [ "$PR_REFRESH_URL" = "$url" ]; } \
     && [ "$PR_REFRESH_HEAD" = "$head" ] && [ "$PR_REFRESH_STATUS" = resolved ]; then
     stale_secs=$(pr_refresh_stale_secs)
     if [ "$(( $(date +%s) - PR_REFRESH_FIRST ))" -ge "$stale_secs" ]; then
       pr_refresh_state_write "$marker" blocked "$head" "$PR_REFRESH_ATTEMPT" "$PR_REFRESH_RECORD" \
-        "$PR_REFRESH_FIRST" || {
+        "$PR_REFRESH_FIRST" "$PR_REFRESH_LAST" "$url" || {
         pr_refresh_refuse "$id" "$url" "$condition" "$head" state-write-failed
         return $?
       }
@@ -1725,6 +1731,15 @@ pr_refresh_dispatch() {  # <task-id> <url> <behind|conflict> <head>
     return $?
   fi
 
+  now=$(date +%s)
+  if [ -f "$marker" ] && pr_refresh_state_read "$marker" \
+    && { [ -z "$PR_REFRESH_URL" ] || [ "$PR_REFRESH_URL" = "$url" ]; } \
+    && [ "$((now - PR_REFRESH_LAST))" -lt "$(pr_refresh_cooldown_secs)" ]; then
+    printf 'branch-refresh-deferred pr=%s head=%s condition=%s reason=dispatch-cooldown\n' \
+      "$url" "$head" "$condition"
+    return 2
+  fi
+
   if ! record_path=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
     FM_SEND_EXPECTED_SPAWN_GEN="$spawn_gen" FM_SEND_IDEMPOTENT=1 FM_SEND_PRINT_INBOX_RECORD=1 \
     "$FM_PR_REFRESH_SEND_BIN" "$id" "$message" 2>/dev/null); then
@@ -1747,7 +1762,7 @@ pr_refresh_dispatch() {  # <task-id> <url> <behind|conflict> <head>
     pr_refresh_refuse "$id" "$url" "$condition" "$head" dispatch-record-missing
     return $?
   esac
-  if ! pr_refresh_state_write "$marker" "$record_state" "$head" "$attempt" "$record" "$first"; then
+  if ! pr_refresh_state_write "$marker" "$record_state" "$head" "$attempt" "$record" "$first" "$now" "$url"; then
     pr_refresh_refuse "$id" "$url" "$condition" "$head" state-write-failed
     return $?
   fi
@@ -2205,6 +2220,10 @@ while :; do
   # CHECK_INTERVAL, so most cycles skip this block and fall straight through.
   if [ "$(age_of "$STATE/.last-check")" -ge "$CHECK_INTERVAL" ]; then
     rejected_checks=
+    check_reasons=
+    rearm_reasons=
+    rearm_ids=()
+    rearm_keys=()
     for c in "$STATE"/*.check.sh; do
       [ -e "$c" ] || continue
       is_pr_poll=0
@@ -2258,7 +2277,8 @@ while :; do
             triage_log "absorbed duplicate merged PR poll result for $id"
             continue
           fi
-          wake "$reason"
+          check_reasons="${check_reasons:+$check_reasons$'\n'}$reason"
+          continue
         fi
         if [ "$is_pr_poll" -eq 1 ]; then
           condition=${out%% *}
@@ -2280,17 +2300,28 @@ while :; do
           esac
         fi
         fm_wake_append check "$c" "$reason" || exit 1
-        touch "$STATE/.last-check"
-        wake "$reason"
+        check_reasons="${check_reasons:+$check_reasons$'\n'}$reason"
       fi
     done
+    if [ -n "$rearm_reasons" ]; then
+      fm_wake_append check pr-poll-rearm "$rearm_reasons" || exit 1
+      for rearm_index in "${!rearm_ids[@]}"; do
+        tmp=$(mktemp "$STATE/.pr-poll-rearm-notified.XXXXXX") || exit 1
+        if ! printf '%s\n' "${rearm_keys[$rearm_index]}" > "$tmp" || ! chmod 0600 "$tmp" \
+          || ! mv -f "$tmp" "$STATE/${rearm_ids[$rearm_index]}.pr-poll-rearm-notified"; then
+          rm -f "$tmp"
+          exit 1
+        fi
+      done
+      check_reasons="${check_reasons:+$check_reasons$'\n'}$rearm_reasons"
+    fi
     if [ -n "$rejected_checks" ]; then
       reason="check: rejected unauthenticated state checks:$rejected_checks"
       fm_wake_append check unauthenticated-state-checks "$reason" || exit 1
-      touch "$STATE/.last-check"
-      wake "$reason"
+      check_reasons="${check_reasons:+$check_reasons$'\n'}$reason"
     fi
     touch "$STATE/.last-check"
+    [ -z "$check_reasons" ] || wake "$check_reasons"
   fi
 
   # On the first changed signal, linger one grace period and re-scan before
