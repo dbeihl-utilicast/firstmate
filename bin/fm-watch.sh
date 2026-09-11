@@ -1921,6 +1921,7 @@ while :; do
     # clears it the next time the root is private again; surface it here exactly
     # once rather than every cycle it stays broken.
     if [ -e "$FM_HOME/.procevent-state-insecure" ] && [ ! -e "$FM_HOME/.procevent-state-insecure-surfaced" ]; then
+      fm_wake_append check procevent-state-insecure "check: procevent-state-insecure" || exit 1
       # shellcheck disable=SC2034 # Consumed by wake() in the separately linted transition owner.
       FM_WAKE_POST_OUTPUT_ACTION=procevent_state_insecure_after_output
       wake "check: procevent-state-insecure"

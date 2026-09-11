@@ -4271,6 +4271,44 @@ insecure_state_root_case() {  # <name>
   printf '%s\n' "$dir"
 }
 
+test_procevent_insecure_state_root_queue_delivery() {
+  local dir state out pid exit_status
+  dir=$(insecure_state_root_case procevent-insecure-queue) \
+    || fail "could not relax the queue fixture state root"
+  state="$dir/state"; out="$dir/watch.out"
+  mkdir "$state/.wake-queue"
+  procevent_watch_bg "$dir" "$out" 2> "$dir/watch.err"; pid=$!
+  exit_status=0
+  wait_for_exit "$pid" 100 || exit_status=$?
+  [ "$exit_status" -ne 124 ] && [ "$exit_status" -ne 0 ] \
+    || fail "the watcher did not refuse an unwritable insecure-root wake queue"
+  [ -e "$dir/.procevent-state-insecure" ] \
+    || fail "the failed queue publication lost the insecure-root record"
+  [ ! -e "$dir/.procevent-state-insecure-surfaced" ] \
+    || fail "a failed queue publication committed suppression"
+  [ ! -s "$out" ] || fail "a failed queue publication reported a delivered wake: $(cat "$out")"
+
+  rmdir "$state/.wake-queue"
+  append_wake "$state" check pending-fixture 'check: pending-fixture' \
+    || fail "could not queue the unrelated notification"
+  procevent_watch_bg "$dir" "$out"; pid=$!
+  wait_for_exit "$pid" 100 \
+    || fail "the insecure-root notification was not retryable after queue repair: $(cat "$out")"
+  [ -e "$dir/.procevent-state-insecure-surfaced" ] \
+    || fail "the queued and printed warning did not commit suppression"
+  PATH="$dir/fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$state" \
+    FM_ESCALATE_BATCH_SECS=999 bash -c '
+      . "$1/bin/fm-supervise-daemon.sh"
+      handle_durable_wakes "$2" "$3"
+    ' _ "$ROOT" "$(cat "$out")" "$state" > "$dir/daemon.out" 2> "$dir/daemon.err" \
+    || fail "the daemon could not consume the pending notifications: $(cat "$dir/daemon.err")"
+  [ "$(grep -Fxc 'check: pending-fixture' "$state/.subsuper-escalations")" = 1 ] \
+    || fail "the daemon lost the unrelated notification"
+  [ "$(grep -Fxc 'check: procevent-state-insecure' "$state/.subsuper-escalations")" = 1 ] \
+    || fail "the daemon lost or duplicated the insecure-root warning beside a pending notification"
+  pass "queue failure preserves retryability and the daemon receives both pending notifications"
+}
+
 test_procevent_insecure_state_root_surfaces_once() {
   local dir state out fifo pid reader exit_status
   dir=$(insecure_state_root_case procevent-insecure-output-fail) \
@@ -4306,10 +4344,10 @@ test_procevent_insecure_state_root_surfaces_once() {
     || fail "a healthy watcher never surfaced the insecure state root: $(cat "$out")"
   grep -Fx 'check: procevent-state-insecure' "$out" >/dev/null \
     || fail "the actionable reason did not name the insecure state root: $(cat "$out")"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the delivered insecure-root warning"
   procevent_watch_bg "$dir" "$out.repeat"; pid=$!
-  sleep 2
-  kill -0 "$pid" 2>/dev/null \
-    || fail "the successor watcher woke again for an already-surfaced insecure root: $(cat "$out.repeat")"
+  wait_poll_cycle "$state" "$pid" \
+    || { reap "$pid"; fail "the successor watcher did not complete a quiet poll for an already-surfaced insecure root: $(cat "$out.repeat")"; }
   reap "$pid"
   grep -F 'procevent-state-insecure' "$out.repeat" >/dev/null \
     && fail "the insecure state root was surfaced a second time: $(cat "$out.repeat")"
@@ -4331,9 +4369,8 @@ test_procevent_insecure_marker_without_registry_stays_quiet() {
     || fail "the refused registration left no durable record"
   [ ! -d "$state/procevent" ] || fail "the refused registration created a registry directory"
   procevent_watch_bg "$dir" "$out"; pid=$!
-  sleep 2
-  kill -0 "$pid" 2>/dev/null \
-    || fail "the watcher woke for a home with no process-event registry: $(cat "$out")"
+  wait_poll_cycle "$state" "$pid" \
+    || { reap "$pid"; fail "the watcher did not complete a quiet poll for a home with no process-event registry: $(cat "$out")"; }
   reap "$pid"
   grep -F 'procevent-state-insecure' "$out" >/dev/null \
     && fail "an unreconciled home surfaced the insecure state root: $(cat "$out")"
@@ -4855,6 +4892,7 @@ test_procevent_marker_keys_are_injective
 test_procevent_surface_serializes_with_drain
 test_procevent_surface_crash_boundaries
 test_procevent_marker_failure_exits_and_replays
+test_procevent_insecure_state_root_queue_delivery
 test_procevent_insecure_state_root_surfaces_once
 test_procevent_insecure_marker_without_registry_stays_quiet
 test_heartbeat_no_change_absorbed
