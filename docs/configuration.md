@@ -212,7 +212,9 @@ The flag is a home-local supervision-noise preference and is not inherited by se
 
 The optional local, gitignored `config/pr-refresh` presence flag opts this home into a default-off control that keeps a task's open pull request current with its base automatically, instead of leaving the captain to press the forge's own "Update branch" by hand.
 With it present, the watcher's registered PR poll reacting to a `behind` or `conflict` head runs the dispatch lifecycle described in [`architecture.md`](architecture.md); with it absent, each observation is written to the triage log as `branch-refresh-observed`, with no dispatch, dispatch state, or captain wake.
-`FM_PR_REFRESH_STALE_SECS` (default 300) bounds the whole lifecycle for one head: once that many seconds have passed since the first dispatch for a head that GitHub still reports behind or conflicting, dispatch stops permanently for that head and the condition surfaces once as a `branch-refresh-blocked` wake naming the pull request, the head, the attempt count, and that the head never moved.
+`FM_PR_REFRESH_STALE_SECS` defaults to 1800 seconds (30 minutes), six times the default 300-second `FM_CHECK_INTERVAL`, allowing several poll cycles for acknowledgement and retries before an idle, unchanged head is blocked.
+The budget starts at the first dispatch and survives acknowledgements and retries; pending instructions and workers reported as `working` defer before the ceiling is checked.
+Once the budget expires, an acknowledged refresh whose worker is eligible and `done` while GitHub still reports the same head behind or conflicting stops dispatching and surfaces once as a `branch-refresh-blocked` wake naming the pull request, head, and attempt count.
 A later head starts its own budget.
 
 Upgrading firstmate across a change to `bin/fm-pr-poll.sh` invalidates every already-armed PR poll, because the watcher accepts a poll only when the task's armed byte copy is identical to the current template.
@@ -982,7 +984,7 @@ FM_HEARTBEAT_MAX=7200   # heartbeat backoff cap
 FM_INACTIVE_RECONCILE_SECS=900  # 60..1800-second watcher cadence and inactivity threshold; locked session start also requests an immediate scan in the deferred worker
 FM_INACTIVE_RECONCILE_BUDGET_SECS=10  # 1..30-second scan deadline; wedged-scan kill backstop follows one second later
 FM_CHECK_INTERVAL=300   # seconds between slow checks (authenticated merge polls, custom checks, or Relay dispatch)
-FM_PR_REFRESH_STALE_SECS=300   # seconds one behind/conflicting PR head may stay unresolved across every branch-currency attempt before dispatch gives up and surfaces one blocker; invalid or zero values become 300
+FM_PR_REFRESH_STALE_SECS=1800   # first-dispatch budget for an unchanged PR head; checked only after pending/working deferrals and worker eligibility; invalid or zero values become 1800
 FM_TASK_INBOX_GRACE_SECS=90   # seconds an unhandled steering-inbox message may sit before the watcher attempts doorbell delivery on an idle pane; also the minimum spacing between attempts
 FM_TASK_INBOX_RING_MAX=3      # watcher delivery attempts without an acknowledgement before the task surfaces as a stale wake for recovery
 FM_CHECK_TIMEOUT=30     # seconds allowed per slow check script

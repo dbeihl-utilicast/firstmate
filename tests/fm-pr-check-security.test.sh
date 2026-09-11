@@ -625,7 +625,7 @@ SH
 }
 
 run_watcher_bounded() {
-  local home=$1 fakebin=$2 check_interval=${FM_TEST_CHECK_INTERVAL:-0} watch_root=${FM_TEST_WATCH_ROOT:-$ROOT}
+  local home=$1 fakebin=$2 check_interval=${FM_TEST_CHECK_INTERVAL-0} watch_root=${FM_TEST_WATCH_ROOT:-$ROOT}
   shift 2
   perl -e 'my $pid=fork; die unless defined $pid; if (!$pid) { exec @ARGV } local $SIG{ALRM}=sub { kill "TERM", $pid; waitpid $pid, 0; exit 124 }; alarm 10; waitpid $pid, 0; alarm 0; exit($? >> 8)' \
     env FM_HOME="$home" FM_ROOT_OVERRIDE="$watch_root" FM_CHECK_INTERVAL="$check_interval" FM_CHECK_TIMEOUT=1 \
@@ -760,8 +760,9 @@ enable_pr_refresh() {  # <dir>
 }
 
 age_pr_refresh_budget() {
-  local file="$1/$2.pr-refresh-state"
-  awk -F'\t' -v OFS='\t' '{ $5 = 1; print }' "$file" > "$file.aged" \
+  local file="$1/$2.pr-refresh-state" first
+  first=$(( $(date +%s) - $3 ))
+  awk -F'\t' -v OFS='\t' -v first="$first" '{ $5 = first; print }' "$file" > "$file.aged" \
     || fail "could not age the branch-currency budget"
   chmod 0600 "$file.aged"
   mv "$file.aged" "$file"
@@ -1269,8 +1270,24 @@ SH
   pass "an opted-out home behaves exactly as it did before this control existed"
 }
 
+run_refresh_ceiling_poll() {
+  local dir=$1 label=$2
+  if [ -s "$dir/home/state/.wake-queue" ]; then
+    ack_watcher_cycle "$dir/home/state" || fail "ceiling fixture acknowledgement failed"
+  fi
+  fm_touch_epoch "$(( $(date +%s) - 300 ))" "$dir/home/state/.last-check"
+  FM_TEST_CHECK_INTERVAL= FM_PR_REFRESH_STALE_SECS= \
+    FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BEHIND \
+    FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
+    FM_TEST_REFRESH_WORKER_STATE="${FM_TEST_REFRESH_WORKER_STATE:-done}" \
+    FM_PR_REFRESH_SEND_BIN="$dir/fakebin/fm-refresh-send.sh" \
+    FM_TEST_REFRESH_SEND_LOG="$dir/refresh-send.log" \
+    run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/$label.out" 2> "$dir/$label.err" \
+    || fail "ceiling $label watcher failed: $(cat "$dir/$label.err")"
+}
+
 test_branch_currency_gives_up_on_an_unreachable_head() {
-  local dir state rc head first
+  local dir state head first
   head=0123456789abcdef0123456789abcdef01234567
 
   dir=$(make_case branch-currency-ceiling)
@@ -1279,96 +1296,74 @@ test_branch_currency_gives_up_on_an_unreachable_head() {
   enable_pr_refresh "$dir"
   run_check_entry "$dir" task-a https://github.com/o/r/pull/7 >/dev/null \
     || fail "could not arm branch-currency ceiling fixture"
-  cat > "$dir/fakebin/fm-crew-state.sh" <<'SH'
+  add_stop_custom_check "$dir"
+  cat > "$dir/fakebin/fm-crew-state.sh" <<'EOF'
 #!/usr/bin/env bash
-printf 'state: done \302\267 source: run-step \302\267 checks green: PR ready for review\n'
-SH
+printf 'state: %s\n' "${FM_TEST_REFRESH_WORKER_STATE:-done}"
+EOF
   chmod +x "$dir/fakebin/fm-crew-state.sh"
   fake_idempotent_refresh_send "$dir"
   : > "$dir/refresh-send.log"
-  set +e
-  FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BEHIND \
-    FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
-    FM_PR_REFRESH_SEND_BIN="$dir/fakebin/fm-refresh-send.sh" \
-    FM_TEST_REFRESH_SEND_LOG="$dir/refresh-send.log" \
-    run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/first.out" 2> "$dir/first.err"
-  rc=$?
-  set -e
-  [ "$rc" -eq 0 ] || fail "ceiling fixture's first dispatch failed: $(cat "$dir/first.err")"
+  run_refresh_ceiling_poll "$dir" first
   assert_grep "branch-refresh-dispatched pr=https://github.com/o/r/pull/7 head=$head condition=behind" \
     "$dir/first.out" "the ceiling fixture never dispatched a first attempt"
 
+  age_pr_refresh_budget "$state" task-a 300
+  run_refresh_ceiling_poll "$dir" first-repoll
+  assert_grep 'stop-cycle' "$dir/first-repoll.out" "the default ceiling blocked the first re-poll"
+  assert_grep 'reason=dispatch-pending' "$state/.watch-triage.log" \
+    "the first re-poll did not defer the pending instruction"
+  [ "$(cut -f1 "$state/task-a.pr-refresh-state")" = dispatched ] \
+    || fail "the first re-poll changed pending dispatch state"
+
+  age_pr_refresh_budget "$state" task-a 600
   first=$(cut -f5 "$state/task-a.pr-refresh-state")
   mv "$state/task-a.inbox/001.msg" "$state/task-a.inbox/handled/"
-  ack_watcher_cycle "$state" || fail "ceiling fixture acknowledgement failed"
-  add_stop_custom_check "$dir"
-  FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BEHIND FM_PR_REFRESH_STALE_SECS=86400 \
-    FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
-    FM_PR_REFRESH_SEND_BIN="$dir/fakebin/fm-refresh-send.sh" \
-    FM_TEST_REFRESH_SEND_LOG="$dir/refresh-send.log" \
-    run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/resolved.out" 2> "$dir/resolved.err" \
-    || fail "ceiling fixture resolution failed: $(cat "$dir/resolved.err")"
-  ack_watcher_cycle "$state" || fail "resolved-head acknowledgement failed"
-  FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BEHIND FM_PR_REFRESH_STALE_SECS=86400 \
-    FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
-    FM_PR_REFRESH_SEND_BIN="$dir/fakebin/fm-refresh-send.sh" \
-    FM_TEST_REFRESH_SEND_LOG="$dir/refresh-send.log" \
-    run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/retry.out" 2> "$dir/retry.err" \
-    || fail "retry before the ceiling failed: $(cat "$dir/retry.err")"
+  run_refresh_ceiling_poll "$dir" resolved
+  [ "$(cut -f5 "$state/task-a.pr-refresh-state")" = "$first" ] \
+    || fail "acknowledgement reset the first-dispatch timestamp"
+  run_refresh_ceiling_poll "$dir" retry
+  assert_grep 'branch-refresh-dispatched' "$dir/retry.out" \
+    "the default ceiling prevented a retry after two default intervals"
   [ "$(wc -l < "$dir/refresh-send.log" | tr -d ' ')" -eq 2 ] \
-    || fail "the unresolved head did not retry within its budget"
+    || fail "the unresolved head did not retry within its default budget"
   [ "$(cut -f5 "$state/task-a.pr-refresh-state")" = "$first" ] \
     || fail "a retry reset the first-dispatch timestamp"
+
+  age_pr_refresh_budget "$state" task-a 2100
+  first=$(cut -f5 "$state/task-a.pr-refresh-state")
+  run_refresh_ceiling_poll "$dir" pending-overdue
+  assert_grep 'stop-cycle' "$dir/pending-overdue.out" "the ceiling blocked an overdue pending instruction"
+  [ "$(cut -f1 "$state/task-a.pr-refresh-state")" = dispatched ] \
+    || fail "the ceiling changed an overdue pending dispatch"
   mv "$state/task-a.inbox/002.msg" "$state/task-a.inbox/handled/"
-  ack_watcher_cycle "$state" || fail "retry acknowledgement failed"
-  age_pr_refresh_budget "$state" task-a
-  set +e
-  FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BEHIND FM_PR_REFRESH_STALE_SECS=1 \
-    FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
-    FM_PR_REFRESH_SEND_BIN="$dir/fakebin/fm-refresh-send.sh" \
-    FM_TEST_REFRESH_SEND_LOG="$dir/refresh-send.log" \
-    run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/blocked.out" 2> "$dir/blocked.err"
-  rc=$?
-  set -e
-  [ "$rc" -eq 0 ] || fail "ceiling watcher failed: $(cat "$dir/blocked.err")"
-  assert_grep "branch-refresh-blocked pr=https://github.com/o/r/pull/7 head=$head condition=behind attempts=2 reason=head-never-moved-after-1s-no-further-dispatch" \
-    "$dir/blocked.out" "an unreachable head never surfaced as a blocker naming the pull request"
+  FM_TEST_REFRESH_WORKER_STATE=working run_refresh_ceiling_poll "$dir" acknowledged-working
+  FM_TEST_REFRESH_WORKER_STATE=working run_refresh_ceiling_poll "$dir" working-overdue
+  assert_grep 'stop-cycle' "$dir/working-overdue.out" "the ceiling blocked an actively working worker"
+  assert_grep 'reason=active-work' "$state/.watch-triage.log" "the overdue worker never reached its working deferral"
+  [ "$(cut -f1 "$state/task-a.pr-refresh-state")" = resolved ] \
+    || fail "the ceiling blocked active work after acknowledgement"
+  [ "$(cut -f5 "$state/task-a.pr-refresh-state")" = "$first" ] \
+    || fail "working or acknowledgement restarted the expired budget"
   [ "$(wc -l < "$dir/refresh-send.log" | tr -d ' ')" -eq 2 ] \
-    || fail "the ceiling dispatched another attempt instead of giving up"
+    || fail "the watcher dispatched while a pending instruction or worker was in progress"
+
+  run_refresh_ceiling_poll "$dir" blocked
+  assert_grep "branch-refresh-blocked pr=https://github.com/o/r/pull/7 head=$head condition=behind attempts=2 reason=head-never-moved-after-1800s-no-further-dispatch" \
+    "$dir/blocked.out" "the idle unchanged head never reached the default ceiling"
   assert_grep "blocked	$head	2	002.msg" "$state/task-a.pr-refresh-state" \
     "the give-up was not recorded durably"
-
-  ack_watcher_cycle "$state" || fail "blocked-head acknowledgement failed"
-  set +e
-  FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BEHIND FM_PR_REFRESH_STALE_SECS=1 \
-    FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
-    FM_PR_REFRESH_SEND_BIN="$dir/fakebin/fm-refresh-send.sh" \
-    FM_TEST_REFRESH_SEND_LOG="$dir/refresh-send.log" \
-    run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/quiet.out" 2> "$dir/quiet.err"
-  rc=$?
-  set -e
-  [ "$rc" -eq 0 ] || fail "post-blocker watcher failed: $(cat "$dir/quiet.err")"
-  assert_no_grep 'branch-refresh-blocked' "$dir/quiet.out" \
-    "the blocker woke the captain a second time for the same unreachable head"
+  run_refresh_ceiling_poll "$dir" quiet
+  assert_grep 'stop-cycle' "$dir/quiet.out" "the blocker woke the captain a second time"
+  assert_no_grep 'branch-refresh-blocked' "$state/.wake-queue" "the blocker was queued a second time"
   [ "$(wc -l < "$dir/refresh-send.log" | tr -d ' ')" -eq 2 ] \
     || fail "a blocked head dispatched again on a later poll"
-  assert_grep "branch-refresh-deferred pr=https://github.com/o/r/pull/7 head=$head condition=behind reason=dispatch-blocked" \
-    "$state/.watch-triage.log" "a blocked head's later polls were not absorbed quietly"
 
-  ack_watcher_cycle "$state" || fail "post-blocker new-head acknowledgement failed"
-  set +e
-  FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BEHIND FM_PR_REFRESH_STALE_SECS=1 \
-    FM_TEST_GH_HEAD=89abcdef0123456789abcdef0123456789abcdef \
-    FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
-    FM_PR_REFRESH_SEND_BIN="$dir/fakebin/fm-refresh-send.sh" \
-    FM_TEST_REFRESH_SEND_LOG="$dir/refresh-send.log" \
-    run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/newhead.out" 2> "$dir/newhead.err"
-  rc=$?
-  set -e
-  [ "$rc" -eq 0 ] || fail "post-blocker new-head watcher failed: $(cat "$dir/newhead.err")"
+  FM_TEST_GH_HEAD=89abcdef0123456789abcdef0123456789abcdef \
+    run_refresh_ceiling_poll "$dir" newhead
   assert_grep 'branch-refresh-dispatched pr=https://github.com/o/r/pull/7 head=89abcdef0123456789abcdef0123456789abcdef condition=behind' \
     "$dir/newhead.out" "a blocked head froze dispatch for every later head too"
-  pass "an unreachable head gives up once as a named blocker instead of dispatching forever"
+  pass "default refresh timing preserves pending and active work, retries, then blocks an idle unchanged head once"
 }
 
 test_upgraded_poll_template_names_its_rearm_command() {
@@ -2829,6 +2824,11 @@ test_gitlab_merged_poll_retires() {
   grep -qxF "pr=$url" "$state/task-a.meta" || fail "GitLab retirement removed canonical metadata"
   pass "GitHub and GitLab exact merged results share one retirement path"
 }
+
+if [ -n "${FM_TEST_ONLY:-}" ]; then
+  "$FM_TEST_ONLY"
+  exit $?
+fi
 
 test_branch_currency_dispatch_and_active_refusal
 test_branch_currency_generation_race_defers

@@ -1568,8 +1568,8 @@ pr_poll_template_rearm_notify() {
 }
 
 pr_refresh_stale_secs() {
-  local secs=${FM_PR_REFRESH_STALE_SECS:-300}
-  case "$secs" in ''|*[!0-9]*|0) secs=300 ;; esac
+  local secs=${FM_PR_REFRESH_STALE_SECS:-1800}
+  case "$secs" in ''|*[!0-9]*|0) secs=1800 ;; esac
   printf '%s' "$secs"
 }
 
@@ -1612,23 +1612,11 @@ pr_refresh_dispatch() {  # <task-id> <url> <behind|conflict> <head>
   local state_line state mode spawn_gen message attempt first record record_path record_state
   local gen_epoch status_mtime stale_secs
 
-  stale_secs=$(pr_refresh_stale_secs)
-  if [ -f "$marker" ] && pr_refresh_state_read "$marker" && [ "$PR_REFRESH_HEAD" = "$head" ]; then
-    if [ "$PR_REFRESH_STATUS" = blocked ]; then
-      printf 'branch-refresh-deferred pr=%s head=%s condition=%s reason=dispatch-blocked\n' \
-        "$url" "$head" "$condition"
-      return 2
-    fi
-    if [ "$(( $(date +%s) - PR_REFRESH_FIRST ))" -ge "$stale_secs" ]; then
-      pr_refresh_state_write "$marker" blocked "$head" "$PR_REFRESH_ATTEMPT" "$PR_REFRESH_RECORD" \
-        "$PR_REFRESH_FIRST" || {
-        pr_refresh_refuse "$id" "$url" "$condition" "$head" state-write-failed
-        return $?
-      }
-      printf 'branch-refresh-blocked pr=%s head=%s condition=%s attempts=%s reason=head-never-moved-after-%ss-no-further-dispatch\n' \
-        "$url" "$head" "$condition" "$PR_REFRESH_ATTEMPT" "$stale_secs"
-      return 1
-    fi
+  if [ -f "$marker" ] && pr_refresh_state_read "$marker" && [ "$PR_REFRESH_HEAD" = "$head" ] \
+    && [ "$PR_REFRESH_STATUS" = blocked ]; then
+    printf 'branch-refresh-deferred pr=%s head=%s condition=%s reason=dispatch-blocked\n' \
+      "$url" "$head" "$condition"
+    return 2
   fi
 
   if [ -f "$marker" ] && pr_refresh_state_read "$marker" && [ "$PR_REFRESH_HEAD" = "$head" ] \
@@ -1708,6 +1696,17 @@ pr_refresh_dispatch() {  # <task-id> <url> <behind|conflict> <head>
 
   if [ -f "$marker" ] && pr_refresh_state_read "$marker" \
     && [ "$PR_REFRESH_HEAD" = "$head" ] && [ "$PR_REFRESH_STATUS" = resolved ]; then
+    stale_secs=$(pr_refresh_stale_secs)
+    if [ "$(( $(date +%s) - PR_REFRESH_FIRST ))" -ge "$stale_secs" ]; then
+      pr_refresh_state_write "$marker" blocked "$head" "$PR_REFRESH_ATTEMPT" "$PR_REFRESH_RECORD" \
+        "$PR_REFRESH_FIRST" || {
+        pr_refresh_refuse "$id" "$url" "$condition" "$head" state-write-failed
+        return $?
+      }
+      printf 'branch-refresh-blocked pr=%s head=%s condition=%s attempts=%s reason=head-never-moved-after-%ss-no-further-dispatch\n' \
+        "$url" "$head" "$condition" "$PR_REFRESH_ATTEMPT" "$stale_secs"
+      return 1
+    fi
     attempt=$((PR_REFRESH_ATTEMPT + 1))
     first=$PR_REFRESH_FIRST
   else
