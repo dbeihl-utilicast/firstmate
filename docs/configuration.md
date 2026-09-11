@@ -211,8 +211,16 @@ The flag is a home-local supervision-noise preference and is not inherited by se
 ## Branch-currency dispatch (config/pr-refresh)
 
 The optional local, gitignored `config/pr-refresh` presence flag opts this home into a default-off control that keeps a task's open pull request current with its base automatically, instead of leaving the captain to press the forge's own "Update branch" by hand.
-With it present, the watcher's registered PR poll reacting to a `behind` or `conflict` head runs the four-state dispatch lifecycle (Observed, Refused, Dispatched, Resolved) that `bin/fm-watch.sh`'s `pr_refresh_dispatch` owns; with it absent, behind/conflict is still detected and logged for triage exactly as before, with no dispatch attempted and no state recorded.
-The flag answers the class-gate objection that this is new always-on behavior: a home that has not asked for it sees no behavior change at all.
+With it present, the watcher's registered PR poll reacting to a `behind` or `conflict` head runs the dispatch lifecycle described in [`architecture.md`](architecture.md); with it absent, each observation is written to the triage log as `branch-refresh-observed`, with no dispatch, dispatch state, or captain wake.
+`FM_PR_REFRESH_STALE_SECS` (default 300) bounds the whole lifecycle for one head: once that many seconds have passed since the first dispatch for a head that GitHub still reports behind or conflicting, dispatch stops permanently for that head and the condition surfaces once as a `branch-refresh-blocked` wake naming the pull request, the head, the attempt count, and that the head never moved.
+A later head starts its own budget.
+
+Upgrading firstmate across a change to `bin/fm-pr-poll.sh` invalidates every already-armed PR poll, because the watcher accepts a poll only when the task's armed byte copy is identical to the current template.
+The watcher suspends merge detection for the affected task and prints one diagnostic with the exact command to re-run `bin/fm-pr-check.sh <task-id> <pr-url>`, including the home, state directory, and script path.
+Run that command for each affected task after upgrading; merge detection resumes after re-arming.
+The watcher keeps the armed bytes unchanged, and repeated sweeps remain quiet until the poll is re-armed or its registration or template changes.
+Unregistered or tampered poll bytes still produce the unauthenticated-check rejection.
+
 [`architecture.md`](architecture.md) owns the state machine and its safety properties, and `bin/fm-watch.sh`'s `pr_refresh_dispatch` header owns the exact mechanics.
 
 ## Gate defaults (.no-mistakes.yaml)
@@ -381,15 +389,15 @@ Listing a name does not provision it in a daemon's environment or transfer crede
 
 Choose the minimum additions for the authentication method actually in use:
 
-| Provider or Git transport | Additional names needed |
-| --- | --- |
-| Provider login stored under the normal home directory | None for the environment contract; the same user still has access to that provider's stored login. |
-| Provider configured through environment variables | The exact credential and endpoint names required by that provider, for example `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`; a multi-provider tool needs each provider it will actually use. |
-| Custom provider store | Its configured location variables, such as `CODEX_HOME`, `GROK_HOME`, or `XDG_CONFIG_HOME`; Firstmate's existing explicit Claude and Muse store assignments still apply. |
-| Muse environment authentication | `META_API_KEY`, already present in the target tmux session environment; Firstmate's preflight requires the stored-login path on other backends. |
-| Git over SSH with an agent | `SSH_AUTH_SOCK`; add `GIT_SSH_COMMAND` only if the chosen transport requires that override. |
-| Git over SSH with a key file | No credential variable when normal SSH configuration selects the key; file permissions and any passphrase handling still apply. |
-| Git over HTTPS with a credential helper | Whatever the configured helper requires; a GitHub CLI helper using an environment token needs its selected `GH_TOKEN` or `GITHUB_TOKEN`. |
+| Provider or Git transport                             | Additional names needed                                                                                                                                                                 |
+| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Provider login stored under the normal home directory | None for the environment contract; the same user still has access to that provider's stored login.                                                                                      |
+| Provider configured through environment variables     | The exact credential and endpoint names required by that provider, for example `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`; a multi-provider tool needs each provider it will actually use. |
+| Custom provider store                                 | Its configured location variables, such as `CODEX_HOME`, `GROK_HOME`, or `XDG_CONFIG_HOME`; Firstmate's existing explicit Claude and Muse store assignments still apply.                |
+| Muse environment authentication                       | `META_API_KEY`, already present in the target tmux session environment; Firstmate's preflight requires the stored-login path on other backends.                                         |
+| Git over SSH with an agent                            | `SSH_AUTH_SOCK`; add `GIT_SSH_COMMAND` only if the chosen transport requires that override.                                                                                             |
+| Git over SSH with a key file                          | No credential variable when normal SSH configuration selects the key; file permissions and any passphrase handling still apply.                                                         |
+| Git over HTTPS with a credential helper               | Whatever the configured helper requires; a GitHub CLI helper using an environment token needs its selected `GH_TOKEN` or `GITHUB_TOKEN`.                                                |
 
 Verify the selected provider login and Git transport after opting in; Firstmate does not infer credentials from model names or install a secret manager.
 Raw launch commands run under noninteractive POSIX `sh` with this option and must use compatible syntax.
@@ -415,13 +423,21 @@ This section is the single owner of the canonical schema and its per-field seman
     {
       "when": "<natural-language condition describing a kind of task>",
       "use": [
-        { "harness": "<adapter>", "model": "<optional model>", "effort": "<low|medium|high|xhigh|max|ultra, optional>" }
+        {
+          "harness": "<adapter>",
+          "model": "<optional model>",
+          "effort": "<low|medium|high|xhigh|max|ultra, optional>"
+        }
       ],
       "why": "<optional rationale that helps firstmate choose>"
     }
   ],
   "default": [
-    { "harness": "<adapter>", "model": "<optional model>", "effort": "<optional effort>" }
+    {
+      "harness": "<adapter>",
+      "model": "<optional model>",
+      "effort": "<optional effort>"
+    }
   ]
 }
 ```
@@ -510,9 +526,13 @@ This section is the single owner of the canonical schema.
     {
       "name": "<label used in the report>",
       "command": "<optional bare executable name to find on PATH>",
-      "version_args": ["<optional args that make it print its version, default --version>"],
+      "version_args": [
+        "<optional args that make it print its version, default --version>"
+      ],
       "announce_pattern": "<optional extended regex matching the tool's own update announcement>",
-      "announce_args": ["<optional args for the command that carries that announcement, default version_args>"],
+      "announce_args": [
+        "<optional args for the command that carries that announcement, default version_args>"
+      ],
       "git": {
         "repo": "<optional absolute path to a local clone>",
         "remote": "<optional remote name, default origin>",
@@ -774,7 +794,7 @@ Never run the registered blocking source command directly in a conversational tu
 
 ## Process-to-event sources (state/procevent)
 
-A long-polling external process is registered as a *source* through its adapter, whose header and `--help` own the commands and flags.
+A long-polling external process is registered as a _source_ through its adapter, whose header and `--help` own the commands and flags.
 `bin/fm-procevent.sh` owns the generic contract; built-in adapters retain their tracked `bin/fm-procevent-<adapter>.sh` commands, while an explicitly bound external adapter routes through the trusted host contract above.
 `bin/fm-procevent-lavish.sh` is the first built-in adapter and wraps only the currently published `lavish-axi poll` interface.
 That adapter, and only that adapter, retries the one exact transient response a cut-short listener returns while its marks remain available (`error: Lavish Editor poll response was interrupted` with `code: SERVER_ERROR`), up to 12 times with poll starts at least 5 seconds apart, so an internal retry never reaches the runner as a captured result.
@@ -894,25 +914,25 @@ The published `lavish-axi poll` clears feedback destructively before returning i
 Never describe this path as at-least-once, no-loss, or lossless.
 `docs/verification/process-event-sources.md` holds the measurements and `.agents/skills/process-event-sources/SKILL.md` owns the handling procedure.
 
-## Spoken interface and captain inbox (config/voice-*, config/inbox-*)
+## Spoken interface and captain inbox (config/voice-_, config/inbox-_)
 
 The spoken interface in [`docs/voice-relay.md`](voice-relay.md) and the model-backed subcommands of `bin/fm-inbox.sh` reach a paid API in a named account, so no region, model id or AWS profile is shipped as a tracked default.
 Each is one line in a local, gitignored `config/` file, with an environment variable that overrides it for a single run, and a missing required value refuses with the path to write rather than falling back to a value that belongs to another home.
 That configuration is the whole opt-in: an unconfigured home cannot start the relay and cannot run `fm-inbox.sh say` or `ask`, while `note`, `status`, `list` and `drain` need no configuration at all because they make no model call.
 The voice handover depends on `note`, so it keeps working in a home that has configured nothing.
 
-| File | Environment | Holds |
-| --- | --- | --- |
-| `config/voice-region` | `FM_VOICE_REGION` | Bedrock region for the relay's bidirectional session, required by `bin/fm-voice-relay.py`. |
-| `config/voice-model` | `FM_VOICE_MODEL` | Speech-to-speech model id, required by `bin/fm-voice-relay.py`. |
-| `config/voice-profile` | `FM_VOICE_PROFILE` | AWS profile the relay exports credentials from; absent, or an explicitly empty variable, means it uses only credentials already in its environment. |
-| `config/voice-id` | `FM_VOICE_ID` | Output voice id, optional, `matthew` when unset. |
-| `config/voice-read-scope` | none | `counts` (the default, and what an absent file means) or `full`; see [`docs/voice-relay.md`](voice-relay.md) for what each scope may say. |
-| `config/voice-read-deny` | none | One plain case-insensitive substring per line; a matching open item is withheld from every list and reduced to a count. |
-| `config/inbox-region` | `FM_INBOX_REGION` | AWS region for `fm-inbox.sh say` and `ask`. |
-| `config/inbox-stt-model` | `FM_INBOX_STT_MODEL` | Speech-to-text model id, required by `fm-inbox.sh say`. |
-| `config/inbox-ask-model` | `FM_INBOX_ASK_MODEL` | Side-question model id, required by `fm-inbox.sh ask`. |
-| `config/inbox-profile` | `FM_INBOX_PROFILE` | AWS profile for those two calls; absent, or an explicitly empty variable, means whatever credentials are already in the environment. |
+| File                      | Environment          | Holds                                                                                                                                               |
+| ------------------------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `config/voice-region`     | `FM_VOICE_REGION`    | Bedrock region for the relay's bidirectional session, required by `bin/fm-voice-relay.py`.                                                          |
+| `config/voice-model`      | `FM_VOICE_MODEL`     | Speech-to-speech model id, required by `bin/fm-voice-relay.py`.                                                                                     |
+| `config/voice-profile`    | `FM_VOICE_PROFILE`   | AWS profile the relay exports credentials from; absent, or an explicitly empty variable, means it uses only credentials already in its environment. |
+| `config/voice-id`         | `FM_VOICE_ID`        | Output voice id, optional, `matthew` when unset.                                                                                                    |
+| `config/voice-read-scope` | none                 | `counts` (the default, and what an absent file means) or `full`; see [`docs/voice-relay.md`](voice-relay.md) for what each scope may say.           |
+| `config/voice-read-deny`  | none                 | One plain case-insensitive substring per line; a matching open item is withheld from every list and reduced to a count.                             |
+| `config/inbox-region`     | `FM_INBOX_REGION`    | AWS region for `fm-inbox.sh say` and `ask`.                                                                                                         |
+| `config/inbox-stt-model`  | `FM_INBOX_STT_MODEL` | Speech-to-text model id, required by `fm-inbox.sh say`.                                                                                             |
+| `config/inbox-ask-model`  | `FM_INBOX_ASK_MODEL` | Side-question model id, required by `fm-inbox.sh ask`.                                                                                              |
+| `config/inbox-profile`    | `FM_INBOX_PROFILE`   | AWS profile for those two calls; absent, or an explicitly empty variable, means whatever credentials are already in the environment.                |
 
 Each account, model and voice file above is read as its first line that is not blank and not a `#` comment, so a comment above the value is fine.
 The two read files are parsed differently: `config/voice-read-scope` must hold the bare word and nothing but blank space around it, so a comment header there refuses instead of being skipped, while every line of `config/voice-read-deny` that is not blank and not a `#` comment is one more substring.
@@ -962,6 +982,7 @@ FM_HEARTBEAT_MAX=7200   # heartbeat backoff cap
 FM_INACTIVE_RECONCILE_SECS=900  # 60..1800-second watcher cadence and inactivity threshold; locked session start also requests an immediate scan in the deferred worker
 FM_INACTIVE_RECONCILE_BUDGET_SECS=10  # 1..30-second scan deadline; wedged-scan kill backstop follows one second later
 FM_CHECK_INTERVAL=300   # seconds between slow checks (authenticated merge polls, custom checks, or Relay dispatch)
+FM_PR_REFRESH_STALE_SECS=300   # seconds one behind/conflicting PR head may stay unresolved across every branch-currency attempt before dispatch gives up and surfaces one blocker; invalid or zero values become 300
 FM_TASK_INBOX_GRACE_SECS=90   # seconds an unhandled steering-inbox message may sit before the watcher attempts doorbell delivery on an idle pane; also the minimum spacing between attempts
 FM_TASK_INBOX_RING_MAX=3      # watcher delivery attempts without an acknowledgement before the task surfaces as a stale wake for recovery
 FM_CHECK_TIMEOUT=30     # seconds allowed per slow check script

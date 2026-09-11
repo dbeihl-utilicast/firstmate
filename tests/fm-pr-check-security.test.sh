@@ -759,6 +759,14 @@ enable_pr_refresh() {  # <dir>
   : > "$1/home/config/pr-refresh"
 }
 
+age_pr_refresh_budget() {
+  local file="$1/$2.pr-refresh-state"
+  awk -F'\t' -v OFS='\t' '{ $5 = 1; print }' "$file" > "$file.aged" \
+    || fail "could not age the branch-currency budget"
+  chmod 0600 "$file.aged"
+  mv "$file.aged" "$file"
+}
+
 fake_idempotent_refresh_send() {  # <dir>
   cat > "$1/fakebin/fm-refresh-send.sh" <<'SH'
 #!/usr/bin/env bash
@@ -1224,32 +1232,206 @@ SH
 # no dispatch runs, no state is written - a home that has not opted in sees
 # no change from before this control existed.
 test_branch_currency_opt_out_by_default() {
-  local dir state rc
+  local dir state rc merge_state condition
 
   dir=$(make_case branch-currency-opt-out)
   state="$dir/home/state"
   write_task_meta "$dir"
   run_check_entry "$dir" task-a https://github.com/o/r/pull/9 >/dev/null \
     || fail "could not arm opt-out branch-currency fixture"
+  add_stop_custom_check "$dir"
   cat > "$dir/fakebin/fm-crew-state.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'state: done \302\267 source: run-step \302\267 checks green: PR ready for review\n'
 SH
   chmod +x "$dir/fakebin/fm-crew-state.sh"
+  for merge_state in BEHIND DIRTY; do
+    case "$merge_state" in BEHIND) condition=behind ;; DIRTY) condition=conflict ;; esac
+    set +e
+    FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE="$merge_state" \
+      FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
+      run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/optout.out" 2> "$dir/optout.err"
+    rc=$?
+    set -e
+    [ "$rc" -eq 0 ] || fail "opt-out watcher failed: $(cat "$dir/optout.err")"
+    assert_no_grep 'branch-refresh-dispatched' "$dir/optout.out" \
+      "branch-currency dispatch ran without config/pr-refresh present"
+    assert_absent "$state/task-a.pr-refresh-state" "an opted-out home recorded dispatch state"
+    assert_absent "$state/task-a.pr-refresh-refused" "an opted-out home recorded a refusal"
+    assert_no_grep "$condition 0123456789abcdef0123456789abcdef01234567" "$dir/optout.out" \
+      "an opted-out home woke the captain for a behind PR it will do nothing about"
+    assert_no_grep "$condition 0123456789abcdef0123456789abcdef01234567" "$state/.wake-queue" \
+      "an opted-out home queued a durable wake row for a behind PR"
+    assert_grep "branch-refresh-observed pr=https://github.com/o/r/pull/9 head=0123456789abcdef0123456789abcdef01234567 condition=$condition reason=not-opted-in" \
+      "$state/.watch-triage.log" "an opted-out home stopped detecting and logging a behind PR"
+    ack_watcher_cycle "$state" || fail "opt-out cycle acknowledgement failed"
+  done
+  pass "an opted-out home behaves exactly as it did before this control existed"
+}
+
+test_branch_currency_gives_up_on_an_unreachable_head() {
+  local dir state rc head first
+  head=0123456789abcdef0123456789abcdef01234567
+
+  dir=$(make_case branch-currency-ceiling)
+  state="$dir/home/state"
+  write_task_meta "$dir"
+  enable_pr_refresh "$dir"
+  run_check_entry "$dir" task-a https://github.com/o/r/pull/7 >/dev/null \
+    || fail "could not arm branch-currency ceiling fixture"
+  cat > "$dir/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'state: done \302\267 source: run-step \302\267 checks green: PR ready for review\n'
+SH
+  chmod +x "$dir/fakebin/fm-crew-state.sh"
+  fake_idempotent_refresh_send "$dir"
+  : > "$dir/refresh-send.log"
   set +e
   FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BEHIND \
     FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
-    run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/optout.out" 2> "$dir/optout.err"
+    FM_PR_REFRESH_SEND_BIN="$dir/fakebin/fm-refresh-send.sh" \
+    FM_TEST_REFRESH_SEND_LOG="$dir/refresh-send.log" \
+    run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/first.out" 2> "$dir/first.err"
   rc=$?
   set -e
-  [ "$rc" -eq 0 ] || fail "opt-out watcher failed: $(cat "$dir/optout.err")"
-  assert_no_grep 'branch-refresh-' "$dir/optout.out" \
-    "branch-currency dispatch ran without config/pr-refresh present"
-  assert_absent "$state/task-a.pr-refresh-state" "an opted-out home recorded dispatch state"
-  assert_absent "$state/task-a.pr-refresh-refused" "an opted-out home recorded a refusal"
-  assert_grep 'behind 0123456789abcdef0123456789abcdef01234567' "$dir/optout.out" \
-    "an opted-out home stopped detecting and logging a behind PR"
-  pass "an opted-out home behaves exactly as it did before this control existed"
+  [ "$rc" -eq 0 ] || fail "ceiling fixture's first dispatch failed: $(cat "$dir/first.err")"
+  assert_grep "branch-refresh-dispatched pr=https://github.com/o/r/pull/7 head=$head condition=behind" \
+    "$dir/first.out" "the ceiling fixture never dispatched a first attempt"
+
+  first=$(cut -f5 "$state/task-a.pr-refresh-state")
+  mv "$state/task-a.inbox/001.msg" "$state/task-a.inbox/handled/"
+  ack_watcher_cycle "$state" || fail "ceiling fixture acknowledgement failed"
+  add_stop_custom_check "$dir"
+  FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BEHIND FM_PR_REFRESH_STALE_SECS=86400 \
+    FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
+    FM_PR_REFRESH_SEND_BIN="$dir/fakebin/fm-refresh-send.sh" \
+    FM_TEST_REFRESH_SEND_LOG="$dir/refresh-send.log" \
+    run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/resolved.out" 2> "$dir/resolved.err" \
+    || fail "ceiling fixture resolution failed: $(cat "$dir/resolved.err")"
+  ack_watcher_cycle "$state" || fail "resolved-head acknowledgement failed"
+  FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BEHIND FM_PR_REFRESH_STALE_SECS=86400 \
+    FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
+    FM_PR_REFRESH_SEND_BIN="$dir/fakebin/fm-refresh-send.sh" \
+    FM_TEST_REFRESH_SEND_LOG="$dir/refresh-send.log" \
+    run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/retry.out" 2> "$dir/retry.err" \
+    || fail "retry before the ceiling failed: $(cat "$dir/retry.err")"
+  [ "$(wc -l < "$dir/refresh-send.log" | tr -d ' ')" -eq 2 ] \
+    || fail "the unresolved head did not retry within its budget"
+  [ "$(cut -f5 "$state/task-a.pr-refresh-state")" = "$first" ] \
+    || fail "a retry reset the first-dispatch timestamp"
+  mv "$state/task-a.inbox/002.msg" "$state/task-a.inbox/handled/"
+  ack_watcher_cycle "$state" || fail "retry acknowledgement failed"
+  age_pr_refresh_budget "$state" task-a
+  set +e
+  FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BEHIND FM_PR_REFRESH_STALE_SECS=1 \
+    FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
+    FM_PR_REFRESH_SEND_BIN="$dir/fakebin/fm-refresh-send.sh" \
+    FM_TEST_REFRESH_SEND_LOG="$dir/refresh-send.log" \
+    run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/blocked.out" 2> "$dir/blocked.err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || fail "ceiling watcher failed: $(cat "$dir/blocked.err")"
+  assert_grep "branch-refresh-blocked pr=https://github.com/o/r/pull/7 head=$head condition=behind attempts=2 reason=head-never-moved-after-1s-no-further-dispatch" \
+    "$dir/blocked.out" "an unreachable head never surfaced as a blocker naming the pull request"
+  [ "$(wc -l < "$dir/refresh-send.log" | tr -d ' ')" -eq 2 ] \
+    || fail "the ceiling dispatched another attempt instead of giving up"
+  assert_grep "blocked	$head	2	002.msg" "$state/task-a.pr-refresh-state" \
+    "the give-up was not recorded durably"
+
+  ack_watcher_cycle "$state" || fail "blocked-head acknowledgement failed"
+  set +e
+  FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BEHIND FM_PR_REFRESH_STALE_SECS=1 \
+    FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
+    FM_PR_REFRESH_SEND_BIN="$dir/fakebin/fm-refresh-send.sh" \
+    FM_TEST_REFRESH_SEND_LOG="$dir/refresh-send.log" \
+    run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/quiet.out" 2> "$dir/quiet.err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || fail "post-blocker watcher failed: $(cat "$dir/quiet.err")"
+  assert_no_grep 'branch-refresh-blocked' "$dir/quiet.out" \
+    "the blocker woke the captain a second time for the same unreachable head"
+  [ "$(wc -l < "$dir/refresh-send.log" | tr -d ' ')" -eq 2 ] \
+    || fail "a blocked head dispatched again on a later poll"
+  assert_grep "branch-refresh-deferred pr=https://github.com/o/r/pull/7 head=$head condition=behind reason=dispatch-blocked" \
+    "$state/.watch-triage.log" "a blocked head's later polls were not absorbed quietly"
+
+  ack_watcher_cycle "$state" || fail "post-blocker new-head acknowledgement failed"
+  set +e
+  FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BEHIND FM_PR_REFRESH_STALE_SECS=1 \
+    FM_TEST_GH_HEAD=89abcdef0123456789abcdef0123456789abcdef \
+    FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
+    FM_PR_REFRESH_SEND_BIN="$dir/fakebin/fm-refresh-send.sh" \
+    FM_TEST_REFRESH_SEND_LOG="$dir/refresh-send.log" \
+    run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/newhead.out" 2> "$dir/newhead.err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || fail "post-blocker new-head watcher failed: $(cat "$dir/newhead.err")"
+  assert_grep 'branch-refresh-dispatched pr=https://github.com/o/r/pull/7 head=89abcdef0123456789abcdef0123456789abcdef condition=behind' \
+    "$dir/newhead.out" "a blocked head froze dispatch for every later head too"
+  pass "an unreachable head gives up once as a named blocker instead of dispatching forever"
+}
+
+test_upgraded_poll_template_names_its_rearm_command() {
+  local dir state rc historical_poll command
+
+  dir=$(make_case poll-template-upgrade)
+  state="$dir/home/state"
+  write_task_meta "$dir"
+  write_poll_meta "$state" task-a https://github.com/o/r/pull/5
+  historical_poll="$dir/historical-poll.sh"
+  cat > "$historical_poll" <<'SH'
+#!/usr/bin/env bash
+touch "$FM_HOME/state/stale-poll-executed"
+SH
+  seed_canonical_poll "$dir" task-a https://github.com/o/r/pull/5 "$historical_poll"
+  set +e
+  FM_TEST_GH_STATE=OPEN run_watcher_bounded "$dir/home" "$dir/fakebin" \
+    > "$dir/upgrade.out" 2> "$dir/upgrade.err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || fail "poll-template upgrade watcher failed: $(cat "$dir/upgrade.err")"
+  assert_grep 'PR poll template mismatch for task=task-a; merge detection suspended' "$dir/upgrade.out" \
+    "an upgraded poll template was accepted instead of rejected"
+  assert_grep 'bin/fm-pr-check.sh task-a https://github.com/o/r/pull/5' "$dir/upgrade.out" \
+    "the rejection never named the task's exact re-arm command"
+  cmp -s "$historical_poll" "$state/task-a.check.sh" \
+    || fail "the watcher re-armed the stale poll instead of leaving it to the captain"
+  assert_absent "$state/stale-poll-executed" "the watcher executed the old template"
+  [ "$(grep -c 're-arm:' "$state/.wake-queue")" -eq 1 ] \
+    || fail "the watcher did not queue exactly one upgrade diagnostic"
+  ack_watcher_cycle "$state" || fail "upgrade diagnostic acknowledgement failed"
+  add_stop_custom_check "$dir"
+  FM_TEST_GH_STATE=OPEN run_watcher_bounded "$dir/home" "$dir/fakebin" \
+    > "$dir/quiet.out" 2> "$dir/quiet.err" \
+    || fail "post-diagnostic watcher failed: $(cat "$dir/quiet.err")"
+  assert_grep 'stop-cycle' "$dir/quiet.out" "the watcher did not continue past the stale poll"
+  assert_no_grep 're-arm:' "$dir/quiet.out" "the watcher repeated the upgrade diagnostic"
+  assert_no_grep 're-arm:' "$state/.wake-queue" "the watcher queued the upgrade diagnostic again"
+  ack_watcher_cycle "$state" || fail "quiet upgrade cycle acknowledgement failed"
+  rm -f "$state/z-stop.check.sh" "$state/z-stop.check-trust"
+  printf '\n' >> "$state/task-a.check.sh"
+  FM_TEST_GH_STATE=OPEN run_watcher_bounded "$dir/home" "$dir/fakebin" \
+    > "$dir/tampered.out" 2> "$dir/tampered.err" \
+    || fail "tampered poll watcher failed: $(cat "$dir/tampered.err")"
+  assert_grep 'rejected unauthenticated state checks' "$dir/tampered.out" \
+    "the upgrade receipt suppressed a later unauthenticated change"
+  assert_no_grep 're-arm:' "$dir/tampered.out" "unregistered bytes were classified as an upgrade"
+  assert_absent "$state/stale-poll-executed" "the watcher executed an unauthenticated template"
+  command=$(sed -n 's/^check: .*; re-arm: //p' "$dir/upgrade.out")
+  [ -n "$command" ] || fail "the watcher emitted no re-arm command"
+  FM_ROOT_OVERRIDE="$dir/root" FM_TEST_GUARD_LOG="$dir/guard.log" \
+    FM_TEST_GH_LOG="$dir/gh.log" PATH="$dir/fakebin:$BASE_PATH" \
+    bash -c "$command" >/dev/null \
+    || fail "the named re-arm command did not work"
+  fm_pr_poll_artifacts_valid "$state" task-a "$POLL" \
+    || fail "the named re-arm command left the poll still invalid"
+  ack_watcher_cycle "$state" || fail "tampered-poll diagnostic acknowledgement failed"
+  FM_TEST_GH_STATE=MERGED run_watcher_bounded "$dir/home" "$dir/fakebin" \
+    > "$dir/merged.out" 2> "$dir/merged.err" \
+    || fail "re-armed poll failed: $(cat "$dir/merged.err")"
+  assert_grep 'task-a.check.sh: merged' "$dir/merged.out" "re-arming did not restore merge detection"
+  assert_absent "$state/task-a.pr-poll-rearm-notified" "the re-armed poll kept its upgrade notice receipt"
+  pass "an upgraded poll template is refused with the exact command that re-arms it"
 }
 
 test_atomic_interruption_leaves_no_partial_artifact() {
@@ -1707,6 +1889,7 @@ test_teardown_removes_poll_artifacts() {
   printf 'check\n' > "$dir/home/state/task-a.check.sh"
   printf 'data\n' > "$dir/home/state/task-a.pr-poll"
   printf 'registration\n' > "$dir/home/state/task-a.pr-poll-registration"
+  printf 'notified\n' > "$dir/home/state/task-a.pr-poll-rearm-notified"
   printf 'trust\n' > "$dir/home/state/task-a.check-trust"
   printf 'prepared\t0123456789abcdef0123456789abcdef01234567\t1\t-\n' \
     > "$dir/home/state/task-a.pr-refresh-state"
@@ -1723,6 +1906,7 @@ SH
   [ ! -e "$dir/home/state/task-a.check.sh" ] || fail "teardown left the runnable check"
   [ ! -e "$dir/home/state/task-a.pr-poll" ] || fail "teardown left the sidecar"
   [ ! -e "$dir/home/state/task-a.pr-poll-registration" ] || fail "teardown left the PR poll registration"
+  [ ! -e "$dir/home/state/task-a.pr-poll-rearm-notified" ] || fail "teardown left the PR poll upgrade receipt"
   [ ! -e "$dir/home/state/task-a.check-trust" ] || fail "teardown left the custom check registration"
   [ ! -e "$dir/home/state/task-a.pr-refresh-state" ] || fail "teardown left branch-refresh state"
 
@@ -2654,6 +2838,8 @@ test_branch_currency_remote_secondmate_refused
 test_branch_currency_restart_before_state_recorded
 test_branch_currency_refusal_is_deduplicated
 test_branch_currency_opt_out_by_default
+test_branch_currency_gives_up_on_an_unreachable_head
+test_upgraded_poll_template_names_its_rearm_command
 test_parser_matrix
 test_gitlab_merge_watch
 test_merged_poll_retires_once
