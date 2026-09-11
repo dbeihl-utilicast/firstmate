@@ -210,29 +210,27 @@ The flag is a home-local supervision-noise preference and is not inherited by se
 
 ## Branch-currency dispatch (config/pr-refresh)
 
-The optional local, gitignored `config/pr-refresh` presence flag opts this home into a default-off control that keeps a task's open pull request current with its base automatically, instead of leaving the captain to press the forge's own "Update branch" by hand.
-With it present, the watcher's registered PR poll reacting to a `behind` or `conflict` head runs the dispatch lifecycle described in [`architecture.md`](architecture.md); with it absent, each observation is written to the triage log as `branch-refresh-observed`, with no dispatch, dispatch state, or captain wake.
-`FM_PR_REFRESH_STALE_SECS` defaults to 1800 seconds (30 minutes), six times the default 300-second `FM_CHECK_INTERVAL`, allowing several poll cycles for acknowledgement and retries before an idle, unchanged head is blocked.
-The budget starts at the first dispatch and survives acknowledgements and retries; pending instructions and workers reported as `working` defer before the ceiling is checked.
-Once the budget expires, an acknowledged refresh whose worker is eligible and `done` while GitHub still reports the same head behind or conflicting stops dispatching and surfaces once as a `branch-refresh-blocked` wake naming the pull request, head, and attempt count.
-A later head starts its own stale budget.
-`FM_PR_REFRESH_COOLDOWN_SECS` defaults to 600 seconds (10 minutes), two default check intervals, to limit refresh frequency while allowing retries within the 1800-second stale budget.
-The cooldown follows the pull request across head changes and watcher restarts, measured from its last confirmed dispatch.
-No later dispatch is eligible until the previous instruction is acknowledged, a subsequent poll observes the result, the owning worker reports `done`, and the cooldown expires; elapsed time alone never overrides pending or active work.
+The optional local, gitignored `config/pr-refresh` presence flag enables automatic branch refresh for eligible finished GitHub PR workers in this home; it is default-off and is not inherited by secondmate homes.
+Without the flag, each `behind` or `conflict` observation is written to the triage log as `branch-refresh-observed`, with no refresh dispatch, dispatch-state update, or captain wake.
+The worker re-enters its selected delivery path, preserving active-run ownership, and reports ready again only after checks pass on the resulting head.
+[`architecture.md`](architecture.md#event-driven-supervision) owns dispatch eligibility, acknowledgement, retry, refusal, and blocked-head behavior.
+`FM_PR_REFRESH_STALE_SECS` sets the elapsed budget from the first dispatch for an unchanged head and defaults to 1800 seconds (30 minutes), six default check intervals.
+`FM_PR_REFRESH_COOLDOWN_SECS` sets the minimum interval between dispatches for the same PR and defaults to 600 seconds (10 minutes), two default check intervals.
+Empty, nonnumeric, and `0` values for either setting fall back to its default.
 
-Upgrading firstmate across a change to `bin/fm-pr-poll.sh` invalidates every already-armed PR poll, because the watcher accepts a poll only when the task's armed byte copy is identical to the current template.
-This branch-currency upgrade compares the current base branch named by `baseRefName` with the PR head; `baseRefOid` can describe an earlier base commit and is not used for currency detection.
+The poll compares the current base branch named by `baseRefName` with the PR head; `baseRefOid` can describe an earlier base commit and is not used for currency detection.
+Base names are validated as Git branch refs and URL-encoded for protection, ruleset, and comparison queries.
 A positive `behind_by` triggers refresh only when classic branch protection or an active repository or organization ruleset requires up-to-date branches with at least one required status check.
-This includes a pull request whose merge state is `BLOCKED` while awaiting required review, which the former `mergeStateStatus == BEHIND` trigger skipped.
+The comparison also covers PRs awaiting required review.
 Absent, disabled, or unreadable protection never authorizes a behind refresh; conflict detection remains independent of protection and comparison.
 Classic protection inspection needs GitHub Administration read permission, while active ruleset inspection needs Metadata read permission.
-The shared poll performs these checks even without `config/pr-refresh`, adding up to three GitHub API requests per open, non-conflicting PR per check sweep; tokens without Administration read can receive a classic-protection permission error on every sweep.
+The shared poll performs these checks even without `config/pr-refresh`, adding up to three GitHub API queries per open, non-conflicting PR per check sweep, with additional requests for paginated rulesets; tokens without Administration read can receive a classic-protection permission error on every sweep.
+
+Upgrading firstmate across a change to `bin/fm-pr-poll.sh` invalidates every already-armed PR poll, because the watcher accepts a poll only when the task's armed byte copy is identical to the current template.
 The watcher suspends merge detection for affected tasks and batches their diagnostics into one sweep wake, with the exact command to re-run `bin/fm-pr-check.sh <task-id> <pr-url>`, including the home, state directory, and script path.
-Run that command once for each affected task after installing this upgrade; the re-arm covers both branch-currency detection and the compare query, and merge detection resumes afterward.
+Run that command once for each affected task after upgrading to resume merge detection and any enabled branch-currency dispatch.
 The watcher keeps the armed bytes unchanged, and repeated sweeps remain quiet until the poll is re-armed or its registration or template changes.
 Unregistered or tampered poll bytes still produce the unauthenticated-check rejection.
-
-[`architecture.md`](architecture.md) owns the state machine and its safety properties, and `bin/fm-watch.sh`'s `pr_refresh_dispatch` header owns the exact mechanics.
 
 ## Gate defaults (.no-mistakes.yaml)
 
@@ -858,6 +856,7 @@ Each claim binds its caller-reported home and runner PID to a process identity, 
 Registration, acquisition, replacement, retirement, and generation-bound release are serialized at one machine-wide boundary per source.
 A live identity-matched owner is never displaced, and release removes only the exact generation the caller acquired.
 Every stop proves ownership before its first signal: the live runner's recorded process identity must match and it must still lead its process group.
+If a matched runner exits before the group-id observation or before signalling succeeds, the stop treats it as already complete only after confirming that both the PID and its process group are absent.
 Once that stop has proved ownership and sent TERM, its own escalation to KILL checks only whether the proved group still has members; it does not re-read the leader's identity or group membership, which can change or become unreadable as TERM ends the leader.
 This proof belongs only to that stop's own escalation and cannot authorize another caller that encounters an unproved group.
 A claim counts as reclaimable only when its owner is stale and an independent process-group check finds no members; a crashed leader or reused pid whose process group still has members cannot relax ownership cleanup, so reconcile preserves the claim without signalling the ambiguous group or starting a replacement.
@@ -871,6 +870,7 @@ If identity cannot be established before the first signal, or a surviving owned 
 A live PID whose identity no longer matches is refused before the first signal.
 Identity and process-group verification cannot be made atomic with signalling in portable shell: the reaper signals only a target it has verified as the recorded generation, but PID and group reuse remain possible in the narrow interval between verification and the signal.
 Launch pacing is the primary host-wedge protection; watchdog cleanup is a backstop.
+`test_retire_runner_exits_during_stop` in [`tests/fm-procevent.test.sh`](../tests/fm-procevent.test.sh) exercises these exit races and the live-runner refusal when group-id evidence is unreadable through public `retire`.
 
 Supported secondmate retirement preflights each target home's bounded `sweep-home` command before destructive teardown, snapshots its registrations outside the target, then runs the sweep at that home's final deletion or return boundary.
 If deletion or return fails, teardown restores those registrations and reconciles them before returning the refusal.
@@ -981,8 +981,8 @@ FM_HEARTBEAT_MAX=7200   # heartbeat backoff cap
 FM_INACTIVE_RECONCILE_SECS=900  # 60..1800-second watcher cadence and inactivity threshold; locked session start also requests an immediate scan in the deferred worker
 FM_INACTIVE_RECONCILE_BUDGET_SECS=10  # 1..30-second scan deadline; wedged-scan kill backstop follows one second later
 FM_CHECK_INTERVAL=300   # seconds between slow checks (authenticated merge polls, custom checks, or Relay dispatch)
-FM_PR_REFRESH_STALE_SECS=1800   # first-dispatch budget for an unchanged PR head; checked only after pending/working deferrals and worker eligibility; invalid or zero values become 1800
-FM_PR_REFRESH_COOLDOWN_SECS=600 # minimum interval between refresh dispatches for the same PR, including changed heads; invalid or zero values become 600
+FM_PR_REFRESH_STALE_SECS=1800   # unchanged-head budget; see Branch-currency dispatch
+FM_PR_REFRESH_COOLDOWN_SECS=600 # per-PR dispatch interval; see Branch-currency dispatch
 FM_TASK_INBOX_GRACE_SECS=90   # seconds an unhandled steering-inbox message may sit before the watcher attempts doorbell delivery on an idle pane; also the minimum spacing between attempts
 FM_TASK_INBOX_RING_MAX=3      # watcher delivery attempts without an acknowledgement before the task surfaces as a stale wake for recovery
 FM_CHECK_TIMEOUT=30     # seconds allowed per slow check script

@@ -71,9 +71,7 @@
 #                          successful attempts never wake firstmate
 #                          (bin/fm-task-inbox-lib.sh owns the ladder policy)
 #   check: <script>: <out> authenticated check output, always actionable
-#                          GitHub behind/conflict reactivates a done worker.
-#                          Active work defers; unsafe states surface as refusals
-#                          without moving the branch.
+#                          Branch-currency handling follows docs/configuration.md.
 #   check: process-event result captured: <keys>
 #                          a durably captured process-to-event result is queued
 #                          and has not been surfaced yet; reported once per
@@ -1592,9 +1590,7 @@ pr_refresh_record_state() {  # <task-id> <record>; prints pending|resolved|missi
   fi
 }
 
-# Deduplicated refusal: an unchanged (head, reason) never wakes twice. Never
-# touches $id.pr-refresh-state, so a refusal can't erase the attempt count a
-# prior dispatch on this head earned.
+# Refusal receipts follow durable notification; docs/architecture.md owns recovery.
 pr_refresh_refuse() {  # <task-id> <url> <condition> <head> <reason>
   local id=$1 url=$2 condition=$3 head=$4 reason=$5
   local refused="$STATE/$id.pr-refresh-refused" tab prev_head prev_reason extra notification

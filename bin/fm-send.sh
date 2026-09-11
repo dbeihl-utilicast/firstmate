@@ -143,8 +143,12 @@
 # fire-and-forget delivery deliberately arms neither mechanism. Internal
 # semantic callers may set FM_SEND_EXPECTED_SPAWN_GEN or
 # FM_SEND_EXPECTED_REMOTE_HOST to require that sampled identity to still match
-# during final locked route validation. FM_SEND_PRINT_INBOX_RECORD=1 prints the
-# durable local record path after enqueue; unset guards do not change sends.
+# during final locked route validation; unset or empty guards preserve sends.
+# FM_SEND_PRINT_INBOX_RECORD=1 prints the durable local record path after enqueue.
+#
+# FM_SEND_EXPECTED_PR_POLL_SNAPSHOT is one tab-separated line in
+# fm_send_pr_poll_matches field order, revalidated under the local metadata lock
+# before enqueue. Remote delivery with this guard is refused.
 #
 # Decision closure (answerer-closes): pass --resolve-key <key> (repeatable,
 # before the message) when this send answers an open keyed needs-decision: or
