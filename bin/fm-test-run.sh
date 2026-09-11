@@ -336,7 +336,7 @@ family_for_basename() {
     fm-codex-continuity-live-e2e.test.sh|fm-grok-continuity-live-e2e.test.sh|\
     fm-cursor-primary-live-e2e.test.sh|\
     fm-grok-stop-live-e2e.test.sh|fm-harness-adapter-instructions-live-e2e.test.sh|\
-    fm-harness-liveness-drift-live-e2e.test.sh|\
+    fm-harness-liveness-drift-live-e2e.test.sh|fm-agy-print-live-e2e.test.sh|\
     fm-muse-signals-live-e2e.test.sh|fm-rovo-signals-live-e2e.test.sh|\
     fm-herdr-version-floor-live-e2e.test.sh|\
     fm-opencode-primary-live-e2e.test.sh|fm-pi-branch-live-e2e.test.sh|\
@@ -1480,12 +1480,16 @@ families_for_changed_path() {
       # lane's contract coverage re-runs.
       printf '%s\n' real-herdr-gated
       ;;
+    bin/fm-agy-print.sh)
+      printf '%s\n' pure-contract-unit
+      printf '%s\n' live-harness-optin
+      ;;
     bin/fm-lint.sh|bin/fm-lint-workflows.sh|bin/fm-install-shellcheck.sh|\
     bin/fm-install-actionlint.sh|\
     bin/fm-brief.sh|bin/fm-ensure-agents-md.sh|bin/fm-crew-state.sh|\
     bin/fm-captain-hold.sh|bin/fm-decision-hold.sh|bin/fm-supervision*|bin/fm-transition-lib.sh|\
     bin/fm-tmux-lib.sh|bin/fm-marker-lib.sh|bin/fm-operational-input.sh|bin/fm-tasks-axi-lib.sh|\
-    bin/fm-vendor-auth-probe.sh|bin/fm-agy-print.sh|\
+    bin/fm-vendor-auth-probe.sh|\
     bin/fm-primary-scope-lib.sh|bin/fm-project-mode.sh|bin/fm-promote.sh|\
     bin/fm-ff-lib.sh|bin/fm-gotmp*|bin/*pretool*)
       printf '%s\n' pure-contract-unit
