@@ -148,27 +148,56 @@ caller_merge_method() {
   printf '%s' "$method"
 }
 
-normalize_gh_merge_args() {
-  local arg pending=false
+normalize_gh_admin_merge_args() {
+  local arg pending value
+  pending=
   GH_MERGE_ARGS=()
   for arg in "$@"; do
-    if [ "$pending" = true ]; then
-      case "$arg" in
-        squash|merge|rebase) GH_MERGE_ARGS+=("--$arg") ;;
-        *) GH_MERGE_ARGS+=(--method "$arg") ;;
-      esac
-      pending=false
+    if [ -n "$pending" ]; then
+      if [ "$pending" = method ]; then
+        case "$arg" in
+          squash|merge|rebase) GH_MERGE_ARGS+=("--$arg") ;;
+          *)
+            printf 'error: unsupported GitHub admin merge method: %s\n' "$arg" >&2
+            return 1
+            ;;
+        esac
+      else
+        GH_MERGE_ARGS+=("$arg")
+      fi
+      pending=
       continue
     fi
     case "$arg" in
-      --method) pending=true ;;
-      --method=squash) GH_MERGE_ARGS+=(--squash) ;;
-      --method=merge) GH_MERGE_ARGS+=(--merge) ;;
-      --method=rebase) GH_MERGE_ARGS+=(--rebase) ;;
-      *) GH_MERGE_ARGS+=("$arg") ;;
+      --admin|--merge|--squash|--rebase|--auto|--auto=*|--delete-branch)
+        GH_MERGE_ARGS+=("$arg")
+        ;;
+      --body|--body-file|--subject)
+        GH_MERGE_ARGS+=("$arg")
+        pending=$arg
+        ;;
+      --body=*|--body-file=*|--subject=*) GH_MERGE_ARGS+=("$arg") ;;
+      --method) pending=method ;;
+      --method=*)
+        value=${arg#--method=}
+        case "$value" in
+          squash|merge|rebase) GH_MERGE_ARGS+=("--$value") ;;
+          *)
+            printf 'error: unsupported GitHub admin merge method: %s\n' "$value" >&2
+            return 1
+            ;;
+        esac
+        ;;
+      *)
+        printf 'error: unsupported GitHub admin merge argument: %s\n' "$arg" >&2
+        return 1
+        ;;
     esac
   done
-  [ "$pending" = false ] || GH_MERGE_ARGS+=(--method)
+  [ -z "$pending" ] || {
+    printf 'error: GitHub admin merge argument requires a value: %s\n' "$pending" >&2
+    return 1
+  }
 }
 
 # Whether the caller's own extra arguments asked for auto-merge, including the
@@ -747,7 +776,7 @@ case "$PROVIDER" in
     merge_cli=gh-axi
     if caller_requested_admin "$@"; then
       merge_cli=gh
-      normalize_gh_merge_args "$@"
+      normalize_gh_admin_merge_args "$@" || exit 1
       merge_forward_args=("${GH_MERGE_ARGS[@]+"${GH_MERGE_ARGS[@]}"}")
     fi
     if ! caller_has_merge_method "$@"; then

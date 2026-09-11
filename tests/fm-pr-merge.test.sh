@@ -74,6 +74,7 @@
 #   (az) an admin merge without gh refuses and does not fall back to gh-axi
 #   (ba) GitLab --admin is refused before any state is recorded
 #   (bb) admin merges translate both wrapper --method forms for native gh
+#   (bc) admin merges reject gh-native flags outside the gh-axi contract
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -1962,6 +1963,37 @@ test_github_admin_normalizes_wrapper_method_forms() {
   pass "fm-pr-merge translates wrapper method forms for GitHub admin merges"
 }
 
+test_github_admin_rejects_native_only_flags() {
+  local arg case_dir rc
+  local -a value
+  for arg in --author-email --disable-auto --match-head-commit; do
+    case_dir=$(make_case "github-admin-native-${arg#--}")
+    mkdir -p "$case_dir/wt"
+    add_gh_mocks "$case_dir" 9292929292929292929292929292929292929292
+    : > "$case_dir/gh-axi.log"
+    : > "$case_dir/gh.log"
+    value=()
+    case "$arg" in
+      --author-email) value=(operator@example.com) ;;
+      --match-head-commit) value=(9292929292929292929292929292929292929292) ;;
+    esac
+
+    set +e
+    run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/88 \
+      -- --admin "$arg" "${value[@]}" \
+      > "$case_dir/stdout" 2> "$case_dir/stderr"
+    rc=$?
+    set -e
+
+    expect_code 1 "$rc" "github-admin-native-${arg#--}: native-only flag must refuse"
+    assert_grep "unsupported GitHub admin merge argument: $arg" "$case_dir/stderr" \
+      "github-admin-native-${arg#--}: refusal did not name the unsupported flag"
+    assert_no_grep 'pr merge' "$case_dir/gh.log" \
+      "github-admin-native-${arg#--}: unsupported flag reached gh pr merge"
+  done
+  pass "fm-pr-merge rejects gh-native flags outside the gh-axi contract"
+}
+
 test_github_admin_records_pr_before_the_forge_call() {
   local case_dir rc
   case_dir=$(make_case github-admin-records-ahead-of-forge)
@@ -2353,6 +2385,7 @@ test_github_admin_open_unqueued_outcome_refuses
 test_github_admin_without_gh_refuses
 test_github_admin_explicit_method_not_overridden
 test_github_admin_normalizes_wrapper_method_forms
+test_github_admin_rejects_native_only_flags
 test_github_admin_records_pr_before_the_forge_call
 test_gitlab_admin_refuses_before_recording
 test_gitlab_url_resolves_and_merges
