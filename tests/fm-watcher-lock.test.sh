@@ -237,6 +237,73 @@ test_lock_steals_dead_pid_lock() {
   pass "dead-pid stale lock is reclaimed by a single acquirer"
 }
 
+test_lock_prepare_writes_pid_identity() {
+  local dir state lockdir rc
+  dir=$(make_case lock-writes-identity)
+  state="$dir/state"
+  lockdir="$state/.contend.lock"
+  rc=0
+  FM_STATE_OVERRIDE="$state" bash -c '
+    . "$1"
+    fm_lock_try_acquire "$2" || exit 7
+    pid=$(cat "$2/pid")
+    recorded=$(cat "$2/pid-identity")
+    [ -n "$recorded" ] || exit 8
+    current=$(fm_lock_pid_identity "$pid") || exit 9
+    [ "$recorded" = "$current" ] || exit 10
+  ' _ "$LIB" "$lockdir" || rc=$?
+  [ "$rc" -eq 0 ] || fail "fresh lock did not record a matching pid-identity (rc=$rc)"
+  pass "a fresh lock records the acquirer's process identity"
+}
+
+test_lock_steals_reused_pid_lock() {
+  local dir state lockdir live rc newpid
+  dir=$(make_case lock-reused-pid-steal)
+  state="$dir/state"
+  lockdir="$state/.contend.lock"
+  sleep 30 &
+  live=$!
+  mkdir "$lockdir"
+  printf '%s\n' "$live" > "$lockdir/pid"
+  printf '%s\n' "stale-owner-identity" > "$lockdir/pid-identity"
+  rc=0
+  newpid=$(FM_STATE_OVERRIDE="$state" bash -c '
+    . "$1"
+    if fm_lock_try_acquire "$2"; then cat "$2/pid"; else exit 7; fi
+  ' _ "$LIB" "$lockdir") || rc=$?
+  kill "$live" 2>/dev/null || true
+  wait "$live" 2>/dev/null || true
+  [ "$rc" -eq 0 ] || fail "acquirer failed to steal a reused-pid lock (rc=$rc)"
+  [ "$newpid" != "$live" ] || fail "reused-pid lock was not replaced (still $live)"
+  [ -n "$newpid" ] || fail "reclaimed reused-pid lock has no pid recorded"
+  pass "a live pid whose recorded identity no longer matches is reclaimed"
+}
+
+test_lock_matching_identity_is_not_stolen() {
+  local dir state lockdir live identity rc
+  dir=$(make_case lock-matching-identity)
+  state="$dir/state"
+  lockdir="$state/.contend.lock"
+  sleep 30 &
+  live=$!
+  identity=$(FM_STATE_OVERRIDE="$state" bash -c '. "$1"; fm_pid_identity "$2"' _ "$LIB" "$live") \
+    || fail "could not identify live holder"
+  mkdir "$lockdir"
+  printf '%s\n' "$live" > "$lockdir/pid"
+  printf '%s\n' "$identity" > "$lockdir/pid-identity"
+  rc=0
+  FM_STATE_OVERRIDE="$state" bash -c '
+    . "$1"
+    fm_lock_try_acquire "$2"
+  ' _ "$LIB" "$lockdir" || rc=$?
+  kill "$live" 2>/dev/null || true
+  wait "$live" 2>/dev/null || true
+  [ "$rc" -ne 0 ] || fail "matching-identity live lock was stolen"
+  [ "$(cat "$lockdir/pid" 2>/dev/null || true)" = "$live" ] \
+    || fail "matching-identity live lock pid was replaced"
+  pass "a live pid whose recorded identity still matches is not reclaimed"
+}
+
 test_lock_stale_steal_single_winner_under_concurrency() {
   local dir state lockdir dead marker i pids pid wins
   dir=$(make_case lock-stale-concurrency)
@@ -1112,6 +1179,9 @@ test_live_stale_watch_lock_is_actionable
 test_guard_warnings
 test_lock_single_winner_under_concurrency
 test_lock_steals_dead_pid_lock
+test_lock_prepare_writes_pid_identity
+test_lock_steals_reused_pid_lock
+test_lock_matching_identity_is_not_stolen
 test_lock_stale_steal_single_winner_under_concurrency
 test_lock_live_steal_mutex_is_not_reclaimed
 test_lock_does_not_steal_live_lock
