@@ -37,6 +37,11 @@ case "${FM_FAKE_AGY_MODE:-success}" in
     printf '%s\n' '{"conversation_id":"cid-2","status":"SUCCESS","response":"PING43\n"}'
     exit 0
     ;;
+  multiple-json)
+    printf '%s\n' '{"conversation_id":"cid-9","status":"SUCCESS","response":"first"}'
+    printf '%s\n' '{"conversation_id":"cid-10","status":"SUCCESS","response":"second"}'
+    exit 0
+    ;;
   schema-ok)
     printf '%s\n' '{"conversation_id":"cid-3","status":"SUCCESS","structured_output":{"major":2,"minor":14,"patch":3}}'
     exit 0
@@ -64,6 +69,10 @@ case "${FM_FAKE_AGY_MODE:-success}" in
   nonzero)
     printf '%s\n' '{"conversation_id":"cid-8","status":"SUCCESS","response":"late"}'
     exit 3
+    ;;
+  nonzero-error)
+    printf '%s\n' '{"conversation_id":"cid-11","status":"ERROR","response":"unknown model"}'
+    exit 1
     ;;
   hang)
     sleep 30
@@ -99,7 +108,7 @@ run_print() {
   : > "$RUN_STDIN"
   local seen_separator=0
   for arg in "$@"; do
-    if [ "$seen_separator" -eq 0 ] && [ "$arg" = -- ]; then
+    if [ "$seen_separator" -eq 0 ] && [ "$arg" = --env ]; then
       seen_separator=1
       continue
     fi
@@ -200,7 +209,19 @@ test_invalid_effort_and_refused_flags_are_usage_errors() {
   run_print harness --prompt p --model m --effort low --harness agy
   expect_code 2 "$RUN_RC" "--harness is refused"
   assert_agy_never_ran "harness"
-  pass "invalid effort and TUI or skip-permissions flags are usage errors"
+
+  run_print long-alias --print p --model m --effort low
+  expect_code 2 "$RUN_RC" "--print is not a prompt alias"
+  assert_agy_never_ran "long-alias"
+
+  run_print short-alias -p p --model m --effort low
+  expect_code 2 "$RUN_RC" "-p is not a prompt alias"
+  assert_agy_never_ran "short-alias"
+
+  run_print trailing-separator --prompt p --model m --effort low --
+  expect_code 2 "$RUN_RC" "a trailing -- is not accepted"
+  assert_agy_never_ran "trailing-separator"
+  pass "only the canonical prompt option and one-shot flags are accepted"
 }
 
 test_missing_cwd_fails_before_agy() {
@@ -233,52 +254,69 @@ test_success_prints_compact_envelope() {
   pass "SUCCESS without a schema prints the envelope from the isolated cwd"
 }
 
-test_warning_line_before_json_is_stripped() {
-  run_print warn --prompt "$PROMPT_ARG" --model "$MODEL_ARG" --effort "$EFFORT_ARG" -- "FM_FAKE_AGY_MODE=warning-then-json"
-  expect_code 0 "$RUN_RC" "a leading warning does not fail a SUCCESS envelope"
-  assert_equals '{"conversation_id":"cid-2","status":"SUCCESS","response":"PING43\n"}' \
-    "$RUN_OUT" "only the JSON envelope is printed"
-  pass "a warning line before the envelope is not treated as the result"
+test_stdout_must_be_exactly_one_json_object() {
+  run_print preamble --prompt "$PROMPT_ARG" --model "$MODEL_ARG" --effort "$EFFORT_ARG" --env "FM_FAKE_AGY_MODE=warning-then-json"
+  expect_code 1 "$RUN_RC" "a stdout preamble invalidates the envelope"
+  [ -z "$RUN_OUT" ] || fail "preamble output must not be partially accepted: $RUN_OUT"
+
+  run_print multiple --prompt "$PROMPT_ARG" --model "$MODEL_ARG" --effort "$EFFORT_ARG" --env "FM_FAKE_AGY_MODE=multiple-json"
+  expect_code 1 "$RUN_RC" "multiple JSON values invalidate the envelope"
+  [ -z "$RUN_OUT" ] || fail "multiple objects must not select one envelope: $RUN_OUT"
+  pass "agy stdout must contain exactly one JSON object"
 }
 
 test_schema_requires_nonempty_structured_output() {
   local schema='{"type":"object","properties":{"major":{"type":"number"}},"required":["major"]}'
-  run_print schema-ok --prompt "$PROMPT_ARG" --model "$MODEL_ARG" --effort "$EFFORT_ARG" --json-schema "$schema" -- "FM_FAKE_AGY_MODE=schema-ok"
+  run_print schema-ok --prompt "$PROMPT_ARG" --model "$MODEL_ARG" --effort "$EFFORT_ARG" --json-schema "$schema" --env "FM_FAKE_AGY_MODE=schema-ok"
   expect_code 0 "$RUN_RC" "non-empty structured_output succeeds"
   assert_contains "$RUN_OUT" '"structured_output":{"major":2,"minor":14,"patch":3}' \
     "schema success keeps structured_output"
   assert_contains "$(cat "$RUN_LOG")" "--json-schema $schema" "schema is passed through"
 
-  run_print empty-so --prompt "$PROMPT_ARG" --model "$MODEL_ARG" --effort "$EFFORT_ARG" --json-schema "$schema" -- "FM_FAKE_AGY_MODE=empty-structured"
+  run_print empty-so --prompt "$PROMPT_ARG" --model "$MODEL_ARG" --effort "$EFFORT_ARG" --json-schema "$schema" --env "FM_FAKE_AGY_MODE=empty-structured"
   expect_code 1 "$RUN_RC" "empty structured_output fails"
-  assert_contains "$RUN_ERR" 'empty structured_output' 'empty SUCCESS is named'
-  [ -z "$RUN_OUT" ] || fail "empty structured_output must not print an envelope: $RUN_OUT"
+  assert_equals '{"conversation_id":"cid-4","status":"SUCCESS","structured_output":{}}' \
+    "$RUN_OUT" "empty structured_output still emits its envelope"
+  assert_equals '' "$RUN_ERR" "a parsed empty-result envelope needs no second error signal"
 
-  run_print null-so --prompt "$PROMPT_ARG" --model "$MODEL_ARG" --effort "$EFFORT_ARG" --json-schema "$schema" -- "FM_FAKE_AGY_MODE=null-structured"
+  run_print null-so --prompt "$PROMPT_ARG" --model "$MODEL_ARG" --effort "$EFFORT_ARG" --json-schema "$schema" --env "FM_FAKE_AGY_MODE=null-structured"
   expect_code 1 "$RUN_RC" "null structured_output fails"
+  assert_equals '{"conversation_id":"cid-5","status":"SUCCESS","structured_output":null}' \
+    "$RUN_OUT" "null structured_output still emits its envelope"
 
-  run_print missing-so --prompt "$PROMPT_ARG" --model "$MODEL_ARG" --effort "$EFFORT_ARG" --json-schema "$schema" -- "FM_FAKE_AGY_MODE=missing-structured"
+  run_print missing-so --prompt "$PROMPT_ARG" --model "$MODEL_ARG" --effort "$EFFORT_ARG" --json-schema "$schema" --env "FM_FAKE_AGY_MODE=missing-structured"
   expect_code 1 "$RUN_RC" "missing structured_output fails when a schema is used"
+  assert_equals '{"conversation_id":"cid-6","status":"SUCCESS","response":"ok"}' \
+    "$RUN_OUT" "a missing structured_output still emits its envelope"
   pass "a schema gates on non-empty structured_output, including empty SUCCESS"
 }
 
 test_failed_status_and_missing_envelope_fail() {
-  run_print failed --prompt "$PROMPT_ARG" --model "$MODEL_ARG" --effort "$EFFORT_ARG" -- "FM_FAKE_AGY_MODE=failed-status"
+  run_print failed --prompt "$PROMPT_ARG" --model "$MODEL_ARG" --effort "$EFFORT_ARG" --env "FM_FAKE_AGY_MODE=failed-status"
   expect_code 1 "$RUN_RC" "non-SUCCESS status fails"
-  assert_contains "$RUN_ERR" 'agy status ERROR' 'failed status is reported'
-  [ -z "$RUN_OUT" ] || fail "failed status must not print the envelope: $RUN_OUT"
+  assert_equals '{"conversation_id":"cid-7","status":"ERROR","response":""}' \
+    "$RUN_OUT" "a failed status emits its envelope"
+  assert_equals '' "$RUN_ERR" "a parsed ERROR envelope needs no second error signal"
 
-  run_print nojson --prompt "$PROMPT_ARG" --model "$MODEL_ARG" --effort "$EFFORT_ARG" -- "FM_FAKE_AGY_MODE=no-json"
+  run_print nojson --prompt "$PROMPT_ARG" --model "$MODEL_ARG" --effort "$EFFORT_ARG" --env "FM_FAKE_AGY_MODE=no-json"
   expect_code 1 "$RUN_RC" "stdout without JSON fails"
   assert_contains "$RUN_ERR" 'no JSON envelope' 'missing envelope is named'
   pass "non-SUCCESS status and missing envelopes fail closed"
 }
 
 test_nonzero_exit_fails_even_with_success_envelope() {
-  run_print nonzero --prompt "$PROMPT_ARG" --model "$MODEL_ARG" --effort "$EFFORT_ARG" -- "FM_FAKE_AGY_MODE=nonzero"
+  run_print nonzero --prompt "$PROMPT_ARG" --model "$MODEL_ARG" --effort "$EFFORT_ARG" --env "FM_FAKE_AGY_MODE=nonzero"
   expect_code 1 "$RUN_RC" "agy non-zero exit fails even with a SUCCESS envelope"
-  [ -z "$RUN_OUT" ] || fail "a non-zero agy exit must not print the envelope: $RUN_OUT"
-  pass "agy exit status is a required success signal"
+  assert_equals '{"conversation_id":"cid-8","status":"SUCCESS","response":"late"}' \
+    "$RUN_OUT" "a non-zero exit still emits its parseable envelope"
+  assert_equals '' "$RUN_ERR" "a parsed non-zero envelope needs no second error signal"
+
+  run_print nonzero-error --prompt "$PROMPT_ARG" --model "$MODEL_ARG" --effort "$EFFORT_ARG" --env "FM_FAKE_AGY_MODE=nonzero-error"
+  expect_code 1 "$RUN_RC" "agy ERROR envelope and non-zero exit fail"
+  assert_equals '{"conversation_id":"cid-11","status":"ERROR","response":"unknown model"}' \
+    "$RUN_OUT" "a non-zero ERROR result emits its envelope"
+  assert_equals '' "$RUN_ERR" "an ERROR envelope is the only structured failure detail"
+  pass "agy exit status gates success without discarding its envelope"
 }
 
 test_print_timeout_is_passed_and_hangs_are_bounded() {
@@ -288,7 +326,7 @@ test_print_timeout_is_passed_and_hangs_are_bounded() {
 
   local started finished
   started=$(date +%s)
-  run_print hang --prompt "$PROMPT_ARG" --model "$MODEL_ARG" --effort "$EFFORT_ARG" --print-timeout 1s -- "FM_FAKE_AGY_MODE=hang" "FM_AGY_PRINT_GRACE_SECONDS=1"
+  run_print hang --prompt "$PROMPT_ARG" --model "$MODEL_ARG" --effort "$EFFORT_ARG" --print-timeout 1s --env "FM_FAKE_AGY_MODE=hang"
   finished=$(date +%s)
   expect_code 1 "$RUN_RC" "a hang is a failure"
   assert_contains "$RUN_ERR" 'timed out' 'a hang is reported as timeout'
@@ -309,13 +347,22 @@ test_missing_agy_is_a_run_failure() {
   pass "a missing agy binary is reported rather than launched as a worker"
 }
 
+test_agy_is_resolved_from_path() {
+  run_print path-only --prompt "$PROMPT_ARG" --model "$MODEL_ARG" --effort "$EFFORT_ARG" --env "AGY_BIN=$TMP_ROOT/not-a-command"
+  expect_code 0 "$RUN_RC" "unrelated environment does not replace the PATH binary"
+  assert_equals '{"conversation_id":"cid-1","status":"SUCCESS","response":"PING42\n"}' \
+    "$RUN_OUT" "the PATH agy result is returned"
+  pass "agy is resolved only from PATH"
+}
+
 test_usage_requires_prompt_model_effort_cwd
 test_invalid_effort_and_refused_flags_are_usage_errors
 test_missing_cwd_fails_before_agy
 test_success_prints_compact_envelope
-test_warning_line_before_json_is_stripped
+test_stdout_must_be_exactly_one_json_object
 test_schema_requires_nonempty_structured_output
 test_failed_status_and_missing_envelope_fail
 test_nonzero_exit_fails_even_with_success_envelope
 test_print_timeout_is_passed_and_hangs_are_bounded
 test_missing_agy_is_a_run_failure
+test_agy_is_resolved_from_path

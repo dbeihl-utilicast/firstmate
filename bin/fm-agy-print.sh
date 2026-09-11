@@ -27,7 +27,8 @@
 #                             (default 5m). Accepted forms: <n>, <n>s, <n>m,
 #                             <n>m<n>s with a positive integer second total.
 #
-# Output: the compact JSON envelope on stdout when the run succeeds.
+# Output: the compact JSON envelope on stdout whenever agy stdout is exactly
+# one JSON object.
 # Signals: exit 0 only when agy exits 0 and the envelope has status SUCCESS,
 # and, when --json-schema was used, a non-empty structured_output. Exit 0 with
 # empty structured_output is a known empty-success case and is failed here.
@@ -38,11 +39,6 @@
 #   1  agy missing, timed out, non-zero, or envelope failed the gate
 #   2  usage error
 #
-# Environment:
-#   AGY_BIN                      agy binary or name (default: agy)
-#   FM_AGY_PRINT_GRACE_SECONDS   extra seconds on the hard bound beyond
-#                                --print-timeout (default 30; non-numeric
-#                                values fall back to 30)
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -52,7 +48,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/fm-timeout-lib.sh"
 
 DEFAULT_TIMEOUT_SPEC=5m
-HARD_GRACE_SECONDS=${FM_AGY_PRINT_GRACE_SECONDS:-30}
 
 usage() {
   cat <<'EOF'
@@ -69,9 +64,9 @@ Required flags: --prompt, --model, --effort, --cwd.
 --effort must be low, medium, or high.
 --print-timeout defaults to 5m. Accepted forms: <n>, <n>s, <n>m, <n>m<n>s.
 
-Prints the compact JSON envelope on stdout when agy exits 0, status is
-SUCCESS, and, if --json-schema was used, structured_output is non-empty.
-Empty structured_output with a schema is a failure.
+Prints agy's compact JSON envelope on stdout when stdout is exactly one JSON
+object. Exit 0 additionally requires agy to exit 0, status SUCCESS, and, if
+--json-schema was used, non-empty structured_output.
 
 Never passes --dangerously-skip-permissions or any TUI/session flag.
 stdin to agy is closed.
@@ -110,26 +105,12 @@ parse_timeout_seconds() {
   printf '%s\n' "$total"
 }
 
-# Last JSON object on stdout, or the whole stdout when it is one object.
-# agy may print a warning line before a compact envelope.
 extract_envelope() {
-  local raw=$1 compact line last=
-  compact=$(printf '%s\n' "$raw" | jq -c 'select(type=="object")' 2>/dev/null) || compact=
-  if [ -n "$compact" ]; then
-    printf '%s\n' "$compact"
-    return 0
-  fi
-  while IFS= read -r line || [ -n "$line" ]; do
-    case "$line" in
-      '{'*'}')
-        if printf '%s\n' "$line" | jq -e 'type=="object"' >/dev/null 2>&1; then
-          last=$line
-        fi
-        ;;
-    esac
-  done < <(printf '%s\n' "$raw")
-  [ -n "$last" ] || return 1
-  printf '%s\n' "$last" | jq -c .
+  local raw=$1
+  printf '%s\n' "$raw" | jq -cse '
+    select(length == 1 and (.[0] | type == "object"))
+    | .[0]
+  ' 2>/dev/null
 }
 
 gate_envelope() {
@@ -169,13 +150,13 @@ while [ $# -gt 0 ]; do
       usage
       exit 0
       ;;
-    --prompt|--print|-p)
+    --prompt)
       [ $# -ge 2 ] || die_usage "$1 requires a value"
       [ -z "$PROMPT" ] || die_usage "prompt may be supplied only once"
       PROMPT=$2
       shift 2
       ;;
-    --prompt=*|--print=*)
+    --prompt=*)
       [ -z "$PROMPT" ] || die_usage "prompt may be supplied only once"
       PROMPT=${1#*=}
       shift
@@ -238,10 +219,6 @@ while [ $# -gt 0 ]; do
     --dangerously-skip-permissions|--prompt-interactive|--input-format|--continue|-c|--conversation|--sandbox|--harness|--backend)
       die_usage "refused flag: $1 (this helper is one-shot print only)"
       ;;
-    --)
-      shift
-      [ $# -eq 0 ] || die_usage "unexpected argument: $1"
-      ;;
     -*)
       die_usage "unknown option: $1"
       ;;
@@ -267,24 +244,14 @@ case "$TIMEOUT_SPEC" in
   *[!0-9]*) AGY_TIMEOUT_SPEC=$TIMEOUT_SPEC ;;
   *) AGY_TIMEOUT_SPEC=${TIMEOUT_SPEC}s ;;
 esac
-case "$HARD_GRACE_SECONDS" in
-  ''|*[!0-9]*) HARD_GRACE_SECONDS=30 ;;
-esac
-HARD_SECONDS=$((TIMEOUT_SECONDS + HARD_GRACE_SECONDS))
+HARD_SECONDS=$TIMEOUT_SECONDS
 
 [ -d "$CWD" ] || die "cwd is not a directory: $CWD"
 CWD=$(cd "$CWD" && pwd -P) || die "cwd is not a directory: $CWD"
 
 command -v jq >/dev/null 2>&1 || die "jq is required"
 
-AGY_CMD=${AGY_BIN:-agy}
-if [ -n "${AGY_BIN:-}" ] && [ -x "$AGY_BIN" ]; then
-  AGY_CMD=$AGY_BIN
-elif command -v "$AGY_CMD" >/dev/null 2>&1; then
-  AGY_CMD=$(command -v "$AGY_CMD")
-else
-  die "agy is not on PATH"
-fi
+AGY_CMD=$(command -v agy 2>/dev/null) || die "agy is not on PATH"
 
 OUTFILE=$(mktemp "${TMPDIR:-/tmp}/fm-agy-print.out.XXXXXX") || die "could not create temp file"
 ERRFILE=$(mktemp "${TMPDIR:-/tmp}/fm-agy-print.err.XXXXXX") || {
@@ -312,29 +279,21 @@ RC=0
 
 OUTPUT=$(cat "$OUTFILE" 2>/dev/null || true)
 ERR_TAIL=$(tail -c 1500 "$ERRFILE" 2>/dev/null || true)
-
-if [ "$RC" -eq 124 ]; then
-  die "agy print timed out${ERR_TAIL:+: $ERR_TAIL}"
-fi
-
 ENVELOPE=$(extract_envelope "$OUTPUT") || ENVELOPE=
 
-if [ "$RC" -ne 0 ]; then
-  if [ -n "$ENVELOPE" ]; then
-    die "agy exited $RC${ERR_TAIL:+: $ERR_TAIL}"
+if [ -z "$ENVELOPE" ]; then
+  if [ "$RC" -eq 124 ]; then
+    die "agy print timed out${ERR_TAIL:+: $ERR_TAIL}"
   fi
-  die "agy exited $RC with no JSON envelope${ERR_TAIL:+: $ERR_TAIL}"
+  if [ "$RC" -ne 0 ]; then
+    die "agy exited $RC with no JSON envelope${ERR_TAIL:+: $ERR_TAIL}"
+  fi
+  die "agy returned no JSON envelope${ERR_TAIL:+: $ERR_TAIL}"
 fi
 
-[ -n "$ENVELOPE" ] || die "agy returned no JSON envelope${ERR_TAIL:+: $ERR_TAIL}"
+printf '%s\n' "$ENVELOPE"
 
-if ! gate_envelope "$ENVELOPE" "$USED_SCHEMA"; then
-  STATUS=$(printf '%s\n' "$ENVELOPE" | jq -r '.status // empty' 2>/dev/null || true)
-  if [ "$USED_SCHEMA" -eq 1 ] && [ "$STATUS" = SUCCESS ]; then
-    die "agy returned empty structured_output"
-  fi
-  die "agy status ${STATUS:-missing}${ERR_TAIL:+: $ERR_TAIL}"
-fi
+[ "$RC" -eq 0 ] || exit 1
+gate_envelope "$ENVELOPE" "$USED_SCHEMA" || exit 1
 
-printf '%s\n' "$ENVELOPE" | jq -c .
 exit 0
