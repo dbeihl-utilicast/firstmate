@@ -54,7 +54,7 @@
 #            watcher's own reconcile call does, by design, so an ordinary poll
 #            cycle never wakes on a transient error) would otherwise lose the
 #            failure entirely, so the first such failure is recorded once at
-#            state/../.procevent-state-insecure and cleared automatically the
+#            $FM_HOME/.procevent-state-insecure and cleared automatically the
 #            next time the root is private again; bin/fm-watch.sh surfaces that
 #            marker as a one-shot wake instead of leaving it to rot unseen.
 # handled    Durably and idempotently record that a captured result has been
