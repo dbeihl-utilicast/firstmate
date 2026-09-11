@@ -24,7 +24,7 @@
 # Optional:
 #   --json-schema VALUE       schema string or schema file path
 #   --print-timeout BOUND     Go-style duration passed through to agy
-#                             (default 5m). Accepted forms: <n>, <n>s, <n>m,
+#                             (default 5m). Accepted forms: <n>s, <n>m,
 #                             <n>m<n>s with a positive integer second total.
 #
 # Output: the compact JSON envelope on stdout whenever agy stdout is exactly
@@ -62,7 +62,7 @@ Usage:
 
 Required flags: --prompt, --model, --effort, --cwd.
 --effort must be low, medium, or high.
---print-timeout defaults to 5m. Accepted forms: <n>, <n>s, <n>m, <n>m<n>s.
+--print-timeout defaults to 5m. Accepted forms: <n>s, <n>m, <n>m<n>s.
 
 Prints agy's compact JSON envelope on stdout when stdout is exactly one JSON
 object. Exit 0 additionally requires agy to exit 0, status SUCCESS, and, if
@@ -95,8 +95,6 @@ parse_timeout_seconds() {
   elif [[ "$spec" =~ ^([1-9][0-9]*)m$ ]]; then
     total=$((BASH_REMATCH[1] * 60))
   elif [[ "$spec" =~ ^([1-9][0-9]*)s$ ]]; then
-    total=${BASH_REMATCH[1]}
-  elif [[ "$spec" =~ ^([1-9][0-9]*)$ ]]; then
     total=${BASH_REMATCH[1]}
   else
     return 1
@@ -146,7 +144,7 @@ USED_SCHEMA=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    -h|--help)
+    --help)
       usage
       exit 0
       ;;
@@ -156,21 +154,11 @@ while [ $# -gt 0 ]; do
       PROMPT=$2
       shift 2
       ;;
-    --prompt=*)
-      [ -z "$PROMPT" ] || die_usage "prompt may be supplied only once"
-      PROMPT=${1#*=}
-      shift
-      ;;
     --model)
       [ $# -ge 2 ] || die_usage "$1 requires a value"
       [ -z "$MODEL" ] || die_usage "model may be supplied only once"
       MODEL=$2
       shift 2
-      ;;
-    --model=*)
-      [ -z "$MODEL" ] || die_usage "model may be supplied only once"
-      MODEL=${1#*=}
-      shift
       ;;
     --effort)
       [ $# -ge 2 ] || die_usage "$1 requires a value"
@@ -178,21 +166,11 @@ while [ $# -gt 0 ]; do
       EFFORT=$2
       shift 2
       ;;
-    --effort=*)
-      [ -z "$EFFORT" ] || die_usage "effort may be supplied only once"
-      EFFORT=${1#*=}
-      shift
-      ;;
     --cwd)
       [ $# -ge 2 ] || die_usage "$1 requires a value"
       [ -z "$CWD" ] || die_usage "cwd may be supplied only once"
       CWD=$2
       shift 2
-      ;;
-    --cwd=*)
-      [ -z "$CWD" ] || die_usage "cwd may be supplied only once"
-      CWD=${1#*=}
-      shift
       ;;
     --json-schema)
       [ $# -ge 2 ] || die_usage "$1 requires a value"
@@ -201,23 +179,10 @@ while [ $# -gt 0 ]; do
       USED_SCHEMA=1
       shift 2
       ;;
-    --json-schema=*)
-      [ -z "$SCHEMA" ] || die_usage "json-schema may be supplied only once"
-      SCHEMA=${1#*=}
-      USED_SCHEMA=1
-      shift
-      ;;
     --print-timeout)
       [ $# -ge 2 ] || die_usage "$1 requires a value"
       TIMEOUT_SPEC=$2
       shift 2
-      ;;
-    --print-timeout=*)
-      TIMEOUT_SPEC=${1#*=}
-      shift
-      ;;
-    --dangerously-skip-permissions|--prompt-interactive|--input-format|--continue|-c|--conversation|--sandbox|--harness|--backend)
-      die_usage "refused flag: $1 (this helper is one-shot print only)"
       ;;
     -*)
       die_usage "unknown option: $1"
@@ -240,10 +205,7 @@ esac
 
 TIMEOUT_SECONDS=$(parse_timeout_seconds "$TIMEOUT_SPEC") \
   || die_usage "invalid --print-timeout: $TIMEOUT_SPEC"
-case "$TIMEOUT_SPEC" in
-  *[!0-9]*) AGY_TIMEOUT_SPEC=$TIMEOUT_SPEC ;;
-  *) AGY_TIMEOUT_SPEC=${TIMEOUT_SPEC}s ;;
-esac
+AGY_TIMEOUT_SPEC=$TIMEOUT_SPEC
 HARD_SECONDS=$TIMEOUT_SECONDS
 
 [ -d "$CWD" ] || die "cwd is not a directory: $CWD"

@@ -193,7 +193,7 @@ test_usage_requires_prompt_model_effort_cwd() {
   pass "missing required flags are usage errors and do not invoke agy"
 }
 
-test_invalid_effort_and_refused_flags_are_usage_errors() {
+test_noncanonical_options_are_usage_errors() {
   run_print bad-effort --prompt p --model m --effort xhigh
   expect_code 2 "$RUN_RC" "unsupported effort is a usage error"
   assert_agy_never_ran "bad-effort"
@@ -221,7 +221,48 @@ test_invalid_effort_and_refused_flags_are_usage_errors() {
   run_print trailing-separator --prompt p --model m --effort low --
   expect_code 2 "$RUN_RC" "a trailing -- is not accepted"
   assert_agy_never_ran "trailing-separator"
-  pass "only the canonical prompt option and one-shot flags are accepted"
+
+  run_print short-help -h
+  expect_code 2 "$RUN_RC" "-h is not a help alias"
+  assert_agy_never_ran "short-help"
+
+  run_print equals-prompt --prompt=p --model m --effort low
+  expect_code 2 "$RUN_RC" "--prompt= is not accepted"
+  assert_agy_never_ran "equals-prompt"
+
+  run_print equals-model --prompt p --model=m --effort low
+  expect_code 2 "$RUN_RC" "--model= is not accepted"
+  assert_agy_never_ran "equals-model"
+
+  run_print equals-effort --prompt p --model m --effort=low
+  expect_code 2 "$RUN_RC" "--effort= is not accepted"
+  assert_agy_never_ran "equals-effort"
+
+  run_print equals-cwd --prompt p --model m --effort low --cwd=/
+  expect_code 2 "$RUN_RC" "--cwd= is not accepted"
+  assert_agy_never_ran "equals-cwd"
+
+  run_print equals-schema --prompt p --model m --effort low --json-schema='{}'
+  expect_code 2 "$RUN_RC" "--json-schema= is not accepted"
+  assert_agy_never_ran "equals-schema"
+
+  run_print equals-timeout --prompt p --model m --effort low --print-timeout=1s
+  expect_code 2 "$RUN_RC" "--print-timeout= is not accepted"
+  assert_agy_never_ran "equals-timeout"
+
+  run_print bare-timeout --prompt p --model m --effort low --print-timeout 1
+  expect_code 2 "$RUN_RC" "a bare-number timeout is not accepted"
+  assert_agy_never_ran "bare-timeout"
+  pass "only canonical space-separated options are accepted"
+}
+
+test_long_help_remains_available() {
+  local rc=0
+  RUN_OUT=$("$SCRIPT" --help 2>"$TMP_ROOT/help.stderr") || rc=$?
+  expect_code 0 "$rc" "--help succeeds"
+  assert_contains "$RUN_OUT" 'Usage:' "--help prints usage"
+  assert_equals '' "$(cat "$TMP_ROOT/help.stderr")" "--help does not print an error"
+  pass "long-form help remains available"
 }
 
 test_missing_cwd_fails_before_agy() {
@@ -356,7 +397,8 @@ test_agy_is_resolved_from_path() {
 }
 
 test_usage_requires_prompt_model_effort_cwd
-test_invalid_effort_and_refused_flags_are_usage_errors
+test_noncanonical_options_are_usage_errors
+test_long_help_remains_available
 test_missing_cwd_fails_before_agy
 test_success_prints_compact_envelope
 test_stdout_must_be_exactly_one_json_object
