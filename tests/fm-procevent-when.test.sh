@@ -414,9 +414,10 @@ pe "$H" reconcile >/dev/null 2>&1
 detected_first=$(awk -F= '$1=="detected"{print $2}' "$H/.procevent-state-insecure" 2>/dev/null)
 [ -n "$detected_first" ] || fail "reconcile against an insecure root left no durable record where the caller swallows the failure"
 assert_grep "state=$H/state" "$H/.procevent-state-insecure" "the durable record names the offending state root"
-awk -F= '$1=="detected"{print "detected=1"; next} {print}' "$H/.procevent-state-insecure" > "$H/marker-pinned" \
-  && mv -f "$H/marker-pinned" "$H/.procevent-state-insecure" \
-  || fail "could not pin the first detection in the durable record"
+if ! awk -F= '$1=="detected"{print "detected=1"; next} {print}' "$H/.procevent-state-insecure" > "$H/marker-pinned" \
+  || ! mv -f "$H/marker-pinned" "$H/.procevent-state-insecure"; then
+  fail "could not pin the first detection in the durable record"
+fi
 pe "$H" reconcile >/dev/null 2>&1
 detected_second=$(awk -F= '$1=="detected"{print $2}' "$H/.procevent-state-insecure" 2>/dev/null)
 [ "$detected_second" = 1 ] || fail "a repeat failure rewrote the durable record instead of keeping the first detection"
