@@ -7,6 +7,8 @@
 #   state/.supervise-daemon.lock, and:
 #     - prints "afk: daemon already running pid=<pid>" then exits 0 when that
 #       lock is held by a live daemon (a REFRESH: no stale-artifact clear);
+#     - exits 1 without starting a second daemon when the lock names a live pid
+#       that is neither a verified daemon nor abandoned (fm_lock_owner_is_abandoned);
 #     - otherwise clears any prior away session's stale escalation artifacts
 #       (fm_afk_clear_stale_artifacts) for a direct, non-prepared start, then
 #       execs bin/fm-supervise-daemon.sh in the foreground. A prepared start was

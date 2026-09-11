@@ -33,8 +33,8 @@
 #                                                        - a clean cycle ended with no wake and no
 #                                                          verified healthy successor
 # It NEVER reports started/attached/healthy off a stale beacon or a dead/reused pid: a
-# stale-beacon or dead-pid holder either self-heals (the fresh child steals the
-# dead lock per the singleton self-eviction/steal path and is confirmed) or this
+# stale-beacon, dead-pid, or reused-pid holder either self-heals (the fresh child
+# steals the abandoned lock per the singleton self-eviction/steal path and is confirmed) or this
 # returns the FAILED line. On started it waits the child and propagates the wake
 # reason; on attached it stays live across identity-matched successors. A cycle
 # that ends with no reason line and no healthy successor is resolved against the
