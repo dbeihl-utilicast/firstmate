@@ -604,7 +604,7 @@ fm_lock_mid_acquire_is_fresh() {
 # A recorded starttime identity (this lock's own write) or a later full
 # fm_pid_identity overwrite (the watcher lock) both count as the same owner.
 fm_lock_owner_is_abandoned() {  # <lockdir> <pid>
-  local lockdir=$1 pid=$2 recorded current_lock current_full pending_pid
+  local lockdir=$1 pid=$2 recorded current_lock current_full
   if [ "$pid" != 0 ] && fm_pid_alive "$pid"; then
     IFS= read -r recorded 2>/dev/null < "$lockdir/pid-identity" || return 1
     [ -n "$recorded" ] || return 1
@@ -612,10 +612,6 @@ fm_lock_owner_is_abandoned() {  # <lockdir> <pid>
     [ "$recorded" != "$current_lock" ] || return 1
     current_full=$(fm_pid_identity "$pid" 2>/dev/null) || return 1
     [ "$recorded" != "$current_full" ] || return 1
-  fi
-  pending_pid=$(cat "$lockdir/pid.pending" 2>/dev/null || true)
-  if [ "$pending_pid" != 0 ] && fm_pid_alive "$pending_pid"; then
-    return 1
   fi
   [ "$(cat "$lockdir/pid" 2>/dev/null || true)" = "$pid" ]
 }
@@ -1097,7 +1093,7 @@ _fm_lock_acquire_wait_handoff() {  # <lockdir> <caller-pid>
 # reconciliation refusal instead of wedging an unattended close.
 # Mutation-critical callers that can safely block keep fm_lock_acquire_wait.
 fm_lock_acquire_wait_bounded() {
-  local lockdir=$1 seconds=$2 caller_pid rc owner_pid ownerdir
+  local lockdir=$1 seconds=$2 caller_pid rc owner_pid
   case "$seconds" in ''|*[!0-9]*|0) return 2 ;; esac
   _fm_wake_require_timeout || return 1
   if fm_lock_try_acquire "$lockdir"; then
@@ -1121,13 +1117,6 @@ fm_lock_acquire_wait_bounded() {
   owner_pid=$(cat "$lockdir/pid" 2>/dev/null || true)
   if [ "$owner_pid" = "$caller_pid" ]; then
     return 0
-  fi
-  ownerdir=$lockdir
-  if [ -L "$lockdir" ]; then
-    ownerdir=$(fm_lock_link_owner "$lockdir" 2>/dev/null) || return 1
-  fi
-  if [ "$(cat "$ownerdir/pid.pending" 2>/dev/null || true)" = "$caller_pid" ]; then
-    rm -f "$ownerdir/pid.pending" || return 1
   fi
   [ "$rc" -ne 0 ] || rc=1
   # A deadline can kill the helper just after it acquired and before handoff.

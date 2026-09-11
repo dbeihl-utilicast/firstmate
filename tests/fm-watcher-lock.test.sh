@@ -379,13 +379,16 @@ test_lock_exec_holder_is_not_stolen() {
 test_lock_interrupted_handoff() (
   phase=${1:-published}
   signal=${2:-TERM}
-  dir=$(make_case "handoff-$phase-$signal")
+  caller_state=${3:-live}
+  dir=$(make_case "handoff-$phase-$signal-$caller_state")
   lock="$dir/state/.handoff.lock"
   caller=
   helper=
-  trap 'kill -KILL ${helper:-} ${caller:-} 2>/dev/null || true; wait 2>/dev/null || true' EXIT
+  replacement=
+  trap 'kill -KILL ${helper:-} ${caller:-} ${replacement:-} 2>/dev/null || true; wait 2>/dev/null || true' EXIT
   sleep 60 &
   caller=$!
+  original_caller=$caller
   write_fake_proc_identity "$dir/proc" "$caller" 987654
   FM_STATE_OVERRIDE="$dir/state" FM_PROC_ROOT_OVERRIDE="$dir/proc" bash -c '
     . "$1"
@@ -429,10 +432,42 @@ test_lock_interrupted_handoff() (
   wait "$helper" 2>/dev/null || true
   previous_helper=$helper
   helper=
+  if [ "$caller_state" = recycled ]; then
+    kill -KILL "$caller"
+    wait "$caller" 2>/dev/null || true
+    caller=
+    kill -0 "$original_caller" 2>/dev/null && fail "original caller survived its kill"
+    kill -0 "$previous_helper" 2>/dev/null && fail "original helper survived its kill"
+    sleep 60 &
+    replacement=$!
+    write_fake_proc_identity "$dir/proc" "$original_caller" 987656
+  fi
   case "$phase:$signal" in
     pending:TERM|withdrawn:TERM)
       [ ! -e "$lock" ] && [ ! -L "$lock" ] && [ ! -d "$owner" ] \
         || fail "interrupted helper did not release its pending handoff"
+      ;;
+    pending:KILL|withdrawn:KILL)
+      FM_STATE_OVERRIDE="$dir/state" FM_PROC_ROOT_OVERRIDE="$dir/proc" \
+        FM_REUSED_PID="$original_caller" FM_REPLACEMENT_PID="$replacement" bash -c '
+        . "$1"
+        if [ -n "$FM_REPLACEMENT_PID" ]; then
+          kill() {
+            if [ "$1" = -0 ] && [ "$2" = "$FM_REUSED_PID" ]; then
+              builtin kill -0 "$FM_REPLACEMENT_PID"
+            else
+              builtin kill "$@"
+            fi
+          }
+          fm_pid_alive "$3" || exit 19
+        fi
+        fm_lock_try_acquire "$2" || exit 20
+        [ "$(cat "$2/pid")" != "$3" ] || exit 21
+        if bash -c '\''. "$1"; fm_lock_try_acquire "$2"'\'' _ "$1" "$2"; then exit 22; fi
+        fm_lock_release "$2"
+      ' _ "$LIB" "$lock" "$original_caller" \
+        || fail "dead helper handoff stayed wedged or admitted a second holder ($phase/$caller_state)"
+      [ ! -d "$owner" ] || fail "reclaim left the dead helper's pending transfer behind"
       ;;
     *)
       if FM_STATE_OVERRIDE="$dir/state" FM_PROC_ROOT_OVERRIDE="$dir/proc" \
@@ -447,15 +482,20 @@ test_lock_interrupted_handoff() (
       fail "completed handoff accepted a dead helper snapshot as abandonment"
     fi
   fi
-  kill "$caller"
-  wait "$caller" 2>/dev/null || true
-  caller=
+  if [ -n "$caller" ]; then
+    kill "$caller"
+    wait "$caller" 2>/dev/null || true
+    caller=
+  fi
+  if [ -n "$replacement" ]; then
+    kill -0 "$replacement" || fail "reclaim signaled the unrelated replacement process"
+  fi
   FM_STATE_OVERRIDE="$dir/state" FM_PROC_ROOT_OVERRIDE="$dir/proc" bash -c '
     . "$1"
     fm_lock_try_acquire "$2" || exit 1
     fm_lock_release "$2"
   ' _ "$LIB" "$lock" || fail "dead interrupted handoff could not be reclaimed"
-  pass "handoff at $phase/$signal preserves a single holder and remains reclaimable"
+  pass "handoff at $phase/$signal/$caller_state preserves a single holder and remains reclaimable"
 )
 
 test_bounded_handoff_recovers_killed_helper() (
@@ -1481,6 +1521,7 @@ test_lock_interrupted_handoff published TERM || exit 1
 test_lock_interrupted_handoff complete TERM || exit 1
 test_lock_interrupted_handoff pending KILL || exit 1
 test_lock_interrupted_handoff withdrawn KILL || exit 1
+test_lock_interrupted_handoff pending KILL recycled || exit 1
 test_lock_interrupted_handoff published KILL || exit 1
 test_bounded_handoff_recovers_killed_helper || exit 1
 test_live_startup_lock_is_not_stolen watcher || exit 1
