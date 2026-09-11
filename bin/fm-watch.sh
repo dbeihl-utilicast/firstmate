@@ -86,6 +86,11 @@
 #   check: inactive-outcome bounded poll-loop reconciliation found a suspicious
 #                          inactive terminal outcome that still lacks its durable
 #                          upstream receipt
+#   check: procevent-state-insecure
+#                          the process-event state root stopped being a private
+#                          directory; every reconcile call has been silently
+#                          refusing since, reported once until the root is
+#                          private again (bin/fm-procevent.sh owns the marker)
 #   check: secondmate wake-loop stalled: mate=<id> row=<seq> idle=<seconds>s
 #                          an actionable row in an endpoint-recorded local
 #                          secondmate home's durable wake queue did not advance
@@ -1400,6 +1405,11 @@ procevent_surface_after_output() {
   return "$status"
 }
 
+procevent_state_insecure_after_output() {  # <output-status>
+  [ "$1" -eq 0 ] || return 0
+  : > "$FM_HOME/.procevent-state-insecure-surfaced" 2>/dev/null || true
+}
+
 procevent_surface_queued() {
   local key reason
   PROCEVENT_SURFACED=
@@ -1904,6 +1914,18 @@ while :; do
   # whose owner is gone. It is a no-op with nothing registered.
   if [ -d "$STATE/procevent" ]; then
     FM_HOME="$FM_HOME" "$SCRIPT_DIR/fm-procevent.sh" reconcile >/dev/null 2>&1 || true
+    # The reconcile call above swallows its own exit and output on purpose, so a
+    # state root that has stopped being a private directory would otherwise vanish
+    # silently instead of only failing quietly for this one cycle. fm-procevent.sh
+    # itself records that specific failure once at .procevent-state-insecure and
+    # clears it the next time the root is private again; surface it here exactly
+    # once rather than every cycle it stays broken.
+    if [ -e "$FM_HOME/.procevent-state-insecure" ] && [ ! -e "$FM_HOME/.procevent-state-insecure-surfaced" ]; then
+      fm_wake_append check procevent-state-insecure "check: procevent-state-insecure" || exit 1
+      # shellcheck disable=SC2034 # Consumed by wake() in the separately linted transition owner.
+      FM_WAKE_POST_OUTPUT_ACTION=procevent_state_insecure_after_output
+      wake "check: procevent-state-insecure"
+    fi
   fi
   # Then deliver any queued-but-unsurfaced result, including one a runner
   # published while this watcher was between cycles.

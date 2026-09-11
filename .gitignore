@@ -5,6 +5,8 @@ scratchpad*
 .no-mistakes/
 .lavish/
 .fm-secondmate-home
+.procevent-state-insecure
+.procevent-state-insecure-surfaced
 .fm-secondmate-parent
 .DS_Store
 __pycache__/

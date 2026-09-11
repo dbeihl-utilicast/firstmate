@@ -4260,6 +4260,127 @@ test_procevent_marker_failure_exits_and_replays() {
   pass "marker failure exits through the shared wake owner, releases its lock, and replays later"
 }
 
+# A state root that stops being a private directory makes every per-cycle
+# reconcile die where the watcher swallows its exit, so the durable record
+# fm-procevent.sh leaves must reach the supervisor exactly once per episode.
+insecure_state_root_case() {  # <name>
+  local dir=$1
+  dir=$(make_case "$dir")
+  mkdir -p "$dir/state/procevent"
+  chmod 775 "$dir/state" || return 1
+  printf '%s\n' "$dir"
+}
+
+test_procevent_insecure_state_root_queue_delivery() {
+  local dir state out pid exit_status
+  dir=$(insecure_state_root_case procevent-insecure-queue) \
+    || fail "could not relax the queue fixture state root"
+  state="$dir/state"; out="$dir/watch.out"
+  mkdir "$state/.wake-queue"
+  procevent_watch_bg "$dir" "$out" 2> "$dir/watch.err"; pid=$!
+  exit_status=0
+  wait_for_exit "$pid" 100 || exit_status=$?
+  [ "$exit_status" -ne 124 ] && [ "$exit_status" -ne 0 ] \
+    || fail "the watcher did not refuse an unwritable insecure-root wake queue"
+  [ -e "$dir/.procevent-state-insecure" ] \
+    || fail "the failed queue publication lost the insecure-root record"
+  [ ! -e "$dir/.procevent-state-insecure-surfaced" ] \
+    || fail "a failed queue publication committed suppression"
+  [ ! -s "$out" ] || fail "a failed queue publication reported a delivered wake: $(cat "$out")"
+
+  rmdir "$state/.wake-queue"
+  append_wake "$state" check pending-fixture 'check: pending-fixture' \
+    || fail "could not queue the unrelated notification"
+  procevent_watch_bg "$dir" "$out"; pid=$!
+  wait_for_exit "$pid" 100 \
+    || fail "the insecure-root notification was not retryable after queue repair: $(cat "$out")"
+  [ -e "$dir/.procevent-state-insecure-surfaced" ] \
+    || fail "the queued and printed warning did not commit suppression"
+  PATH="$dir/fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$state" \
+    FM_ESCALATE_BATCH_SECS=999 bash -c '
+      . "$1/bin/fm-supervise-daemon.sh"
+      handle_durable_wakes "$2" "$3"
+    ' _ "$ROOT" "$(cat "$out")" "$state" > "$dir/daemon.out" 2> "$dir/daemon.err" \
+    || fail "the daemon could not consume the pending notifications: $(cat "$dir/daemon.err")"
+  [ "$(grep -Fxc 'check: pending-fixture' "$state/.subsuper-escalations")" = 1 ] \
+    || fail "the daemon lost the unrelated notification"
+  [ "$(grep -Fxc 'check: procevent-state-insecure' "$state/.subsuper-escalations")" = 1 ] \
+    || fail "the daemon lost or duplicated the insecure-root warning beside a pending notification"
+  pass "queue failure preserves retryability and the daemon receives both pending notifications"
+}
+
+test_procevent_insecure_state_root_surfaces_once() {
+  local dir state out fifo pid reader exit_status
+  dir=$(insecure_state_root_case procevent-insecure-output-fail) \
+    || fail "could not relax the fixture state root"
+  fifo="$dir/output.fifo"; out="$dir/watch.out"
+  mkfifo "$fifo"
+  sh -c ': < "$1"' _ "$fifo" & reader=$!
+  PATH="$dir/fakebin:$PATH" FM_HOME="$dir" FM_PROCEVENT_CLAIM_ROOT="$dir/claims" \
+    FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" FM_POLL=0.2 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$fifo" &
+  pid=$!
+  wait "$reader" || true
+  wait_for_exit "$pid" 100
+  exit_status=$?
+  [ "$exit_status" -ne 124 ] || fail "the watcher survived a failed insecure-root output write"
+  [ -e "$dir/.procevent-state-insecure" ] \
+    || fail "the swallowed reconcile left no durable record of the insecure state root"
+  [ ! -e "$dir/.procevent-state-insecure-surfaced" ] \
+    || fail "a failed output committed the one-shot suppression"
+  procevent_watch_bg "$dir" "$out"; pid=$!
+  wait_for_exit "$pid" 100 \
+    || fail "the insecure state root was not replayable after output failure: $(cat "$out")"
+  grep -Fx 'check: procevent-state-insecure' "$out" >/dev/null \
+    || fail "the replay did not report the insecure state root: $(cat "$out")"
+  [ -e "$dir/.procevent-state-insecure-surfaced" ] \
+    || fail "a delivered wake did not commit its one-shot suppression"
+
+  dir=$(insecure_state_root_case procevent-insecure-once) \
+    || fail "could not relax the repeat-cycle fixture state root"
+  state="$dir/state"; out="$dir/watch.out"
+  procevent_watch_bg "$dir" "$out"; pid=$!
+  wait_for_exit "$pid" 100 \
+    || fail "a healthy watcher never surfaced the insecure state root: $(cat "$out")"
+  grep -Fx 'check: procevent-state-insecure' "$out" >/dev/null \
+    || fail "the actionable reason did not name the insecure state root: $(cat "$out")"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the delivered insecure-root warning"
+  procevent_watch_bg "$dir" "$out.repeat"; pid=$!
+  wait_poll_cycle "$state" "$pid" \
+    || { reap "$pid"; fail "the successor watcher did not complete a quiet poll for an already-surfaced insecure root: $(cat "$out.repeat")"; }
+  reap "$pid"
+  grep -F 'procevent-state-insecure' "$out.repeat" >/dev/null \
+    && fail "the insecure state root was surfaced a second time: $(cat "$out.repeat")"
+  chmod 700 "$state" || fail "could not restore the fixture state root"
+  pass "an insecure process-event state root surfaces once, and only after the wake is delivered"
+}
+
+# A home that never registered a source has no per-cycle reconcile to swallow:
+# the command that refused exited nonzero with its error on stderr, so nothing
+# here is silent, and this watcher never runs the reconcile that clears the
+# record - waking would burn the one-shot on a home it cannot repair.
+test_procevent_insecure_marker_without_registry_stays_quiet() {
+  local dir state out pid
+  dir=$(make_case procevent-insecure-no-registry); state="$dir/state"; out="$dir/watch.out"
+  chmod 775 "$state" || fail "could not relax the fixture state root"
+  pe_case "$dir" register lavish no-registry-src -- /bin/true >/dev/null 2>&1 \
+    && fail "registering against an insecure state root must be refused"
+  [ -e "$dir/.procevent-state-insecure" ] \
+    || fail "the refused registration left no durable record"
+  [ ! -d "$state/procevent" ] || fail "the refused registration created a registry directory"
+  procevent_watch_bg "$dir" "$out"; pid=$!
+  wait_poll_cycle "$state" "$pid" \
+    || { reap "$pid"; fail "the watcher did not complete a quiet poll for a home with no process-event registry: $(cat "$out")"; }
+  reap "$pid"
+  grep -F 'procevent-state-insecure' "$out" >/dev/null \
+    && fail "an unreconciled home surfaced the insecure state root: $(cat "$out")"
+  [ ! -e "$dir/.procevent-state-insecure-surfaced" ] \
+    || fail "an unreconciled home committed the one-shot suppression"
+  chmod 700 "$state" || fail "could not restore the fixture state root"
+  pass "an insecure record in a home with no registry is left to its caller, not the watcher"
+}
+
+
 # --- heartbeat: no-change absorbed, backstop surfaces a missed status --------
 
 test_heartbeat_no_change_absorbed() {
@@ -4771,6 +4892,9 @@ test_procevent_marker_keys_are_injective
 test_procevent_surface_serializes_with_drain
 test_procevent_surface_crash_boundaries
 test_procevent_marker_failure_exits_and_replays
+test_procevent_insecure_state_root_queue_delivery
+test_procevent_insecure_state_root_surfaces_once
+test_procevent_insecure_marker_without_registry_stays_quiet
 test_heartbeat_no_change_absorbed
 test_heartbeat_backstop_surfaces_unsurfaced_status
 test_heartbeat_backstop_surfaces_a_masked_status
