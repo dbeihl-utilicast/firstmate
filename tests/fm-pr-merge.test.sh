@@ -68,6 +68,11 @@
 #   (av) a base branch with no queue rule says nothing about a merge queue
 #   (aw) a refusal built on the gh-axi view says the merge queue could not be
 #       observed, and judges that view's state like the queue-aware one
+#   (ax) a GitHub --admin merge uses gh pr merge, records pr=, and never
+#       hands --admin to gh-axi
+#   (ay) an admin merge of an open unqueued PR still refuses and still records
+#   (az) an admin merge without gh refuses and does not fall back to gh-axi
+#   (ba) GitLab --admin is refused before any state is recorded
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -1787,6 +1792,189 @@ test_github_still_forwards_sha_arg() {
   pass "fm-pr-merge leaves GitHub extra-arg handling unchanged, including --sha"
 }
 
+test_github_admin_merge_uses_gh_and_records() {
+  local case_dir rc
+  case_dir=$(make_case github-admin-mergeable)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" deadbeefcafefeed0000000000000000deadbeef
+  : > "$case_dir/gh-axi.log"
+  : > "$case_dir/gh.log"
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/81 -- --admin \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "github-admin-mergeable: an admin merge of a merged PR should succeed"
+  assert_grep 'verified: https://github.com/example/repo/pull/81 is merged' \
+    "$case_dir/stdout" "github-admin-mergeable: success was not reported as verified"
+  assert_grep 'pr=https://github.com/example/repo/pull/81' "$case_dir/state/task-x1.meta" \
+    "github-admin-mergeable: pr= was not recorded"
+  assert_grep 'pr_head=deadbeefcafefeed0000000000000000deadbeef' "$case_dir/state/task-x1.meta" \
+    "github-admin-mergeable: pr_head= was not recorded"
+  grep -qxF 'pr merge 81 --repo example/repo --squash --admin' "$case_dir/gh.log" \
+    || fail "github-admin-mergeable: gh did not receive pr merge 81 --repo example/repo --squash --admin"
+  assert_no_grep '--admin' "$case_dir/gh-axi.log" \
+    "github-admin-mergeable: gh-axi received --admin"
+  assert_no_grep 'pr merge' "$case_dir/gh-axi.log" \
+    "github-admin-mergeable: gh-axi performed the admin merge"
+  pass "fm-pr-merge uses gh pr merge for --admin and records PR metadata"
+}
+
+test_github_admin_open_unqueued_outcome_refuses() {
+  local case_dir rc
+  case_dir=$(make_case github-admin-unproved)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" 2020202020202020202020202020202020202020
+  write_github_outcome "$case_dir" OPEN false false main
+  : > "$case_dir/gh-axi.log"
+  : > "$case_dir/gh.log"
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/82 -- --admin \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "github-admin-unproved: an unproved admin merge must fail"
+  assert_grep 'state=OPEN, merged=false, isInMergeQueue=false' "$case_dir/stderr" \
+    "github-admin-unproved: refusal did not name the concrete observed state"
+  assert_grep 'pr=https://github.com/example/repo/pull/82' "$case_dir/state/task-x1.meta" \
+    "github-admin-unproved: the attempted admin merge lost its PR reference"
+  assert_present "$case_dir/state/task-x1.check.sh" \
+    "github-admin-unproved: the attempted admin merge did not leave its poll armed"
+  assert_no_grep 'verified: ' "$case_dir/stdout" \
+    "github-admin-unproved: an unproved admin merge was reported as verified"
+  grep -qxF 'pr merge 82 --repo example/repo --squash --admin' "$case_dir/gh.log" \
+    || fail "github-admin-unproved: gh did not receive the admin merge"
+  assert_no_grep '--admin' "$case_dir/gh-axi.log" \
+    "github-admin-unproved: gh-axi still received --admin"
+  pass "fm-pr-merge refuses an admin merge that leaves the PR open and unqueued"
+}
+
+test_github_admin_without_gh_refuses() {
+  local case_dir ghless_path rc
+  case_dir=$(make_case github-admin-without-gh)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" 4141414141414141414141414141414141414141
+  rm -f "$case_dir/fakebin/gh"
+  ghless_path="$case_dir/path-without-gh"
+  mirror_path_without "$ghless_path" gh "$case_dir/fakebin"
+  : > "$case_dir/gh-axi.log"
+
+  set +e
+  PATH="$ghless_path" run_pr_merge "$case_dir" task-x1 \
+    https://github.com/example/repo/pull/83 -- --admin \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "github-admin-without-gh: admin merge without gh must refuse"
+  assert_grep 'admin merge requires gh' "$case_dir/stderr" \
+    "github-admin-without-gh: refusal did not name that admin merge requires gh"
+  assert_no_grep 'verified: ' "$case_dir/stdout" \
+    "github-admin-without-gh: admin merge without gh was reported as verified"
+  assert_no_grep '--admin' "$case_dir/gh-axi.log" \
+    "github-admin-without-gh: admin merge without gh fell back to gh-axi"
+  assert_no_grep 'pr merge' "$case_dir/gh-axi.log" \
+    "github-admin-without-gh: admin merge without gh still invoked gh-axi pr merge"
+  assert_no_grep 'pr=https://github.com/example/repo/pull/83' "$case_dir/state/task-x1.meta" \
+    "github-admin-without-gh: pr= was recorded despite the missing gh"
+  pass "fm-pr-merge refuses an admin merge when gh is absent and does not fall back to gh-axi"
+}
+
+test_gitlab_admin_refuses_before_recording() {
+  local case_dir rc
+  case_dir=$(make_gitlab_case gitlab-admin)
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 "$MR_URL" -- --admin \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "gitlab-admin: GitLab --admin must refuse"
+  assert_grep '--admin is GitHub-only' "$case_dir/stderr" \
+    "gitlab-admin: refusal did not name --admin as GitHub-only"
+  assert_no_grep "pr=$MR_URL" "$case_dir/state/task-x1.meta" \
+    "gitlab-admin: GitLab --admin recorded pr= before refusing"
+  assert_absent "$case_dir/state/task-x1.check.sh" \
+    "gitlab-admin: GitLab --admin armed a merge poll"
+  if grep -F ' mr merge ' "$case_dir/glab.log" >/dev/null; then
+    fail "gitlab-admin: GitLab --admin still invoked glab mr merge"
+  fi
+  pass "fm-pr-merge refuses GitLab --admin before recording state"
+}
+
+test_github_admin_explicit_method_not_overridden() {
+  local case_dir
+  case_dir=$(make_case github-admin-explicit-method)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" 7171717171717171717171717171717171717171
+  : > "$case_dir/gh-axi.log"
+  : > "$case_dir/gh.log"
+
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/85 -- --merge --admin \
+    > "$case_dir/stdout" 2> "$case_dir/stderr" \
+    || fail "github-admin-explicit-method: fm-pr-merge failed"
+
+  grep -qxF 'pr merge 85 --repo example/repo --merge --admin' "$case_dir/gh.log" \
+    || fail "github-admin-explicit-method: default --squash overrode the caller method"
+  assert_no_grep 'pr merge' "$case_dir/gh-axi.log" \
+    "github-admin-explicit-method: gh-axi performed the admin merge"
+  pass "fm-pr-merge keeps a caller merge method on the GitHub --admin path"
+}
+
+test_github_admin_records_pr_before_the_forge_call() {
+  local case_dir rc
+  case_dir=$(make_case github-admin-records-ahead-of-forge)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" 8181818181818181818181818181818181818181
+  cat > "$case_dir/fakebin/gh" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$FM_TEST_GH_LOG"
+case "${1:-} ${2:-}" in
+  "pr view")
+    case " $* " in
+      *headRefOid*) printf '%s\n' '8181818181818181818181818181818181818181' ; exit 0 ;;
+    esac
+    ;;
+  "pr merge")
+    cat "$FM_STATE_OVERRIDE/task-x1.meta" > "$FM_TEST_META_AT_MERGE"
+    printf 'merged:\n  number: %s\n  status: ok\n' "${3:-}"
+    exit 0
+    ;;
+  "api graphql")
+    cat "$FM_TEST_GH_OUTCOME"
+    exit 0
+    ;;
+  api\ *)
+    cat "$FM_TEST_GH_RULES"
+    exit 0
+    ;;
+esac
+exit 0
+SH
+  chmod +x "$case_dir/fakebin/gh"
+  : > "$case_dir/gh-axi.log"
+  : > "$case_dir/gh.log"
+  : > "$case_dir/meta-at-merge"
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/86 -- --admin \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "github-admin-records-ahead-of-forge: fm-pr-merge should succeed"
+  assert_grep 'pr merge 86 --repo example/repo --squash --admin' "$case_dir/gh.log" \
+    "github-admin-records-ahead-of-forge: gh pr merge was never invoked"
+  assert_grep 'pr=https://github.com/example/repo/pull/86' "$case_dir/meta-at-merge" \
+    "github-admin-records-ahead-of-forge: the admin merge ran before pr= was recorded"
+  pass "fm-pr-merge records pr= before the GitHub --admin forge call"
+}
+
 # --- durable merge outcome ---------------------------------------------------
 # A merge that lands must leave a record outside the merging agent's memory.
 # bin/fm-merge-outcome-lib.sh owns where that record goes; these cases pin the
@@ -2124,6 +2312,12 @@ test_explicit_merge_method_not_overridden
 test_method_equals_merge_method_not_overridden
 test_parses_pr_url_for_gh_axi
 test_github_still_forwards_sha_arg
+test_github_admin_merge_uses_gh_and_records
+test_github_admin_open_unqueued_outcome_refuses
+test_github_admin_without_gh_refuses
+test_github_admin_explicit_method_not_overridden
+test_github_admin_records_pr_before_the_forge_call
+test_gitlab_admin_refuses_before_recording
 test_gitlab_url_resolves_and_merges
 test_gitlab_host_comes_from_the_url
 test_gitlab_imposes_no_merge_method

@@ -63,6 +63,14 @@
 # Extra args must not include --repo or -R in any form, including a bundled
 # short-option cluster such as -yR, because the repository comes only from the
 # URL, nor --sha on GitLab because the head comes only from the live read.
+# On GitHub, --admin among those extra arguments is a first-class path: this
+# script records pr= and any available pr_head= first, then invokes gh pr merge
+# (not gh-axi pr merge) with the same default --squash rule unless the caller
+# already named a method, including --admin. The existing outcome read-back
+# still accepts only a merged or queued pull request and refuses an open
+# unqueued one. gh is required for that path; if it is absent the merge is
+# refused with a named error and never falls back to gh-axi. On GitLab, --admin
+# is refused before any state is recorded because it is GitHub-only.
 #
 # On GitLab, this script confirms the MR is actually merged before reporting it;
 # an auto-merge-queued or unconfirmed request leaves the poll armed and records
@@ -157,6 +165,19 @@ caller_requested_auto_merge() {
   return "$requested"
 }
 
+# Whether the caller's own extra arguments asked for GitHub's --admin merge.
+# That flag is GitHub-only and is not a gh-axi merge option, so it selects the
+# gh pr merge path rather than being forwarded through the ordinary abstraction.
+caller_requested_admin() {
+  local arg
+  for arg in "$@"; do
+    case "$arg" in
+      --admin) return 0 ;;
+    esac
+  done
+  return 1
+}
+
 reject_repo_overrides() {
   local arg
   for arg in "$@"; do
@@ -190,6 +211,10 @@ reject_head_overrides() {
 
 reject_repo_overrides "$@" || exit 1
 [ "$PROVIDER" != gitlab ] || reject_head_overrides "$@" || exit 1
+if [ "$PROVIDER" = gitlab ] && caller_requested_admin "$@"; then
+  echo "error: --admin is GitHub-only and cannot be used with a GitLab merge request" >&2
+  exit 1
+fi
 
 fm_backlog_directory_present "$STATE" "state directory" || {
   echo "error: PR merge refused: $FM_BACKLOG_TRANSITION_ERROR" >&2
@@ -246,6 +271,11 @@ if [ "$PROVIDER" = gitlab ]; then
     echo "error: merging a GitLab merge request requires $GITLAB_MISSING on PATH" >&2
     exit 1
   fi
+fi
+if [ "$PROVIDER" = github ] && caller_requested_admin "$@" \
+  && ! command -v gh >/dev/null 2>&1; then
+  echo "error: admin merge requires gh" >&2
+  exit 1
 fi
 
 # The recorded head is read before bin/fm-pr-check.sh rewrites the metadata,
@@ -687,6 +717,10 @@ case "$PROVIDER" in
   github)
     merge_output=
     merge_args=()
+    merge_cli=gh-axi
+    if caller_requested_admin "$@"; then
+      merge_cli=gh
+    fi
     if ! caller_has_merge_method "$@"; then
       merge_args=(--squash)
     fi
@@ -696,7 +730,7 @@ case "$PROVIDER" in
     FM_PR_GITHUB_CALLER_METHOD=$(caller_merge_method "$@")
     require_released_captain_hold || exit 1
     merge_status=0
-    merge_output=$(gh-axi pr merge "$PR_NUMBER" --repo "$PR_OWNER/$PR_REPO" \
+    merge_output=$("$merge_cli" pr merge "$PR_NUMBER" --repo "$PR_OWNER/$PR_REPO" \
       "${merge_args[@]+"${merge_args[@]}"}" "$@" 2>&1) || merge_status=$?
     fm_lock_release "$MERGE_CONTROL_LOCK" || true
     MERGE_CONTROL_LOCK=
