@@ -152,8 +152,7 @@ case "${1:-} ${2:-}" in
     ;;
   "api --hostname")
     [ "$3" = github.com ] || exit 2
-    base_name=${FM_TEST_GH_BASE_NAME:-main}
-    base_name=${base_name//\//%2F}
+    base_name=$(jq -nr --arg base "${FM_TEST_GH_BASE_NAME:-main}" '$base | @uri') || exit 1
     case "$4" in
       "repos/o/r/compare/${FM_TEST_GH_BASE_OID:-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}...${FM_TEST_GH_HEAD:-0123456789abcdef0123456789abcdef01234567}")
         printf '0\n'
@@ -732,6 +731,40 @@ run_poll() {
     bash "$dir/home/state/task-a.check.sh"
 }
 
+test_static_poll_base_ref_encoding() {
+  local dir base encoded protection_fail out
+  dir=$(make_case poll-base-ref-encoding)
+  make_poll_fixture "$dir"
+  while read -r base encoded; do
+    git check-ref-format "refs/heads/$base" || fail "invalid valid-ref fixture: $base"
+    for protection_fail in 0 1; do
+      : > "$dir/gh.log"
+      out=$(FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BLOCKED FM_TEST_GH_BEHIND_BY=2 \
+        FM_TEST_GH_BASE_NAME="$base" FM_TEST_GH_PROTECTION_FAIL="$protection_fail" \
+        FM_TEST_GH_RULE_PAGES='[[{"type":"required_status_checks","parameters":{"strict_required_status_checks_policy":true,"required_status_checks":[{"context":"ci"}]}}]]' \
+        run_poll "$dir")
+      [ "$out" = 'behind 0123456789abcdef0123456789abcdef01234567' ] \
+        || fail "static poll skipped valid base $base"
+      assert_grep "api --hostname github.com repos/o/r/branches/$encoded/protection/required_status_checks --jq " \
+        "$dir/gh.log" "static poll did not encode the protection branch: $base"
+      assert_grep "api --hostname github.com repos/o/r/compare/$encoded...0123456789abcdef0123456789abcdef01234567 --jq " \
+        "$dir/gh.log" "static poll did not encode the comparison branch: $base"
+      if [ "$protection_fail" -eq 1 ]; then
+        assert_grep "api --hostname github.com repos/o/r/rules/branches/$encoded --paginate --jq " \
+          "$dir/gh.log" "static poll did not encode the ruleset branch: $base"
+      fi
+    done
+  done <<'CASES'
+release/v1+hotfix release%2Fv1%2Bhotfix
+release/v1 release%2Fv1
+main#x main%23x
+main%2Fx main%252Fx
+release/a&b=c release%2Fa%26b%3Dc
+release/café release%2Fcaf%C3%A9
+CASES
+  pass "valid base names reach protection, rulesets, and ancestry through encoded paths"
+}
+
 test_static_poll_contract() {
   local dir state out rc merge_state behind
   dir=$(make_case poll-contract)
@@ -763,7 +796,9 @@ test_static_poll_contract() {
   out=$(FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BLOCKED FM_TEST_GH_BEHIND_BY=2 \
     FM_TEST_GH_COMPARE_FAIL=1 run_poll "$dir")
   [ -z "$out" ] || fail "static poll emitted behind after compare failure"
-  for state in '' '../main' '-main' '/main' 'main?x=1' 'main#x' 'main%2Fx' 'main.lock' 'main//x'; do
+  for state in '' '../main' '-main' '/main' 'main?x=1' 'main.lock' 'main//x' 'main..x' 'main.' \
+    '.main' 'main/.hidden' 'main.lock/x' 'main/' 'main x' 'main~x' 'main^x' 'main:x' \
+    'main*x' 'main[x' 'main@{x' '@{-1}' 'main\x' $'main\tx' $'main\nx' $'main\177x'; do
     : > "$dir/gh.log"
     out=$(FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BLOCKED FM_TEST_GH_BEHIND_BY=2 \
       FM_TEST_GH_BASE_NAME="$state" run_poll "$dir")
@@ -3257,6 +3292,7 @@ test_invalid_entrypoints_have_zero_side_effects
 test_valid_recording_and_merge_derivation
 test_rejected_metacharacter_bytes_are_inert
 test_static_poll_contract
+test_static_poll_base_ref_encoding
 test_branch_currency_blocked_head_dispatch
 test_branch_currency_cooldown_survives_head_changes
 test_atomic_interruption_leaves_no_partial_artifact

@@ -62,9 +62,9 @@ case "$provider" in
     esac
     [ "$url" = "https://github.com/$owner/$repo/pull/$number" ] || exit 0
     raw=$(gh pr view "$url" --json state,mergeStateStatus,mergeable,headRefOid,baseRefName \
-      -q '[.state, .mergeStateStatus, .mergeable, .headRefOid, .baseRefName] | @tsv' 2>/dev/null) || exit 0
+      -q '[.state, .mergeStateStatus, .mergeable, .headRefOid, .baseRefName, (.baseRefName | @uri)] | @tsv' 2>/dev/null) || exit 0
     case "$raw" in ''|*$'\n'*) exit 0 ;; esac
-    IFS=$'\t' read -r state merge_state mergeable head base_ref extra <<< "$raw"
+    IFS=$'\t' read -r state merge_state mergeable head base_name base_ref extra <<< "$raw"
     [ -z "${extra:-}" ] || exit 0
     if [ "$state" = MERGED ]; then
       printf '%s\n' merged
@@ -80,10 +80,11 @@ case "$provider" in
     if [ "$mergeable" = CONFLICTING ] || [ "$merge_state" = DIRTY ]; then
       printf 'conflict %s\n' "$head"
     else
-      case "$base_ref" in
-        ''|*[!A-Za-z0-9._/-]*|*..*|-*|/*|*/|*//*|.*|*/.*|*.lock|*.lock/*|*.) exit 0 ;;
+      case "$base_name" in
+        ''|-*) exit 0 ;;
       esac
-      base_ref=${base_ref//\//%2F}
+      git check-ref-format "refs/heads/$base_name" 2>/dev/null || exit 0
+      [ -n "$base_ref" ] || exit 0
       strict=$(gh api --hostname "$host" "repos/$path/branches/$base_ref/protection/required_status_checks" \
         --jq '.strict == true and (((.checks // []) + (.contexts // [])) | length > 0)' 2>/dev/null) || strict=
       if [ "$strict" != true ]; then
