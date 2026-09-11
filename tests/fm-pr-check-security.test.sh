@@ -1466,7 +1466,7 @@ run_refresh_ceiling_poll() {
     ack_watcher_cycle "$dir/home/state" || fail "ceiling fixture acknowledgement failed"
   fi
   fm_touch_epoch "$(( $(date +%s) - 300 ))" "$dir/home/state/.last-check"
-  FM_TEST_CHECK_INTERVAL= FM_PR_REFRESH_STALE_SECS= \
+  FM_TEST_CHECK_INTERVAL='' FM_PR_REFRESH_STALE_SECS='' \
     FM_TEST_GH_STATE=OPEN FM_TEST_GH_MERGE_STATE=BEHIND \
     FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
     FM_TEST_REFRESH_WORKER_STATE="${FM_TEST_REFRESH_WORKER_STATE:-done}" \
