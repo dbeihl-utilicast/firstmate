@@ -2351,7 +2351,8 @@ test_merged_poll_retires_once() {
   set -e
   [ "$rc" -eq 0 ] || fail "merged retirement watcher failed: $(cat "$dir/watch-1.err")"
   first=$(cat "$dir/watch-1.out")
-  case "$first" in check:*task-a.check.sh:*merged) ;; *) fail "first merged notification was not preserved: $first" ;; esac
+  [ "$(grep -cxF "check: $state/task-a.check.sh: merged" "$dir/watch-1.out")" -eq 1 ] \
+    || fail "first merged notification was not preserved exactly once: $first"
   ack_watcher_cycle "$state" || fail "first merged notification handling acknowledgement failed"
   assert_poll_absent "$state" task-a
   [ "$(cat "$state/task-a.meta")" = "$meta_before" ] || fail "merged retirement changed canonical metadata"
