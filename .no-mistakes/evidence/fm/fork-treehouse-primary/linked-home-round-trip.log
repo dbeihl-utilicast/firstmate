@@ -1,0 +1,32 @@
+registered: state/round-trip.check.sh
+Claude Stop exit=2
+firstmate watcher wake - one supervision event needs a handling turn now.
+check: /Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M287K9797DAPVHHW8PY7P4FW/.test-tmp/fm-claude-stop-autoarm.eAgjTF/round-trip-home/state/round-trip.check.sh: linked-home delivery verified
+Run bin/fm-wake-drain.sh first, handle the wake, then run its exact WAKE_ACK_REQUIRED --ack-through command. Until that post-handling acknowledgement, interruption leaves the wake durable for idempotent re-handling. This Stop hook owns watcher continuity: when the handling turn ends, the next needed cycle arms automatically - do NOT run bin/fm-watch-arm.sh after an ordinary wake.
+Persisted watcher cycle:
+arm_pid=98122	watcher_pid=98547	origin=started	started_at=1789134334	ended_at=1789134341	exit_code=0	signal=none	reason=actionable-check	beacon_age=5	lock_before=pid:98547|identity:Fri Sep 11 09:45:34 2026     bash /Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M287K9797DAPVHHW8PY7P4FW/.test-tmp/fm-claude-stop-autoarm.eAgjTF/round-trip-home/bin/fm-watch.sh	lock_after=pid:none|identity:none	successor=none
+Persisted wake queue:
+1789134341	1	check	/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M287K9797DAPVHHW8PY7P4FW/.test-tmp/fm-claude-stop-autoarm.eAgjTF/round-trip-home/state/round-trip.check.sh	check: /Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M287K9797DAPVHHW8PY7P4FW/.test-tmp/fm-claude-stop-autoarm.eAgjTF/round-trip-home/state/round-trip.check.sh: linked-home delivery verified
+Wake drain exit=0
+1789134341	1	check	/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M287K9797DAPVHHW8PY7P4FW/.test-tmp/fm-claude-stop-autoarm.eAgjTF/round-trip-home/state/round-trip.check.sh	check: /Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M287K9797DAPVHHW8PY7P4FW/.test-tmp/fm-claude-stop-autoarm.eAgjTF/round-trip-home/state/round-trip.check.sh: linked-home delivery verified
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 1 --recovery-generation 7638.1789134341.74rOIY
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WORKTREE TANGLE - PRIMARY CHECKOUT IS ON A FEATURE BRANCH
+●  /Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M287K9797DAPVHHW8PY7P4FW/.test-tmp/fm-claude-stop-autoarm.eAgjTF/round-trip-home is on 'fm/autoarm-test-branch', not its default branch 'main'.
+●  A crewmate likely branched/committed in the primary instead of its own worktree.
+●  The work is SAFE on the 'fm/autoarm-test-branch' ref.
+●  Restore the primary to 'main':
+●      git -C /Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M287K9797DAPVHHW8PY7P4FW/.test-tmp/fm-claude-stop-autoarm.eAgjTF/round-trip-home checkout main
+●  then re-validate 'fm/autoarm-test-branch' in a proper isolated worktree.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 registered custom check(s), but no live watcher process holds this home lock (last beat: 7s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  After draining queued wakes, repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+WARNING: queued wakes pending - drain them with bin/fm-wake-drain.sh before anything else.
+unregistered: state/round-trip.check.sh
+After acknowledgement: queue=empty next-Stop-exit=0 output=empty
+ok - auto-arm: linked home delivers and acknowledges a real registered check, then becomes idle

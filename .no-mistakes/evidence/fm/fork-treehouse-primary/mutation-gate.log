@@ -1,0 +1,35 @@
+
+Scenario=leased hook=fm-turnend-guard.sh exit=2
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  TURN WOULD END BLIND - SUPERVISION IS OFF
+●  1 registered custom check(s), but no live watcher holds this home lock (last beat: never).
+●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Scenario=leased hook=fm-subagent-pretool-check.sh exit=2
+{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"},"systemMessage":"[subagent-dispatch] the firstmate primary dispatches through the fleet, not the harness's own delegation tools: work started that way has no durable fleet record, leaves every firstmate guard inert, and dies with this session. Instead, first classify the work under the AGENTS.md intake contract, then use bin/fm-brief.sh followed by bin/fm-spawn.sh for dispatched work (blocked tool: Agent, delegation-shaped on \"agent\"). Launch the session with FM_ALLOW_SUBAGENT=1 for a deliberate exception."}
+
+Scenario=leased hook=fm-claude-stop-autoarm.sh exit=2
+firstmate watcher wake - one supervision event needs a handling turn now.
+check: /Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M287K9797DAPVHHW8PY7P4FW/.test-tmp/fm-scope-hooks.RRuZ82/leased/state/scope.check.sh: scope hook delivery verified
+Run bin/fm-wake-drain.sh first, handle the wake, then run its exact WAKE_ACK_REQUIRED --ack-through command. Until that post-handling acknowledgement, interruption leaves the wake durable for idempotent re-handling. This Stop hook owns watcher continuity: when the handling turn ends, the next needed cycle arms automatically - do NOT run bin/fm-watch-arm.sh after an ordinary wake.
+
+Scenario=leased hook=fm-turnend-guard-cursor.sh exit=0
+{
+  "followup_message": "⁣FIRSTMATE_OP: v1 watcher: firstmate watcher wake - one supervision event needs a handling turn now.\ncheck: rearm-resurface\n\nRun bin/fm-wake-drain.sh first, handle the wake, then run its exact WAKE_ACK_REQUIRED --ack-through command. Until that post-handling acknowledgement, interruption leaves the wake durable for idempotent re-handling. This stop hook owns watcher continuity: when the handling turn ends, the next needed cycle parks automatically - do NOT run bin/fm-watch-arm.sh after an ordinary wake."
+}
+1789134412	1	check	/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M287K9797DAPVHHW8PY7P4FW/.test-tmp/fm-scope-hooks.RRuZ82/leased/state/scope.check.sh	check: /Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M287K9797DAPVHHW8PY7P4FW/.test-tmp/fm-scope-hooks.RRuZ82/leased/state/scope.check.sh: scope hook delivery verified
+
+Scenario=recorded-by-sibling hook=fm-turnend-guard.sh exit=0
+stdout=empty stderr=empty state=unchanged
+
+Scenario=recorded-by-sibling hook=fm-subagent-pretool-check.sh exit=0
+stdout=empty stderr=empty state=unchanged
+
+Scenario=recorded-by-sibling hook=fm-claude-stop-autoarm.sh exit=0
+stdout=empty stderr=empty state=unchanged
+
+Scenario=recorded-by-sibling hook=fm-turnend-guard-cursor.sh exit=0
+stdout=empty stderr=empty state=unchanged
+
+Scenario=gate-env hook=fm-turnend-guard.sh exit=2

@@ -1,0 +1,4 @@
+registered: state/round-trip.check.sh
+Claude Stop exit=0
+
+not ok - the real watcher must deliver a rewake from a leased home: expected exit 2, got 0
