@@ -1,0 +1,12 @@
+case=unsafe-permission-flag exit=2 stdout_bytes=0
+error: unknown option: --dangerously-skip-permissions
+usage: fm-agy-print.sh --prompt <text> --model <id> --effort low|medium|high --cwd <dir> [--json-schema <string-or-path>] [--print-timeout <bound>]
+case=interactive-tui-flag exit=2 stdout_bytes=0
+error: unknown option: --prompt-interactive
+usage: fm-agy-print.sh --prompt <text> --model <id> --effort low|medium|high --cwd <dir> [--json-schema <string-or-path>] [--print-timeout <bound>]
+case=removed-print-alias exit=2 stdout_bytes=0
+error: unknown option: --print
+usage: fm-agy-print.sh --prompt <text> --model <id> --effort low|medium|high --cwd <dir> [--json-schema <string-or-path>] [--print-timeout <bound>]
+case=worker-harness-option exit=2 stdout_bytes=0
+error: unknown option: --harness
+usage: fm-agy-print.sh --prompt <text> --model <id> --effort low|medium|high --cwd <dir> [--json-schema <string-or-path>] [--print-timeout <bound>]
