@@ -1,0 +1,21 @@
+=== segment lifecycle-lock ===
+ok - registration publication and binding retirement share one lifecycle boundary
+ok - process-event resolution reserves the lifecycle before invocation
+touch: : No such file or directory
+touch: : No such file or directory
+touch: : No such file or directory
+ok - every external result operation reserves the lifecycle before invocation
+ok - public extension dispatch exposes no unlocked retirement entry
+ok - retirement worker ownership survives wrapper death and recovers exactly
+ok - signal interruption leaves lifecycle lock recovery to the next owner
+
+all extension-binding tests passed
+exit=0
+=== segment lifecycle-flow ===
+not-autohandled: flow-source (left for the handler; still unacknowledged)
+ok - one external adapter registers, invokes, captures unhandled evidence, classifies, and terminally retires end to end
+ok - inner result.silent host crash releases the parent lifecycle lock before terminal retry
+ok - local binding retirement requires its exact identity and disables invocation
+
+all extension-binding tests passed
+exit=0

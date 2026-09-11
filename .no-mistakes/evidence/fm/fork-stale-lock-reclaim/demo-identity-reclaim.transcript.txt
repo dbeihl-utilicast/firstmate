@@ -1,0 +1,17 @@
+== 1. fresh acquire records starttime identity ==
+pid=5040  pid-identity=Fri Sep 11 11:23:35 2026
+live fm_lock_pid_identity=Fri Sep 11 11:23:35 2026
+
+== 2. live pid whose recorded identity no longer matches (recycled pid) ==
+lock pid=5752 (alive: yes), recorded identity=Thu Jan  1 00:00:00 1970
+contender ACQUIRED; new pid=5847
+
+== 3. live pid whose identity matches stays held ==
+contender REFUSED held_pid=7970 (expected 7970)
+
+== 4. holder acquires then execs sleep; lock stays held ==
+holder pid=8429 program=sleep lockpid=8429
+contender REFUSED held_pid=8429
+
+== 5. dead holder pid is still reclaimed ==
+contender ACQUIRED dead pid 999999 lock; new pid=9172

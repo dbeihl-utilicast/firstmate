@@ -1,0 +1,17 @@
+== M0 unmodified control ==
+ok - a live pid whose recorded identity no longer matches is reclaimed
+ok - a holder that exec'd a new program keeps its lock
+ok - handoff at pending/KILL/recycled preserves a single holder and remains reclaimable
+exit=0
+
+== M1 identity liveness only (pre-change semantics: live pid always held) ==
+not ok - acquirer failed to steal a reused-pid lock (rc=7)
+exit=1
+
+== M2 collapse fm_lock_pid_identity into fm_pid_identity (cmdline-sensitive) ==
+not ok - lock held across exec was stolen
+exit=1
+
+== M3 reintroduce pending-pid liveness rule (round-3 wedge) ==
+not ok - dead helper handoff stayed wedged or admitted a second holder (pending/recycled)
+exit=1
