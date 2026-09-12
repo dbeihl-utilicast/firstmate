@@ -6,6 +6,26 @@ This record contains reusable version-scoped evidence for active runtime guarant
 The backend guides own current setup, safety boundaries, and limitations.
 Exact task chronology, branch names, temporary homes, local paths, process ids, thread ids, and delivery transcripts remain in private reports or PR evidence.
 
+## One-shot Antigravity print
+
+The [`agy-print` skill](../../.agents/skills/agy-print/SKILL.md) owns the non-worker boundary for this path.
+The live `status` and `structured_output` envelope fields used by the helper were verified on 2026-09-11 with agy 1.2.1, model `gemini-3.8-flash-low`, and explicit low effort.
+
+```sh
+FM_AGY_PRINT_LIVE_E2E=1 bin/fm-test-run.sh tests/fm-agy-print-live-e2e.test.sh
+```
+
+Observed bounded output:
+
+```text
+ok - agy 1.2.1 plain JSON envelope passed with gemini-3.8-flash-low at low effort
+ok - agy 1.2.1 schema output passed with gemini-3.8-flash-low at low effort
+```
+
+The opt-in guard invokes `bin/fm-agy-print.sh` from separate isolated directories for plain and schema-constrained prompts.
+It requires agy to emit a `SUCCESS` JSON envelope for the plain prompt and the requested non-empty `structured_output` object for the schema prompt.
+Run it after an agy upgrade before refreshing this evidence.
+
 ## tmux
 
 Foreground-process behavior was verified on 2026-07-07 with tmux 3.6a on macOS.
