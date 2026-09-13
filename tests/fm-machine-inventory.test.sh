@@ -36,7 +36,12 @@ SH
   cat > "$case_dir/fakebin/docker" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}" in
-  ps) [ "${FM_INVENTORY_DOCKER:-quiet}" = old ] && printf 'abc123\tforgotten\n'; exit 0 ;;
+  ps)
+    case "${FM_INVENTORY_DOCKER:-quiet}" in
+      old) printf 'abc123\tforgotten\n' ;;
+      hang) : > "$(dirname "$0")/../docker-started"; sleep 2 ;;
+    esac
+    exit 0 ;;
   inspect) printf '%s\n' '2026-09-10T00:00:00.000000000Z' ;;
 esac
 SH
@@ -164,9 +169,26 @@ test_reports_incomplete_measurement_instead_of_claiming_the_host_is_clean() {
   pass 'incomplete listener scan narrows the claim visibly'
 }
 
+test_interrupted_scan_does_not_exit_clean() {
+  local case_dir pid rc=0 tries=0
+  case_dir=$(make_case interrupted)
+  FM_INVENTORY_DOCKER=hang HOME="$case_dir/home" PATH="$case_dir/fakebin:$PATH" "$INVENTORY" > "$case_dir/output" 2>&1 &
+  pid=$!
+  while [ ! -e "$case_dir/docker-started" ] && [ "$tries" -lt 100 ]; do
+    sleep 0.1
+    tries=$((tries + 1))
+  done
+  [ -e "$case_dir/docker-started" ] || fail 'interrupt fixture never reached the container scan'
+  kill -TERM "$pid"
+  wait "$pid" || rc=$?
+  [ "$rc" -eq 143 ] || fail "TERM-interrupted inventory exited $rc: $(cat "$case_dir/output")"
+  pass 'interrupted scan exits with the signal status instead of clean'
+}
+
 test_silent_when_everything_is_measured_and_healthy
 test_reports_old_listener_with_age_and_owner
 test_non_root_listener_scan_reports_other_users_as_unmeasured
 test_reports_each_other_leak_class
 test_discovers_simulator_device_sets
 test_reports_incomplete_measurement_instead_of_claiming_the_host_is_clean
+test_interrupted_scan_does_not_exit_clean

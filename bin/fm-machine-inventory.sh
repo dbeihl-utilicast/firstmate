@@ -36,6 +36,7 @@
 # Exit 0 means every measurement completed and no finding exceeded its rule.
 # Exit 1 means at least one leak or unmeasured category was reported.
 # Exit 2 means invalid invocation.
+# Exit 129, 130, or 143 means HUP, INT, or TERM interrupted the scan.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -56,7 +57,10 @@ AGE_SECS=86400
 . "$SCRIPT_DIR/fm-agent-process-lib.sh"
 
 TMP_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/fm-machine-inventory.XXXXXX") || exit 1
-trap 'rm -rf "$TMP_ROOT"' EXIT HUP INT TERM
+trap 'rm -rf "$TMP_ROOT"' EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 FINDINGS="$TMP_ROOT/findings"
 : > "$FINDINGS"
 
