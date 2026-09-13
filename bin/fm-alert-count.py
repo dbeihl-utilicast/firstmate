@@ -139,22 +139,23 @@ def semver(version: str) -> tuple[int, int, int, tuple] | None:
     return int(major), int(minor), int(patch), tag
 
 
-def padded(version: str) -> str:
-    parts = version.split(".")
-    return ".".join(parts + ["0"] * (3 - len(parts))) if len(parts) < 3 and all(part.isdigit() for part in parts) else version
-
-
 def parse_range(text: object) -> list[tuple[str, tuple]] | None:
     if not isinstance(text, str):
         return None
     bounds = []
     for part in text.split(","):
         match = RANGE_RE.fullmatch(part.strip())
-        full = padded(match.group(2)) if match else ""
-        bound = semver(full)
-        if bound is None or (full != match.group(2) and match.group(1) in {"<=", "="}):
+        if not match:
             return None
-        bounds.append((match.group(1), bound))
+        op, version = match.groups()
+        if version.count(".") < 2:
+            if op not in {">", ">="} or any(component != "0" for component in version.split(".")):
+                return None
+            version = "0.0.0"
+        bound = semver(version)
+        if bound is None:
+            return None
+        bounds.append((op, bound))
     return bounds
 
 
@@ -172,7 +173,7 @@ def vulnerable_ranges(package: str, vulnerabilities: list[object]) -> list[tuple
             raise CheckError(f"unparseable advisory range {text!r}")
         first_patched = vulnerability.get("first_patched_version")
         patched = first_patched.get("identifier") if isinstance(first_patched, dict) else None
-        if first_patched is not None and not (isinstance(patched, str) and semver(padded(patched))):
+        if first_patched is not None and not (isinstance(patched, str) and semver(patched)):
             raise CheckError(f"unparseable first patched version {patched!r}")
         ranges.append((bounds, patched))
     if not ranges:
@@ -261,14 +262,11 @@ def main(argv: list[str]) -> int:
             remediated.append(label)
         elif None in patches:
             excluded.append(f"{label}: no patched version published")
-        elif all(semver(padded(patched))[0] > version[0] for version, patched in head_copies):
+        elif all(semver(patched)[0] > version[0] for version, patched in head_copies):
             excluded.append(f"{label}: rejected major, patch requires {', '.join(sorted(patches))}")
         else:
             excluded.append(f"{label}: {head} does not reach a patched version")
 
-    print("PER-ADVISORY VERDICTS:")
-    for item in sorted(remediated + excluded + unchecked):
-        print(f"- {item}")
     print(f"VERIFIED BRANCH REMEDIATION COUNT: {len(remediated)} ({', '.join(remediated) or 'none'})")
     print(
         f"DEFAULT-BRANCH CAVEAT: {len(remediated)} verified branch remediation(s) close none now. "
