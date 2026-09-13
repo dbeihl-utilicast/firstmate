@@ -927,7 +927,7 @@ Each repository entry needs all four fields.
 The team passes when it is requested or a member has reviewed on its behalf.
 `assignees` lists every login that must be attached.
 A pull request is reported as unmergeable only when GitHub reports it `CONFLICTING`; a not-yet-computed `UNKNOWN` state is silent.
-`required_checks` lists the exact check names whose latest run per workflow has failed; pending and superseded runs are not reported.
+`required_checks` lists exact check names, each reported when its latest run per workflow has failed; pending and superseded runs are not reported.
 The audit does not infer branch-protection requirements, review approvals, release authority, or checks omitted from this configuration.
 See [`docs/examples/pr-dressing-audit.json`](examples/pr-dressing-audit.json) for a starting point.
 
