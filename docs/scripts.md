@@ -18,6 +18,7 @@ The shared no-mistakes gate refusal for fleet lifecycle entrypoints is summarize
 | [`fm-nm-quiescence.sh`](../bin/fm-nm-quiescence.sh) | Report outstanding no-mistakes runs and coverage gaps across the discovered fleet |
 | `fm-home-summary-refresh.sh` | Atomically publish this home's structured summary ledger                         |
 | `fm-fleet-view.sh`       | Render the fleet snapshot as a human Markdown view                                   |
+| `fm-machine-inventory.sh` | Report whole-host resource leaks and unavailable measurement categories, remaining silent only when every scan is healthy |
 | `fm-bearings-snapshot.sh` | Project the bounded remote-ledger fleet snapshot to compact TOON; `--include-prs` adds live GitHub enrichment |
 | `fm-running-list.sh`     | Group the bounded Bearings open-work projection into an on-demand running list |
 | `fm-bearings-board.sh`   | Build and arm the stable interactive `/bearings lavish` fleet board                  |
