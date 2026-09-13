@@ -4,7 +4,7 @@ The files and environment variables you set to operate firstmate.
 
 ## Orchestrator behavior (AGENTS.md)
 
-The shared orchestrator behavior lives in [`AGENTS.md`](../AGENTS.md) - edit it like any prompt when the fleet is empty, or dispatch shared-repo edits to a crewmate while tasks are in flight.
+The shared orchestrator contract and skill triggers live in [`AGENTS.md`](../AGENTS.md) - edit shared instructions when the fleet is empty, or dispatch shared-repo edits to a crewmate while tasks are in flight.
 
 ## Operational home layout and state
 
@@ -22,7 +22,7 @@ Wake, watcher, away-mode, and Relay-specific state mechanics remain with their n
 `bin/fm-session-start.sh`'s header is the single owner of session-start ordering, composed commands, digest contents, and the digest's startup mechanism.
 `bin/fm-startup-network.sh`'s header owns the deferred startup stage that keeps every external-network call and the potentially slow inactive-outcome scan off that digest's blocking path, including its state files and the safety argument for running them later.
 `docs/sessionstart-nudge.md` owns the native session-open adapter tiers that run or nudge the digest command, and the source routing between them.
-`AGENTS.md` retains the run-once and read-once operator rules, lock-refusal safety, installation consent, and direct-report recovery boundaries because those facts apply at every session start.
+[`session-start-recovery`](../.agents/skills/session-start-recovery/SKILL.md) owns startup interpretation, read-once behavior, lock-refusal safety, and installation consent; `AGENTS.md` retains the run-once trigger and direct-report recovery boundaries.
 Ordinary dead-direct-report recovery is owned by `stuck-crewmate-recovery`, while persistent-secondmate recovery is owned by `secondmate-provisioning`.
 
 ## Pi Calm preference (config/calm)

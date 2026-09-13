@@ -172,7 +172,7 @@ Load `quota-array-dispatch` before choosing among a matched profile array; that 
 ## 5. Recovery
 
 After the one session-start digest, reconcile reality with durable records before taking new work.
-Honor lock-refused read-only mode exactly as section 3 requires.
+Honor lock-refused read-only mode exactly as `session-start-recovery` requires.
 Treat digest status tails as wake-event history and use targeted current-state reconciliation when the live state matters.
 
 Reconcile only this home's recorded direct reports and their recorded backend inventory; never sweep a shared endpoint namespace for matching names or claim another home's work.

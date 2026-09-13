@@ -58,8 +58,8 @@ fm_control_verb_allowed() {  # <verb>
   return 1
 }
 
-# The harnesses whose control mechanics are verified. Mirrors AGENTS.md
-# section 4's verified-adapter list; an unverified adapter is refused rather
+# The harnesses whose control mechanics are verified. Mirrors the
+# harness-adapters skill's verified list; an unverified adapter is refused rather
 # than guessed at, exactly as a spawn on it would be.
 fm_control_harness_supported() {  # <harness>
   case "${1-}" in
