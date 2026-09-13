@@ -354,7 +354,7 @@ secondmate_sync() {
   # (bin/fm-remote-secondmate-control.sh); this side still fetches nothing.
   # Startup sends reread nudges only for RUNNING secondmates whose instruction
   # surface (AGENTS.md, bin/, or .agents/skills/) actually changed, so a secondmate already on the primary's
-  # version is never disturbed (AGENTS.md bootstrap + supervision). Unlike
+  # version is never disturbed (secondmate-provisioning skill). Unlike
   # /updatefirstmate, startup owns the live-convergence send itself because it is
   # a deterministic locked sweep and can report success as BOOTSTRAP_INFO while
   # preserving failed sends as NUDGE_SECONDMATES retry markers.
