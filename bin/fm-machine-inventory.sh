@@ -29,10 +29,9 @@
 # CoreSimulator device sets belong to the calling user's home, so other users'
 # simulators are outside the scan.
 # The ps, lsof, docker, simctl, and device-set discovery queries each run under
-# a sixty-second bound from fm-timeout-lib.sh.
-# An interrupt stops the in-flight query at once when fm-timeout-lib.sh bounds it
-# with timeout, gtimeout, or its bash fallback; under its perl fallback the query
-# keeps running until that bound.
+# a sixty-second bound from fm-timeout-lib.sh where a killable timeout mechanism
+# (timeout, gtimeout, or its bash fallback) exists; under its perl fallback,
+# interrupt behavior is not guaranteed.
 # A missing command, inaccessible system-wide result, failed or timed-out query,
 # unreadable device set, or interrupted scan emits a NOT CHECKED finding instead
 # of silently making a broader claim than it proved.
