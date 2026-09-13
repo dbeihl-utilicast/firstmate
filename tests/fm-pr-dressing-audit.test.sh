@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Tests for fm-pr-dressing-audit.sh through its executable interface.
 #
-# The partial-failure fixture records https://github.com/double-d-labs/go-easy-homie/pull/480
-# on 2026-09-13, when its assignees applied but its reviewer list was empty.
+# The partial-failure fixture records a pull request observed on 2026-09-13,
+# when its assignees applied but its reviewer list was empty.
 # That condition was corrected before this audit existed, so a fixture is the
 # only honest deterministic proof that its detection remains covered.
 set -u
@@ -12,6 +12,7 @@ set -u
 
 AUDIT="$ROOT/bin/fm-pr-dressing-audit.sh"
 TMP_ROOT=$(fm_test_tmproot fm-pr-dressing-audit)
+NO_REVIEWS='[{"data":{"repository":{"pullRequests":{"nodes":[]}}}}]'
 
 make_case() {
   local name=$1 case_dir
@@ -25,10 +26,10 @@ write_config() {
   cat > "$case_dir/home/config/pr-dressing-audit.json" <<'JSON'
 {
   "repositories": {
-    "double-d-labs/go-easy-homie": {
+    "owner/repository": {
       "integration_branch": "develop",
-      "reviewer_team": "double-d-labs/double-d-labs-reviewers",
-      "assignees": ["dbeihl", "dalemichaelclapp-max"],
+      "reviewer_team": "owner/team-slug",
+      "assignees": ["login-one", "login-two"],
       "required_checks": ["CI gate"]
     }
   }
@@ -37,12 +38,14 @@ JSON
 }
 
 write_gh() {
-  local case_dir=$1 payload=$2
+  local case_dir=$1 payload=$2 reviews=${3:-$NO_REVIEWS}
   printf '%s\n' "$payload" > "$case_dir/pull-requests.json"
+  printf '%s\n' "$reviews" > "$case_dir/reviews.json"
   cat > "$case_dir/fakebin/gh" <<'SH'
 #!/usr/bin/env bash
 case "${1:-} ${2:-}" in
   "pr list") cat "$FM_TEST_PR_DRESSING_PAYLOAD" ;;
+  "api graphql") cat "$FM_TEST_PR_DRESSING_REVIEWS" ;;
   *) exit 2 ;;
 esac
 SH
@@ -52,7 +55,8 @@ SH
 run_audit() {
   local case_dir=$1 out=$2 status=0
   env FM_HOME="$case_dir/home" FM_TEST_PR_DRESSING_PAYLOAD="$case_dir/pull-requests.json" \
-    PATH="$case_dir/fakebin:$PATH" "$AUDIT" double-d-labs/go-easy-homie >"$out" 2>&1 || status=$?
+    FM_TEST_PR_DRESSING_REVIEWS="$case_dir/reviews.json" \
+    PATH="$case_dir/fakebin:$PATH" "$AUDIT" owner/repository >"$out" 2>&1 || status=$?
   expect_code 0 "$status" "audit exit"
 }
 
@@ -61,16 +65,16 @@ test_partial_failure_fixture_and_live_case_shape_are_reported() {
   case_dir=$(make_case acceptance-cases)
   write_config "$case_dir"
   write_gh "$case_dir" '[
-    {"number":480,"url":"https://github.com/double-d-labs/go-easy-homie/pull/480","baseRefName":"main","assignees":[{"login":"dbeihl"},{"login":"dalemichaelclapp-max"}],"reviewRequests":[],"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","statusCheckRollup":[{"__typename":"CheckRun","name":"CI gate","status":"COMPLETED","conclusion":"SUCCESS"}]},
-    {"number":485,"url":"https://github.com/double-d-labs/go-easy-homie/pull/485","baseRefName":"main","assignees":[],"reviewRequests":[],"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","statusCheckRollup":[{"__typename":"CheckRun","name":"CI gate","status":"COMPLETED","conclusion":"FAILURE"}]}
+    {"number":480,"url":"https://github.com/owner/repository/pull/480","baseRefName":"main","headRefName":"feature-480","assignees":[{"login":"login-one"},{"login":"login-two"}],"reviewRequests":[],"mergeable":"MERGEABLE","statusCheckRollup":[{"__typename":"CheckRun","name":"CI gate","status":"COMPLETED","conclusion":"SUCCESS"}]},
+    {"number":485,"url":"https://github.com/owner/repository/pull/485","baseRefName":"main","headRefName":"feature-485","assignees":[],"reviewRequests":[],"mergeable":"MERGEABLE","statusCheckRollup":[{"__typename":"CheckRun","name":"CI gate","status":"COMPLETED","conclusion":"FAILURE"}]}
   ]'
   out="$case_dir/out"
   run_audit "$case_dir" "$out"
   report=$(cat "$out")
-  assert_contains "$report" 'https://github.com/double-d-labs/go-easy-homie/pull/480: reviewer team missing: double-d-labs/double-d-labs-reviewers' 'missing team reviewer was not reported with its qualified slug'
-  assert_contains "$report" 'https://github.com/double-d-labs/go-easy-homie/pull/485: base branch is main; expected develop' 'live-case production branch was not reported'
-  assert_contains "$report" 'https://github.com/double-d-labs/go-easy-homie/pull/485: assignees missing: dbeihl, dalemichaelclapp-max' 'live-case assignees were not reported'
-  assert_contains "$report" 'https://github.com/double-d-labs/go-easy-homie/pull/485: required check failing: CI gate' 'live-case failing check was not reported'
+  assert_contains "$report" 'https://github.com/owner/repository/pull/480: reviewer team missing: owner/team-slug' 'missing team reviewer was not reported with its qualified slug'
+  assert_contains "$report" 'https://github.com/owner/repository/pull/485: base branch is main; expected develop' 'live-case production branch was not reported'
+  assert_contains "$report" 'https://github.com/owner/repository/pull/485: assignees missing: login-one, login-two' 'live-case assignees were not reported'
+  assert_contains "$report" 'https://github.com/owner/repository/pull/485: required check failing: CI gate' 'live-case failing check was not reported'
   pass 'the partial-failure fixture and live-case violation shape are reported'
 }
 
@@ -78,7 +82,7 @@ test_compliant_pull_request_is_silent() {
   local case_dir out
   case_dir=$(make_case compliant)
   write_config "$case_dir"
-  write_gh "$case_dir" '[{"number":484,"url":"https://github.com/double-d-labs/go-easy-homie/pull/484","baseRefName":"develop","assignees":[{"login":"dbeihl"},{"login":"dalemichaelclapp-max"}],"reviewRequests":[{"__typename":"Team","slug":"double-d-labs/double-d-labs-reviewers"}],"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","statusCheckRollup":[{"__typename":"CheckRun","name":"CI gate","status":"COMPLETED","conclusion":"SUCCESS"}]}]'
+  write_gh "$case_dir" '[{"number":484,"url":"https://github.com/owner/repository/pull/484","baseRefName":"develop","headRefName":"feature-484","assignees":[{"login":"login-one"},{"login":"login-two"}],"reviewRequests":[{"__typename":"Team","slug":"owner/team-slug"}],"mergeable":"MERGEABLE","statusCheckRollup":[{"__typename":"CheckRun","name":"CI gate","status":"COMPLETED","conclusion":"SUCCESS"}]}]'
   out="$case_dir/out"
   run_audit "$case_dir" "$out"
   [ ! -s "$out" ] || fail "compliant pull request was not silent: $(cat "$out")"
@@ -89,14 +93,43 @@ test_missing_assignee_mergeability_and_failed_required_check_are_reported() {
   local case_dir out report
   case_dir=$(make_case remaining-rules)
   write_config "$case_dir"
-  write_gh "$case_dir" '[{"number":485,"url":"https://github.com/double-d-labs/go-easy-homie/pull/485","baseRefName":"develop","assignees":[{"login":"dbeihl"}],"reviewRequests":[{"__typename":"Team","slug":"double-d-labs/double-d-labs-reviewers"}],"mergeable":"CONFLICTING","mergeStateStatus":"DIRTY","statusCheckRollup":[{"__typename":"CheckRun","name":"CI gate","status":"COMPLETED","conclusion":"FAILURE"}]}]'
+  write_gh "$case_dir" '[{"number":485,"url":"https://github.com/owner/repository/pull/485","baseRefName":"develop","headRefName":"feature-485","assignees":[{"login":"login-one"}],"reviewRequests":[{"__typename":"Team","slug":"owner/team-slug"}],"mergeable":"CONFLICTING","statusCheckRollup":[{"__typename":"CheckRun","name":"CI gate","status":"COMPLETED","conclusion":"FAILURE"}]}]'
   out="$case_dir/out"
   run_audit "$case_dir" "$out"
   report=$(cat "$out")
-  assert_contains "$report" 'assignees missing: dalemichaelclapp-max' 'missing assignee was not reported'
+  assert_contains "$report" 'assignees missing: login-two' 'missing assignee was not reported'
   assert_contains "$report" 'mergeable is CONFLICTING, not MERGEABLE' 'unmergeable pull request was not reported'
   assert_contains "$report" 'required check failing: CI gate' 'failed configured required check was not reported'
   pass 'remaining configured violations are reported'
+}
+
+test_indeterminate_and_satisfied_states_are_silent() {
+  local case_dir out
+  case_dir=$(make_case satisfied-states)
+  write_config "$case_dir"
+  write_gh "$case_dir" '[
+    {"number":490,"url":"https://github.com/owner/repository/pull/490","baseRefName":"develop","headRefName":"feature-490","assignees":[{"login":"login-one"},{"login":"login-two"}],"reviewRequests":[{"__typename":"Team","slug":"owner/team-slug"}],"mergeable":"UNKNOWN","statusCheckRollup":[{"__typename":"CheckRun","name":"CI gate","workflowName":"CI","status":"IN_PROGRESS","conclusion":"","startedAt":"2026-09-13T10:00:00Z"}]},
+    {"number":491,"url":"https://github.com/owner/repository/pull/491","baseRefName":"develop","headRefName":"feature-491","assignees":[{"login":"login-one"},{"login":"login-two"}],"reviewRequests":[],"mergeable":"MERGEABLE","statusCheckRollup":[{"__typename":"CheckRun","name":"CI gate","workflowName":"CI","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-09-13T10:00:00Z"},{"__typename":"CheckRun","name":"CI gate","workflowName":"CI","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-09-13T10:05:00Z"}]},
+    {"number":492,"url":"https://github.com/owner/repository/pull/492","baseRefName":"main","headRefName":"develop","assignees":[{"login":"login-one"},{"login":"login-two"}],"reviewRequests":[{"__typename":"Team","slug":"owner/team-slug"}],"mergeable":"MERGEABLE","statusCheckRollup":[{"__typename":"StatusContext","context":"CI gate","state":"PENDING"}]}
+  ]' '[{"data":{"repository":{"pullRequests":{"nodes":[{"number":491,"reviews":{"nodes":[{"onBehalfOf":{"nodes":[{"combinedSlug":"owner/team-slug"}]}}]}}]}}}}]'
+  out="$case_dir/out"
+  run_audit "$case_dir" "$out"
+  [ ! -s "$out" ] || fail "pending, superseded, reviewed-for-team, or release pull requests were not silent: $(cat "$out")"
+  pass 'pending checks, superseded failures, unknown mergeability, team reviews, and release pull requests are silent'
+}
+
+test_unreadable_reviews_fail_closed() {
+  local case_dir out status=0
+  case_dir=$(make_case unreadable-reviews)
+  write_config "$case_dir"
+  write_gh "$case_dir" '[]' 'not json'
+  out="$case_dir/out"
+  env FM_HOME="$case_dir/home" FM_TEST_PR_DRESSING_PAYLOAD="$case_dir/pull-requests.json" \
+    FM_TEST_PR_DRESSING_REVIEWS="$case_dir/reviews.json" \
+    PATH="$case_dir/fakebin:$PATH" "$AUDIT" owner/repository >"$out" 2>&1 || status=$?
+  expect_code 2 "$status" "unreadable reviews exit"
+  assert_contains "$(cat "$out")" 'could not read pull request reviews for owner/repository' 'unreadable reviews were not reported'
+  pass 'unreadable reviews stop the audit instead of reporting every team as missing'
 }
 
 test_help_states_the_unchecked_scope() {
@@ -111,4 +144,6 @@ test_help_states_the_unchecked_scope() {
 test_partial_failure_fixture_and_live_case_shape_are_reported
 test_compliant_pull_request_is_silent
 test_missing_assignee_mergeability_and_failed_required_check_are_reported
+test_indeterminate_and_satisfied_states_are_silent
+test_unreadable_reviews_fail_closed
 test_help_states_the_unchecked_scope

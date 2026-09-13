@@ -922,10 +922,12 @@ This section is the single owner of the canonical schema.
 ```
 
 Each repository entry needs all four fields.
-`integration_branch` is the non-production branch expected for ordinary pull requests, so a request based on `main` is reported when it differs from `main`.
-`reviewer_team` must be the organization-qualified team slug accepted by `gh pr edit --add-reviewer`, such as `double-d-labs/double-d-labs-reviewers`; a bare team name can partially apply an edit's assignees while leaving its reviewer request absent.
+`integration_branch` is the non-production branch expected for ordinary pull requests, so a request based on `main` is reported when it differs from `main`, unless its head is the integration branch itself.
+`reviewer_team` must be the organization-qualified team slug accepted by `gh pr edit --add-reviewer`, such as `owner/team-slug`; a bare team name can partially apply an edit's assignees while leaving its reviewer request absent.
+The team passes when it is requested or a member has reviewed on its behalf.
 `assignees` lists every login that must be attached.
-`required_checks` lists the exact check names whose failing state is reported.
+A pull request is reported as unmergeable only when GitHub reports it `CONFLICTING`; a not-yet-computed `UNKNOWN` state is silent.
+`required_checks` lists the exact check names whose latest run per workflow has failed; pending and superseded runs are not reported.
 The audit does not infer branch-protection requirements, review approvals, release authority, or checks omitted from this configuration.
 See [`docs/examples/pr-dressing-audit.json`](examples/pr-dressing-audit.json) for a starting point.
 

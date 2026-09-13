@@ -4,8 +4,7 @@
 #
 # Usage: fm-pr-dressing-audit.sh <owner/repository>
 #
-# The configuration is config/pr-dressing-audit.json under FM_HOME, unless
-# FM_PR_DRESSING_AUDIT_CONFIG names a test or alternate configuration file.
+# The configuration is config/pr-dressing-audit.json under FM_HOME.
 # docs/configuration.md owns that schema and the scope this command does not
 # claim to check.
 #
@@ -17,7 +16,7 @@ set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}}"
-CONFIG="${FM_PR_DRESSING_AUDIT_CONFIG:-$FM_HOME/config/pr-dressing-audit.json}"
+CONFIG="$FM_HOME/config/pr-dressing-audit.json"
 
 usage() {
   cat <<'EOF'
@@ -67,28 +66,40 @@ if ! rules=$(jq -ce --arg repo "$REPO" '
 fi
 
 if ! pull_requests=$(gh pr list --repo "$REPO" --state open --limit 1000 \
-    --json number,url,baseRefName,assignees,reviewRequests,mergeable,mergeStateStatus,statusCheckRollup 2>/dev/null) \
+    --json number,url,baseRefName,headRefName,assignees,reviewRequests,mergeable,statusCheckRollup 2>/dev/null) \
   || ! printf '%s' "$pull_requests" | jq -e 'type == "array"' >/dev/null 2>&1; then
   die "could not read open pull requests for $REPO"
 fi
 
-printf '%s' "$pull_requests" | jq -r --argjson rules "$rules" '
-  def check_is_green:
+# shellcheck disable=SC2016  # GraphQL variables are literal query syntax.
+if ! reviewed_teams=$(gh api graphql --paginate --slurp \
+    -f query='query($owner:String!,$repo:String!,$endCursor:String){repository(owner:$owner,name:$repo){pullRequests(states:OPEN,first:100,after:$endCursor){nodes{number reviews(last:100){nodes{onBehalfOf(first:10){nodes{combinedSlug}}}}} pageInfo{hasNextPage endCursor}}}}' \
+    -F "owner=${REPO%%/*}" -F "repo=${REPO#*/}" 2>/dev/null) \
+  || ! reviewed_teams=$(printf '%s' "$reviewed_teams" | jq -ce '
+      [ .[].data.repository.pullRequests.nodes[] ]
+      | map({ key: (.number | tostring), value: [ .reviews.nodes[].onBehalfOf.nodes[].combinedSlug ] })
+      | from_entries
+    ' 2>/dev/null); then
+  die "could not read pull request reviews for $REPO"
+fi
+
+printf '%s' "$pull_requests" | jq -r --argjson rules "$rules" --argjson reviewed "$reviewed_teams" '
+  def check_is_failing:
     if .__typename == "CheckRun" then
-      .status == "COMPLETED" and (.conclusion == "SUCCESS" or .conclusion == "NEUTRAL" or .conclusion == "SKIPPED")
-    elif .__typename == "StatusContext" then .state == "SUCCESS"
+      .status == "COMPLETED" and (.conclusion | IN("FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"))
+    elif .__typename == "StatusContext" then .state | IN("FAILURE", "ERROR")
     else false end;
   def check_name: if .__typename == "CheckRun" then .name else .context end;
   .[]
   | . as $pr
   | $pr.url as $url
   | (
-      if $pr.baseRefName == "main" and $rules.integration_branch != "main" then
+      if $pr.baseRefName == "main" and $rules.integration_branch != "main" and $pr.headRefName != $rules.integration_branch then
         "\($url): base branch is main; expected \($rules.integration_branch)"
       else empty end
     ),
     (
-      if ([ $pr.reviewRequests[]? | select(.__typename == "Team") | .slug ] | index($rules.reviewer_team)) == null then
+      if ([ $pr.reviewRequests[]? | select(.__typename == "Team") | .slug ] + ($reviewed[$pr.number | tostring] // []) | index($rules.reviewer_team)) == null then
         "\($url): reviewer team missing: \($rules.reviewer_team)"
       else empty end
     ),
@@ -97,14 +108,14 @@ printf '%s' "$pull_requests" | jq -r --argjson rules "$rules" '
       | if length > 0 then "\($url): assignees missing: \(join(", "))" else empty end
     ),
     (
-      if $pr.mergeable != "MERGEABLE" then
-        "\($url): mergeable is \($pr.mergeable // "unreadable"), not MERGEABLE"
+      if $pr.mergeable == "CONFLICTING" then
+        "\($url): mergeable is CONFLICTING, not MERGEABLE"
       else empty end
     ),
     (
       $rules.required_checks[] as $required
-      | [ $pr.statusCheckRollup[]? | select(check_name == $required) ] as $runs
-      | if ($runs | length) > 0 and any($runs[]; check_is_green | not) then
+      | [ $pr.statusCheckRollup[]? | select(check_name == $required) ]
+      | if any(group_by(.workflowName)[] | max_by(.startedAt); check_is_failing) then
           "\($url): required check failing: \($required)"
         else empty end
     )

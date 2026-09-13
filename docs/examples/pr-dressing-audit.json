@@ -1,9 +1,9 @@
 {
   "repositories": {
-    "double-d-labs/go-easy-homie": {
+    "owner/repository": {
       "integration_branch": "develop",
-      "reviewer_team": "double-d-labs/double-d-labs-reviewers",
-      "assignees": ["dbeihl", "dalemichaelclapp-max"],
+      "reviewer_team": "owner/team-slug",
+      "assignees": ["login-one", "login-two"],
       "required_checks": ["CI gate"]
     }
   }
