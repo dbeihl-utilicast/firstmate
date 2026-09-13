@@ -1,0 +1,10 @@
+{
+  "repositories": {
+    "double-d-labs/go-easy-homie": {
+      "integration_branch": "develop",
+      "reviewer_team": "double-d-labs/double-d-labs-reviewers",
+      "assignees": ["dbeihl", "dalemichaelclapp-max"],
+      "required_checks": ["CI gate"]
+    }
+  }
+}

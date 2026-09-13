@@ -900,6 +900,35 @@ The locked bootstrap inheritance pass uses the same placement-specific behavior;
 That live discovery starts from `state/*.meta` records with `kind=secondmate`; `data/secondmates.md` only backfills `home=` for older or incomplete meta records.
 Skipped items, such as a destination checkout that does not yet gitignore the item, are visible warnings but not hard failures.
 
+## Pull request dressing audit (config/pr-dressing-audit.json)
+
+`config/pr-dressing-audit.json` is an optional local, gitignored map of GitHub repositories to the pull request rules that [`bin/fm-pr-dressing-audit.sh`](../bin/fm-pr-dressing-audit.sh) measures.
+The command takes an `owner/repository` argument, reads every open pull request with the stable machine-readable interface from `gh`, and is silent when every configured rule passes.
+It never edits a pull request.
+
+This section is the single owner of the canonical schema.
+
+```json
+{
+  "repositories": {
+    "owner/repository": {
+      "integration_branch": "develop",
+      "reviewer_team": "owner/team-slug",
+      "assignees": ["login-one", "login-two"],
+      "required_checks": ["CI gate"]
+    }
+  }
+}
+```
+
+Each repository entry needs all four fields.
+`integration_branch` is the non-production branch expected for ordinary pull requests, so a request based on `main` is reported when it differs from `main`.
+`reviewer_team` must be the organization-qualified team slug accepted by `gh pr edit --add-reviewer`, such as `double-d-labs/double-d-labs-reviewers`; a bare team name can partially apply an edit's assignees while leaving its reviewer request absent.
+`assignees` lists every login that must be attached.
+`required_checks` lists the exact check names whose failing state is reported.
+The audit does not infer branch-protection requirements, review approvals, release authority, or checks omitted from this configuration.
+See [`docs/examples/pr-dressing-audit.json`](examples/pr-dressing-audit.json) for a starting point.
+
 ## Watched tool updates (config/watched-tools.json)
 
 `config/watched-tools.json` is an optional local, gitignored list of the tools this home depends on.
