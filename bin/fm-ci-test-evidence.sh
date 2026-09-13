@@ -19,7 +19,7 @@
 #
 # An unavailable GitHub read is deliberately non-fatal outside CI, where a
 # contributor may lack the services or credentials required to inspect a run.
-# The same condition fails closed when GITHUB_ACTIONS=true, so configuration
+# The same condition fails closed when GITHUB_ACTIONS=true or CI=true, so configuration
 # drift cannot turn a required measurement into a green skip.
 set -u
 
