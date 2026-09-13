@@ -143,14 +143,25 @@ summaries = (
     re.compile(r"^Tests:\s+((?:\d+ [a-z]+, )*\d+ [a-z]+), \d+ total\s*$"),
     re.compile(r"^\s*Tests\s+((?:\d+ [a-z]+ \| )*\d+ [a-z]+) \(\d+\)\s*$"),
     re.compile(r"^\s+(\d+ (?:passed|failed|flaky|skipped|did not run|interrupted))(?: \([^)]*\))?\s*$"),
+    re.compile(r"^\s*Errors\s+(\d+ errors?)\s*$"),
 )
 totals = dict.fromkeys(("passed", "failed", "skipped", "deselected", "errors"), 0)
 measured = False
+jest_failure_recap = False
 for line in text.splitlines():
     entry = re.match(r"[^\t]*\t[^\t]*\t﻿?\d{4}-\d\d-\d\dT[\d:.]+Z ?(.*)", line)
     if not entry:
         continue
     content = re.sub(r"(?:\x1b|\^\[)\[[0-9;]*m", "", entry.group(1))
+    if content.startswith("Summary of all failing tests"):
+        jest_failure_recap = True
+    elif content.startswith("Test Suites:"):
+        jest_failure_recap = False
+    failed_suites = re.match(r"\s*⎯+ Failed Suites (\d+) ⎯+\s*$", content)
+    if failed_suites or (re.match(r"\s*● Test suite failed to run\s*$", content) and not jest_failure_recap):
+        measured = True
+        totals["errors"] += int(failed_suites.group(1)) if failed_suites else 1
+        continue
     summary = next(filter(None, (pattern.search(content) for pattern in summaries)), None)
     if not summary:
         continue

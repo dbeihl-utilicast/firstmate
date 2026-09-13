@@ -31,7 +31,7 @@ case "$1 ${2:-}" in
       '/repos/acme/market-pulse/actions/runs?event=pull_request&head_sha=h459&per_page=100') body '"run\t201\nrun\t202"' ;;
       '/repos/acme/market-pulse/actions/runs/201/jobs?per_page=100') body '"job\t201\t11\tIntegration tests\tsuccess"' ;;
       '/repos/acme/market-pulse/actions/runs/202/jobs?per_page=100') body '"job\t202\t22\tIntegration tests\tskipped"' ;;
-      '/repos/acme/repo/actions/runs/481/jobs?per_page=100') body '"job\t481\t12\tIntegration tests\tsuccess\njob\t481\t13\tBrowser tests\tsuccess\njob\t481\t14\tCollection tests\tfailure\njob\t481\t15\tGo tests\tsuccess\njob\t481\t16\tStill running\t\njob\t481\t19\tMobile - Type Check & Tests\tsuccess\njob\t481\t20\tWeb - Lint, Type Check & Build\tsuccess\njob\t481\t21\tWeb - E2E Tests (Playwright)\tsuccess"' ;;
+      '/repos/acme/repo/actions/runs/481/jobs?per_page=100') body '"job\t481\t12\tIntegration tests\tsuccess\njob\t481\t13\tBrowser tests\tsuccess\njob\t481\t14\tCollection tests\tfailure\njob\t481\t15\tGo tests\tsuccess\njob\t481\t16\tStill running\t\njob\t481\t19\tMobile - Type Check & Tests\tsuccess\njob\t481\t20\tWeb - Lint, Type Check & Build\tsuccess\njob\t481\t21\tWeb - E2E Tests (Playwright)\tsuccess\njob\t481\t22\tBackend - Unit Tests\tfailure\njob\t481\t23\tMCP - Build, Type Check & Tests\tfailure"' ;;
       /repos/double-d-labs/go-easy-homie/pulls/481) body '"head\tf555c27acbe817beed5ea54d8aa8639d3a77d83f"' ;;
       '/repos/double-d-labs/go-easy-homie/actions/runs?event=pull_request&head_sha=f555c27acbe817beed5ea54d8aa8639d3a77d83f&per_page=100') body '"run\t34721814954\nrun\t34721814948\nrun\t34721814926"' ;;
       '/repos/double-d-labs/go-easy-homie/actions/runs/34721814954/jobs?per_page=100') body '"job\t34721814954\t103628992346\tMCP - Build, Type Check & Tests\tsuccess"' ;;
@@ -59,6 +59,8 @@ case "$1 ${2:-}" in
       *' --job 19 '*) log "$2" '"Mobile - Type Check & Tests\tUNKNOWN STEP\t2026-09-13T12:57:01.7588573Z Test Suites: 1 skipped, 94 passed, 94 of 95 total\nMobile - Type Check & Tests\tUNKNOWN STEP\t2026-09-13T12:57:01.7589455Z Tests:       2 skipped, 1 todo, 1645 passed, 1648 total\n"' ;;
       *' --job 20 '*) log "$2" '"Web - Lint, Type Check & Build\tUNKNOWN STEP\t2026-09-13T12:56:35.0233409Z ^[[2m Test Files ^[[22m ^[[1m^[[32m75 passed^[[39m^[[22m^[[90m (75)^[[39m\nWeb - Lint, Type Check & Build\tUNKNOWN STEP\t2026-09-13T12:56:35.0255846Z ^[[2m      Tests ^[[22m ^[[1m^[[32m1770 passed^[[39m^[[22m^[[2m | ^[[22m^[[33m7 skipped^[[39m^[[90m (1777)^[[39m\n"' ;;
       *' --job 21 '*) log "$2" '"Web - E2E Tests (Playwright)\tUNKNOWN STEP\t2026-09-13T19:59:38.1054278Z   3 skipped\nWeb - E2E Tests (Playwright)\tUNKNOWN STEP\t2026-09-13T19:59:38.1054731Z   99 passed (2.3m)\nWeb - E2E Tests (Playwright)\tUNKNOWN STEP\t2026-09-13T19:59:38.1078774Z ##[notice]  3 skipped\n  99 passed (2.3m)\nWeb - E2E Tests (Playwright)\tUNKNOWN STEP\t2026-09-13T19:59:38.1279903Z Post job cleanup.\n"' ;;
+      *' --job 22 '*) log "$2" '"Backend - Unit Tests\tUNKNOWN STEP\t2026-09-13T12:57:40.1000000Z FAIL src/__tests__/broken.test.ts\nBackend - Unit Tests\tUNKNOWN STEP\t2026-09-13T12:57:40.1000001Z   ● Test suite failed to run\nBackend - Unit Tests\tUNKNOWN STEP\t2026-09-13T12:57:40.1000002Z     Cannot find module '"'"'./does-not-exist'"'"' from '"'"'broken.test.ts'"'"'\nBackend - Unit Tests\tUNKNOWN STEP\t2026-09-13T12:58:21.0260000Z ^[[1mSummary of all failing tests^[[22m\nBackend - Unit Tests\tUNKNOWN STEP\t2026-09-13T12:58:21.0260001Z FAIL src/__tests__/broken.test.ts\nBackend - Unit Tests\tUNKNOWN STEP\t2026-09-13T12:58:21.0260002Z   ^[[1m● ^[[22mTest suite failed to run\nBackend - Unit Tests\tUNKNOWN STEP\t2026-09-13T12:58:21.0266236Z Test Suites: 1 failed, 79 passed, 80 total\nBackend - Unit Tests\tUNKNOWN STEP\t2026-09-13T12:58:21.0267051Z Tests:       1850 passed, 1850 total\n"' ;;
+      *' --job 23 '*) log "$2" '"MCP - Build, Type Check & Tests\tUNKNOWN STEP\t2026-09-13T20:42:38.6900000Z ⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯\nMCP - Build, Type Check & Tests\tUNKNOWN STEP\t2026-09-13T20:42:38.6900001Z  FAIL  src/broken.test.ts [ src/broken.test.ts ]\nMCP - Build, Type Check & Tests\tUNKNOWN STEP\t2026-09-13T20:42:38.6908315Z ^[[2m Test Files ^[[22m ^[[1m^[[31m1 failed^[[39m^[[22m^[[2m | ^[[22m^[[1m^[[32m11 passed^[[39m^[[22m^[[90m (12)^[[39m\nMCP - Build, Type Check & Tests\tUNKNOWN STEP\t2026-09-13T20:42:38.6909613Z ^[[2m      Tests ^[[22m ^[[1m^[[32m97 passed^[[39m^[[22m^[[90m (97)^[[39m\nMCP - Build, Type Check & Tests\tUNKNOWN STEP\t2026-09-13T20:42:38.6910000Z ^[[2m     Errors ^[[22m ^[[1m^[[31m1 error^[[39m^[[22m\n"' ;;
       *) exit 1 ;;
     esac
     ;;
@@ -118,7 +120,8 @@ test_log_evidence_violations_are_red() {
   out=$(TMPDIR="$dir/tmp" PATH="$dir/fakebin:$PATH" local_check --run https://github.com/acme/repo/actions/runs/481 --required-job 'Integration tests' \
     --required-job 'Browser tests' --required-job 'Collection tests' --required-job 'Go tests' \
     --required-job 'Mobile - Type Check & Tests' --required-job 'Web - Lint, Type Check & Build' \
-    --required-job 'Web - E2E Tests (Playwright)' 2>&1)
+    --required-job 'Web - E2E Tests (Playwright)' --required-job 'Backend - Unit Tests' \
+    --required-job 'MCP - Build, Type Check & Tests' 2>&1)
   rc=$?
   [ "$rc" -eq 1 ] || fail "negative run exit=$rc: $out"
   assert_contains "$out" 'Integration tests executed=170 skipped=3 deselected=0' 'skip count before the truncated log tail was not a violation'
@@ -129,6 +132,8 @@ test_log_evidence_violations_are_red() {
   assert_contains "$out" 'Mobile - Type Check & Tests executed=1645 skipped=3 deselected=0' 'Jest skipped and todo tests were not a violation'
   assert_contains "$out" 'Web - Lint, Type Check & Build executed=1770 skipped=7 deselected=0' 'Vitest skipped tests were not a violation'
   assert_contains "$out" 'Web - E2E Tests (Playwright) executed=99 skipped=3 deselected=0' 'Playwright skipped tests were not counted once'
+  assert_contains "$out" 'Backend - Unit Tests errors=1 (' 'Jest suite that failed to run was not one distinct errored measurement'
+  assert_contains "$out" 'MCP - Build, Type Check & Tests errors=2 (' 'Vitest failed suite and error summary were not errored measurements'
   [ -z "$(ls -A "$dir/tmp")" ] || fail "gh-axi full logs were left in TMPDIR: $(ls -A "$dir/tmp")"
   pass 'skipped, deselected, errored, and unmeasured logs fail despite green conclusions without leaking full logs'
 }
