@@ -16,7 +16,8 @@ TMP_ROOT=$(fm_test_tmproot fm-machine-inventory)
 
 make_case() {  # <name> -> case root with fake host tools
   local case_dir=$TMP_ROOT/$1
-  mkdir -p "$case_dir/fakebin" "$case_dir/home"
+  mkdir -p "$case_dir/fakebin" "$case_dir/home/Library/Developer/CoreSimulator/Devices"
+  : > "$case_dir/home/Library/Developer/CoreSimulator/Devices/device_set.plist"
   cat > "$case_dir/fakebin/lsof" <<'SH'
 #!/usr/bin/env bash
 case "${FM_INVENTORY_LSOF:-quiet}" in
@@ -41,22 +42,22 @@ esac
 SH
   cat > "$case_dir/fakebin/xcrun" <<'SH'
 #!/usr/bin/env bash
-if [ "${2:-}" = --set ]; then
-  case "$3" in
-    */XCTestDevices) printf '%s\n' '{ "devices": { "iOS": [ { "udid": "00000000-0000-0000-0000-0000000000C1", "name": "Clone 1 of iPhone 16", "state": "Booted", "lastBootedAt": "2026-09-10T00:00:00Z" } ] } }' ;;
-    *) printf '%s\n' '{ "devices": {} }' ;;
-  esac
-elif [ "${FM_INVENTORY_SIMULATOR:-quiet}" = booted ]; then
-  cat <<'JSON'
+[ "${2:-}" = --set ] || { echo 'xcrun fixture requires --set' >&2; exit 1; }
+case "$3" in
+  */CoreSimulator/Devices)
+    if [ "${FM_INVENTORY_SIMULATOR:-quiet}" = booted ]; then
+      cat <<'JSON'
 { "devices": { "com.apple.CoreSimulator.SimRuntime.iOS-26-5": [
   { "udid": "00000000-0000-0000-0000-000000000001", "name": "iPhone 16", "state": "Booted", "lastBootedAt": "2026-09-10T00:00:00Z" },
   { "udid": "00000000-0000-0000-0000-000000000002", "name": "iPhone Fresh", "state": "Booted", "lastBootedAt": "2026-09-12T23:55:00Z" },
   { "udid": "00000000-0000-0000-0000-000000000003", "name": "iPhone Off", "state": "Shutdown", "lastBootedAt": "2026-09-01T00:00:00Z" }
 ] } }
 JSON
-else
-  printf '%s\n' '{ "devices": {} }'
-fi
+    else
+      printf '%s\n' '{ "devices": {} }'
+    fi ;;
+  *) printf '{ "devices": { "iOS": [ { "udid": "00000000-0000-0000-0000-0000000000C1", "name": "%s", "state": "Booted", "lastBootedAt": "2026-09-10T00:00:00Z" } ] } }\n' "${3##*/}" ;;
+esac
 SH
   cat > "$case_dir/fakebin/sysctl" <<'SH'
 #!/usr/bin/env bash
@@ -122,28 +123,33 @@ test_reports_each_other_leak_class() {
   output=$(FM_INVENTORY_LOAD15=31.00 FM_INVENTORY_PS=agent FM_INVENTORY_DOCKER=old FM_INVENTORY_SIMULATOR=booted run_inventory "$case_dir" 2>&1 || true)
   assert_contains "$output" 'LOAD: fifteen-minute=31.00 cores=10' 'ten-core host at fifteen-minute load 31 was omitted'
   assert_contains "$output" 'CONTAINER: id=abc123 name=forgotten uptime=259200s' 'old container was omitted'
-  assert_contains "$output" 'SIMULATOR: set=default udid=00000000-0000-0000-0000-000000000001 name=iPhone 16 uptime=259200s' 'old booted simulator was omitted'
+  assert_contains "$output" "SIMULATOR: set=$case_dir/home/Library/Developer/CoreSimulator/Devices udid=00000000-0000-0000-0000-000000000001 name=iPhone 16 uptime=259200s" 'old booted simulator was omitted'
   assert_not_contains "$output" 'iPhone Fresh' 'recently booted simulator was reported'
   assert_not_contains "$output" 'iPhone Off' 'shutdown simulator was reported'
   assert_contains "$output" 'AGENT: pid=202 age=2-00:00:00 command=/opt/homebrew/bin/codex' 'old agent process was omitted'
   pass 'load, containers, simulators, and agent processes report violations'
 }
 
-test_scans_standard_simulator_device_sets() {
-  local case_dir output previews
+test_discovers_simulator_device_sets() {
+  local case_dir output developer previews
   case_dir=$(make_case simulator-sets)
   if [ "$(id -u)" = 0 ]; then
-    pass 'standard simulator device sets are scanned or reported unreadable (skipped as root)'
+    pass 'discovered simulator device sets are scanned or reported unreadable (skipped as root)'
     return 0
   fi
-  previews="$case_dir/home/Library/Developer/Xcode/UserData/Previews/Simulator Devices"
-  mkdir -p "$case_dir/home/Library/Developer/XCTestDevices" "$previews"
-  chmod 000 "$previews"
+  developer="$case_dir/home/Library/Developer"
+  previews="$developer/Xcode/UserData/Previews/Simulator Devices"
+  mkdir -p "$developer/XCPGDevices" "$previews" "$developer/Xcode/DerivedData"
+  : > "$developer/XCPGDevices/device_set.plist"
+  : > "$previews/device_set.plist"
+  chmod 000 "$previews/device_set.plist" "$developer/Xcode/DerivedData"
   output=$(run_inventory "$case_dir" 2>&1 || true)
-  chmod 755 "$previews"
-  assert_contains "$output" 'SIMULATOR: set=xctest udid=00000000-0000-0000-0000-0000000000C1 name=Clone 1 of iPhone 16 uptime=259200s' 'old booted XCTest clone was omitted'
-  assert_contains "$output" 'NOT CHECKED: booted simulators set=previews (device set unreadable)' 'unreadable Previews device set was silent'
-  pass 'standard simulator device sets are scanned or reported unreadable'
+  chmod 755 "$developer/Xcode/DerivedData"
+  chmod 644 "$previews/device_set.plist"
+  assert_contains "$output" "SIMULATOR: set=$developer/XCPGDevices udid=00000000-0000-0000-0000-0000000000C1 name=XCPGDevices uptime=259200s" 'old booted simulator in a discovered set was omitted'
+  assert_contains "$output" "NOT CHECKED: booted simulators set=$previews (device set unreadable)" 'unreadable discovered device set was silent'
+  assert_contains "$output" "NOT CHECKED: booted simulators (device set discovery under $developer incomplete)" 'unreadable discovery subtree was silent'
+  pass 'discovered simulator device sets are scanned or reported unreadable'
 }
 
 test_reports_incomplete_measurement_instead_of_claiming_the_host_is_clean() {
@@ -159,5 +165,5 @@ test_silent_when_everything_is_measured_and_healthy
 test_reports_old_listener_with_age_and_owner
 test_non_root_listener_scan_reports_other_users_as_unmeasured
 test_reports_each_other_leak_class
-test_scans_standard_simulator_device_sets
+test_discovers_simulator_device_sets
 test_reports_incomplete_measurement_instead_of_claiming_the_host_is_clean
