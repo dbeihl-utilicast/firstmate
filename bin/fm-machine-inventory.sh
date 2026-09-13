@@ -7,8 +7,9 @@
 #   fm-machine-inventory.sh [--help]
 #
 # The command is strictly observational.
-# It never stops, signals, restarts, or changes a process, container, or
-# simulator.
+# It never stops, signals, restarts, or changes an inventoried process,
+# container, or simulator; the only processes it signals are its own queries
+# that outlive their time bound.
 #
 # Every successful scan covers the host rather than a configured port or
 # Firstmate-home subset:
@@ -16,17 +17,21 @@
 #   - every running container on the current Docker context
 #   - every booted simulator in each CoreSimulator device set discovered by its
 #     device_set.plist within five levels of the caller's ~/Library/Developer,
-#     following symlinks (such as the default, XCTest clone, Playgrounds, and Xcode Previews sets)
-#   - every process recognized by fm-agent-process-lib.sh
+#     following symlinks (such as the default, XCTest clone, Playgrounds, and
+#     Xcode Previews sets)
+#   - every process in the ps process table that fm-agent-process-lib.sh
+#     classifies as an agent
 #   - the fifteen-minute load average against online CPU cores
 #
 # Unix-domain sockets are intentionally outside the network-listener category.
 # The command's name and output therefore never claim to inventory them.
 # CoreSimulator device sets belong to the calling user's home, so other users'
 # simulators are outside the scan.
-# A missing command, inaccessible system-wide result, incomplete device-set
-# discovery, unreadable device set, or failed query emits a NOT CHECKED finding
-# instead of silently making a broader claim than it proved.
+# The ps, lsof, docker, simctl, and device-set discovery queries each run under
+# a sixty-second bound from fm-timeout-lib.sh.
+# A missing command, inaccessible system-wide result, failed or timed-out query,
+# unreadable device set, or interrupted scan emits a NOT CHECKED finding instead
+# of silently making a broader claim than it proved.
 # lsof sees only the caller's own sockets unless run as root, so a non-root run
 # reports other users' sockets as NOT CHECKED.
 #
@@ -36,7 +41,9 @@
 # Exit 0 means every measurement completed and no finding exceeded its rule.
 # Exit 1 means at least one leak or unmeasured category was reported.
 # Exit 2 means invalid invocation.
-# Exit 129, 130, or 143 means HUP, INT, or TERM interrupted the scan.
+# Exit 129, 130, or 143 means HUP, INT, or TERM interrupted the run; findings
+# collected so far are still printed, and the interrupted scan and every scan
+# after it are reported as NOT CHECKED.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -52,20 +59,37 @@ case "${1:-}" in
 esac
 
 AGE_SECS=86400
+QUERY_SECS=60
 
 # shellcheck source=bin/fm-agent-process-lib.sh
 . "$SCRIPT_DIR/fm-agent-process-lib.sh"
+# shellcheck source=bin/fm-timeout-lib.sh
+. "$SCRIPT_DIR/fm-timeout-lib.sh"
 
-TMP_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/fm-machine-inventory.XXXXXX") || exit 1
+TMP_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/fm-machine-inventory.XXXXXX") || {
+  printf '%s\n' 'NOT CHECKED: every scan (temporary directory unavailable)'
+  exit 1
+}
 trap 'rm -rf "$TMP_ROOT"' EXIT
-trap 'exit 129' HUP
-trap 'exit 130' INT
-trap 'exit 143' TERM
+exec 9>&1
 FINDINGS="$TMP_ROOT/findings"
+PROCESSES="$TMP_ROOT/processes"
 : > "$FINDINGS"
 
 finding() {
   printf '%s\n' "$*" >> "$FINDINGS"
+}
+
+run_query() {  # <what> <stdout file> <command...>; bounded, NOT CHECKED on failure
+  local what=$1 output=$2 rc=0
+  shift 2
+  fm_run_timed "$QUERY_SECS" "$@" > "$output" 2> "$output.err" || rc=$?
+  case "$rc" in
+    0) return 0 ;;
+    124) finding "NOT CHECKED: $what (query timed out)" ;;
+    *) finding "NOT CHECKED: $what (query failed)" ;;
+  esac
+  return "$rc"
 }
 
 elapsed_seconds() {  # [[days-]hours:]minutes:seconds -> integer seconds
@@ -86,8 +110,18 @@ EOF
   printf '%s\n' $((10#$days * 86400 + 10#$hours * 3600 + 10#$minutes * 60 + 10#$seconds))
 }
 
-pid_elapsed() {  # <pid> -> ps etime, or empty
-  ps -o etime= -p "$1" 2>/dev/null | awk 'NR == 1 { gsub(/^[[:space:]]+|[[:space:]]+$/, ""); print }'
+scan_process_table() {  # -> $PROCESSES rows of pid<TAB>etime<TAB>comm<TAB>command
+  local names="$TMP_ROOT/ps-comm" commands="$TMP_ROOT/ps-command"
+  run_query 'process table' "$names" ps -axo pid=,etime=,comm= || return
+  run_query 'process table' "$commands" ps -axo pid=,command= || return
+  awk '
+    NR == FNR { pid = $1; sub(/^[[:space:]]*[0-9]+[[:space:]]+/, ""); command[pid] = $0; next }
+    { pid = $1; etime = $2; sub(/^[[:space:]]*[0-9]+[[:space:]]+[^[:space:]]+[[:space:]]+/, ""); printf "%s\t%s\t%s\t%s\n", pid, etime, $0, command[pid] }
+  ' "$commands" "$names" > "$PROCESSES"
+}
+
+pid_elapsed() {  # <pid> -> etime from the process table, empty when the pid started later
+  awk -F '\t' -v pid="$1" '$1 == pid { print $2; exit }' "$PROCESSES"
 }
 
 report_listener_records() {  # <protocol> <lsof output>
@@ -99,6 +133,7 @@ report_listener_records() {  # <protocol> <lsof output>
       n*'->'*|'n*:*') ;;
       n*)
         age=$(pid_elapsed "$pid")
+        [ -n "$age" ] || continue
         age_seconds=$(elapsed_seconds "$age" 2>/dev/null || true)
         if [ -z "$age_seconds" ]; then
           finding "NOT CHECKED: $protocol socket pid=$pid command=${command:-unknown} age unreadable"
@@ -112,13 +147,20 @@ report_listener_records() {  # <protocol> <lsof output>
 
 scan_listeners() {
   local protocol=$1; shift
-  local output="$TMP_ROOT/lsof-$protocol" errors="$TMP_ROOT/lsof-$protocol.err" rc
+  local output="$TMP_ROOT/lsof-$protocol" errors="$TMP_ROOT/lsof-$protocol.err" rc=0
   if ! command -v lsof >/dev/null 2>&1; then
     finding "NOT CHECKED: $protocol network sockets (lsof unavailable)"
     return
   fi
-  lsof -nP "$@" -Fpcn > "$output" 2> "$errors"
-  rc=$?
+  if [ ! -f "$PROCESSES" ]; then
+    finding "NOT CHECKED: $protocol network sockets (process table unavailable)"
+    return
+  fi
+  fm_run_timed "$QUERY_SECS" lsof -nP "$@" -Fpcn > "$output" 2> "$errors" || rc=$?
+  if [ "$rc" -eq 124 ]; then
+    finding "NOT CHECKED: $protocol network sockets (lsof query timed out)"
+    return
+  fi
   if [ "$rc" -gt 1 ] || [ -s "$errors" ]; then
     finding "NOT CHECKED: $protocol network sockets (lsof query incomplete)"
     return
@@ -129,13 +171,14 @@ scan_listeners() {
   report_listener_records "$protocol" "$output"
 }
 
-scan_listeners TCP -iTCP -sTCP:LISTEN
-scan_listeners UDP -iUDP
+scan_network_sockets() {
+  scan_listeners TCP -iTCP -sTCP:LISTEN
+  scan_listeners UDP -iUDP
+}
 
 online_cores() {
   local cores
-  cores=$(sysctl -n hw.ncpu 2>/dev/null || true)
-  case "$cores" in ''|*[!0-9]*) cores=$(getconf _NPROCESSORS_ONLN 2>/dev/null || true) ;; esac
+  cores=$(getconf _NPROCESSORS_ONLN 2>/dev/null || true)
   case "$cores" in ''|*[!0-9]*|0) return 1 ;; esac
   printf '%s\n' "$cores"
 }
@@ -158,8 +201,6 @@ scan_load() {
   fi
 }
 
-scan_load
-
 seconds_since() {  # <RFC3339 timestamp> -> whole seconds elapsed
   local stamp=${1%%.*} started now
   stamp=${stamp%Z}
@@ -172,40 +213,34 @@ seconds_since() {  # <RFC3339 timestamp> -> whole seconds elapsed
 }
 
 scan_containers() {
-  local ids="$TMP_ROOT/docker-ids" errors="$TMP_ROOT/docker.err" id name started age
+  local ids="$TMP_ROOT/docker-ids" inspected="$TMP_ROOT/docker-started" id name age
   if ! command -v docker >/dev/null 2>&1; then
     finding 'NOT CHECKED: running containers (docker unavailable)'
     return
   fi
-  if ! docker ps --format '{{.ID}}\t{{.Names}}' > "$ids" 2> "$errors"; then
-    finding 'NOT CHECKED: running containers (docker daemon query failed)'
-    return
-  fi
+  run_query 'running containers' "$ids" docker ps --format '{{.ID}}\t{{.Names}}' || return
   while IFS=$'\t' read -r id name || [ -n "$id" ]; do
     [ -n "$id" ] || continue
-    started=$(docker inspect --format '{{.State.StartedAt}}' "$id" 2>/dev/null || true)
-    age=$(seconds_since "$started" 2>/dev/null || true)
+    run_query "running container id=$id name=${name:-unknown} uptime" "$inspected" \
+      docker inspect --format '{{.State.StartedAt}}' "$id" || continue
+    age=$(seconds_since "$(cat "$inspected")" 2>/dev/null || true)
     if [ -z "$age" ]; then
       finding "NOT CHECKED: running container id=$id name=${name:-unknown} uptime unreadable"
-      continue
-    fi
-    if [ "$age" -gt "$AGE_SECS" ]; then
+    elif [ "$age" -gt "$AGE_SECS" ]; then
       finding "CONTAINER: id=$id name=${name:-unknown} uptime=${age}s"
     fi
   done < "$ids"
 }
 
-scan_containers
-
 scan_simulator_set() {  # <device-set path>
-  local set=$1 output="$TMP_ROOT/simulators" booted="$TMP_ROOT/simulators.tsv" errors="$TMP_ROOT/simulators.err" udid started name age
+  local set=$1 output="$TMP_ROOT/simulators" booted="$TMP_ROOT/simulators.tsv" udid started name age
   if [ ! -r "$set/device_set.plist" ]; then
     finding "NOT CHECKED: booted simulators set=$set (device set unreadable)"
     return
   fi
-  if ! xcrun simctl --set "$set" list -j devices > "$output" 2> "$errors" ||
-    ! jq -r '.devices[][] | select(.state == "Booted") | [.udid, .lastBootedAt // "unknown", .name] | @tsv' "$output" > "$booted" 2>> "$errors"; then
-    finding "NOT CHECKED: booted simulators set=$set (simctl query failed)"
+  run_query "booted simulators set=$set" "$output" xcrun simctl --set "$set" list -j devices || return
+  if ! jq -r '.devices[][] | select(.state == "Booted") | [.udid, .lastBootedAt // "unknown", .name] | @tsv' "$output" > "$booted" 2>/dev/null; then
+    finding "NOT CHECKED: booted simulators set=$set (simctl output unreadable)"
     return
   fi
   while IFS=$'\t' read -r udid started name || [ -n "$udid" ]; do
@@ -227,25 +262,25 @@ scan_simulators() {
       return
     fi
   done
-  if ! find -L "$HOME/Library/Developer" -maxdepth 5 -name device_set.plist > "$sets" 2>/dev/null; then
-    finding "NOT CHECKED: booted simulators (device set discovery under $HOME/Library/Developer incomplete)"
-  fi
+  run_query "booted simulator device set discovery under $HOME/Library/Developer" "$sets" \
+    find -L "$HOME/Library/Developer" -maxdepth 5 -name device_set.plist
   while IFS= read -r plist <&3; do
     scan_simulator_set "${plist%/device_set.plist}"
   done 3< "$sets"
 }
 
-scan_simulators
-
 scan_agent_processes() {
-  local output="$TMP_ROOT/processes" errors="$TMP_ROOT/processes.err" pid elapsed comm command argv0 age
-  if ! ps -axo pid=,etime=,comm=,command= > "$output" 2> "$errors"; then
-    finding 'NOT CHECKED: agent processes (process table query failed)'
+  local pid elapsed comm command argv0 age
+  if [ ! -f "$PROCESSES" ]; then
+    finding 'NOT CHECKED: agent processes (process table unavailable)'
     return
   fi
-  while read -r pid elapsed comm command; do
+  while IFS=$'\t' read -r pid elapsed comm command; do
     [ -n "${pid:-}" ] || continue
-    argv0=${command%%[[:space:]]*}
+    case "$command" in
+      "$comm"|"$comm "*) argv0=$comm ;;
+      *) argv0=${command%%[[:space:]]*} ;;
+    esac
     [ "$(fm_agent_process_classify "$comm" "$argv0" "$command" "$pid")" = agent ] || continue
     age=$(elapsed_seconds "$elapsed" 2>/dev/null || true)
     if [ -z "$age" ]; then
@@ -253,10 +288,31 @@ scan_agent_processes() {
     elif [ "$age" -gt "$AGE_SECS" ]; then
       finding "AGENT: pid=$pid age=$elapsed command=${argv0:-$comm}"
     fi
-  done < "$output"
+  done < "$PROCESSES"
 }
 
-scan_agent_processes
+SCANS='scan_process_table scan_network_sockets scan_load scan_containers scan_simulators scan_agent_processes'
+PENDING_SCANS=$SCANS
+
+interrupted() {  # <exit status>
+  local scan
+  for scan in $PENDING_SCANS; do
+    scan=${scan#scan_}
+    finding "NOT CHECKED: ${scan//_/ } scan (interrupted)"
+  done
+  sort -u "$FINDINGS" >&9
+  exit "$1"
+}
+
+trap 'interrupted 129' HUP
+trap 'interrupted 130' INT
+trap 'interrupted 143' TERM
+
+for scan in $SCANS; do
+  "$scan"
+  PENDING_SCANS=${PENDING_SCANS#"$scan"}
+  PENDING_SCANS=${PENDING_SCANS# }
+done
 
 if [ -s "$FINDINGS" ]; then
   sort -u "$FINDINGS"

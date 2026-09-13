@@ -28,10 +28,27 @@ esac
 SH
   cat > "$case_dir/fakebin/ps" <<'SH'
 #!/usr/bin/env bash
-if [ "${1:-}" = -o ]; then printf '%s\n' "${FM_INVENTORY_PID_ETIME:-2-00:00:00}"; exit 0; fi
-case "${FM_INVENTORY_PS:-quiet}" in
-  agent) printf ' 202  2-00:00:00 codex /opt/homebrew/bin/codex --resume\n' ;;
+claude='/Users/me/Library/Application Support/Claude/claude-code/claude.app/Contents/MacOS/claude'
+case "${2:-}" in
+  pid=,etime=,comm=)
+    printf '  101 2-00:00:00 /usr/local/bin/devserver\n  102 2-00:00:00 /usr/sbin/mdns-fixture\n'
+    [ "${FM_INVENTORY_PS:-quiet}" = agent ] && printf '  202 2-00:00:00 codex\n  203 3-00:00:00 %s\n' "$claude" ;;
+  pid=,command=)
+    printf '  101 devserver --port 4310\n  102 mdns-fixture\n'
+    [ "${FM_INVENTORY_PS:-quiet}" = agent ] && printf '  202 /opt/homebrew/bin/codex --resume\n  203 %s --resume\n' "$claude" ;;
 esac
+exit 0
+SH
+  cat > "$case_dir/fakebin/timeout" <<'SH'
+#!/usr/bin/env bash
+[ "${1:-}" = -k ] && shift 2
+shift
+for word in ${FM_INVENTORY_TIMEOUT:-}; do
+  for arg; do
+    [ "$arg" = "$word" ] && exit 124
+  done
+done
+exec "$@"
 SH
   cat > "$case_dir/fakebin/docker" <<'SH'
 #!/usr/bin/env bash
@@ -66,7 +83,8 @@ esac
 SH
   cat > "$case_dir/fakebin/sysctl" <<'SH'
 #!/usr/bin/env bash
-case "${2:-}" in hw.ncpu) printf '%s\n' 10 ;; vm.loadavg) printf '{ 1.00 2.00 %s }\n' "${FM_INVENTORY_LOAD15:-1.00}" ;; esac
+[ "${2:-}" = vm.loadavg ] && printf '{ 1.00 2.00 %s }\n' "${FM_INVENTORY_LOAD15:-1.00}"
+exit 0
 SH
   cat > "$case_dir/fakebin/getconf" <<'SH'
 #!/usr/bin/env bash
@@ -132,6 +150,7 @@ test_reports_each_other_leak_class() {
   assert_not_contains "$output" 'iPhone Fresh' 'recently booted simulator was reported'
   assert_not_contains "$output" 'iPhone Off' 'shutdown simulator was reported'
   assert_contains "$output" 'AGENT: pid=202 age=2-00:00:00 command=/opt/homebrew/bin/codex' 'old agent process was omitted'
+  assert_contains "$output" 'AGENT: pid=203 age=3-00:00:00 command=/Users/me/Library/Application Support/Claude/claude-code/claude.app/Contents/MacOS/claude' 'agent executable path with spaces was truncated'
   pass 'load, containers, simulators, and agent processes report violations'
 }
 
@@ -156,7 +175,7 @@ test_discovers_simulator_device_sets() {
   assert_contains "$output" "SIMULATOR: set=$developer/XCPGDevices udid=00000000-0000-0000-0000-0000000000C1 name=XCPGDevices uptime=259200s" 'old booted simulator in a discovered set was omitted'
   assert_contains "$output" "SIMULATOR: set=$developer/XCTestDevices udid=00000000-0000-0000-0000-0000000000C1 name=XCTestDevices uptime=259200s" 'old booted simulator in a symlinked device set was omitted'
   assert_contains "$output" "NOT CHECKED: booted simulators set=$previews (device set unreadable)" 'unreadable discovered device set was silent'
-  assert_contains "$output" "NOT CHECKED: booted simulators (device set discovery under $developer incomplete)" 'unreadable discovery subtree was silent'
+  assert_contains "$output" "NOT CHECKED: booted simulator device set discovery under $developer (query failed)" 'unreadable discovery subtree was silent'
   pass 'discovered simulator device sets are scanned or reported unreadable'
 }
 
@@ -169,10 +188,27 @@ test_reports_incomplete_measurement_instead_of_claiming_the_host_is_clean() {
   pass 'incomplete listener scan narrows the claim visibly'
 }
 
+test_reports_timed_out_queries() {
+  local case_dir developer output
+  case_dir=$(make_case timeouts)
+  developer="$case_dir/home/Library/Developer"
+  output=$(FM_INVENTORY_TIMEOUT='lsof inspect find' FM_INVENTORY_DOCKER=old run_inventory "$case_dir" 2>&1 || true)
+  assert_contains "$output" 'NOT CHECKED: TCP network sockets (lsof query timed out)' 'timed-out TCP scan was silent'
+  assert_contains "$output" 'NOT CHECKED: UDP network sockets (lsof query timed out)' 'timed-out UDP scan was silent'
+  assert_contains "$output" 'NOT CHECKED: running container id=abc123 name=forgotten uptime (query timed out)' 'timed-out container inspect was silent'
+  assert_contains "$output" "NOT CHECKED: booted simulator device set discovery under $developer (query timed out)" 'timed-out device set discovery was silent'
+  output=$(FM_INVENTORY_TIMEOUT='ps xcrun' run_inventory "$case_dir" 2>&1 || true)
+  assert_contains "$output" 'NOT CHECKED: process table (query timed out)' 'timed-out process table was silent'
+  assert_contains "$output" 'NOT CHECKED: agent processes (process table unavailable)' 'agent scan claimed coverage without a process table'
+  assert_contains "$output" 'NOT CHECKED: running containers (query timed out)' 'timed-out container listing was silent'
+  assert_contains "$output" "NOT CHECKED: booted simulators set=$developer/CoreSimulator/Devices (query timed out)" 'timed-out simulator query was silent'
+  pass 'every bounded query reports its timeout as NOT CHECKED'
+}
+
 test_interrupted_scan_does_not_exit_clean() {
-  local case_dir pid rc=0 tries=0
+  local case_dir output pid rc=0 tries=0
   case_dir=$(make_case interrupted)
-  FM_INVENTORY_DOCKER=hang HOME="$case_dir/home" PATH="$case_dir/fakebin:$PATH" "$INVENTORY" > "$case_dir/output" 2>&1 &
+  FM_INVENTORY_LOAD15=31.00 FM_INVENTORY_DOCKER=hang HOME="$case_dir/home" PATH="$case_dir/fakebin:$PATH" "$INVENTORY" > "$case_dir/output" 2>&1 &
   pid=$!
   while [ ! -e "$case_dir/docker-started" ] && [ "$tries" -lt 100 ]; do
     sleep 0.1
@@ -181,8 +217,14 @@ test_interrupted_scan_does_not_exit_clean() {
   [ -e "$case_dir/docker-started" ] || fail 'interrupt fixture never reached the container scan'
   kill -TERM "$pid"
   wait "$pid" || rc=$?
-  [ "$rc" -eq 143 ] || fail "TERM-interrupted inventory exited $rc: $(cat "$case_dir/output")"
-  pass 'interrupted scan exits with the signal status instead of clean'
+  output=$(cat "$case_dir/output")
+  [ "$rc" -eq 143 ] || fail "TERM-interrupted inventory exited $rc: $output"
+  assert_contains "$output" 'LOAD: fifteen-minute=31.00 cores=10' 'interrupt discarded an already measured finding'
+  assert_contains "$output" 'NOT CHECKED: containers scan (interrupted)' 'interrupted scan was not named'
+  assert_contains "$output" 'NOT CHECKED: simulators scan (interrupted)' 'scan skipped by the interrupt was not named'
+  assert_contains "$output" 'NOT CHECKED: agent processes scan (interrupted)' 'scan skipped by the interrupt was not named'
+  assert_not_contains "$output" 'load scan (interrupted)' 'completed scan was reported as interrupted'
+  pass 'interrupted scan prints collected findings, names unfinished scans, and exits with the signal status'
 }
 
 test_silent_when_everything_is_measured_and_healthy
@@ -191,4 +233,5 @@ test_non_root_listener_scan_reports_other_users_as_unmeasured
 test_reports_each_other_leak_class
 test_discovers_simulator_device_sets
 test_reports_incomplete_measurement_instead_of_claiming_the_host_is_clean
+test_reports_timed_out_queries
 test_interrupted_scan_does_not_exit_clean
