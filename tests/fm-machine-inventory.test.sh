@@ -21,7 +21,7 @@ make_case() {  # <name> -> case root with fake host tools
 #!/usr/bin/env bash
 case "${FM_INVENTORY_LSOF:-quiet}" in
   listener)
-    case " $* " in *' -iTCP '*) printf 'p101\nccodex\nn*:4310\n' ;; *) printf 'p102\nccnode\nn*:5353\n' ;; esac ;;
+    case " $* " in *' -iTCP '*) printf 'p101\nccodex\nn*:4310\n' ;; *) printf 'p102\nccnode\nn*:5353\nn*:*\nn192.168.1.129:51898->142.251.157.119:443\n' ;; esac ;;
   error) echo 'lsof fixture error' >&2; exit 2 ;;
 esac
 SH
@@ -95,6 +95,9 @@ test_reports_old_listener_with_age_and_owner() {
   case_dir=$(make_case listener)
   output=$(FM_INVENTORY_LSOF=listener run_inventory "$case_dir" 2>&1 || true)
   assert_contains "$output" 'LISTENER: protocol=TCP pid=101 age=2-00:00:00 command=codex endpoint=*:4310' 'old listener omitted age, owner, or endpoint'
+  assert_contains "$output" 'LISTENER: protocol=UDP pid=102 age=2-00:00:00 command=cnode endpoint=*:5353' 'old bound UDP socket was omitted'
+  assert_not_contains "$output" 'endpoint=*:*' 'unbound UDP socket was reported as a listener'
+  assert_not_contains "$output" '->' 'connected UDP client socket was reported as a listener'
   pass 'old whole-host listener names its age and owner'
 }
 

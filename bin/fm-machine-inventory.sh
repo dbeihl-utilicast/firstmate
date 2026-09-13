@@ -87,6 +87,7 @@ report_listener_records() {  # <protocol> <lsof output>
     case "$line" in
       p*) pid=${line#p} ;;
       c*) command=${line#c} ;;
+      n*'->'*|'n*:*') ;;
       n*)
         age=$(pid_elapsed "$pid")
         age_seconds=$(elapsed_seconds "$age" 2>/dev/null || true)
@@ -188,11 +189,13 @@ scan_containers() {
 scan_containers
 
 scan_simulators() {
-  local output="$TMP_ROOT/simulators" booted="$TMP_ROOT/simulators.tsv" errors="$TMP_ROOT/simulators.err" udid started name age
-  if ! command -v xcrun >/dev/null 2>&1; then
-    finding 'NOT CHECKED: booted simulators (xcrun unavailable)'
-    return
-  fi
+  local output="$TMP_ROOT/simulators" booted="$TMP_ROOT/simulators.tsv" errors="$TMP_ROOT/simulators.err" tool udid started name age
+  for tool in xcrun jq; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+      finding "NOT CHECKED: booted simulators ($tool unavailable)"
+      return
+    fi
+  done
   if ! xcrun simctl list -j devices > "$output" 2> "$errors" ||
     ! jq -r '.devices[][] | select(.state == "Booted") | [.udid, .lastBootedAt // "unknown", .name] | @tsv' "$output" > "$booted" 2>> "$errors"; then
     finding 'NOT CHECKED: booted simulators (simctl query failed)'
