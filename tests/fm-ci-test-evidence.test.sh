@@ -26,17 +26,21 @@ case "$1 ${2:-}" in
     case "$2" in
       /repos/acme/market-pulse/pulls/458) body '"head\th458"' ;;
       '/repos/acme/market-pulse/actions/runs?event=pull_request&head_sha=h458&per_page=100') body '"run\t101"' ;;
-      '/repos/acme/market-pulse/actions/runs/101/jobs?per_page=100') body '"job\t101\t11\tIntegration tests\tsuccess\njob\t101\t17\tBackend - Unit Tests\tsuccess\njob\t101\t18\tMCP - Build, Type Check & Tests\tsuccess"' ;;
+      '/repos/acme/market-pulse/actions/runs/101/jobs?per_page=100') body '"job\t2026-09-13T10:00:00Z\t101\t11\tIntegration tests\tsuccess\njob\t2026-09-13T10:00:00Z\t101\t17\tBackend - Unit Tests\tsuccess\njob\t2026-09-13T10:00:00Z\t101\t18\tMCP - Build, Type Check & Tests\tsuccess"' ;;
       /repos/acme/market-pulse/pulls/459) body '"head\th459"' ;;
       '/repos/acme/market-pulse/actions/runs?event=pull_request&head_sha=h459&per_page=100') body '"run\t201\nrun\t202"' ;;
-      '/repos/acme/market-pulse/actions/runs/201/jobs?per_page=100') body '"job\t201\t11\tIntegration tests\tsuccess"' ;;
-      '/repos/acme/market-pulse/actions/runs/202/jobs?per_page=100') body '"job\t202\t22\tIntegration tests\tskipped"' ;;
-      '/repos/acme/repo/actions/runs/481/jobs?per_page=100') body '"job\t481\t12\tIntegration tests\tsuccess\njob\t481\t13\tBrowser tests\tsuccess\njob\t481\t14\tCollection tests\tfailure\njob\t481\t15\tGo tests\tsuccess\njob\t481\t16\tStill running\t\njob\t481\t19\tMobile - Type Check & Tests\tsuccess\njob\t481\t20\tWeb - Lint, Type Check & Build\tsuccess\njob\t481\t21\tWeb - E2E Tests (Playwright)\tsuccess\njob\t481\t22\tBackend - Unit Tests\tfailure\njob\t481\t23\tMCP - Build, Type Check & Tests\tfailure"' ;;
+      '/repos/acme/market-pulse/actions/runs/201/jobs?per_page=100') body '"job\t2026-09-13T10:00:00Z\t201\t11\tIntegration tests\tsuccess"' ;;
+      '/repos/acme/market-pulse/actions/runs/202/jobs?per_page=100') body '"job\t2026-09-13T11:00:00Z\t202\t22\tIntegration tests\tskipped"' ;;
+      /repos/acme/market-pulse/pulls/460) body '"head\th460"' ;;
+      '/repos/acme/market-pulse/actions/runs?event=pull_request&head_sha=h460&per_page=100') body '"run\t302\nrun\t301"' ;;
+      '/repos/acme/market-pulse/actions/runs/301/jobs?per_page=100') body '"job\t2026-09-13T10:00:00Z\t301\t31\tIntegration tests\tskipped\njob\t2026-09-13T10:00:00Z\t301\t17\tBackend - Unit Tests\tsuccess"' ;;
+      '/repos/acme/market-pulse/actions/runs/302/jobs?per_page=100') body '"job\t2026-09-13T11:00:00Z\t302\t11\tIntegration tests\tsuccess"' ;;
+      '/repos/acme/repo/actions/runs/481/jobs?per_page=100') body '"job\t2026-09-13T10:00:00Z\t481\t12\tIntegration tests\tsuccess\njob\t2026-09-13T10:00:00Z\t481\t13\tBrowser tests\tsuccess\njob\t2026-09-13T10:00:00Z\t481\t14\tCollection tests\tfailure\njob\t2026-09-13T10:00:00Z\t481\t15\tGo tests\tsuccess\njob\t2026-09-13T10:00:00Z\t481\t16\tStill running\t\njob\t2026-09-13T10:00:00Z\t481\t19\tMobile - Type Check & Tests\tsuccess\njob\t2026-09-13T10:00:00Z\t481\t20\tWeb - Lint, Type Check & Build\tsuccess\njob\t2026-09-13T10:00:05Z\t481\t21\tWeb - E2E Tests (Playwright)\tsuccess\njob\t2026-09-13T10:00:00Z\t481\t22\tBackend - Unit Tests\tfailure\njob\t2026-09-13T10:00:00Z\t481\t23\tMCP - Build, Type Check & Tests\tfailure"' ;;
       /repos/double-d-labs/go-easy-homie/pulls/481) body '"head\tf555c27acbe817beed5ea54d8aa8639d3a77d83f"' ;;
       '/repos/double-d-labs/go-easy-homie/actions/runs?event=pull_request&head_sha=f555c27acbe817beed5ea54d8aa8639d3a77d83f&per_page=100') body '"run\t34721814954\nrun\t34721814948\nrun\t34721814926"' ;;
-      '/repos/double-d-labs/go-easy-homie/actions/runs/34721814954/jobs?per_page=100') body '"job\t34721814954\t103628992346\tMCP - Build, Type Check & Tests\tsuccess"' ;;
-      '/repos/double-d-labs/go-easy-homie/actions/runs/34721814948/jobs?per_page=100') body '"job\t34721814948\t103628992350\tWeb Security Scan\tsuccess\njob\t34721814948\t103628992409\tMobile Security Scan\tsuccess\njob\t34721814948\t103628992421\tBackend Security Scan\tsuccess\njob\t34721814948\t103628992427\tSecrets Detection\tsuccess"' ;;
-      '/repos/double-d-labs/go-easy-homie/actions/runs/34721814926/jobs?per_page=100') body '"job\t34721814926\t103628992271\tDetect changed packages\tsuccess\njob\t34721814926\t103628992751\tWeb - Lint, Type Check & Build\tskipped\njob\t34721814926\t103628992888\tBackend - Lint, Type Check & Build\tskipped\njob\t34721814926\t103628992957\tBackend - Unit Tests\tskipped\njob\t34721814926\t103628993171\tWeb - E2E Tests (Playwright)\tskipped\njob\t34721814926\t103628993607\tMobile - Type Check & Tests\tskipped\njob\t34721814926\t103629008439\tDevelop slim - Web lint & type check (tests run locally)\tsuccess\njob\t34721814926\t103629008440\tDevelop slim - Backend lint & type check (tests run locally)\tsuccess\njob\t34721814926\t103629008448\tDevelop slim - Mobile type check (tests run locally)\tsuccess\njob\t34721814926\t103629129467\tCI gate\tsuccess"' ;;
+      '/repos/double-d-labs/go-easy-homie/actions/runs/34721814954/jobs?per_page=100') body '"job\t2026-09-12T22:06:28Z\t34721814954\t103628992346\tMCP - Build, Type Check & Tests\tsuccess"' ;;
+      '/repos/double-d-labs/go-easy-homie/actions/runs/34721814948/jobs?per_page=100') body '"job\t2026-09-12T22:06:28Z\t34721814948\t103628992350\tWeb Security Scan\tsuccess\njob\t2026-09-12T22:06:28Z\t34721814948\t103628992409\tMobile Security Scan\tsuccess\njob\t2026-09-12T22:06:28Z\t34721814948\t103628992421\tBackend Security Scan\tsuccess\njob\t2026-09-12T22:06:29Z\t34721814948\t103628992427\tSecrets Detection\tsuccess"' ;;
+      '/repos/double-d-labs/go-easy-homie/actions/runs/34721814926/jobs?per_page=100') body '"job\t2026-09-12T22:06:28Z\t34721814926\t103628992271\tDetect changed packages\tsuccess\njob\t2026-09-12T22:06:29Z\t34721814926\t103628992751\tWeb - Lint, Type Check & Build\tskipped\njob\t2026-09-12T22:06:29Z\t34721814926\t103628992888\tBackend - Lint, Type Check & Build\tskipped\njob\t2026-09-12T22:06:29Z\t34721814926\t103628992957\tBackend - Unit Tests\tskipped\njob\t2026-09-12T22:06:29Z\t34721814926\t103628993171\tWeb - E2E Tests (Playwright)\tskipped\njob\t2026-09-12T22:06:29Z\t34721814926\t103628993607\tMobile - Type Check & Tests\tskipped\njob\t2026-09-12T22:06:37Z\t34721814926\t103629008439\tDevelop slim - Web lint & type check (tests run locally)\tsuccess\njob\t2026-09-12T22:06:37Z\t34721814926\t103629008440\tDevelop slim - Backend lint & type check (tests run locally)\tsuccess\njob\t2026-09-12T22:06:37Z\t34721814926\t103629008448\tDevelop slim - Mobile type check (tests run locally)\tsuccess\njob\t2026-09-12T22:07:34Z\t34721814926\t103629129467\tCI gate\tsuccess"' ;;
       *) exit 1 ;;
     esac
     ;;
@@ -58,7 +62,7 @@ case "$1 ${2:-}" in
       *' --job 18 '*) log "$2" '"MCP - Build, Type Check & Tests\tUNKNOWN STEP\t2026-09-13T20:42:38.6908315Z ^[[2m Test Files ^[[22m ^[[1m^[[32m12 passed^[[39m^[[22m^[[90m (12)^[[39m\nMCP - Build, Type Check & Tests\tUNKNOWN STEP\t2026-09-13T20:42:38.6909613Z ^[[2m      Tests ^[[22m ^[[1m^[[32m97 passed^[[39m^[[22m^[[90m (97)^[[39m\n"' ;;
       *' --job 19 '*) log "$2" '"Mobile - Type Check & Tests\tUNKNOWN STEP\t2026-09-13T12:57:01.7588573Z Test Suites: 1 skipped, 94 passed, 94 of 95 total\nMobile - Type Check & Tests\tUNKNOWN STEP\t2026-09-13T12:57:01.7589455Z Tests:       2 skipped, 1 todo, 1645 passed, 1648 total\n"' ;;
       *' --job 20 '*) log "$2" '"Web - Lint, Type Check & Build\tUNKNOWN STEP\t2026-09-13T12:56:35.0233409Z ^[[2m Test Files ^[[22m ^[[1m^[[32m75 passed^[[39m^[[22m^[[90m (75)^[[39m\nWeb - Lint, Type Check & Build\tUNKNOWN STEP\t2026-09-13T12:56:35.0255846Z ^[[2m      Tests ^[[22m ^[[1m^[[32m1770 passed^[[39m^[[22m^[[2m | ^[[22m^[[33m7 skipped^[[39m^[[90m (1777)^[[39m\n"' ;;
-      *' --job 21 '*) log "$2" '"Web - E2E Tests (Playwright)\tUNKNOWN STEP\t2026-09-13T19:59:38.1054278Z   3 skipped\nWeb - E2E Tests (Playwright)\tUNKNOWN STEP\t2026-09-13T19:59:38.1054731Z   99 passed (2.3m)\nWeb - E2E Tests (Playwright)\tUNKNOWN STEP\t2026-09-13T19:59:38.1078774Z ##[notice]  3 skipped\n  99 passed (2.3m)\nWeb - E2E Tests (Playwright)\tUNKNOWN STEP\t2026-09-13T19:59:38.1279903Z Post job cleanup.\n"' ;;
+      *' --job 21 '*) log "$2" '"Web - E2E Tests (Playwright)\tUNKNOWN STEP\t2026-09-13T19:59:38.1052000Z   1 interrupted\nWeb - E2E Tests (Playwright)\tUNKNOWN STEP\t2026-09-13T19:59:38.1052500Z     [chromium] › e2e/search.spec.ts:40:3 › filters homes by price\nWeb - E2E Tests (Playwright)\tUNKNOWN STEP\t2026-09-13T19:59:38.1053000Z   2 flaky\nWeb - E2E Tests (Playwright)\tUNKNOWN STEP\t2026-09-13T19:59:38.1053500Z     [chromium] › e2e/booking.spec.ts:12:5 › books a home\nWeb - E2E Tests (Playwright)\tUNKNOWN STEP\t2026-09-13T19:59:38.1054278Z   3 skipped\nWeb - E2E Tests (Playwright)\tUNKNOWN STEP\t2026-09-13T19:59:38.1054731Z   99 passed (2.3m)\nWeb - E2E Tests (Playwright)\tUNKNOWN STEP\t2026-09-13T19:59:38.1078774Z ##[notice]  3 skipped\n  99 passed (2.3m)\nWeb - E2E Tests (Playwright)\tUNKNOWN STEP\t2026-09-13T19:59:38.1279903Z Post job cleanup.\n"' ;;
       *' --job 22 '*) log "$2" '"Backend - Unit Tests\tUNKNOWN STEP\t2026-09-13T12:57:40.1000000Z FAIL src/__tests__/broken.test.ts\nBackend - Unit Tests\tUNKNOWN STEP\t2026-09-13T12:57:40.1000001Z   ● Test suite failed to run\nBackend - Unit Tests\tUNKNOWN STEP\t2026-09-13T12:57:40.1000002Z     Cannot find module '"'"'./does-not-exist'"'"' from '"'"'broken.test.ts'"'"'\nBackend - Unit Tests\tUNKNOWN STEP\t2026-09-13T12:58:21.0260000Z ^[[1mSummary of all failing tests^[[22m\nBackend - Unit Tests\tUNKNOWN STEP\t2026-09-13T12:58:21.0260001Z FAIL src/__tests__/broken.test.ts\nBackend - Unit Tests\tUNKNOWN STEP\t2026-09-13T12:58:21.0260002Z   ^[[1m● ^[[22mTest suite failed to run\nBackend - Unit Tests\tUNKNOWN STEP\t2026-09-13T12:58:21.0266236Z Test Suites: 1 failed, 79 passed, 80 total\nBackend - Unit Tests\tUNKNOWN STEP\t2026-09-13T12:58:21.0267051Z Tests:       1850 passed, 1850 total\n"' ;;
       *' --job 23 '*) log "$2" '"MCP - Build, Type Check & Tests\tUNKNOWN STEP\t2026-09-13T20:42:38.6900000Z ⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯\nMCP - Build, Type Check & Tests\tUNKNOWN STEP\t2026-09-13T20:42:38.6900001Z  FAIL  src/broken.test.ts [ src/broken.test.ts ]\nMCP - Build, Type Check & Tests\tUNKNOWN STEP\t2026-09-13T20:42:38.6908315Z ^[[2m Test Files ^[[22m ^[[1m^[[31m1 failed^[[39m^[[22m^[[2m | ^[[22m^[[1m^[[32m11 passed^[[39m^[[22m^[[90m (12)^[[39m\nMCP - Build, Type Check & Tests\tUNKNOWN STEP\t2026-09-13T20:42:38.6909613Z ^[[2m      Tests ^[[22m ^[[1m^[[32m97 passed^[[39m^[[22m^[[90m (97)^[[39m\nMCP - Build, Type Check & Tests\tUNKNOWN STEP\t2026-09-13T20:42:38.6910000Z ^[[2m     Errors ^[[22m ^[[1m^[[31m1 error^[[39m^[[22m\n"' ;;
       *) exit 1 ;;
@@ -102,15 +106,26 @@ test_go_easy_homie_pr_481_skipped_jobs_are_red() {
   pass 'go-easy-homie PR 481 rejects its five skipped jobs'
 }
 
-test_duplicate_job_names_are_all_checked() {
+test_most_recent_skipped_execution_stays_red() {
   local dir out rc
-  dir="$TMP_ROOT/duplicate"
+  dir="$TMP_ROOT/recent-skipped"
   make_fixture "$dir"
   out=$(PATH="$dir/fakebin:$PATH" local_check --pr https://github.com/acme/market-pulse/pull/459 --required-job 'Integration tests' 2>&1)
   rc=$?
-  [ "$rc" -eq 1 ] || fail "duplicate job exit=$rc: $out"
-  assert_contains "$out" 'Integration tests executed=0 skipped=unknown' 'skipped copy of a measured job name passed'
-  pass 'every job sharing a required name is measured'
+  [ "$rc" -eq 1 ] || fail "most recent skipped job exit=$rc: $out"
+  assert_contains "$out" 'Integration tests executed=0 skipped=unknown' 'older measured execution hid the most recent skipped one'
+  pass 'most recent skipped execution of a required job stays red'
+}
+
+test_superseded_runs_do_not_stay_red() {
+  local dir out rc
+  dir="$TMP_ROOT/superseded"
+  make_fixture "$dir"
+  out=$(PATH="$dir/fakebin:$PATH" local_check --pr https://github.com/acme/market-pulse/pull/460 --required-job 'Integration tests' --required-job 'Backend - Unit Tests' 2>&1)
+  rc=$?
+  [ "$rc" -eq 0 ] || fail "superseded run exit=$rc: $out"
+  [ -z "$out" ] || fail "superseded skipped execution or partial newer run changed the verdict: $out"
+  pass 'each required job uses its most recent execution across runs for the head commit'
 }
 
 test_log_evidence_violations_are_red() {
@@ -131,7 +146,8 @@ test_log_evidence_violations_are_red() {
   assert_contains "$out" 'not measured: required job Go tests' 'unsupported runner output or a self-declared marker was accepted as evidence'
   assert_contains "$out" 'Mobile - Type Check & Tests executed=1645 skipped=3 deselected=0' 'Jest skipped and todo tests were not a violation'
   assert_contains "$out" 'Web - Lint, Type Check & Build executed=1770 skipped=7 deselected=0' 'Vitest skipped tests were not a violation'
-  assert_contains "$out" 'Web - E2E Tests (Playwright) executed=99 skipped=3 deselected=0' 'Playwright skipped tests were not counted once'
+  assert_contains "$out" 'Web - E2E Tests (Playwright) executed=101 skipped=3 deselected=0' 'Playwright flaky tests were not executed evidence or skipped tests were not counted once'
+  assert_contains "$out" 'Web - E2E Tests (Playwright) interrupted=1 (' 'Playwright interrupted tests were dropped'
   assert_contains "$out" 'Backend - Unit Tests errors=1 (' 'Jest suite that failed to run was not one distinct errored measurement'
   assert_contains "$out" 'MCP - Build, Type Check & Tests errors=2 (' 'Vitest failed suite and error summary were not errored measurements'
   [ -z "$(ls -A "$dir/tmp")" ] || fail "gh-axi full logs were left in TMPDIR: $(ls -A "$dir/tmp")"
@@ -184,7 +200,8 @@ test_unavailable_read_is_local_notice_but_ci_failure() {
 
 test_positive_pr_is_silent
 test_go_easy_homie_pr_481_skipped_jobs_are_red
-test_duplicate_job_names_are_all_checked
+test_most_recent_skipped_execution_stays_red
+test_superseded_runs_do_not_stay_red
 test_log_evidence_violations_are_red
 test_absent_required_job_is_red
 test_unreadable_log_is_local_notice_but_ci_failure

@@ -7,14 +7,15 @@
 #   fm-ci-test-evidence.sh --run https://github.com/OWNER/REPO/actions/runs/RUN --required-job NAME [--required-job NAME ...]
 #
 # A required job is matched by its exact GitHub Actions job name.
-# A PR examines every Actions run for its current head commit, while --run
-# examines that exact run.
-# Every job with a required name is measured from the pytest, Jest, Vitest, and
-# Playwright summaries in its full log; executed counts passed plus failed tests.
+# A PR measures each required job in the most recent Actions run for its current
+# head commit that contains that job, while --run examines that exact run.
+# Every job with a required name there is measured from the pytest, Jest, Vitest,
+# and Playwright summaries in its full log; executed counts passed plus failed
+# tests, with Playwright flaky tests counted as passed.
 # The checker prints nothing and exits zero when every required job has a
-# positive executed count with zero skipped, deselected, and errored tests.
-# It prints only violations: absent jobs, unreadable logs, unmeasured logs,
-# collection errors, or nonzero skipped/deselected counts.
+# positive executed count with zero skipped, deselected, errored, and interrupted
+# tests. It prints only violations: absent jobs, unreadable logs, unmeasured
+# logs, collection errors, interrupted tests, or nonzero skipped/deselected counts.
 #
 # An unavailable GitHub read is deliberately non-fatal outside CI, where a
 # contributor may lack the services or credentials required to inspect a run.
@@ -23,7 +24,7 @@
 set -u
 
 usage() {
-  sed -n '3,20p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 die() {
@@ -137,7 +138,7 @@ if fields.get("truncated") == "true":
     text = open(fields["full_log"], encoding="utf-8", errors="replace").read()
 else:
     text = fields["output"]
-labels = {"passed": "passed", "failed": "failed", "skipped": "skipped", "todo": "skipped", "did not run": "skipped", "deselected": "deselected", "error": "errors", "errors": "errors"}
+labels = {"passed": "passed", "flaky": "passed", "failed": "failed", "skipped": "skipped", "todo": "skipped", "did not run": "skipped", "deselected": "deselected", "error": "errors", "errors": "errors", "interrupted": "interrupted"}
 summaries = (
     re.compile(r"((?:\d+ [a-z]+, )*\d+ [a-z]+) in \d+(?:\.\d+)?s\b"),
     re.compile(r"^Tests:\s+((?:\d+ [a-z]+, )*\d+ [a-z]+), \d+ total\s*$"),
@@ -145,7 +146,7 @@ summaries = (
     re.compile(r"^\s+(\d+ (?:passed|failed|flaky|skipped|did not run|interrupted))(?: \([^)]*\))?\s*$"),
     re.compile(r"^\s*Errors\s+(\d+ errors?)\s*$"),
 )
-totals = dict.fromkeys(("passed", "failed", "skipped", "deselected", "errors"), 0)
+totals = dict.fromkeys(("passed", "failed", "skipped", "deselected", "errors", "interrupted"), 0)
 measured = False
 jest_failure_recap = False
 for line in text.splitlines():
@@ -172,7 +173,7 @@ for line in text.splitlines():
     for number, label in counts:
         totals[label] += number
 if measured:
-    print(totals["passed"] + totals["failed"], totals["skipped"], totals["deselected"], totals["errors"])
+    print(totals["passed"] + totals["failed"], totals["skipped"], totals["deselected"], totals["errors"], totals["interrupted"])
 PY
 }
 
@@ -214,14 +215,17 @@ fi
 while IFS= read -r run; do
   [ -n "$run" ] || continue
   if ! api_rows job "/repos/$OWNER/$REPO/actions/runs/$run/jobs?per_page=100" \
-    '.jobs[] | ["job", .run_id, .id, .name, (.conclusion // "")] | @tsv' >> "$TMP/jobs" 2>/dev/null; then
+    '.jobs[] | ["job", .created_at, .run_id, .id, .name, (.conclusion // "")] | @tsv' >> "$TMP/jobs" 2>/dev/null; then
     stop_unreadable "Actions jobs for run $run could not be read"
   fi
 done < "$RUNS_FILE"
 
 violations=0
 for required in "${REQUIRED_JOBS[@]}"; do
-  awk -F '\t' -v name="$required" '$3 == name' "$TMP/jobs" > "$TMP/matches"
+  awk -F '\t' -v name="$required" '
+    NR == FNR { if ($4 == name) { if ($1 > newest[$2]) newest[$2] = $1; if ($1 > latest) latest = $1 } next }
+    $4 == name && newest[$2] == latest { print $2 "\t" $3 "\t" $4 "\t" $5 }
+  ' "$TMP/jobs" "$TMP/jobs" > "$TMP/matches"
   if [ ! -s "$TMP/matches" ]; then
     printf 'absent: required job %s was not present in %s\n' "$required" "$TARGET" >&2
     violations=1
@@ -243,11 +247,15 @@ for required in "${REQUIRED_JOBS[@]}"; do
       violations=1
       continue
     fi
-    read -r executed skipped deselected errors <<EOF
+    read -r executed skipped deselected errors interrupted <<EOF
 $counts
 EOF
     if [ "$errors" -ne 0 ]; then
       printf 'test evidence violation: %s errors=%s (collection errors are not executed tests)\n' "$required" "$errors" >&2
+      violations=1
+    fi
+    if [ "$interrupted" -ne 0 ]; then
+      printf 'test evidence violation: %s interrupted=%s (interrupted tests did not finish)\n' "$required" "$interrupted" >&2
       violations=1
     fi
     if [ "$executed" -eq 0 ] || [ "$skipped" -ne 0 ] || [ "$deselected" -ne 0 ]; then
