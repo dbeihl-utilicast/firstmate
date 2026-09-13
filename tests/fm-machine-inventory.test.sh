@@ -139,14 +139,17 @@ test_discovers_simulator_device_sets() {
   fi
   developer="$case_dir/home/Library/Developer"
   previews="$developer/Xcode/UserData/Previews/Simulator Devices"
-  mkdir -p "$developer/XCPGDevices" "$previews" "$developer/Xcode/DerivedData"
+  mkdir -p "$developer/XCPGDevices" "$previews" "$developer/Xcode/DerivedData" "$case_dir/external/XCTestDevices"
   : > "$developer/XCPGDevices/device_set.plist"
+  : > "$case_dir/external/XCTestDevices/device_set.plist"
+  ln -s "$case_dir/external/XCTestDevices" "$developer/XCTestDevices"
   : > "$previews/device_set.plist"
   chmod 000 "$previews/device_set.plist" "$developer/Xcode/DerivedData"
   output=$(run_inventory "$case_dir" 2>&1 || true)
   chmod 755 "$developer/Xcode/DerivedData"
   chmod 644 "$previews/device_set.plist"
   assert_contains "$output" "SIMULATOR: set=$developer/XCPGDevices udid=00000000-0000-0000-0000-0000000000C1 name=XCPGDevices uptime=259200s" 'old booted simulator in a discovered set was omitted'
+  assert_contains "$output" "SIMULATOR: set=$developer/XCTestDevices udid=00000000-0000-0000-0000-0000000000C1 name=XCTestDevices uptime=259200s" 'old booted simulator in a symlinked device set was omitted'
   assert_contains "$output" "NOT CHECKED: booted simulators set=$previews (device set unreadable)" 'unreadable discovered device set was silent'
   assert_contains "$output" "NOT CHECKED: booted simulators (device set discovery under $developer incomplete)" 'unreadable discovery subtree was silent'
   pass 'discovered simulator device sets are scanned or reported unreadable'

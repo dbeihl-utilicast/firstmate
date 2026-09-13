@@ -15,8 +15,8 @@
 #   - TCP LISTEN and bound, unconnected UDP network sockets from lsof
 #   - every running container on the current Docker context
 #   - every booted simulator in each CoreSimulator device set discovered by its
-#     device_set.plist within five levels of the caller's ~/Library/Developer
-#     (such as the default, XCTest clone, Playgrounds, and Xcode Previews sets)
+#     device_set.plist within five levels of the caller's ~/Library/Developer,
+#     following symlinks (such as the default, XCTest clone, Playgrounds, and Xcode Previews sets)
 #   - every process recognized by fm-agent-process-lib.sh
 #   - the fifteen-minute load average against online CPU cores
 #
@@ -223,7 +223,7 @@ scan_simulators() {
       return
     fi
   done
-  if ! find "$HOME/Library/Developer" -maxdepth 5 -name device_set.plist > "$sets" 2>/dev/null; then
+  if ! find -L "$HOME/Library/Developer" -maxdepth 5 -name device_set.plist > "$sets" 2>/dev/null; then
     finding "NOT CHECKED: booted simulators (device set discovery under $HOME/Library/Developer incomplete)"
   fi
   while IFS= read -r plist <&3; do
