@@ -6,10 +6,13 @@ Usage:
 
 The command reads the live open Dependabot alert list for origin's GitHub
 repository through gh-axi, then evaluates each alert's package-lock manifest at
-the supplied base and head refs.
-It is deliberately fail-closed: an unsupported manifest, a non-semver version,
-or an advisory without a non-major patched version is reported as not checked,
-never counted as remediated.
+the supplied base and head refs against every npm vulnerable range the advisory
+publishes for that package.
+An alert counts as remediated only when base holds a copy inside a vulnerable
+range and head holds none. It is deliberately fail-closed: an unsupported
+manifest, a lockfile without a packages object, a non-semver or prerelease
+installed version, or an unparseable vulnerable range is reported as not
+checked, never counted as remediated.
 Output is silent only when the live default-branch alert list is empty.
 """
 
@@ -17,6 +20,7 @@ from __future__ import annotations
 
 import base64
 import json
+import operator
 import re
 import subprocess
 import sys
@@ -26,6 +30,11 @@ from pathlib import PurePosixPath
 
 REPO_RE = re.compile(r"(?:git@github\.com:|https://github\.com/)([^/\s]+)/([^/\s]+?)(?:\.git)?$")
 SEMVER_RE = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+.*)?$")
+RANGE_RE = re.compile(r"(<=|>=|<|>|=)\s*(\S+)")
+BASE64_PAGE = r"[A-Za-z0-9+/=]+"
+BODY_RE = re.compile(rf'^\s*body: (?:"({BASE64_PAGE}(?:\\n{BASE64_PAGE})*)"|({BASE64_PAGE}))\s*$', re.MULTILINE)
+OPERATORS = {"<": operator.lt, "<=": operator.le, ">": operator.gt, ">=": operator.ge, "=": operator.eq}
+RELEASE = ((2,),)
 
 
 class CheckError(Exception):
@@ -48,20 +57,18 @@ def repository() -> str:
     return f"{match.group(1)}/{match.group(2)}"
 
 
-def gh_axi_bodies(output: str) -> list[str]:
-    """Extract gh-axi's scalar response bodies without parsing presentation YAML."""
-    bodies: list[str] = []
-    for line in output.splitlines():
-        match = re.fullmatch(r"\s*body:\s*['\"]?([A-Za-z0-9+/=]+)['\"]?\s*", line)
-        if match:
-            bodies.append(match.group(1))
-    if not bodies:
+def gh_axi_pages(output: str) -> list[str]:
+    """Extract the per-page base64 lines from gh-axi's TOON body scalar without parsing presentation YAML."""
+    match = BODY_RE.search(output)
+    if not match:
         raise CheckError("gh-axi returned no readable alert data")
-    return bodies
+    return (match.group(1) or match.group(2)).split("\\n")
 
 
 def live_alerts(repo: str) -> list[dict[str, object]]:
-    query = "[.[] | {number, dependency, security_vulnerability}] | @base64"
+    query = (
+        "[.[] | {number, dependency, security_advisory: {vulnerabilities: .security_advisory.vulnerabilities}}] | @base64"
+    )
     output = run(
         "gh-axi",
         "api",
@@ -72,7 +79,7 @@ def live_alerts(repo: str) -> list[dict[str, object]]:
         "--full",
     )
     alerts: list[dict[str, object]] = []
-    for body in gh_axi_bodies(output):
+    for body in gh_axi_pages(output):
         try:
             page = json.loads(base64.b64decode(body, validate=True))
         except (ValueError, json.JSONDecodeError) as exc:
@@ -108,72 +115,91 @@ def lock_versions(raw: bytes) -> dict[str, list[str]]:
         lock = json.loads(raw)
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise CheckError(f"package-lock.json is not valid JSON: {exc}") from exc
+    packages = lock.get("packages") if isinstance(lock, dict) else None
+    if not isinstance(packages, dict):
+        raise CheckError("package-lock.json has no packages object")
     versions: dict[str, list[str]] = defaultdict(list)
-    packages = lock.get("packages")
-    if isinstance(packages, dict):
-        for path, item in packages.items():
-            if not isinstance(path, str) or not isinstance(item, dict):
-                continue
-            package = package_name_from_path(path)
-            version = item.get("version")
-            if package and isinstance(version, str):
-                versions[package].append(version)
-        return versions
-
-    def visit(dependencies: object) -> None:
-        if not isinstance(dependencies, dict):
-            return
-        for package, item in dependencies.items():
-            if not isinstance(package, str) or not isinstance(item, dict):
-                continue
-            version = item.get("version")
-            if isinstance(version, str):
-                versions[package].append(version)
-            visit(item.get("dependencies"))
-
-    visit(lock.get("dependencies"))
+    for path, item in packages.items():
+        if not isinstance(path, str) or not isinstance(item, dict):
+            continue
+        package = package_name_from_path(path)
+        version = item.get("version")
+        if package and isinstance(version, str):
+            versions[package].append(version)
     return versions
 
 
-def semver(version: str) -> tuple[int, int, int, int] | None:
+def semver(version: str) -> tuple[int, int, int, tuple] | None:
     match = SEMVER_RE.fullmatch(version)
     if not match:
         return None
     major, minor, patch, prerelease = match.groups()
-    return int(major), int(minor), int(patch), 0 if prerelease else 1
+    tag = tuple((0, int(part)) if part.isdigit() else (1, part) for part in prerelease.split(".")) if prerelease else RELEASE
+    return int(major), int(minor), int(patch), tag
 
 
-def version_state(versions: list[str], patched: str) -> str:
-    patch_version = semver(patched)
-    parsed = [semver(version) for version in versions]
-    if patch_version is None or any(version is None for version in parsed):
-        return "unknown"
-    return "safe" if all(version >= patch_version for version in parsed if version is not None) else "vulnerable"
+def parse_range(text: object) -> list[tuple[str, tuple]] | None:
+    if not isinstance(text, str):
+        return None
+    bounds = []
+    for part in text.split(","):
+        match = RANGE_RE.fullmatch(part.strip())
+        bound = semver(match.group(2)) if match else None
+        if bound is None:
+            return None
+        bounds.append((match.group(1), bound))
+    return bounds
 
 
-def requires_major_upgrade(versions: list[str], patched: str) -> bool:
-    patch_version = semver(patched)
-    parsed = [semver(version) for version in versions]
-    return bool(
-        patch_version
-        and parsed
-        and all(version is not None and version[0] < patch_version[0] for version in parsed)
-    )
+def vulnerable_ranges(package: str, vulnerabilities: list[object]) -> list[tuple[list[tuple[str, tuple]], str | None]]:
+    ranges = []
+    for vulnerability in vulnerabilities:
+        if not isinstance(vulnerability, dict) or not isinstance(vulnerability.get("package"), dict):
+            raise CheckError("malformed advisory vulnerability")
+        affected = vulnerability["package"]
+        if str(affected.get("ecosystem")).lower() != "npm" or affected.get("name") != package:
+            continue
+        text = vulnerability.get("vulnerable_version_range")
+        bounds = parse_range(text)
+        first_patched = vulnerability.get("first_patched_version")
+        patched = first_patched.get("identifier") if isinstance(first_patched, dict) else None
+        if bounds is None or (first_patched is not None and not (isinstance(patched, str) and semver(patched))):
+            raise CheckError(f"unparseable advisory range {text!r}")
+        ranges.append((bounds, patched))
+    if not ranges:
+        raise CheckError("advisory publishes no npm vulnerable range")
+    return ranges
 
 
-def alert_fields(alert: dict[str, object]) -> tuple[int, str, str, str | None] | None:
+def vulnerable_copies(versions: list[str], ranges: list[tuple[list[tuple[str, tuple]], str | None]]) -> list[tuple[tuple, str | None]]:
+    copies = []
+    for version in versions:
+        parsed = semver(version)
+        if parsed is None or parsed[3] != RELEASE:
+            raise CheckError(f"non-semver or prerelease package-lock version {version}")
+        copies.extend(
+            (parsed, patched) for bounds, patched in ranges if all(OPERATORS[op](parsed, bound) for op, bound in bounds)
+        )
+    return copies
+
+
+def alert_fields(alert: dict[str, object]) -> tuple[int, str, str, list[object]] | None:
     number = alert.get("number")
     dependency = alert.get("dependency")
-    vulnerability = alert.get("security_vulnerability")
-    if not isinstance(number, int) or not isinstance(dependency, dict) or not isinstance(vulnerability, dict):
+    advisory = alert.get("security_advisory")
+    if not isinstance(number, int) or not isinstance(dependency, dict) or not isinstance(advisory, dict):
         return None
     package = dependency.get("package")
     manifest = dependency.get("manifest_path")
-    first_patched = vulnerability.get("first_patched_version")
-    if not isinstance(package, dict) or not isinstance(package.get("name"), str) or not isinstance(manifest, str):
+    vulnerabilities = advisory.get("vulnerabilities")
+    if (
+        not isinstance(package, dict)
+        or not isinstance(package.get("name"), str)
+        or not isinstance(manifest, str)
+        or not isinstance(vulnerabilities, list)
+    ):
         return None
-    patched = first_patched.get("identifier") if isinstance(first_patched, dict) else None
-    return number, package["name"], manifest.lstrip("/"), patched if isinstance(patched, str) else None
+    return number, package["name"], manifest.lstrip("/"), vulnerabilities
 
 
 def main(argv: list[str]) -> int:
@@ -193,7 +219,6 @@ def main(argv: list[str]) -> int:
     remediated: list[str] = []
     excluded: list[str] = []
     unchecked: list[str] = []
-    by_package: dict[str, list[int]] = defaultdict(list)
     caches: dict[tuple[str, str], dict[str, list[str]]] = {}
 
     for raw_alert in alerts:
@@ -201,42 +226,34 @@ def main(argv: list[str]) -> int:
         if fields is None:
             unchecked.append("malformed live alert record")
             continue
-        number, package, manifest, patched = fields
-        by_package[package].append(number)
+        number, package, manifest, vulnerabilities = fields
         label = f"#{number} {package} ({manifest})"
         if PurePosixPath(manifest).name != "package-lock.json":
             unchecked.append(f"{label}: unsupported manifest")
             continue
-        if patched is None:
-            excluded.append(f"{label}: major-only advisory, no non-major patched version to verify")
-            continue
         try:
+            ranges = vulnerable_ranges(package, vulnerabilities)
             for ref in (base, head):
                 key = (ref, manifest)
                 if key not in caches:
                     caches[key] = lock_versions(git_file(ref, manifest))
-            base_versions = caches[(base, manifest)].get(package, [])
-            head_versions = caches[(head, manifest)].get(package, [])
+            base_copies = vulnerable_copies(caches[(base, manifest)].get(package, []), ranges)
+            head_copies = vulnerable_copies(caches[(head, manifest)].get(package, []), ranges)
         except CheckError as exc:
             unchecked.append(f"{label}: {exc}")
             continue
-        base_state = version_state(base_versions, patched) if base_versions else "safe"
-        head_state = version_state(head_versions, patched) if head_versions else "safe"
-        if base_state == "unknown" or head_state == "unknown":
-            unchecked.append(f"{label}: non-semver package-lock version")
-        elif requires_major_upgrade(base_versions, patched):
-            excluded.append(f"{label}: major-only advisory, patch requires {patched}")
-        elif base_state == "safe":
+        patches = {patched for _, patched in head_copies}
+        if not base_copies:
             excluded.append(f"{label}: already resolved on {base}")
-        elif head_state == "safe":
+        elif not head_copies:
             remediated.append(label)
+        elif None in patches:
+            excluded.append(f"{label}: no patched version published")
+        elif all(semver(patched)[0] > version[0] for version, patched in head_copies):
+            excluded.append(f"{label}: rejected major, patch requires {', '.join(sorted(patches))}")
         else:
             excluded.append(f"{label}: {head} does not reach a patched version")
 
-    print("OPEN DEFAULT-BRANCH ADVISORIES BY PACKAGE:")
-    for package, numbers in sorted(by_package.items()):
-        identifiers = ", ".join(f"#{number}" for number in sorted(numbers))
-        print(f"- {package}: {len(numbers)} ({identifiers})")
     print("PER-ADVISORY VERDICTS:")
     for item in sorted(remediated + excluded + unchecked):
         print(f"- {item}")
