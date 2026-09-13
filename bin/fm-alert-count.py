@@ -123,9 +123,10 @@ def lock_versions(raw: bytes) -> dict[str, list[str]]:
         if not isinstance(path, str) or not isinstance(item, dict):
             continue
         package = package_name_from_path(path)
+        name = item.get("name")
         version = item.get("version")
         if package and isinstance(version, str):
-            versions[package].append(version)
+            versions[name if isinstance(name, str) else package].append(version)
     return versions
 
 
@@ -138,14 +139,20 @@ def semver(version: str) -> tuple[int, int, int, tuple] | None:
     return int(major), int(minor), int(patch), tag
 
 
+def padded(version: str) -> str:
+    parts = version.split(".")
+    return ".".join(parts + ["0"] * (3 - len(parts))) if len(parts) < 3 and all(part.isdigit() for part in parts) else version
+
+
 def parse_range(text: object) -> list[tuple[str, tuple]] | None:
     if not isinstance(text, str):
         return None
     bounds = []
     for part in text.split(","):
         match = RANGE_RE.fullmatch(part.strip())
-        bound = semver(match.group(2)) if match else None
-        if bound is None:
+        full = padded(match.group(2)) if match else ""
+        bound = semver(full)
+        if bound is None or (full != match.group(2) and match.group(1) in {"<=", "="}):
             return None
         bounds.append((match.group(1), bound))
     return bounds
@@ -161,10 +168,12 @@ def vulnerable_ranges(package: str, vulnerabilities: list[object]) -> list[tuple
             continue
         text = vulnerability.get("vulnerable_version_range")
         bounds = parse_range(text)
+        if bounds is None:
+            raise CheckError(f"unparseable advisory range {text!r}")
         first_patched = vulnerability.get("first_patched_version")
         patched = first_patched.get("identifier") if isinstance(first_patched, dict) else None
-        if bounds is None or (first_patched is not None and not (isinstance(patched, str) and semver(patched))):
-            raise CheckError(f"unparseable advisory range {text!r}")
+        if first_patched is not None and not (isinstance(patched, str) and semver(padded(patched))):
+            raise CheckError(f"unparseable first patched version {patched!r}")
         ranges.append((bounds, patched))
     if not ranges:
         raise CheckError("advisory publishes no npm vulnerable range")
@@ -224,7 +233,8 @@ def main(argv: list[str]) -> int:
     for raw_alert in alerts:
         fields = alert_fields(raw_alert)
         if fields is None:
-            unchecked.append("malformed live alert record")
+            number = raw_alert.get("number")
+            unchecked.append(f"#{number} malformed live alert record" if isinstance(number, int) else "malformed live alert record")
             continue
         number, package, manifest, vulnerabilities = fields
         label = f"#{number} {package} ({manifest})"
@@ -243,13 +253,15 @@ def main(argv: list[str]) -> int:
             unchecked.append(f"{label}: {exc}")
             continue
         patches = {patched for _, patched in head_copies}
-        if not base_copies:
+        if not base_copies and not head_copies:
             excluded.append(f"{label}: already resolved on {base}")
+        elif not base_copies:
+            excluded.append(f"{label}: {head} reintroduces a vulnerable copy")
         elif not head_copies:
             remediated.append(label)
         elif None in patches:
             excluded.append(f"{label}: no patched version published")
-        elif all(semver(patched)[0] > version[0] for version, patched in head_copies):
+        elif all(semver(padded(patched))[0] > version[0] for version, patched in head_copies):
             excluded.append(f"{label}: rejected major, patch requires {', '.join(sorted(patches))}")
         else:
             excluded.append(f"{label}: {head} does not reach a patched version")

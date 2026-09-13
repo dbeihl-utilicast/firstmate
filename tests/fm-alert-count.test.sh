@@ -52,8 +52,8 @@ page() {
 test_verified_remediation_and_exclusions_are_explicit() {
   local dir base_lock head_lock semver_7 first second out rc
   dir=$(fm_test_tmproot fm-alert-count)
-  base_lock='{"lockfileVersion":3,"packages":{"node_modules/foo":{"version":"1.0.0"},"node_modules/already":{"version":"2.0.0"},"node_modules/rejected":{"version":"1.0.0"},"node_modules/major":{"version":"1.0.0"},"node_modules/taken":{"version":"1.0.0"},"node_modules/semver":{"version":"5.7.1"},"node_modules/unpatched":{"version":"3.0.0"}}}'
-  head_lock='{"lockfileVersion":3,"packages":{"node_modules/foo":{"version":"1.0.1"},"node_modules/already":{"version":"2.0.0"},"node_modules/rejected":{"version":"1.0.0"},"node_modules/major":{"version":"1.0.0"},"node_modules/taken":{"version":"2.0.0"},"node_modules/semver":{"version":"7.0.0"},"node_modules/unpatched":{"version":"3.0.0"}}}'
+  base_lock='{"lockfileVersion":3,"packages":{"node_modules/foo":{"version":"1.0.0"},"node_modules/already":{"version":"2.0.0"},"node_modules/rejected":{"version":"1.0.0"},"node_modules/major":{"version":"1.0.0"},"node_modules/taken":{"version":"1.0.0"},"node_modules/semver":{"version":"5.7.1"},"node_modules/unpatched":{"version":"3.0.0"},"node_modules/aliased":{"version":"1.0.0"},"node_modules/aliased-cjs":{"name":"aliased","version":"1.0.0"},"node_modules/malware":{"version":"1.0.0"},"node_modules/partial":{"version":"7.9.0"},"node_modules/returned":{"version":"1.0.1"}}}'
+  head_lock='{"lockfileVersion":3,"packages":{"node_modules/foo":{"version":"1.0.1"},"node_modules/already":{"version":"2.0.0"},"node_modules/rejected":{"version":"1.0.0"},"node_modules/major":{"version":"1.0.0"},"node_modules/taken":{"version":"2.0.0"},"node_modules/semver":{"version":"7.0.0"},"node_modules/unpatched":{"version":"3.0.0"},"node_modules/aliased":{"version":"1.0.1"},"node_modules/aliased-cjs":{"name":"aliased","version":"1.0.0"},"node_modules/malware":{"version":"1.0.0"},"node_modules/partial":{"version":"8.0.0"},"node_modules/returned":{"version":"1.0.0"}}}'
   make_repository "$dir" "$base_lock" "$head_lock"
   semver_7='{"package":{"ecosystem":"npm","name":"semver"},"vulnerable_version_range":">= 7.0.0, < 7.5.2","first_patched_version":{"identifier":"7.5.2"}}'
   first=$(page \
@@ -64,7 +64,11 @@ test_verified_remediation_and_exclusions_are_explicit() {
   second=$(page \
     "$(alert 105 taken package-lock.json '< 2.0.0' '{"identifier":"2.0.0"}')" \
     "$(alert 106 semver package-lock.json '>= 2.0.0-alpha, < 5.7.2' '{"identifier":"5.7.2"}' "$semver_7")" \
-    "$(alert 107 unpatched package-lock.json '<= 3.0.0' null)")
+    "$(alert 107 unpatched package-lock.json '<= 3.0.0' null)" \
+    "$(alert 108 aliased package-lock.json '< 1.0.1' '{"identifier":"1.0.1"}')" \
+    "$(alert 109 malware package-lock.json '> 0' null)" \
+    "$(alert 110 partial package-lock.json '>= 7.0, < 8.0' '{"identifier":"8.0"}')" \
+    "$(alert 111 returned package-lock.json '< 1.0.1' '{"identifier":"1.0.1"}')")
   write_gh_axi "$dir/fakebin/gh-axi" "\"$first\\n$second\""
   set +e
   out=$(cd "$dir/repo" && PATH="$dir/fakebin:$PATH" "$ROOT/bin/fm-alert-count.py" integration security)
@@ -72,7 +76,10 @@ test_verified_remediation_and_exclusions_are_explicit() {
   set -e
   [ "$rc" -eq 0 ] || fail "complete evidence should succeed: $out"
   printf '%s\n' "$out" | grep -F 'BY PACKAGE' >/dev/null && fail "per-package tally must not be printed: $out"
-  printf '%s\n' "$out" | grep -Fx 'VERIFIED BRANCH REMEDIATION COUNT: 2 (#101 foo (package-lock.json), #105 taken (package-lock.json))' >/dev/null || fail "wrong verified count: $out"
+  printf '%s\n' "$out" | grep -Fx 'VERIFIED BRANCH REMEDIATION COUNT: 3 (#101 foo (package-lock.json), #105 taken (package-lock.json), #110 partial (package-lock.json))' >/dev/null || fail "wrong verified count: $out"
+  printf '%s\n' "$out" | grep -F '#108 aliased (package-lock.json): security does not reach a patched version' >/dev/null || fail "an aliased vulnerable copy was ignored: $out"
+  printf '%s\n' "$out" | grep -F '#109 malware (package-lock.json): no patched version published' >/dev/null || fail "missing zero-bound no-patch exclusion: $out"
+  printf '%s\n' "$out" | grep -F '#111 returned (package-lock.json): security reintroduces a vulnerable copy' >/dev/null || fail "a reintroduced copy was labeled resolved: $out"
   printf '%s\n' "$out" | grep -F '#102 already (package-lock.json): already resolved on integration' >/dev/null || fail "missing already-resolved exclusion: $out"
   printf '%s\n' "$out" | grep -F '#103 rejected (package-lock.json): security does not reach a patched version' >/dev/null || fail "missing unpatched-branch exclusion: $out"
   printf '%s\n' "$out" | grep -F '#104 major (package-lock.json): rejected major, patch requires 2.0.0' >/dev/null || fail "missing rejected-major exclusion: $out"
@@ -126,7 +133,9 @@ test_unverifiable_evidence_is_explicitly_not_checked() {
     "$(alert 201 java-lib pom.xml '< 1.0.1' '{"identifier":"1.0.1"}')" \
     "$(alert 202 pre package-lock.json '< 1.0.1' '{"identifier":"1.0.1"}')" \
     "$(alert 203 ranged package-lock.json '^1.0.0' '{"identifier":"1.0.1"}')" \
-    "$(alert 204 old legacy/package-lock.json '< 1.0.1' '{"identifier":"1.0.1"}')")
+    "$(alert 204 old legacy/package-lock.json '< 1.0.1' '{"identifier":"1.0.1"}')" \
+    "$(alert 205 ranged package-lock.json '<= 1.3' '{"identifier":"1.4.0"}')" \
+    '{"number":206,"dependency":{"package":{"ecosystem":"npm","name":"ranged"},"manifest_path":"package-lock.json"}}')
   write_gh_axi "$dir/fakebin/gh-axi" "$payload"
   set +e
   out=$(cd "$dir/repo" && PATH="$dir/fakebin:$PATH" "$ROOT/bin/fm-alert-count.py" integration security)
@@ -138,6 +147,8 @@ test_unverifiable_evidence_is_explicitly_not_checked() {
   printf '%s\n' "$out" | grep -F '#202 pre (package-lock.json): non-semver or prerelease package-lock version 1.0.1-beta.1' >/dev/null || fail "missing prerelease evidence: $out"
   printf '%s\n' "$out" | grep -F "#203 ranged (package-lock.json): unparseable advisory range '^1.0.0'" >/dev/null || fail "missing unparseable range evidence: $out"
   printf '%s\n' "$out" | grep -F '#204 old (legacy/package-lock.json): package-lock.json has no packages object' >/dev/null || fail "missing packages-object evidence: $out"
+  printf '%s\n' "$out" | grep -F "#205 ranged (package-lock.json): unparseable advisory range '<= 1.3'" >/dev/null || fail "an ambiguous partial bound was accepted: $out"
+  printf '%s\n' "$out" | grep -F '#206 malformed live alert record' >/dev/null || fail "malformed record lost its identifier: $out"
   pass "alert count refuses evidence it cannot verify instead of guessing"
 }
 
