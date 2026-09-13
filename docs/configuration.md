@@ -922,7 +922,7 @@ This section is the single owner of the canonical schema.
 ```
 
 Each repository entry needs all four fields.
-`integration_branch` is the non-production branch expected for ordinary pull requests, so a request based on `main` is reported when it differs from `main`, unless its head is the integration branch itself.
+`integration_branch` is the non-production branch expected for ordinary pull requests, so a request based on `main` is reported when it differs from `main`, unless its head is the integration branch itself in the same repository.
 `reviewer_team` must be the organization-qualified team slug accepted by `gh pr edit --add-reviewer`, such as `owner/team-slug`; a bare team name can partially apply an edit's assignees while leaving its reviewer request absent.
 The team passes when it is requested or a member has reviewed on its behalf.
 `assignees` lists every login that must be attached.

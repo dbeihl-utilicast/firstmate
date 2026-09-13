@@ -66,7 +66,7 @@ if ! rules=$(jq -ce --arg repo "$REPO" '
 fi
 
 if ! pull_requests=$(gh pr list --repo "$REPO" --state open --limit 1000 \
-    --json number,url,baseRefName,headRefName,assignees,reviewRequests,mergeable,statusCheckRollup 2>/dev/null) \
+    --json number,url,baseRefName,headRefName,isCrossRepository,assignees,reviewRequests,mergeable,statusCheckRollup 2>/dev/null) \
   || ! printf '%s' "$pull_requests" | jq -e 'type == "array"' >/dev/null 2>&1; then
   die "could not read open pull requests for $REPO"
 fi
@@ -74,7 +74,7 @@ fi
 # shellcheck disable=SC2016  # GraphQL variables are literal query syntax.
 if ! reviewed_teams=$(gh api graphql --paginate --slurp \
     -f query='query($owner:String!,$repo:String!,$endCursor:String){repository(owner:$owner,name:$repo){pullRequests(states:OPEN,first:100,after:$endCursor){nodes{number reviews(last:100){nodes{onBehalfOf(first:10){nodes{combinedSlug}}}}} pageInfo{hasNextPage endCursor}}}}' \
-    -F "owner=${REPO%%/*}" -F "repo=${REPO#*/}" 2>/dev/null) \
+    -f "owner=${REPO%%/*}" -f "repo=${REPO#*/}" 2>/dev/null) \
   || ! reviewed_teams=$(printf '%s' "$reviewed_teams" | jq -ce '
       [ .[].data.repository.pullRequests.nodes[] ]
       | map({ key: (.number | tostring), value: [ .reviews.nodes[].onBehalfOf.nodes[].combinedSlug ] })
@@ -94,7 +94,7 @@ printf '%s' "$pull_requests" | jq -r --argjson rules "$rules" --argjson reviewed
   | . as $pr
   | $pr.url as $url
   | (
-      if $pr.baseRefName == "main" and $rules.integration_branch != "main" and $pr.headRefName != $rules.integration_branch then
+      if $pr.baseRefName == "main" and $rules.integration_branch != "main" and ($pr.headRefName != $rules.integration_branch or $pr.isCrossRepository) then
         "\($url): base branch is main; expected \($rules.integration_branch)"
       else empty end
     ),

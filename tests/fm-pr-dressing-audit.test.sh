@@ -22,11 +22,11 @@ make_case() {
 }
 
 write_config() {
-  local case_dir=$1
-  cat > "$case_dir/home/config/pr-dressing-audit.json" <<'JSON'
+  local case_dir=$1 repo=${2:-owner/repository}
+  cat > "$case_dir/home/config/pr-dressing-audit.json" <<JSON
 {
   "repositories": {
-    "owner/repository": {
+    "$repo": {
       "integration_branch": "develop",
       "reviewer_team": "owner/team-slug",
       "assignees": ["login-one", "login-two"],
@@ -45,7 +45,20 @@ write_gh() {
 #!/usr/bin/env bash
 case "${1:-} ${2:-}" in
   "pr list") cat "$FM_TEST_PR_DRESSING_PAYLOAD" ;;
-  "api graphql") cat "$FM_TEST_PR_DRESSING_REVIEWS" ;;
+  "api graphql")
+    typed=
+    for arg in "$@"; do
+      if [ "$typed" = 1 ]; then
+        case "${arg#*=}" in
+          ''|*[!0-9]*) ;;
+          *) exit 1 ;;
+        esac
+      fi
+      typed=
+      [ "$arg" = -F ] && typed=1
+    done
+    cat "$FM_TEST_PR_DRESSING_REVIEWS"
+    ;;
   *) exit 2 ;;
 esac
 SH
@@ -53,10 +66,10 @@ SH
 }
 
 run_audit() {
-  local case_dir=$1 out=$2 status=0
+  local case_dir=$1 out=$2 repo=${3:-owner/repository} status=0
   env FM_HOME="$case_dir/home" FM_TEST_PR_DRESSING_PAYLOAD="$case_dir/pull-requests.json" \
     FM_TEST_PR_DRESSING_REVIEWS="$case_dir/reviews.json" \
-    PATH="$case_dir/fakebin:$PATH" "$AUDIT" owner/repository >"$out" 2>&1 || status=$?
+    PATH="$case_dir/fakebin:$PATH" "$AUDIT" "$repo" >"$out" 2>&1 || status=$?
   expect_code 0 "$status" "audit exit"
 }
 
@@ -66,7 +79,8 @@ test_partial_failure_fixture_and_live_case_shape_are_reported() {
   write_config "$case_dir"
   write_gh "$case_dir" '[
     {"number":480,"url":"https://github.com/owner/repository/pull/480","baseRefName":"main","headRefName":"feature-480","assignees":[{"login":"login-one"},{"login":"login-two"}],"reviewRequests":[],"mergeable":"MERGEABLE","statusCheckRollup":[{"__typename":"CheckRun","name":"CI gate","status":"COMPLETED","conclusion":"SUCCESS"}]},
-    {"number":485,"url":"https://github.com/owner/repository/pull/485","baseRefName":"main","headRefName":"feature-485","assignees":[],"reviewRequests":[],"mergeable":"MERGEABLE","statusCheckRollup":[{"__typename":"CheckRun","name":"CI gate","status":"COMPLETED","conclusion":"FAILURE"}]}
+    {"number":485,"url":"https://github.com/owner/repository/pull/485","baseRefName":"main","headRefName":"feature-485","assignees":[],"reviewRequests":[],"mergeable":"MERGEABLE","statusCheckRollup":[{"__typename":"CheckRun","name":"CI gate","status":"COMPLETED","conclusion":"FAILURE"}]},
+    {"number":486,"url":"https://github.com/owner/repository/pull/486","baseRefName":"main","headRefName":"develop","isCrossRepository":true,"assignees":[{"login":"login-one"},{"login":"login-two"}],"reviewRequests":[{"__typename":"Team","slug":"owner/team-slug"}],"mergeable":"MERGEABLE","statusCheckRollup":[]}
   ]'
   out="$case_dir/out"
   run_audit "$case_dir" "$out"
@@ -75,6 +89,7 @@ test_partial_failure_fixture_and_live_case_shape_are_reported() {
   assert_contains "$report" 'https://github.com/owner/repository/pull/485: base branch is main; expected develop' 'live-case production branch was not reported'
   assert_contains "$report" 'https://github.com/owner/repository/pull/485: assignees missing: login-one, login-two' 'live-case assignees were not reported'
   assert_contains "$report" 'https://github.com/owner/repository/pull/485: required check failing: CI gate' 'live-case failing check was not reported'
+  assert_contains "$report" 'https://github.com/owner/repository/pull/486: base branch is main; expected develop' 'fork branch named like the integration branch was exempted'
   pass 'the partial-failure fixture and live-case violation shape are reported'
 }
 
@@ -110,12 +125,23 @@ test_indeterminate_and_satisfied_states_are_silent() {
   write_gh "$case_dir" '[
     {"number":490,"url":"https://github.com/owner/repository/pull/490","baseRefName":"develop","headRefName":"feature-490","assignees":[{"login":"login-one"},{"login":"login-two"}],"reviewRequests":[{"__typename":"Team","slug":"owner/team-slug"}],"mergeable":"UNKNOWN","statusCheckRollup":[{"__typename":"CheckRun","name":"CI gate","workflowName":"CI","status":"IN_PROGRESS","conclusion":"","startedAt":"2026-09-13T10:00:00Z"}]},
     {"number":491,"url":"https://github.com/owner/repository/pull/491","baseRefName":"develop","headRefName":"feature-491","assignees":[{"login":"login-one"},{"login":"login-two"}],"reviewRequests":[],"mergeable":"MERGEABLE","statusCheckRollup":[{"__typename":"CheckRun","name":"CI gate","workflowName":"CI","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-09-13T10:00:00Z"},{"__typename":"CheckRun","name":"CI gate","workflowName":"CI","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-09-13T10:05:00Z"}]},
-    {"number":492,"url":"https://github.com/owner/repository/pull/492","baseRefName":"main","headRefName":"develop","assignees":[{"login":"login-one"},{"login":"login-two"}],"reviewRequests":[{"__typename":"Team","slug":"owner/team-slug"}],"mergeable":"MERGEABLE","statusCheckRollup":[{"__typename":"StatusContext","context":"CI gate","state":"PENDING"}]}
+    {"number":492,"url":"https://github.com/owner/repository/pull/492","baseRefName":"main","headRefName":"develop","isCrossRepository":false,"assignees":[{"login":"login-one"},{"login":"login-two"}],"reviewRequests":[{"__typename":"Team","slug":"owner/team-slug"}],"mergeable":"MERGEABLE","statusCheckRollup":[{"__typename":"StatusContext","context":"CI gate","state":"PENDING"}]}
   ]' '[{"data":{"repository":{"pullRequests":{"nodes":[{"number":491,"reviews":{"nodes":[{"onBehalfOf":{"nodes":[{"combinedSlug":"owner/team-slug"}]}}]}}]}}}}]'
   out="$case_dir/out"
   run_audit "$case_dir" "$out"
   [ ! -s "$out" ] || fail "pending, superseded, reviewed-for-team, or release pull requests were not silent: $(cat "$out")"
   pass 'pending checks, superseded failures, unknown mergeability, team reviews, and release pull requests are silent'
+}
+
+test_numeric_repository_name_is_audited() {
+  local case_dir out
+  case_dir=$(make_case numeric-repository)
+  write_config "$case_dir" owner/2048
+  write_gh "$case_dir" '[{"number":7,"url":"https://github.com/owner/2048/pull/7","baseRefName":"develop","headRefName":"feature-7","assignees":[{"login":"login-one"},{"login":"login-two"}],"reviewRequests":[{"__typename":"Team","slug":"owner/team-slug"}],"mergeable":"MERGEABLE","statusCheckRollup":[]}]'
+  out="$case_dir/out"
+  run_audit "$case_dir" "$out" owner/2048
+  [ ! -s "$out" ] || fail "numeric repository name was not audited: $(cat "$out")"
+  pass 'a repository with a numeric name is audited'
 }
 
 test_unreadable_reviews_fail_closed() {
@@ -145,5 +171,6 @@ test_partial_failure_fixture_and_live_case_shape_are_reported
 test_compliant_pull_request_is_silent
 test_missing_assignee_mergeability_and_failed_required_check_are_reported
 test_indeterminate_and_satisfied_states_are_silent
+test_numeric_repository_name_is_audited
 test_unreadable_reviews_fail_closed
 test_help_states_the_unchecked_scope
