@@ -10,18 +10,22 @@
 # It never stops, signals, restarts, or changes a process, container, or
 # simulator.
 #
-# Every successful scan covers the whole host rather than a configured port or
+# Every successful scan covers the host rather than a configured port or
 # Firstmate-home subset:
-#   - TCP LISTEN and UDP bound network sockets from lsof
-#   - every running Docker container
-#   - every booted CoreSimulator device
+#   - TCP LISTEN and bound, unconnected UDP network sockets from lsof
+#   - every running container on the current Docker context
+#   - every booted simulator in the caller's default, XCTest clone, and Xcode
+#     Previews CoreSimulator device sets
 #   - every process recognized by fm-agent-process-lib.sh
 #   - the fifteen-minute load average against online CPU cores
 #
 # Unix-domain sockets are intentionally outside the network-listener category.
 # The command's name and output therefore never claim to inventory them.
-# A missing command, inaccessible system-wide result, or failed query emits a
-# NOT CHECKED finding instead of silently making a broader claim than it proved.
+# CoreSimulator device sets belong to the calling user's home, so other users'
+# simulators are outside the scan.
+# A missing command, inaccessible system-wide result, unreadable device set, or
+# failed query emits a NOT CHECKED finding instead of silently making a broader
+# claim than it proved.
 # lsof sees only the caller's own sockets unless run as root, so a non-root run
 # reports other users' sockets as NOT CHECKED.
 #
@@ -188,28 +192,44 @@ scan_containers() {
 
 scan_containers
 
-scan_simulators() {
-  local output="$TMP_ROOT/simulators" booted="$TMP_ROOT/simulators.tsv" errors="$TMP_ROOT/simulators.err" tool udid started name age
-  for tool in xcrun jq; do
-    if ! command -v "$tool" >/dev/null 2>&1; then
-      finding "NOT CHECKED: booted simulators ($tool unavailable)"
+scan_simulator_set() {  # <label> [device-set path; skipped when absent]
+  local label=$1 path=${2:-} output="$TMP_ROOT/simulators" booted="$TMP_ROOT/simulators.tsv" errors="$TMP_ROOT/simulators.err" udid started name age
+  set --
+  if [ -n "$path" ]; then
+    [ -e "$path" ] || return
+    if [ ! -r "$path" ] || [ ! -x "$path" ]; then
+      finding "NOT CHECKED: booted simulators set=$label (device set unreadable)"
       return
     fi
-  done
-  if ! xcrun simctl list -j devices > "$output" 2> "$errors" ||
+    set -- --set "$path"
+  fi
+  if ! xcrun simctl "$@" list -j devices > "$output" 2> "$errors" ||
     ! jq -r '.devices[][] | select(.state == "Booted") | [.udid, .lastBootedAt // "unknown", .name] | @tsv' "$output" > "$booted" 2>> "$errors"; then
-    finding 'NOT CHECKED: booted simulators (simctl query failed)'
+    finding "NOT CHECKED: booted simulators set=$label (simctl query failed)"
     return
   fi
   while IFS=$'\t' read -r udid started name || [ -n "$udid" ]; do
     [ -n "$udid" ] || continue
     age=$(seconds_since "$started" 2>/dev/null || true)
     if [ -z "$age" ]; then
-      finding "NOT CHECKED: booted simulator udid=$udid name=${name:-unknown} uptime unreadable"
+      finding "NOT CHECKED: booted simulator set=$label udid=$udid name=${name:-unknown} uptime unreadable"
     elif [ "$age" -gt "$AGE_SECS" ]; then
-      finding "SIMULATOR: udid=$udid name=${name:-unknown} uptime=${age}s"
+      finding "SIMULATOR: set=$label udid=$udid name=${name:-unknown} uptime=${age}s"
     fi
   done < "$booted"
+}
+
+scan_simulators() {
+  local tool
+  for tool in xcrun jq; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+      finding "NOT CHECKED: booted simulators ($tool unavailable)"
+      return
+    fi
+  done
+  scan_simulator_set default
+  scan_simulator_set xctest "$HOME/Library/Developer/XCTestDevices"
+  scan_simulator_set previews "$HOME/Library/Developer/Xcode/UserData/Previews/Simulator Devices"
 }
 
 scan_simulators
@@ -226,7 +246,7 @@ scan_agent_processes() {
     [ "$(fm_agent_process_classify "$comm" "$argv0" "$command" "$pid")" = agent ] || continue
     age=$(elapsed_seconds "$elapsed" 2>/dev/null || true)
     if [ -z "$age" ]; then
-      finding "NOT CHECKED: agent process pid=$pid command=$command age unreadable"
+      finding "NOT CHECKED: agent process pid=$pid command=${argv0:-$comm} age unreadable"
     elif [ "$age" -gt "$AGE_SECS" ]; then
       finding "AGENT: pid=$pid age=$elapsed command=${argv0:-$comm}"
     fi
