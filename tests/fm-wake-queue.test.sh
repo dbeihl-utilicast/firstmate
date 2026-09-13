@@ -1438,9 +1438,10 @@ SH
 }
 
 test_interruption_before_and_after_raw_commit() {
-  local dir state before_out after_out replay_out empty_out pid rc count i sequence generation
+  local dir state before_out after_out replay_out empty_out pid rc count sequence generation fakebin real_sleep
   dir=$(make_case interruption)
   state="$dir/state"
+  fakebin="$dir/fakebin"
   before_out="$dir/before.out"
   after_out="$dir/after.out"
   replay_out="$dir/replay.out"
@@ -1448,20 +1449,24 @@ test_interruption_before_and_after_raw_commit() {
   printf 'done: interruption fixture\n' > "$state/task.status"
   append_wake "$state" signal task.status "signal: task" || fail "pre-commit interruption wake append failed"
 
-  FM_STATE_OVERRIDE="$state" FM_WAKE_DRAIN_TEST_DELAY_BEFORE_COMMIT=5 "$DRAIN" > "$before_out" &
-  pid=$!
-  i=0
-  while [ "$i" -lt 100 ] && [ ! -e "$state/.wake-queue.lock" ]; do
-    sleep 0.05
-    i=$((i + 1))
-  done
-  [ -e "$state/.wake-queue.lock" ] || { kill "$pid" 2>/dev/null || true; fail "pre-commit drain never entered its serialized read boundary"; }
-  kill -TERM "$pid" 2>/dev/null || fail "could not interrupt drain before raw commitment"
-  set +e
-  wait "$pid"
-  rc=$?
-  set -e
-  [ "$rc" -ne 0 ] || fail "pre-commit interruption unexpectedly succeeded"
+  real_sleep=$(command -v sleep) || fail "could not locate sleep for interruption fixture"
+  cat > "$fakebin/sleep" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = "${FM_WAKE_DRAIN_TEST_DELAY_BEFORE_COMMIT:-0}" ]; then
+  : > "$FM_STATE_OVERRIDE/before-commit"
+  kill -TERM "$PPID"
+  exit
+fi
+exec "$FM_TEST_REAL_SLEEP" "$@"
+SH
+  chmod +x "$fakebin/sleep"
+  rc=0
+  PATH="$fakebin:$PATH" FM_TEST_REAL_SLEEP="$real_sleep" \
+    FM_STATE_OVERRIDE="$state" FM_WAKE_DRAIN_TEST_DELAY_BEFORE_COMMIT=5 \
+    "$DRAIN" > "$before_out" 2> "$dir/before.err" || rc=$?
+  [ -e "$state/before-commit" ] || fail "drain never reached its pre-presentation pause"
+  [ "$rc" -eq 143 ] || fail "pre-commit interruption did not exit on TERM (rc=$rc)"
+  [ ! -s "$before_out" ] || fail "pre-commit interruption printed raw rows"
   FM_STATE_OVERRIDE="$state" "$DRAIN" > "$replay_out" 2> "$dir/replay.err" || fail "restored pre-commit wake did not drain"
   count=$(awk -F '\t' 'NF == 5 { count++ } END { print count + 0 }' "$replay_out")
   [ "$count" -eq 1 ] || fail "pre-commit interruption lost or duplicated the durable row"
