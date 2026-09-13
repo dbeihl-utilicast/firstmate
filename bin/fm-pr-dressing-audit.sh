@@ -10,7 +10,7 @@
 #
 # This is a committed script, not an agent's interactive operation.  It uses
 # gh rather than gh-axi because gh provides stable machine-readable PR fields
-# and explicit --repo selection, neither available from gh-axi's PR interface.
+# and explicit repository selection, neither available from gh-axi's PR interface.
 # The command only reads forge state and never edits a pull request.
 set -eu
 
@@ -65,25 +65,17 @@ if ! rules=$(jq -ce --arg repo "$REPO" '
   die "invalid or missing configuration for $REPO in $CONFIG"
 fi
 
-if ! pull_requests=$(gh pr list --repo "$REPO" --state open --limit 1000 \
-    --json number,url,baseRefName,headRefName,isCrossRepository,assignees,reviewRequests,mergeable,statusCheckRollup 2>/dev/null) \
-  || ! printf '%s' "$pull_requests" | jq -e 'type == "array"' >/dev/null 2>&1; then
+# Page size is 25: GitHub's GraphQL gateway times out (HTTP 504) on
+# 100-pull-request pages carrying check rollups in busy repositories.
+# shellcheck disable=SC2016  # GraphQL variables are literal query syntax.
+if ! pull_requests=$(gh api graphql --paginate --slurp \
+    -f query='query($owner:String!,$repo:String!,$endCursor:String){repository(owner:$owner,name:$repo){pullRequests(states:OPEN,first:25,after:$endCursor){nodes{number url baseRefName headRefName isCrossRepository mergeable assignees(first:100){nodes{login}} reviewRequests(first:100){nodes{requestedReviewer{__typename ... on Team{combinedSlug}}}} reviews(last:100){nodes{onBehalfOf(first:10){nodes{combinedSlug}}}} commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){nodes{__typename ... on CheckRun{name status conclusion startedAt checkSuite{workflowRun{workflow{name}}}} ... on StatusContext{context state}}}}}}}} pageInfo{hasNextPage endCursor}}}}' \
+    -f "owner=${REPO%%/*}" -f "repo=${REPO#*/}" 2>/dev/null) \
+  || ! pull_requests=$(printf '%s' "$pull_requests" | jq -ce '[ .[].data.repository.pullRequests.nodes[] ]' 2>/dev/null); then
   die "could not read open pull requests for $REPO"
 fi
 
-# shellcheck disable=SC2016  # GraphQL variables are literal query syntax.
-if ! reviewed_teams=$(gh api graphql --paginate --slurp \
-    -f query='query($owner:String!,$repo:String!,$endCursor:String){repository(owner:$owner,name:$repo){pullRequests(states:OPEN,first:100,after:$endCursor){nodes{number reviews(last:100){nodes{onBehalfOf(first:10){nodes{combinedSlug}}}}} pageInfo{hasNextPage endCursor}}}}' \
-    -f "owner=${REPO%%/*}" -f "repo=${REPO#*/}" 2>/dev/null) \
-  || ! reviewed_teams=$(printf '%s' "$reviewed_teams" | jq -ce '
-      [ .[].data.repository.pullRequests.nodes[] ]
-      | map({ key: (.number | tostring), value: [ .reviews.nodes[].onBehalfOf.nodes[].combinedSlug ] })
-      | from_entries
-    ' 2>/dev/null); then
-  die "could not read pull request reviews for $REPO"
-fi
-
-printf '%s' "$pull_requests" | jq -r --argjson rules "$rules" --argjson reviewed "$reviewed_teams" '
+printf '%s' "$pull_requests" | jq -r --argjson rules "$rules" '
   def check_is_failing:
     if .__typename == "CheckRun" then
       .status == "COMPLETED" and (.conclusion | IN("FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"))
@@ -99,12 +91,12 @@ printf '%s' "$pull_requests" | jq -r --argjson rules "$rules" --argjson reviewed
       else empty end
     ),
     (
-      if ([ $pr.reviewRequests[]? | select(.__typename == "Team") | .slug ] + ($reviewed[$pr.number | tostring] // []) | index($rules.reviewer_team)) == null then
+      if ([ $pr.reviewRequests.nodes[]?.requestedReviewer | select(.__typename == "Team") | .combinedSlug ] + [ $pr.reviews.nodes[]?.onBehalfOf.nodes[].combinedSlug ] | index($rules.reviewer_team)) == null then
         "\($url): reviewer team missing: \($rules.reviewer_team)"
       else empty end
     ),
     (
-      [ $rules.assignees[] | select(. as $login | ([ $pr.assignees[]?.login ] | index($login)) == null) ]
+      [ $rules.assignees[] | select(. as $login | ([ $pr.assignees.nodes[]?.login ] | index($login)) == null) ]
       | if length > 0 then "\($url): assignees missing: \(join(", "))" else empty end
     ),
     (
@@ -114,8 +106,8 @@ printf '%s' "$pull_requests" | jq -r --argjson rules "$rules" --argjson reviewed
     ),
     (
       $rules.required_checks[] as $required
-      | [ $pr.statusCheckRollup[]? | select(check_name == $required) ]
-      | if any(group_by(.workflowName)[] | max_by(.startedAt); check_is_failing) then
+      | [ $pr.commits.nodes[0].commit.statusCheckRollup.contexts.nodes[]? | select(check_name == $required) ]
+      | if any(group_by(.checkSuite.workflowRun.workflow.name)[] | max_by(.startedAt); check_is_failing) then
           "\($url): required check failing: \($required)"
         else empty end
     )
