@@ -9,7 +9,8 @@
 # The command is strictly observational.
 # It never stops, signals, restarts, or changes an inventoried process,
 # container, or simulator; the only processes it signals are its own queries
-# that outlive their time bound.
+# that outlive their time bound or are still running when the run is
+# interrupted.
 #
 # Every successful scan covers the host rather than a configured port or
 # Firstmate-home subset:
@@ -295,7 +296,10 @@ SCANS='scan_process_table scan_network_sockets scan_load scan_containers scan_si
 PENDING_SCANS=$SCANS
 
 interrupted() {  # <exit status>
-  local scan
+  local scan job
+  for job in $(jobs -p); do
+    kill -TERM -- "-$job" 2>/dev/null
+  done
   for scan in $PENDING_SCANS; do
     scan=${scan#scan_}
     finding "NOT CHECKED: ${scan//_/ } scan (interrupted)"

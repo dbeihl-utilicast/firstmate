@@ -56,7 +56,7 @@ case "${1:-}" in
   ps)
     case "${FM_INVENTORY_DOCKER:-quiet}" in
       old) printf 'abc123\tforgotten\n' ;;
-      hang) : > "$(dirname "$0")/../docker-started"; sleep 2 ;;
+      hang) printf '%s\n' "$$" > "$(dirname "$0")/../docker-started"; exec sleep 30 ;;
     esac
     exit 0 ;;
   inspect) printf '%s\n' '2026-09-10T00:00:00.000000000Z' ;;
@@ -206,19 +206,29 @@ test_reports_timed_out_queries() {
 }
 
 test_interrupted_scan_does_not_exit_clean() {
-  local case_dir output pid rc=0 tries=0
+  local case_dir output pid query_pid rc=0 tries=0
   case_dir=$(make_case interrupted)
-  FM_INVENTORY_LOAD15=31.00 FM_INVENTORY_DOCKER=hang HOME="$case_dir/home" PATH="$case_dir/fakebin:$PATH" "$INVENTORY" > "$case_dir/output" 2>&1 &
+  FM_TIMEOUT_MECHANISM_OVERRIDE=bash FM_INVENTORY_LOAD15=31.00 FM_INVENTORY_DOCKER=hang HOME="$case_dir/home" PATH="$case_dir/fakebin:$PATH" "$INVENTORY" > "$case_dir/output" 2>&1 &
   pid=$!
-  while [ ! -e "$case_dir/docker-started" ] && [ "$tries" -lt 100 ]; do
+  while [ ! -s "$case_dir/docker-started" ] && [ "$tries" -lt 100 ]; do
     sleep 0.1
     tries=$((tries + 1))
   done
-  [ -e "$case_dir/docker-started" ] || fail 'interrupt fixture never reached the container scan'
+  [ -s "$case_dir/docker-started" ] || fail 'interrupt fixture never reached the container scan'
+  query_pid=$(cat "$case_dir/docker-started")
   kill -TERM "$pid"
   wait "$pid" || rc=$?
   output=$(cat "$case_dir/output")
   [ "$rc" -eq 143 ] || fail "TERM-interrupted inventory exited $rc: $output"
+  tries=0
+  while kill -0 "$query_pid" 2>/dev/null && [ "$tries" -lt 20 ]; do
+    sleep 0.1
+    tries=$((tries + 1))
+  done
+  if kill -0 "$query_pid" 2>/dev/null; then
+    kill -KILL "$query_pid" 2>/dev/null
+    fail 'interrupted run left its in-flight query running'
+  fi
   assert_contains "$output" 'LOAD: fifteen-minute=31.00 cores=10' 'interrupt discarded an already measured finding'
   assert_contains "$output" 'NOT CHECKED: containers scan (interrupted)' 'interrupted scan was not named'
   assert_contains "$output" 'NOT CHECKED: simulators scan (interrupted)' 'scan skipped by the interrupt was not named'
