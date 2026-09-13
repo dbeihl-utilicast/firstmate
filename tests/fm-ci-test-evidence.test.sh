@@ -13,10 +13,8 @@ TMP_ROOT=$(fm_test_tmproot fm-ci-test-evidence)
 # cut at 20000 chars, with the whole log saved at `full_log`.
 make_fixture() {
   local dir=$1
-  mkdir -p "$dir/fakebin"
-  printf '%s\n' \
-    'Integration tests	Run unit	2026-09-12T22:06:35.2761040Z ======== 50 passed, 3 skipped in 5.00s ========' \
-    'Integration tests	Run integration	2026-09-12T22:07:05.2761040Z ======== 120 passed in 30.00s ========' > "$dir/full-12.log"
+  mkdir -p "$dir/fakebin" "$dir/tmp"
+  printf 'Integration tests\tRun unit\t\357\273\2772026-09-12T22:06:35.2761040Z ======== 50 passed, 3 skipped in 5.00s ========\nIntegration tests\tRun integration\t2026-09-12T22:07:05.2761040Z ======== 120 passed in 30.00s ========\n' > "$dir/full-12.log"
   cat > "$dir/fakebin/gh-axi" <<'SH'
 #!/usr/bin/env bash
 fixture=${0%/fakebin/gh-axi}
@@ -28,12 +26,12 @@ case "$1 ${2:-}" in
     case "$2" in
       /repos/acme/market-pulse/pulls/458) body '"head\th458"' ;;
       '/repos/acme/market-pulse/actions/runs?event=pull_request&head_sha=h458&per_page=100') body '"run\t101"' ;;
-      '/repos/acme/market-pulse/actions/runs/101/jobs?per_page=100') body '"job\t101\t11\tIntegration tests\tsuccess"' ;;
+      '/repos/acme/market-pulse/actions/runs/101/jobs?per_page=100') body '"job\t101\t11\tIntegration tests\tsuccess\njob\t101\t17\tBackend - Unit Tests\tsuccess\njob\t101\t18\tMCP - Build, Type Check & Tests\tsuccess"' ;;
       /repos/acme/market-pulse/pulls/459) body '"head\th459"' ;;
       '/repos/acme/market-pulse/actions/runs?event=pull_request&head_sha=h459&per_page=100') body '"run\t201\nrun\t202"' ;;
       '/repos/acme/market-pulse/actions/runs/201/jobs?per_page=100') body '"job\t201\t11\tIntegration tests\tsuccess"' ;;
       '/repos/acme/market-pulse/actions/runs/202/jobs?per_page=100') body '"job\t202\t22\tIntegration tests\tskipped"' ;;
-      '/repos/acme/repo/actions/runs/481/jobs?per_page=100') body '"job\t481\t12\tIntegration tests\tsuccess\njob\t481\t13\tBrowser tests\tsuccess\njob\t481\t14\tCollection tests\tfailure\njob\t481\t15\tJest tests\tsuccess\njob\t481\t16\tStill running\t"' ;;
+      '/repos/acme/repo/actions/runs/481/jobs?per_page=100') body '"job\t481\t12\tIntegration tests\tsuccess\njob\t481\t13\tBrowser tests\tsuccess\njob\t481\t14\tCollection tests\tfailure\njob\t481\t15\tGo tests\tsuccess\njob\t481\t16\tStill running\t\njob\t481\t19\tMobile - Type Check & Tests\tsuccess\njob\t481\t20\tWeb - Lint, Type Check & Build\tsuccess\njob\t481\t21\tWeb - E2E Tests (Playwright)\tsuccess"' ;;
       /repos/double-d-labs/go-easy-homie/pulls/481) body '"head\tf555c27acbe817beed5ea54d8aa8639d3a77d83f"' ;;
       '/repos/double-d-labs/go-easy-homie/actions/runs?event=pull_request&head_sha=f555c27acbe817beed5ea54d8aa8639d3a77d83f&per_page=100') body '"run\t34721814954\nrun\t34721814948\nrun\t34721814926"' ;;
       '/repos/double-d-labs/go-easy-homie/actions/runs/34721814954/jobs?per_page=100') body '"job\t34721814954\t103628992346\tMCP - Build, Type Check & Tests\tsuccess"' ;;
@@ -46,14 +44,21 @@ case "$1 ${2:-}" in
     case " $* " in
       *' --job 11 '*) log "$2" '"Integration tests\tRun tests\t2026-09-12T22:06:35.2761040Z ======== 2366 passed in 40.00s ========\n"' ;;
       *' --job 12 '*)
+        full_log=$(mktemp -d "${TMPDIR:-/tmp}/gh-axi-logs-XXXXXX")/$2-job-12-log.log
+        cp "$fixture/full-12.log" "$full_log"
         printf '%s\n' 'run_log:' "  run: \"$2\"" '  mode: log' \
           '  output: "Integration tests\tRun integration\t2026-09-12T22:07:05.2761040Z ======== 120 passed in 30.00s ========\n"' \
-          '  truncated: true' '  original_length: 33797' "  full_log: $fixture/full-12.log" \
-          'help[1]:' "  Output shows the last 20000 of 33797 chars; full log saved to $fixture/full-12.log - grep it for earlier context"
+          '  truncated: true' '  original_length: 33797' "  full_log: $full_log" \
+          'help[1]:' "  Output shows the last 20000 of 33797 chars; full log saved to $full_log - grep it for earlier context"
         ;;
       *' --job 13 '*) log "$2" '"Browser tests\tRun tests\t2026-09-12T22:06:35.2761040Z ======== 8 passed, 1 deselected in 1.00s ========\n"' ;;
       *' --job 14 '*) log "$2" '"Collection tests\tRun tests\t2026-09-12T22:06:35.2761040Z ======== 2 errors in 0.30s ========\n"' ;;
-      *' --job 15 '*) log "$2" '"Jest tests\tRun tests\t2026-09-12T22:06:35.2761040Z Tests:       40 passed, 40 total\nJest tests\tRun tests\t2026-09-12T22:06:35.2761040Z FM_TEST_EVIDENCE executed=40 skipped=0 deselected=0\n"' ;;
+      *' --job 15 '*) log "$2" '"Go tests\tRun tests\t2026-09-12T22:06:35.2761040Z ok  \tgithub.com/acme/repo/pkg\t0.412s\nGo tests\tRun tests\t2026-09-12T22:06:35.2761040Z FM_TEST_EVIDENCE executed=40 skipped=0 deselected=0\n"' ;;
+      *' --job 17 '*) log "$2" '"Backend - Unit Tests\tUNKNOWN STEP\t2026-09-13T12:58:21.0266236Z Test Suites: 80 passed, 80 total\nBackend - Unit Tests\tUNKNOWN STEP\t2026-09-13T12:58:21.0267051Z Tests:       1890 passed, 1890 total\nBackend - Unit Tests\tUNKNOWN STEP\t2026-09-13T12:58:21.0267835Z Snapshots:   5 passed, 5 total\n"' ;;
+      *' --job 18 '*) log "$2" '"MCP - Build, Type Check & Tests\tUNKNOWN STEP\t2026-09-13T20:42:38.6908315Z ^[[2m Test Files ^[[22m ^[[1m^[[32m12 passed^[[39m^[[22m^[[90m (12)^[[39m\nMCP - Build, Type Check & Tests\tUNKNOWN STEP\t2026-09-13T20:42:38.6909613Z ^[[2m      Tests ^[[22m ^[[1m^[[32m97 passed^[[39m^[[22m^[[90m (97)^[[39m\n"' ;;
+      *' --job 19 '*) log "$2" '"Mobile - Type Check & Tests\tUNKNOWN STEP\t2026-09-13T12:57:01.7588573Z Test Suites: 1 skipped, 94 passed, 94 of 95 total\nMobile - Type Check & Tests\tUNKNOWN STEP\t2026-09-13T12:57:01.7589455Z Tests:       2 skipped, 1 todo, 1645 passed, 1648 total\n"' ;;
+      *' --job 20 '*) log "$2" '"Web - Lint, Type Check & Build\tUNKNOWN STEP\t2026-09-13T12:56:35.0233409Z ^[[2m Test Files ^[[22m ^[[1m^[[32m75 passed^[[39m^[[22m^[[90m (75)^[[39m\nWeb - Lint, Type Check & Build\tUNKNOWN STEP\t2026-09-13T12:56:35.0255846Z ^[[2m      Tests ^[[22m ^[[1m^[[32m1770 passed^[[39m^[[22m^[[2m | ^[[22m^[[33m7 skipped^[[39m^[[90m (1777)^[[39m\n"' ;;
+      *' --job 21 '*) log "$2" '"Web - E2E Tests (Playwright)\tUNKNOWN STEP\t2026-09-13T19:59:38.1054278Z   3 skipped\nWeb - E2E Tests (Playwright)\tUNKNOWN STEP\t2026-09-13T19:59:38.1054731Z   99 passed (2.3m)\nWeb - E2E Tests (Playwright)\tUNKNOWN STEP\t2026-09-13T19:59:38.1078774Z ##[notice]  3 skipped\n  99 passed (2.3m)\nWeb - E2E Tests (Playwright)\tUNKNOWN STEP\t2026-09-13T19:59:38.1279903Z Post job cleanup.\n"' ;;
       *) exit 1 ;;
     esac
     ;;
@@ -71,11 +76,12 @@ test_positive_pr_is_silent() {
   local dir out rc
   dir="$TMP_ROOT/positive"
   make_fixture "$dir"
-  out=$(PATH="$dir/fakebin:$PATH" local_check --pr https://github.com/acme/market-pulse/pull/458 --required-job 'Integration tests' 2>&1)
+  out=$(PATH="$dir/fakebin:$PATH" local_check --pr https://github.com/acme/market-pulse/pull/458 --required-job 'Integration tests' \
+    --required-job 'Backend - Unit Tests' --required-job 'MCP - Build, Type Check & Tests' 2>&1)
   rc=$?
   [ "$rc" -eq 0 ] || fail "positive PR exit=$rc: $out"
   [ -z "$out" ] || fail "positive PR printed despite complete evidence: $out"
-  pass 'positive single-run PR is silent with executed tests and zero skipped/deselected'
+  pass 'positive single-run PR is silent with pytest, Jest, and Vitest executed tests and zero skipped/deselected'
 }
 
 test_go_easy_homie_pr_481_skipped_jobs_are_red() {
@@ -109,16 +115,22 @@ test_log_evidence_violations_are_red() {
   local dir out rc
   dir="$TMP_ROOT/negative"
   make_fixture "$dir"
-  out=$(PATH="$dir/fakebin:$PATH" local_check --run https://github.com/acme/repo/actions/runs/481 --required-job 'Integration tests' \
-    --required-job 'Browser tests' --required-job 'Collection tests' --required-job 'Jest tests' 2>&1)
+  out=$(TMPDIR="$dir/tmp" PATH="$dir/fakebin:$PATH" local_check --run https://github.com/acme/repo/actions/runs/481 --required-job 'Integration tests' \
+    --required-job 'Browser tests' --required-job 'Collection tests' --required-job 'Go tests' \
+    --required-job 'Mobile - Type Check & Tests' --required-job 'Web - Lint, Type Check & Build' \
+    --required-job 'Web - E2E Tests (Playwright)' 2>&1)
   rc=$?
   [ "$rc" -eq 1 ] || fail "negative run exit=$rc: $out"
   assert_contains "$out" 'Integration tests executed=170 skipped=3 deselected=0' 'skip count before the truncated log tail was not a violation'
   assert_contains "$out" 'Browser tests executed=8 skipped=0 deselected=1' 'deselected count was not a violation'
   assert_contains "$out" 'Collection tests errors=2' 'collection errors were not a distinct violation'
   assert_contains "$out" 'Collection tests executed=0' 'collection errors were counted as executed tests'
-  assert_contains "$out" 'not measured: required job Jest tests' 'non-pytest log was accepted as evidence'
-  pass 'skipped, deselected, errored, and unmeasured logs fail despite green conclusions'
+  assert_contains "$out" 'not measured: required job Go tests' 'unsupported runner output or a self-declared marker was accepted as evidence'
+  assert_contains "$out" 'Mobile - Type Check & Tests executed=1645 skipped=3 deselected=0' 'Jest skipped and todo tests were not a violation'
+  assert_contains "$out" 'Web - Lint, Type Check & Build executed=1770 skipped=7 deselected=0' 'Vitest skipped tests were not a violation'
+  assert_contains "$out" 'Web - E2E Tests (Playwright) executed=99 skipped=3 deselected=0' 'Playwright skipped tests were not counted once'
+  [ -z "$(ls -A "$dir/tmp")" ] || fail "gh-axi full logs were left in TMPDIR: $(ls -A "$dir/tmp")"
+  pass 'skipped, deselected, errored, and unmeasured logs fail despite green conclusions without leaking full logs'
 }
 
 test_absent_required_job_is_red() {

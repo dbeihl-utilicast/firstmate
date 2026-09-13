@@ -9,8 +9,8 @@
 # A required job is matched by its exact GitHub Actions job name.
 # A PR examines every Actions run for its current head commit, while --run
 # examines that exact run.
-# Every job with a required name is measured from the pytest terminal summaries
-# in its full log; executed counts passed plus failed tests.
+# Every job with a required name is measured from the pytest, Jest, Vitest, and
+# Playwright summaries in its full log; executed counts passed plus failed tests.
 # The checker prints nothing and exits zero when every required job has a
 # positive executed count with zero skipped, deselected, and errored tests.
 # It prints only violations: absent jobs, unreadable logs, unmeasured logs,
@@ -137,19 +137,29 @@ if fields.get("truncated") == "true":
     text = open(fields["full_log"], encoding="utf-8", errors="replace").read()
 else:
     text = fields["output"]
-totals = {"passed": 0, "failed": 0, "skipped": 0, "deselected": 0, "errors": 0}
+labels = {"passed": "passed", "failed": "failed", "skipped": "skipped", "todo": "skipped", "did not run": "skipped", "deselected": "deselected", "error": "errors", "errors": "errors"}
+summaries = (
+    re.compile(r"((?:\d+ [a-z]+, )*\d+ [a-z]+) in \d+(?:\.\d+)?s\b"),
+    re.compile(r"^Tests:\s+((?:\d+ [a-z]+, )*\d+ [a-z]+), \d+ total\s*$"),
+    re.compile(r"^\s*Tests\s+((?:\d+ [a-z]+ \| )*\d+ [a-z]+) \(\d+\)\s*$"),
+    re.compile(r"^\s+(\d+ (?:passed|failed|flaky|skipped|did not run|interrupted))(?: \([^)]*\))?\s*$"),
+)
+totals = dict.fromkeys(("passed", "failed", "skipped", "deselected", "errors"), 0)
 measured = False
 for line in text.splitlines():
-    summary = re.search(r"((?:\d+ [a-z]+, )*\d+ [a-z]+) in \d+(?:\.\d+)?s\b", re.sub(r"\x1b\[[0-9;]*m", "", line))
+    entry = re.match(r"[^\t]*\t[^\t]*\t﻿?\d{4}-\d\d-\d\dT[\d:.]+Z ?(.*)", line)
+    if not entry:
+        continue
+    content = re.sub(r"(?:\x1b|\^\[)\[[0-9;]*m", "", entry.group(1))
+    summary = next(filter(None, (pattern.search(content) for pattern in summaries)), None)
     if not summary:
         continue
-    counts = [(int(number), "errors" if label == "error" else label) for number, label in re.findall(r"(\d+) ([a-z]+)", summary.group(1))]
-    if not any(label in totals for _, label in counts):
+    counts = [(int(number), labels[label]) for number, label in re.findall(r"(\d+) (did not run|[a-z]+)", summary.group(1)) if label in labels]
+    if not counts:
         continue
     measured = True
     for number, label in counts:
-        if label in totals:
-            totals[label] += number
+        totals[label] += number
 if measured:
     print(totals["passed"] + totals["failed"], totals["skipped"], totals["deselected"], totals["errors"])
 PY
@@ -212,13 +222,13 @@ for required in "${REQUIRED_JOBS[@]}"; do
       violations=1
       continue
     fi
-    if ! gh-axi run view "$job_run" --job "$job_id" --log -R "$OWNER/$REPO" > "$TMP/log-$job_id" 2>/dev/null ||
+    if ! TMPDIR="$TMP" gh-axi run view "$job_run" --job "$job_id" --log -R "$OWNER/$REPO" > "$TMP/log-$job_id" 2>/dev/null ||
       ! counts=$(log_counts "$TMP/log-$job_id" 2>/dev/null); then
       unreadable "required job $required log could not be read" || violations=1
       continue
     fi
     if [ -z "$counts" ]; then
-      printf 'not measured: required job %s log contained no pytest test summary\n' "$required" >&2
+      printf 'not measured: required job %s log contained no pytest, Jest, Vitest, or Playwright test summary\n' "$required" >&2
       violations=1
       continue
     fi
