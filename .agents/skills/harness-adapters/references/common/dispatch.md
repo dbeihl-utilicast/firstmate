@@ -6,9 +6,10 @@ Load this with the selected tool reference for dispatch, start, or adapter verif
 
 Use the router's detection and safety sections for static crew and secondmate harness resolution and all explicit overrides.
 `config/crew-dispatch.json` can override that static default for one crewmate or scout with concrete harness, model, and effort axes.
+Routing precedence is an explicit per-task captain override, then the best-fit configured rule, then the configured default, then the static crewmate harness.
 For a profile array, load `quota-array-dispatch` after establishing harness and provider facts here.
 
-`../secondmate-provisioning/SKILL.md` owns inherited local material.
+`../secondmate-provisioning/SKILL.md` owns secondmate harness pins and inherited local material.
 Its harness consequence is that a secondmate's workers receive literal `config/crew-harness` and `config/crew-dispatch.json`, while the primary-only `config/secondmate-harness` is never inherited because secondmates do not spawn secondmates.
 A concrete crew value such as `codex` carries that runtime into the secondmate home.
 Unset or `default` carries no concrete value, so its workers use that home's own or detected harness rather than the primary's effective crew harness.
@@ -16,6 +17,7 @@ The inherited dispatch file applies the same best-fit profiles there.
 
 ## Owners
 
+`../../../docs/configuration.md` owns dispatch-profile and runtime-backend schemas; follow its "Runtime backend" contract for spawn eligibility, task-scoped overrides, and terminal refusals.
 `../../../bin/fm-spawn.sh` owns launch, autonomy, concrete flags, task-kind compatibility, and worker turn-end wiring.
 Natural-language rules stay with firstmate, while scripts receive concrete axes.
 

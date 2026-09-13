@@ -63,7 +63,7 @@
 #          tasks-axi and quota-axi are required bootstrap tools (same class as
 #          lavish-axi). A compatible tasks-axi default backend is silent.
 #          quota-axi is required for the agent-owned dispatch-profile array
-#          procedure in AGENTS.md section 4 and
+#          procedure owned by
 #          .agents/skills/quota-array-dispatch/SKILL.md.
 #          On a primary home, the locked mutable path materializes the visible
 #          default config/startup-memory-budget=7500 when absent. It never
@@ -354,7 +354,7 @@ secondmate_sync() {
   # (bin/fm-remote-secondmate-control.sh); this side still fetches nothing.
   # Startup sends reread nudges only for RUNNING secondmates whose instruction
   # surface (AGENTS.md, bin/, or .agents/skills/) actually changed, so a secondmate already on the primary's
-  # version is never disturbed (AGENTS.md bootstrap + supervision). Unlike
+  # version is never disturbed (secondmate-provisioning skill). Unlike
   # /updatefirstmate, startup owns the live-convergence send itself because it is
   # a deterministic locked sweep and can report success as BOOTSTRAP_INFO while
   # preserving failed sends as NUDGE_SECONDMATES retry markers.
