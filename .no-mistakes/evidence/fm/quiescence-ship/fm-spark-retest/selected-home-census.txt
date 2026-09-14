@@ -1,0 +1,7 @@
+RUN	host=local	home=root@local	clone=firstmate	branch=fm/host-plugins-remote-homes-converge-the-configured-cla-ad	head=3acc2bca	state=running	age=31m	started=2026-09-14T21:39
+HOME	host=local	home=root@local	path=/home/dbeihl/git/utilicast/firstmate	clones=1	runs=1	gaps=0	status=busy
+GAP	host=local	home=main	clone=plugins-spark	reason=validation-not-configured
+RUN	host=local	home=main	clone=utilicast-plugins	branch=fm/fix-257-preflight-verify-backport	head=edfc71b9	state=running	age=11h6m	started=2026-09-14T11:04
+RUN	host=local	home=main	clone=utilicast-plugins	branch=fm/fix-393-salvage-controls	head=cf3dbddd	state=running	age=11h9m	started=2026-09-14T11:01
+HOME	host=local	home=main	path=/home/dbeihl/git/utilicast/fm-homes/plugins-spark	clones=4	runs=2	gaps=1	status=incomplete
+SUMMARY	result=busy-incomplete	runs=3	gaps=1

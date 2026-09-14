@@ -1,0 +1,3 @@
+dff0327a8d838b32d322a10f0ac0ea6c34acfd7904726ec82a9cc8915c6c0796  bin/fm-nm-quiescence.sh
+de644edd55b25eea9b51a2d2014b69e9a5b68574640e042140972042b3d16f91  bin/fm-nm-run-lib.sh
+8ace16266479fedb84891b08bdf95a73970429324f83201ba83abcd28ffe0d23  bin/fm-secondmate-registry-lib.sh

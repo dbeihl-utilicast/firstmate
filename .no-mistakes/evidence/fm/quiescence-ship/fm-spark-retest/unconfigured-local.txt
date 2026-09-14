@@ -1,0 +1,5 @@
+GAP	host=local	home=root@local	clone=01M2GT7AXS7BMKDKVEKPZCG3NP	reason=validation-not-configured
+HOME	host=local	home=root@local	path=/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP	clones=1	runs=0	gaps=1	status=incomplete
+GAP	host=local	home=main	clone=01M2GT7AXS7BMKDKVEKPZCG3NP	reason=validation-not-configured
+HOME	host=local	home=main	path=/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP	clones=1	runs=0	gaps=1	status=incomplete
+SUMMARY	result=incomplete	runs=0	gaps=2

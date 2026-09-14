@@ -1,0 +1,7 @@
+GAP	host=fm-spark	home=plugins-spark	clone=plugins-spark	reason=validation-not-configured
+REPO	fm-spark	/home/dbeihl/git/utilicast/fm-homes/plugins-spark/projects/unlimited-power	0	0
+RUN	host=fm-spark	home=plugins-spark	clone=utilicast-plugins	branch=fm/fix-257-preflight-verify-backport	head=edfc71b9	state=running	age=11h6m	started=2026-09-14T11:04
+RUN	host=fm-spark	home=plugins-spark	clone=utilicast-plugins	branch=fm/fix-393-salvage-controls	head=cf3dbddd	state=running	age=11h9m	started=2026-09-14T11:01
+REPO	fm-spark	/home/dbeihl/git/utilicast/fm-homes/plugins-spark/projects/utilicast-plugins	2	0
+REPO	fm-spark	/home/dbeihl/git/utilicast/fm-homes/plugins-spark/projects/utilicast-pm-copilot-agent	0	0
+HOME	host=fm-spark	home=plugins-spark	path=/home/dbeihl/git/utilicast/fm-homes/plugins-spark	clones=4	runs=2	gaps=1	status=incomplete

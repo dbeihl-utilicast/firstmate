@@ -1,0 +1,4 @@
+RUN	host=local	home=root@local	clone=firstmate	branch=fm/host-plugins-remote-homes-converge-the-configured-cla-ad	head=3acc2bca	state=running	age=31m	started=2026-09-14T21:39
+HOME	host=local	home=root@local	path=/home/dbeihl/git/utilicast/firstmate	clones=1	runs=1	gaps=0	status=busy
+HOME	host=local	home=main	path=/home/dbeihl/git/utilicast/firstmate	clones=1	runs=1	gaps=0	status=busy
+SUMMARY	result=busy	runs=1	gaps=0

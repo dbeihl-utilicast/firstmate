@@ -1,0 +1,776 @@
+2026-09-14T22:00:38Z
+no-mistakes version v1.72.0 (9fcc865) 2026-09-08T13:12:41Z
+  ● daemon running (pid 3883092)
+QUERY	path=/home/dbeihl/git/utilicast/firstmate
+bin: ~/.local/bin/no-mistakes
+description: "Validate your code changes through the no-mistakes pipeline - automated code review, tests, lint, docs, push, PR, and CI - before they reach the configured push target. Use when the user asks to run no-mistakes, gate or ship or validate their changes, push safely, asks you to do a task and then validate it, or invokes /no-mistakes."
+repo: /home/dbeihl/git/utilicast/firstmate
+current_branch: main
+daemon: running
+other_branch_active_run:
+  id: "01M2GXRMAE09D24R4AKE2C8Z8V"
+  branch: fm/host-plugins-remote-homes-converge-the-configured-cla-ad
+  status: running
+  head: 3acc2bca
+  head_sha: 3acc2bca3358f8d5d4ba5b649c65b16e5f777ac2
+  findings: "2 awaiting, 1 auto-fix"
+  steps[9]{step,status,findings,duration_ms}:
+    intent,completed,0,11
+    rebase,completed,0,510
+    review,fixing,3,455874
+    test,pending,0,0
+    document,pending,0,0
+    lint,pending,0,0
+    push,pending,0,0
+    pr,pending,0,0
+    ci,pending,0,0
+  active_steps[1]{step,status,active_for,round_active_for,last_activity,agent_pid,round}:
+    review,fixing,21m12s,11m11s,"1s ago: codex producing output","3698378",fix 1
+count: 10 of 11 total
+runs[10]{id,branch,status,head,pr}:
+  "01M2GXRMAE09D24R4AKE2C8Z8V",fm/host-plugins-remote-homes-converge-the-configured-cla-ad,running,3acc2bca,""
+  "01M2GHSTZXEXGM1WCB3S8ZT0FG",fm/push-guard-refuse-unguarded-pushes-and-pr-creation-2c,completed,5159f45e,"https://github.com/dbeihl-utilicast/firstmate/pull/11"
+  "01M2GD3QMMW5BRR3YKB1BXGFR7",fm/running-list-read-only-lavish-view-of-the-fleet-runni-b3,completed,22a9808d,"https://github.com/dbeihl-utilicast/firstmate/pull/10"
+  "01M2GD32WNMVQPQF7PWC9S5EZV",fm/running-list-read-only-lavish-view-of-the-fleet-runni-b3,cancelled,9e53a01d,""
+  "01M2GBCAE2XHT03CKX5NEZNQP9",fm/running-list-read-only-lavish-view-of-the-fleet-runni-b3,failed,"55970711",""
+  "01M2G7VTR4AERJVVT44HHYFQP6",fm/watch-beat-mid-cycle-watcher-beacon-so-a-slow-poll-c3,completed,c9a8db73,"https://github.com/dbeihl-utilicast/firstmate/pull/8"
+  "01M29JZWJA29RW8W08CDNV5J24",fm/qwen-hold-silent-qwen-loop-case-fm-hold-long-reason-silen-8c,failed,2268a654,""
+  "01M298ZAPD7NCVP4F5YY9GV6W2",fm/fm-pr-merge-admin-guarded-admin-merge-path-without-qwen-au-61,failed,619ded57,""
+  "01M296BXX38WTT79ZQ2Z42F2VF",fm/fm-pr-merge-admin-guarded-admin-merge-path-without-qwen-au-61,failed,619ded57,""
+  "01M293XJ8XZ20QQW7M34AGE6T6",fm/fm-pr-merge-admin-guarded-admin-merge-path-without-qwen-au-61,failed,619ded57,""
+help[5]: "Run `no-mistakes axi run --intent \"<what the user set out to accomplish>\"` to validate your changes",Another active run is on fm/host-plugins-remote-homes-converge-the-configured-cla-ad; leave it alone unless you are working on that branch,"Commit post-pipeline follow-up work on top of the existing branch so every pipeline fix commit remains present. Never abort-and-restart, reset, or replace the branch in a way that drops prior gate-fix commits.",The calling agent drives AXI gates but does not replace the configured pipeline agent; run `no-mistakes doctor` if no native agent or ACP runner is available,"How to drive the pipeline: `no-mistakes axi run --help`, or the `/no-mistakes` skill (loaded when you invoke `/no-mistakes`)"
+IDENTITY_EXIT	code=0
+  running      fm/host-plugins-remote-homes-converge-the-configured-cla-ad 3acc2bca  2026-09-14 21:39
+  completed    fm/push-guard-refuse-unguarded-pushes-and-pr-creation-2c 5159f45e  2026-09-14 18:10  https://github.com/dbeihl-utilicast/firstmate/pull/11
+  completed    fm/running-list-read-only-lavish-view-of-the-fleet-runni-b3 22a9808d  2026-09-14 16:48  https://github.com/dbeihl-utilicast/firstmate/pull/10
+  cancelled    fm/running-list-read-only-lavish-view-of-the-fleet-runni-b3 9e53a01d  2026-09-14 16:48
+  failed       fm/running-list-read-only-lavish-view-of-the-fleet-runni-b3 55970711  2026-09-14 16:18
+  completed    fm/watch-beat-mid-cycle-watcher-beacon-so-a-slow-poll-c3 c9a8db73  2026-09-14 15:16  https://github.com/dbeihl-utilicast/firstmate/pull/8
+  failed       fm/qwen-hold-silent-qwen-loop-case-fm-hold-long-reason-silen-8c 2268a654  2026-09-12 01:16
+  failed       fm/fm-pr-merge-admin-guarded-admin-merge-path-without-qwen-au-61 619ded57  2026-09-11 22:21
+  failed       fm/fm-pr-merge-admin-guarded-admin-merge-path-without-qwen-au-61 619ded57  2026-09-11 21:35
+  failed       fm/fm-pr-merge-admin-guarded-admin-merge-path-without-qwen-au-61 619ded57  2026-09-11 20:53
+  completed    fm/agy-print-firstmate-owned-agy-one-shot-print-path-b5 6b68b10d  2026-09-11 20:46  https://github.com/dbeihl-utilicast/firstmate/pull/5
+LEDGER_EXIT	code=0
+REGISTERED_HOME	id=ameren-spark	path=/home/dbeihl/git/utilicast/fm-homes/ameren-spark
+QUERY	path=/home/dbeihl/git/utilicast/fm-homes/ameren-spark
+error: repo not initialized (run 'no-mistakes init' first)
+help[1]: Run `no-mistakes init` to set up the gate in this repository
+IDENTITY_EXIT	code=1
+QUERY	path=/home/dbeihl/git/utilicast/fm-homes/ameren-spark/projects/ess-mdma-poc
+bin: ~/.local/bin/no-mistakes
+description: "Validate your code changes through the no-mistakes pipeline - automated code review, tests, lint, docs, push, PR, and CI - before they reach the configured push target. Use when the user asks to run no-mistakes, gate or ship or validate their changes, push safely, asks you to do a task and then validate it, or invokes /no-mistakes."
+repo: /home/dbeihl/git/utilicast/fm-homes/ameren-spark/projects/ess-mdma-poc
+current_branch: master
+daemon: running
+other_branch_active_run:
+  id: "01M2GWF42N0HVR0W3KEZYEKYKN"
+  branch: fm/ess-ui-handover
+  status: running
+  head: 55c34149
+  head_sha: 55c3414903b4e6797e781285b99d8867fc730bb6
+  pr: "https://github.com/Utilicast-LLC/ess-mdma-poc/pull/4"
+  findings: 1 auto-fix
+  steps[9]{step,status,findings,duration_ms}:
+    intent,completed,0,10
+    rebase,completed,0,976
+    review,fixing,1,533679
+    test,pending,0,0
+    document,pending,0,0
+    lint,pending,0,0
+    push,pending,0,0
+    pr,pending,0,0
+    ci,pending,0,0
+  shared_work[1]{attributed_to,scope,duration_ms}:
+    document,document+lint housekeeping,0
+  active_steps[1]{step,status,active_for,round_active_for,last_activity,agent_pid,round}:
+    review,fixing,10m18s,1m20s,"16s ago: codex producing output","938186",fix 1
+count: 9 of 9 total
+runs[9]{id,branch,status,head,pr}:
+  "01M2GWF42N0HVR0W3KEZYEKYKN",fm/ess-ui-handover,running,55c34149,"https://github.com/Utilicast-LLC/ess-mdma-poc/pull/4"
+  "01M2GW2GHCDSAH01F2CN90WFK9",fm/ess-engine-safety,running,dc202c4e,"https://github.com/Utilicast-LLC/ess-mdma-poc/pull/3"
+  "01M2GW120820YZ34TJ9Y1KXNPX",fm/ess-quality-gates,completed,347fdf65,"https://github.com/Utilicast-LLC/ess-mdma-poc/pull/2"
+  "01M2GQJT4RQK8J1TBW13BK6FQG",fm/ess-integrate,completed,"051468c6","https://github.com/Utilicast-LLC/ess-mdma-poc/pull/5"
+  "01M2GMDDD8JXSSPQMNGE2KQJ39",fm/ess-integrate,failed,0f7de3d1,""
+  "01M2GH39ADBC77TK8KVX0B49M9",fm/ess-quality-gates,cancelled,3d447c94,"https://github.com/Utilicast-LLC/ess-mdma-poc/pull/2"
+  "01M2GGSVH1MG2BNBB8Z6GH8Y8G",fm/ess-ui-handover,cancelled,bbc5ea4d,"https://github.com/Utilicast-LLC/ess-mdma-poc/pull/4"
+  "01M2GGFP0RPTE3ARNRPP0RAHPZ",fm/ess-engine-safety,cancelled,48a53e56,"https://github.com/Utilicast-LLC/ess-mdma-poc/pull/3"
+  "01M2GFZ2R1MJZTYVNS26MY24ZT",fm/ess-integrate,failed,d1db59e8,""
+help[5]: "Run `no-mistakes axi run --intent \"<what the user set out to accomplish>\"` to validate your changes",Another active run is on fm/ess-ui-handover; leave it alone unless you are working on that branch,"Commit post-pipeline follow-up work on top of the existing branch so every pipeline fix commit remains present. Never abort-and-restart, reset, or replace the branch in a way that drops prior gate-fix commits.",The calling agent drives AXI gates but does not replace the configured pipeline agent; run `no-mistakes doctor` if no native agent or ACP runner is available,"How to drive the pipeline: `no-mistakes axi run --help`, or the `/no-mistakes` skill (loaded when you invoke `/no-mistakes`)"
+IDENTITY_EXIT	code=0
+  running      fm/ess-ui-handover   55c34149  2026-09-14 21:16  https://github.com/Utilicast-LLC/ess-mdma-poc/pull/4
+  running      fm/ess-engine-safety dc202c4e  2026-09-14 21:09  https://github.com/Utilicast-LLC/ess-mdma-poc/pull/3
+  completed    fm/ess-quality-gates 347fdf65  2026-09-14 21:09  https://github.com/Utilicast-LLC/ess-mdma-poc/pull/2
+  completed    fm/ess-integrate     051468c6  2026-09-14 19:51  https://github.com/Utilicast-LLC/ess-mdma-poc/pull/5
+  failed       fm/ess-integrate     0f7de3d1  2026-09-14 18:56
+  cancelled    fm/ess-quality-gates 3d447c94  2026-09-14 17:58  https://github.com/Utilicast-LLC/ess-mdma-poc/pull/2
+  cancelled    fm/ess-ui-handover   bbc5ea4d  2026-09-14 17:52  https://github.com/Utilicast-LLC/ess-mdma-poc/pull/4
+  cancelled    fm/ess-engine-safety 48a53e56  2026-09-14 17:47  https://github.com/Utilicast-LLC/ess-mdma-poc/pull/3
+  failed       fm/ess-integrate     d1db59e8  2026-09-14 17:38
+LEDGER_EXIT	code=0
+REGISTERED_HOME	id=automations-mate	path=/home/dbeihl/git/utilicast/fm-homes/automations-mate
+QUERY	path=/home/dbeihl/git/utilicast/fm-homes/automations-mate
+error: repo not initialized (run 'no-mistakes init' first)
+help[1]: Run `no-mistakes init` to set up the gate in this repository
+IDENTITY_EXIT	code=1
+QUERY	path=/home/dbeihl/git/utilicast/fm-homes/automations-mate/projects/utilicast-automations
+bin: ~/.local/bin/no-mistakes
+description: "Validate your code changes through the no-mistakes pipeline - automated code review, tests, lint, docs, push, PR, and CI - before they reach the configured push target. Use when the user asks to run no-mistakes, gate or ship or validate their changes, push safely, asks you to do a task and then validate it, or invokes /no-mistakes."
+repo: /home/dbeihl/git/utilicast/fm-homes/automations-mate/projects/utilicast-automations
+current_branch: dev
+daemon: running
+count: 10 of 36 total
+runs[10]{id,branch,status,head,pr}:
+  "01M2GP3GBDXNXM0NVD2X8WE79K",fm/automations-issue-208-roster-gate-implement,completed,8bf1790d,"https://github.com/Utilicast-LLC/utilicast-automations/pull/321"
+  "01M2G0ZNQF29CP8870YRF5BETK",fm/automations-issue-207-zip-filing-implement,completed,442058a6,"https://github.com/Utilicast-LLC/utilicast-automations/pull/320"
+  "01M2FX86WFZN439BB75J1NGK71",fm/automations-hygiene-267-131-166,completed,3dadec59,"https://github.com/Utilicast-LLC/utilicast-automations/pull/305"
+  "01M2FW17KBZVY9ZKZ446BZCTJD",fm/automations-issue-207-zip-filing-implement,cancelled,2831ca5c,"https://github.com/Utilicast-LLC/utilicast-automations/pull/320"
+  "01M2FVG6J6WH9EQHYJ4MZ947SM",fm/automations-issue-294-bootstrap-oidc-subjects,completed,679a9c84,"https://github.com/Utilicast-LLC/utilicast-automations/pull/304"
+  "01M2EF8MZGX1JG2RRN0AJQABGX",fm/automations-dashboard-prod-inbound-deny,completed,a7f23977,"https://github.com/Utilicast-LLC/utilicast-automations/pull/301"
+  "01M2ECJ0J50GAC1W7405R2EHAG",fm/automations-dashboard-prod-inbound-deny,cancelled,c0289b55,"https://github.com/Utilicast-LLC/utilicast-automations/pull/301"
+  "01M2ECFKK3NXCKBQFZKA4BX452",fm/automations-dashboard-prod-inbound-deny,cancelled,fbf08ab5,""
+  "01M2BDHTYRZCCH964D7DYJTCXP",fm/automations-issue-193-165-promotion-implement,completed,76548a87,"https://github.com/Utilicast-LLC/utilicast-automations/pull/295"
+  "01M2BD4ZEGPP0EBMTN7G68X9T4",fm/automations-issue-193-165-promotion-implement,cancelled,"014d5f79",""
+help[4]: "Run `no-mistakes axi run --intent \"<what the user set out to accomplish>\"` to validate your changes","Commit post-pipeline follow-up work on top of the existing branch so every pipeline fix commit remains present. Never abort-and-restart, reset, or replace the branch in a way that drops prior gate-fix commits.",The calling agent drives AXI gates but does not replace the configured pipeline agent; run `no-mistakes doctor` if no native agent or ACP runner is available,"How to drive the pipeline: `no-mistakes axi run --help`, or the `/no-mistakes` skill (loaded when you invoke `/no-mistakes`)"
+IDENTITY_EXIT	code=0
+  completed    fm/automations-issue-208-roster-gate-implement 8bf1790d  2026-09-14 19:25  https://github.com/Utilicast-LLC/utilicast-automations/pull/321
+  completed    fm/automations-issue-207-zip-filing-implement 442058a6  2026-09-14 13:16  https://github.com/Utilicast-LLC/utilicast-automations/pull/320
+  completed    fm/automations-hygiene-267-131-166 3dadec59  2026-09-14 12:11  https://github.com/Utilicast-LLC/utilicast-automations/pull/305
+  cancelled    fm/automations-issue-207-zip-filing-implement 2831ca5c  2026-09-14 11:49  https://github.com/Utilicast-LLC/utilicast-automations/pull/320
+  completed    fm/automations-issue-294-bootstrap-oidc-subjects 679a9c84  2026-09-14 11:40  https://github.com/Utilicast-LLC/utilicast-automations/pull/304
+  completed    fm/automations-dashboard-prod-inbound-deny a7f23977  2026-09-13 22:47  https://github.com/Utilicast-LLC/utilicast-automations/pull/301
+  cancelled    fm/automations-dashboard-prod-inbound-deny c0289b55  2026-09-13 22:00  https://github.com/Utilicast-LLC/utilicast-automations/pull/301
+  cancelled    fm/automations-dashboard-prod-inbound-deny fbf08ab5  2026-09-13 21:58
+  completed    fm/automations-issue-193-165-promotion-implement 76548a87  2026-09-12 18:19  https://github.com/Utilicast-LLC/utilicast-automations/pull/295
+  cancelled    fm/automations-issue-193-165-promotion-implement 014d5f79  2026-09-12 18:12
+  cancelled    fm/automations-issue-193-165-promotion-implement 2ff19ce7  2026-09-12 16:33  https://github.com/Utilicast-LLC/utilicast-automations/pull/295
+  completed    fm/automations-issue-198-fixture-tokens d795e5fd  2026-09-11 19:12  https://github.com/Utilicast-LLC/utilicast-automations/pull/286
+  cancelled    fm/automations-issue-198-fixture-tokens 382acb1a  2026-09-11 18:21  https://github.com/Utilicast-LLC/utilicast-automations/pull/286
+  completed    fm/automations-python-313-stage2-sow-dev 7dad6d30  2026-09-11 12:16  https://github.com/Utilicast-LLC/utilicast-automations/pull/274
+  cancelled    fm/automations-python-313-stage2-sow-dev f526a59d  2026-09-11 11:46  https://github.com/Utilicast-LLC/utilicast-automations/pull/274
+  failed       fm/automations-python-313-stage2-sow-dev 2497fbc0  2026-09-11 11:08
+  cancelled    fm/automations-python-313-stage2-sow-dev 60ab1163  2026-09-10 20:15
+  cancelled    fm/newsletter-counts-only-schema-fix b50e1bd9  2026-09-10 01:58
+  completed    feature/python313-shared-runtime-decouple ba744425  2026-09-09 23:53  https://github.com/Utilicast-LLC/utilicast-automations/pull/261
+  cancelled    feature/python313-shared-runtime-decouple 72bbdd7b  2026-09-09 23:48
+  completed    feature/python313-shared-runtime-decouple 72bbdd7b  2026-09-09 21:02  https://github.com/Utilicast-LLC/utilicast-automations/pull/261
+  completed    feature/python313-shared-runtime-decouple 5128fbde  2026-09-09 14:23  https://github.com/Utilicast-LLC/utilicast-automations/pull/261
+  cancelled    feature/python313-shared-runtime-decouple 076a25f6  2026-09-09 14:23
+  cancelled    fm/newsletter-phase-2 a4a6dac6  2026-09-09 02:24  https://github.com/Utilicast-LLC/utilicast-automations/pull/256
+  cancelled    fm/newsletter-phase-1 941c100f  2026-09-08 21:11  https://github.com/Utilicast-LLC/utilicast-automations/pull/255
+  completed    fm/newsletter-phase-0 c25b0cdc  2026-09-08 20:51  https://github.com/Utilicast-LLC/utilicast-automations/pull/254
+  failed       fm/newsletter-phase-0 e41bf69d  2026-09-08 20:46
+  completed    fm/newsletter-phase-0 afcd9d5c  2026-09-08 20:35
+  failed       fm/newsletter-phase-0 eb1de56f  2026-09-08 20:22
+  completed    fm/newsletter-phase-1 52e1e265  2026-09-08 19:58
+  completed    fm/automations-issue-200-feed-pin-dev 162c399e  2026-09-07 23:29  https://github.com/Utilicast-LLC/utilicast-automations/pull/253
+  cancelled    fm/automations-issue-200-feed-pin-dev 1bc3914a  2026-09-06 14:55  https://github.com/Utilicast-LLC/utilicast-automations/pull/253
+  cancelled    fm/automations-issue-200-feed-pin 5afecfc9  2026-09-06 14:28  https://github.com/Utilicast-LLC/utilicast-automations/pull/240
+  completed    fm/automations-issue-215-dev-path-filter 6f1f0b91  2026-09-06 14:25  https://github.com/Utilicast-LLC/utilicast-automations/pull/239
+  failed       fm/automations-issue-215-dev-path-filter 304ffa5e  2026-09-06 14:18
+  cancelled    fm/automations-issue-215-dev-path-filter 304ffa5e  2026-09-06 14:17
+LEDGER_EXIT	code=0
+REGISTERED_HOME	id=azure-ops-mate	path=/home/dbeihl/git/utilicast/fm-homes/azure-ops-mate
+QUERY	path=/home/dbeihl/git/utilicast/fm-homes/azure-ops-mate
+error: repo not initialized (run 'no-mistakes init' first)
+help[1]: Run `no-mistakes init` to set up the gate in this repository
+IDENTITY_EXIT	code=1
+QUERY	path=/home/dbeihl/git/utilicast/fm-homes/azure-ops-mate/projects/m365-pptx-rebrand
+bin: ~/.local/bin/no-mistakes
+description: "Validate your code changes through the no-mistakes pipeline - automated code review, tests, lint, docs, push, PR, and CI - before they reach the configured push target. Use when the user asks to run no-mistakes, gate or ship or validate their changes, push safely, asks you to do a task and then validate it, or invokes /no-mistakes."
+repo: /home/dbeihl/git/utilicast/fm-homes/azure-ops-mate/projects/m365-pptx-rebrand
+current_branch: main
+daemon: running
+count: 1 of 1 total
+runs[1]{id,branch,status,head,pr}:
+  "01M286HDQ0TRZAAM6BNCJYFV73",fm/dcr-pptx-proof,completed,5dfe8076,"https://github.com/Utilisource/m365-pptx-rebrand/pull/14"
+help[4]: "Run `no-mistakes axi run --intent \"<what the user set out to accomplish>\"` to validate your changes","Commit post-pipeline follow-up work on top of the existing branch so every pipeline fix commit remains present. Never abort-and-restart, reset, or replace the branch in a way that drops prior gate-fix commits.",The calling agent drives AXI gates but does not replace the configured pipeline agent; run `no-mistakes doctor` if no native agent or ACP runner is available,"How to drive the pipeline: `no-mistakes axi run --help`, or the `/no-mistakes` skill (loaded when you invoke `/no-mistakes`)"
+IDENTITY_EXIT	code=0
+  completed    fm/dcr-pptx-proof    5dfe8076  2026-09-11 12:19  https://github.com/Utilisource/m365-pptx-rebrand/pull/14
+LEDGER_EXIT	code=0
+QUERY	path=/home/dbeihl/git/utilicast/fm-homes/azure-ops-mate/projects/time-and-expense-system
+bin: ~/.local/bin/no-mistakes
+description: "Validate your code changes through the no-mistakes pipeline - automated code review, tests, lint, docs, push, PR, and CI - before they reach the configured push target. Use when the user asks to run no-mistakes, gate or ship or validate their changes, push safely, asks you to do a task and then validate it, or invokes /no-mistakes."
+repo: /home/dbeihl/git/utilicast/fm-homes/azure-ops-mate/projects/time-and-expense-system
+current_branch: main
+daemon: running
+count: 5 of 5 total
+runs[5]{id,branch,status,head,pr}:
+  "01M29H35T23XQD8W0DFG85C30G",fm/dcr-tande-dev,completed,2c1c1281,"https://github.com/Utilicast-LLC/time-and-expense-system/pull/978"
+  "01M29DG5MM98T4JB7K543A7C8Q",fm/dcr-tande-dev,failed,1fa7745d,""
+  "01M299ZTSHZECAR3XPHYZNHZAS",fm/dcr-tande-dev,failed,a2217de0,""
+  "01M28FKF7B3TPV92S7B20E8T57",fm/dcr-tande-staging,completed,cebb3a7a,"https://github.com/Utilicast-LLC/time-and-expense-system/pull/977"
+  "01M28FJDQN447VJP9SJFE6AGST",fm/dcr-tande-staging,cancelled,18c8bbab,""
+help[4]: "Run `no-mistakes axi run --intent \"<what the user set out to accomplish>\"` to validate your changes","Commit post-pipeline follow-up work on top of the existing branch so every pipeline fix commit remains present. Never abort-and-restart, reset, or replace the branch in a way that drops prior gate-fix commits.",The calling agent drives AXI gates but does not replace the configured pipeline agent; run `no-mistakes doctor` if no native agent or ACP runner is available,"How to drive the pipeline: `no-mistakes axi run --help`, or the `/no-mistakes` skill (loaded when you invoke `/no-mistakes`)"
+IDENTITY_EXIT	code=0
+  completed    fm/dcr-tande-dev     2c1c1281  2026-09-12 00:43  https://github.com/Utilicast-LLC/time-and-expense-system/pull/978
+  failed       fm/dcr-tande-dev     1fa7745d  2026-09-11 23:40
+  failed       fm/dcr-tande-dev     a2217de0  2026-09-11 22:39
+  completed    fm/dcr-tande-staging cebb3a7a  2026-09-11 14:58  https://github.com/Utilicast-LLC/time-and-expense-system/pull/977
+  cancelled    fm/dcr-tande-staging 18c8bbab  2026-09-11 14:57
+LEDGER_EXIT	code=0
+QUERY	path=/home/dbeihl/git/utilicast/fm-homes/azure-ops-mate/projects/utilicast-automations
+bin: ~/.local/bin/no-mistakes
+description: "Validate your code changes through the no-mistakes pipeline - automated code review, tests, lint, docs, push, PR, and CI - before they reach the configured push target. Use when the user asks to run no-mistakes, gate or ship or validate their changes, push safely, asks you to do a task and then validate it, or invokes /no-mistakes."
+repo: /home/dbeihl/git/utilicast/fm-homes/azure-ops-mate/projects/utilicast-automations
+current_branch: dev
+daemon: running
+count: 1 of 1 total
+runs[1]{id,branch,status,head,pr}:
+  "01M2C5ES7MJKJSYX1BBBWGQWY1",fm/dcr-automations-iac,completed,b8567cbc,"https://github.com/Utilicast-LLC/utilicast-automations/pull/300"
+help[4]: "Run `no-mistakes axi run --intent \"<what the user set out to accomplish>\"` to validate your changes","Commit post-pipeline follow-up work on top of the existing branch so every pipeline fix commit remains present. Never abort-and-restart, reset, or replace the branch in a way that drops prior gate-fix commits.",The calling agent drives AXI gates but does not replace the configured pipeline agent; run `no-mistakes doctor` if no native agent or ACP runner is available,"How to drive the pipeline: `no-mistakes axi run --help`, or the `/no-mistakes` skill (loaded when you invoke `/no-mistakes`)"
+IDENTITY_EXIT	code=0
+  completed    fm/dcr-automations-iac b8567cbc  2026-09-13 01:17  https://github.com/Utilicast-LLC/utilicast-automations/pull/300
+LEDGER_EXIT	code=0
+QUERY	path=/home/dbeihl/git/utilicast/fm-homes/azure-ops-mate/projects/utilicast-streamlit
+bin: ~/.local/bin/no-mistakes
+description: "Validate your code changes through the no-mistakes pipeline - automated code review, tests, lint, docs, push, PR, and CI - before they reach the configured push target. Use when the user asks to run no-mistakes, gate or ship or validate their changes, push safely, asks you to do a task and then validate it, or invokes /no-mistakes."
+repo: /home/dbeihl/git/utilicast/fm-homes/azure-ops-mate/projects/utilicast-streamlit
+current_branch: dev
+daemon: running
+runs: 0 runs yet in this repository
+help[4]: "Run `no-mistakes axi run --intent \"<what the user set out to accomplish>\"` to validate your changes","Commit post-pipeline follow-up work on top of the existing branch so every pipeline fix commit remains present. Never abort-and-restart, reset, or replace the branch in a way that drops prior gate-fix commits.",The calling agent drives AXI gates but does not replace the configured pipeline agent; run `no-mistakes doctor` if no native agent or ACP runner is available,"How to drive the pipeline: `no-mistakes axi run --help`, or the `/no-mistakes` skill (loaded when you invoke `/no-mistakes`)"
+IDENTITY_EXIT	code=0
+  no runs yet. Push through the gate to start a pipeline:
+  git push no-mistakes <branch>
+LEDGER_EXIT	code=0
+QUERY	path=/home/dbeihl/git/utilicast/fm-homes/azure-ops-mate/projects/utilicast-triage
+bin: ~/.local/bin/no-mistakes
+description: "Validate your code changes through the no-mistakes pipeline - automated code review, tests, lint, docs, push, PR, and CI - before they reach the configured push target. Use when the user asks to run no-mistakes, gate or ship or validate their changes, push safely, asks you to do a task and then validate it, or invokes /no-mistakes."
+repo: /home/dbeihl/git/utilicast/fm-homes/azure-ops-mate/projects/utilicast-triage
+current_branch: dev
+daemon: running
+count: 2 of 2 total
+runs[2]{id,branch,status,head,pr}:
+  "01M2C2BFESPYNVGX98HFGZTQ7H",fm/dcr-triage-dev,completed,bf3d1a7d,"https://github.com/Utilicast-LLC/utilicast-triage/pull/968"
+  "01M2C1C5533ASYE8TGNN1G4BB7",fm/dcr-triage-dev,cancelled,bf3d1a7d,""
+help[4]: "Run `no-mistakes axi run --intent \"<what the user set out to accomplish>\"` to validate your changes","Commit post-pipeline follow-up work on top of the existing branch so every pipeline fix commit remains present. Never abort-and-restart, reset, or replace the branch in a way that drops prior gate-fix commits.",The calling agent drives AXI gates but does not replace the configured pipeline agent; run `no-mistakes doctor` if no native agent or ACP runner is available,"How to drive the pipeline: `no-mistakes axi run --help`, or the `/no-mistakes` skill (loaded when you invoke `/no-mistakes`)"
+IDENTITY_EXIT	code=0
+  completed    fm/dcr-triage-dev    bf3d1a7d  2026-09-13 00:23  https://github.com/Utilicast-LLC/utilicast-triage/pull/968
+  cancelled    fm/dcr-triage-dev    bf3d1a7d  2026-09-13 00:06
+LEDGER_EXIT	code=0
+REGISTERED_HOME	id=ee-agent-mate	path=/home/dbeihl/git/utilicast/fm-homes/ee-agent-mate
+QUERY	path=/home/dbeihl/git/utilicast/fm-homes/ee-agent-mate
+error: repo not initialized (run 'no-mistakes init' first)
+help[1]: Run `no-mistakes init` to set up the gate in this repository
+IDENTITY_EXIT	code=1
+QUERY	path=/home/dbeihl/git/utilicast/fm-homes/ee-agent-mate/projects/ee-agent
+error: repo not initialized (run 'no-mistakes init' first)
+help[1]: Run `no-mistakes init` to set up the gate in this repository
+IDENTITY_EXIT	code=1
+REGISTERED_HOME	id=firstmate-spark	path=/home/dbeihl/git/utilicast/fm-homes/firstmate-spark
+QUERY	path=/home/dbeihl/git/utilicast/fm-homes/firstmate-spark
+error: repo not initialized (run 'no-mistakes init' first)
+help[1]: Run `no-mistakes init` to set up the gate in this repository
+IDENTITY_EXIT	code=1
+REGISTERED_HOME	id=foundry-mate	path=/home/dbeihl/git/utilicast/fm-homes/foundry-mate
+QUERY	path=/home/dbeihl/git/utilicast/fm-homes/foundry-mate
+error: repo not initialized (run 'no-mistakes init' first)
+help[1]: Run `no-mistakes init` to set up the gate in this repository
+IDENTITY_EXIT	code=1
+QUERY	path=/home/dbeihl/git/utilicast/fm-homes/foundry-mate/projects/utilicast-triage
+bin: ~/.local/bin/no-mistakes
+description: "Validate your code changes through the no-mistakes pipeline - automated code review, tests, lint, docs, push, PR, and CI - before they reach the configured push target. Use when the user asks to run no-mistakes, gate or ship or validate their changes, push safely, asks you to do a task and then validate it, or invokes /no-mistakes."
+repo: /home/dbeihl/git/utilicast/fm-homes/foundry-mate/projects/utilicast-triage
+current_branch: dev
+daemon: running
+count: 10 of 13 total
+runs[10]{id,branch,status,head,pr}:
+  "01M2GGFG4371120294WP9QMHP5",fm/agent-demo-tier-check,cancelled,b976158f,""
+  "01M2GFGR48A7FWBAVQHG7V0SPA",fm/agent-demo-tier-check,failed,1bc265cf,""
+  "01M2GCS0RD7R4CWZ90783HJAVW",fm/agent-demo-tier-check,completed,17b436cc,"https://github.com/Utilicast-LLC/utilicast-triage/pull/972"
+  "01M2GANHRMBBFF5BKZQ73S6AJT",fm/agent-demo-tier-check,cancelled,ba1aed5f,"https://github.com/Utilicast-LLC/utilicast-triage/pull/972"
+  "01M2FZ3C4QGFVB2FTHQJWQ0BVF",fm/agent-demo-tier-check,cancelled,ae1ecf8b,"https://github.com/Utilicast-LLC/utilicast-triage/pull/972"
+  "01M2BJ3FGBDCT7JX69W3R37K8F",fm/gpt56-high-tier-routing-s1,completed,b263751a,"https://github.com/Utilicast-LLC/utilicast-triage/pull/967"
+  "01M2BC16TM7NMSNA0PFZN42DET",fm/gpt56-high-tier-routing-s1,cancelled,c84e44f1,"https://github.com/Utilicast-LLC/utilicast-triage/pull/967"
+  "01M2B8QEM3X5B6WACZW0YZ6YF0",fm/gpt56-high-tier-routing-s1,failed,682df7d2,""
+  "01M29270D3SV6XS5PT9W68CXHA",fm/gpt56-high-tier-routing-s1,cancelled,"42592846","https://github.com/Utilicast-LLC/utilicast-triage/pull/967"
+  "01M1YS57QFE8SXVDP53FNPYWJX",fm/foundry-gpt56-fallback-s1,completed,bc186211,"https://github.com/Utilicast-LLC/utilicast-triage/pull/929"
+help[4]: "Run `no-mistakes axi run --intent \"<what the user set out to accomplish>\"` to validate your changes","Commit post-pipeline follow-up work on top of the existing branch so every pipeline fix commit remains present. Never abort-and-restart, reset, or replace the branch in a way that drops prior gate-fix commits.",The calling agent drives AXI gates but does not replace the configured pipeline agent; run `no-mistakes doctor` if no native agent or ACP runner is available,"How to drive the pipeline: `no-mistakes axi run --help`, or the `/no-mistakes` skill (loaded when you invoke `/no-mistakes`)"
+IDENTITY_EXIT	code=0
+  cancelled    fm/agent-demo-tier-check b976158f  2026-09-14 17:47
+  failed       fm/agent-demo-tier-check 1bc265cf  2026-09-14 17:30
+  completed    fm/agent-demo-tier-check 17b436cc  2026-09-14 16:42  https://github.com/Utilicast-LLC/utilicast-triage/pull/972
+  cancelled    fm/agent-demo-tier-check ba1aed5f  2026-09-14 16:05  https://github.com/Utilicast-LLC/utilicast-triage/pull/972
+  cancelled    fm/agent-demo-tier-check ae1ecf8b  2026-09-14 12:43  https://github.com/Utilicast-LLC/utilicast-triage/pull/972
+  completed    fm/gpt56-high-tier-routing-s1 b263751a  2026-09-12 19:39  https://github.com/Utilicast-LLC/utilicast-triage/pull/967
+  cancelled    fm/gpt56-high-tier-routing-s1 c84e44f1  2026-09-12 17:53  https://github.com/Utilicast-LLC/utilicast-triage/pull/967
+  failed       fm/gpt56-high-tier-routing-s1 682df7d2  2026-09-12 16:55
+  cancelled    fm/gpt56-high-tier-routing-s1 42592846  2026-09-11 20:23  https://github.com/Utilicast-LLC/utilicast-triage/pull/967
+  completed    fm/foundry-gpt56-fallback-s1 bc186211  2026-09-07 20:32  https://github.com/Utilicast-LLC/utilicast-triage/pull/929
+  completed    fm/foundry-anthropic-emulator-impl-s3 785d5768  2026-09-06 12:32  https://github.com/Utilicast-LLC/utilicast-triage/pull/905
+  failed       fm/foundry-anthropic-emulator-impl-s3 ab4b383f  2026-09-06 12:24
+  failed       fm/foundry-anthropic-emulator-impl-s3 ab4b383f  2026-09-06 12:21
+LEDGER_EXIT	code=0
+REGISTERED_HOME	id=newsletter-metrics-mate	path=/home/dbeihl/git/utilicast/fm-homes/newsletter-metrics-mate
+QUERY	path=/home/dbeihl/git/utilicast/fm-homes/newsletter-metrics-mate
+error: repo not initialized (run 'no-mistakes init' first)
+help[1]: Run `no-mistakes init` to set up the gate in this repository
+IDENTITY_EXIT	code=1
+QUERY	path=/home/dbeihl/git/utilicast/fm-homes/newsletter-metrics-mate/projects/utilicast-automations
+bin: ~/.local/bin/no-mistakes
+description: "Validate your code changes through the no-mistakes pipeline - automated code review, tests, lint, docs, push, PR, and CI - before they reach the configured push target. Use when the user asks to run no-mistakes, gate or ship or validate their changes, push safely, asks you to do a task and then validate it, or invokes /no-mistakes."
+repo: /home/dbeihl/git/utilicast/fm-homes/newsletter-metrics-mate/projects/utilicast-automations
+current_branch: dev
+daemon: running
+count: 10 of 10 total
+runs[10]{id,branch,status,head,pr}:
+  "01M22XW5R1K5931T961AHF1J1F",fm/newsletter-phase-6,failed,6e0ec9f2,"https://github.com/Utilicast-LLC/utilicast-automations/pull/260"
+  "01M22XB4PWAD31FN6BM5Z20V3S",fm/newsletter-phase-6,failed,ec91b2ea,""
+  "01M22WHT8R2KAJZ6XJ0CSMYP9C",fm/newsletter-phase-6,failed,ec91b2ea,""
+  "01M22QJW6VDDB82JCFDGKEQAWS",fm/newsletter-phase-5,cancelled,adf2f8db,"https://github.com/Utilicast-LLC/utilicast-automations/pull/259"
+  "01M22M1D7DFFMQAT7KQAQNRJJD",fm/newsletter-phase-4,failed,94cd852e,"https://github.com/Utilicast-LLC/utilicast-automations/pull/258"
+  "01M22J49B0V04D5XBH54R2G58N",fm/newsletter-phase-4,failed,dbf18390,""
+  "01M22HPVAT5GDKE7NKXE8MJSFP",fm/newsletter-phase-4,failed,f6498d97,""
+  "01M229HBMB02FTKSRB3S771TP9",fm/newsletter-phase-4,cancelled,9569350d,"https://github.com/Utilicast-LLC/utilicast-automations/pull/258"
+  "01M227ZNQ9SR0F4W9ZZX9V3TVF",fm/newsletter-phase-4,failed,45b98691,""
+  "01M22411WZBHWY82WKPZ9ZX6ZY",fm/newsletter-phase-3,cancelled,7f6b2b6d,"https://github.com/Utilicast-LLC/utilicast-automations/pull/257"
+help[4]: "Run `no-mistakes axi run --intent \"<what the user set out to accomplish>\"` to validate your changes","Commit post-pipeline follow-up work on top of the existing branch so every pipeline fix commit remains present. Never abort-and-restart, reset, or replace the branch in a way that drops prior gate-fix commits.",The calling agent drives AXI gates but does not replace the configured pipeline agent; run `no-mistakes doctor` if no native agent or ACP runner is available,"How to drive the pipeline: `no-mistakes axi run --help`, or the `/no-mistakes` skill (loaded when you invoke `/no-mistakes`)"
+IDENTITY_EXIT	code=0
+  failed       fm/newsletter-phase-6 6e0ec9f2  2026-09-09 11:11  https://github.com/Utilicast-LLC/utilicast-automations/pull/260
+  failed       fm/newsletter-phase-6 ec91b2ea  2026-09-09 11:02
+  failed       fm/newsletter-phase-6 ec91b2ea  2026-09-09 10:48
+  cancelled    fm/newsletter-phase-5 adf2f8db  2026-09-09 09:22  https://github.com/Utilicast-LLC/utilicast-automations/pull/259
+  failed       fm/newsletter-phase-4 94cd852e  2026-09-09 08:20  https://github.com/Utilicast-LLC/utilicast-automations/pull/258
+  failed       fm/newsletter-phase-4 dbf18390  2026-09-09 07:46
+  failed       fm/newsletter-phase-4 f6498d97  2026-09-09 07:39
+  cancelled    fm/newsletter-phase-4 9569350d  2026-09-09 05:16  https://github.com/Utilicast-LLC/utilicast-automations/pull/258
+  failed       fm/newsletter-phase-4 45b98691  2026-09-09 04:49
+  cancelled    fm/newsletter-phase-3 7f6b2b6d  2026-09-09 03:40  https://github.com/Utilicast-LLC/utilicast-automations/pull/257
+LEDGER_EXIT	code=0
+REGISTERED_HOME	id=onboarding-mate	path=/home/dbeihl/git/utilicast/fm-homes/onboarding-mate
+QUERY	path=/home/dbeihl/git/utilicast/fm-homes/onboarding-mate
+error: repo not initialized (run 'no-mistakes init' first)
+help[1]: Run `no-mistakes init` to set up the gate in this repository
+IDENTITY_EXIT	code=1
+QUERY	path=/home/dbeihl/git/utilicast/fm-homes/onboarding-mate/projects/utilicast-developer-onboarding
+bin: ~/.local/bin/no-mistakes
+description: "Validate your code changes through the no-mistakes pipeline - automated code review, tests, lint, docs, push, PR, and CI - before they reach the configured push target. Use when the user asks to run no-mistakes, gate or ship or validate their changes, push safely, asks you to do a task and then validate it, or invokes /no-mistakes."
+repo: /home/dbeihl/git/utilicast/fm-homes/onboarding-mate/projects/utilicast-developer-onboarding
+current_branch: main
+daemon: running
+other_branch_active_run:
+  id: "01M2GXRNNTQNTF0K2MZN2CRTHP"
+  branch: fm/handbook-te-sibling-topology
+  status: running
+  head: cb1df2a9
+  head_sha: cb1df2a9c7c2e6e3eb230583b6b022702964e8ce
+  findings: none
+  steps[9]{step,status,findings,duration_ms}:
+    intent,completed,0,13
+    rebase,completed,0,1040
+    review,completed,0,556827
+    test,completed,0,369535
+    document,running,0,0
+    lint,pending,0,0
+    push,pending,0,0
+    pr,pending,0,0
+    ci,pending,0,0
+  active_steps[1]{step,status,active_for,round_active_for,last_activity,agent_pid,round}:
+    document,running,1m38s,1m38s,"8s ago: codex producing output","880442",starting
+count: 10 of 62 total
+runs[10]{id,branch,status,head,pr}:
+  "01M2GXRNNTQNTF0K2MZN2CRTHP",fm/handbook-te-sibling-topology,running,cb1df2a9,""
+  "01M2GPTF6R22B6E8GTQGN54316",fm/handbook-page-merges,completed,f38aa12f,"https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/340"
+  "01M2GPMAE63MA1SF58NAJPXF2R",fm/handbook-pp-v2-source-drift,completed,"54129528","https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/341"
+  "01M2GM9BPZWVBA22FZB3RMYCYE",fm/handbook-te-diagrams,completed,e8be03f9,"https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/342"
+  "01M2GJ2E1384ZK1DT4MT2D34KV",fm/handbook-v2-followup-pages,completed,717ec1ee,"https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/339"
+  "01M2GH3FECA504K2JYH3DV56WR",fm/handbook-root-sibling-drift,completed,332ddb11,"https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/338"
+  "01M2GGWW9GCNGE7TP7YB8FX7QJ",fm/handbook-apps-needs-update,completed,d0d792c5,"https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/333"
+  "01M2GGRMCSF7A3YSBRS9HSX2MN",fm/handbook-program-status-align,completed,7db71e8d,"https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/337"
+  "01M2GF0PQ5FGJ12BSNGZS3YV20",fm/handbook-v2-deploy-facts,cancelled,2b7ced65,""
+  "01M2GERE1PYDPS7NH6270DW1HZ",fm/handbook-intern-secretless-model,completed,78c28e50,"https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/334"
+help[5]: "Run `no-mistakes axi run --intent \"<what the user set out to accomplish>\"` to validate your changes",Another active run is on fm/handbook-te-sibling-topology; leave it alone unless you are working on that branch,"Commit post-pipeline follow-up work on top of the existing branch so every pipeline fix commit remains present. Never abort-and-restart, reset, or replace the branch in a way that drops prior gate-fix commits.",The calling agent drives AXI gates but does not replace the configured pipeline agent; run `no-mistakes doctor` if no native agent or ACP runner is available,"How to drive the pipeline: `no-mistakes axi run --help`, or the `/no-mistakes` skill (loaded when you invoke `/no-mistakes`)"
+IDENTITY_EXIT	code=0
+  running      fm/handbook-te-sibling-topology cb1df2a9  2026-09-14 21:39
+  completed    fm/handbook-page-merges f38aa12f  2026-09-14 19:38  https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/340
+  completed    fm/handbook-pp-v2-source-drift 54129528  2026-09-14 19:34  https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/341
+  completed    fm/handbook-te-diagrams e8be03f9  2026-09-14 18:53  https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/342
+  completed    fm/handbook-v2-followup-pages 717ec1ee  2026-09-14 18:15  https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/339
+  completed    fm/handbook-root-sibling-drift 332ddb11  2026-09-14 17:58  https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/338
+  completed    fm/handbook-apps-needs-update d0d792c5  2026-09-14 17:54  https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/333
+  completed    fm/handbook-program-status-align 7db71e8d  2026-09-14 17:52  https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/337
+  cancelled    fm/handbook-v2-deploy-facts 2b7ced65  2026-09-14 17:21
+  completed    fm/handbook-intern-secretless-model 78c28e50  2026-09-14 17:17  https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/334
+  completed    fm/handbook-root-reviews e21343d6  2026-09-14 17:08  https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/332
+  completed    fm/handbook-markdownlint-md025 1c281125  2026-09-14 17:03  https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/336
+  cancelled    fm/handbook-roadmaps-refresh 50ee6e60  2026-09-14 17:02
+  cancelled    fm/handbook-intern-secretless-model f23d5bb3  2026-09-14 17:00  https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/334
+  cancelled    fm/handbook-apps-needs-update cbec131f  2026-09-14 16:50  https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/333
+  cancelled    fm/handbook-v2-deploy-facts 57111d7a  2026-09-14 16:46  https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/335
+  cancelled    fm/handbook-intern-secretless-model ae7424c2  2026-09-14 16:43  https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/334
+  cancelled    fm/handbook-markdownlint-md025 fd2479c3  2026-09-14 16:40  https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/336
+  cancelled    fm/handbook-root-reviews cc9f36e7  2026-09-14 16:29  https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/332
+  completed    fm/handbook-systems-drift 98fb07a8  2026-09-14 16:19  https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/329
+  cancelled    fm/handbook-intern-secretless-model 5d75cfea  2026-09-14 16:18  https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/334
+  cancelled    fm/handbook-apps-needs-update 8cf76b9b  2026-09-14 16:15  https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/333
+  cancelled    fm/handbook-roadmaps-refresh d8d84115  2026-09-14 15:59  https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/330
+  cancelled    fm/handbook-intern-secretless-model 29ef2ff6  2026-09-14 15:49  https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/334
+  failed       fm/handbook-systems-drift 7ec1b57e  2026-09-14 15:48
+  cancelled    fm/handbook-roadmaps-refresh 045de95b  2026-09-14 15:30  https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/330
+  cancelled    fm/handbook-systems-drift e5352e6d  2026-09-14 15:26  https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/329
+  cancelled    fm/handbook-root-reviews 9b66e4d9  2026-09-14 15:06  https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/332
+  cancelled    fm/handbook-roadmaps-refresh 75c2dbdd  2026-09-14 15:04  https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/330
+  cancelled    fm/handbook-apps-needs-update a184b21c  2026-09-14 15:03  https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/333
+  cancelled    fm/handbook-systems-drift bf28a772  2026-09-14 15:02  https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/329
+  completed    fm/handbook-intern-reviews 27581974  2026-09-14 15:02  https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/331
+  cancelled    fm/handbook-v2-deploy-facts 356e96ef  2026-09-14 15:02  https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/335
+  failed       fm/handbook-roadmaps-refresh 332931d0  2026-09-14 14:34
+  failed       fm/handbook-intern-reviews 98f16fbe  2026-09-14 14:16
+  failed       fm/handbook-root-reviews bcfcf57b  2026-09-14 14:14
+  failed       fm/handbook-systems-drift 1cdaedc6  2026-09-14 14:12
+  failed       fm/handbook-roadmaps-refresh ff584ed4  2026-09-14 14:11
+  completed    fm/handbook-soonest-reviews 615d9969  2026-09-14 13:37  https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/328
+  failed       fm/handbook-root-reviews a8b035d0  2026-09-14 13:09
+  failed       fm/handbook-apps-needs-update 0a6b2597  2026-09-14 13:01
+  failed       fm/handbook-intern-reviews c92f0698  2026-09-14 12:56
+  completed    fm/handbook-review-date-guard ad413e17  2026-09-14 12:46  https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/327
+  completed    fm/handbook-stale-claims b61f4380  2026-09-14 12:11  https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/326
+  failed       fm/handbook-v2-deploy-facts 651dd36d  2026-09-14 11:55
+  failed       fm/handbook-soonest-reviews bc11e715  2026-09-14 11:54
+  cancelled    fm/handbook-stale-claims 11a7ccd3  2026-09-14 11:35  https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/326
+  completed    fm/adr0012-record-the-challenge 0a693f6e  2026-09-10 18:49  https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/324
+  cancelled    fm/adr0004-restore   897e4919  2026-09-09 14:34
+  completed    fm/handbook-logo     a3a3a17c  2026-09-09 14:30  https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/322
+  completed    fm/handbook-setup-dedup 0c27052b  2026-09-08 20:25  https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/319
+  completed    fm/handbook-nav-consolidation ddc0b7a3  2026-09-08 19:57  https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/318
+  completed    fm/triage-diagrams   e9875f42  2026-09-07 21:08  https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/317
+  completed    fm/portal-spec-mutation-gaps 9f2cea79  2026-09-07 20:52  https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/316
+  completed    fm/handbook-apps-currency 7c6ec005  2026-09-07 17:49  https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/315
+  cancelled    fm/handbook-apps-currency dfd7f210  2026-09-07 17:19  https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/315
+  completed    fm/handbook-currency-pass 6584fb5a  2026-09-07 14:06  https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/314
+  cancelled    fm/handbook-currency-pass 029c0f68  2026-09-07 13:22  https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/314
+  failed       fm/handbook-currency-pass 587e16ed  2026-09-07 13:15
+  completed    fm/handbook-freshness-signal 0b9badbb  2026-09-07 13:08  https://github.com/Utilicast-LLC/utilicast-developer-onboarding/pull/313
+  failed       fm/handbook-currency-pass 587e16ed  2026-09-07 13:08
+  failed       fm/handbook-freshness-signal 626c3979  2026-09-07 13:01
+LEDGER_EXIT	code=0
+REGISTERED_HOME	id=plugins-spark	path=/home/dbeihl/git/utilicast/fm-homes/plugins-spark
+QUERY	path=/home/dbeihl/git/utilicast/fm-homes/plugins-spark
+error: repo not initialized (run 'no-mistakes init' first)
+help[1]: Run `no-mistakes init` to set up the gate in this repository
+IDENTITY_EXIT	code=1
+QUERY	path=/home/dbeihl/git/utilicast/fm-homes/plugins-spark/projects/unlimited-power
+bin: ~/.local/bin/no-mistakes
+description: "Validate your code changes through the no-mistakes pipeline - automated code review, tests, lint, docs, push, PR, and CI - before they reach the configured push target. Use when the user asks to run no-mistakes, gate or ship or validate their changes, push safely, asks you to do a task and then validate it, or invokes /no-mistakes."
+repo: /home/dbeihl/git/utilicast/fm-homes/plugins-spark/projects/unlimited-power
+current_branch: main
+daemon: running
+count: 1 of 1 total
+runs[1]{id,branch,status,head,pr}:
+  "01M212NPRCY8V6BAVMK27TQGFV",fm/plugin-audit-dead-pointers,completed,2505553b,"https://github.com/Utilisource/unlimited-power/pull/588"
+help[4]: "Run `no-mistakes axi run --intent \"<what the user set out to accomplish>\"` to validate your changes","Commit post-pipeline follow-up work on top of the existing branch so every pipeline fix commit remains present. Never abort-and-restart, reset, or replace the branch in a way that drops prior gate-fix commits.",The calling agent drives AXI gates but does not replace the configured pipeline agent; run `no-mistakes doctor` if no native agent or ACP runner is available,"How to drive the pipeline: `no-mistakes axi run --help`, or the `/no-mistakes` skill (loaded when you invoke `/no-mistakes`)"
+IDENTITY_EXIT	code=0
+  completed    fm/plugin-audit-dead-pointers 2505553b  2026-09-08 17:57  https://github.com/Utilisource/unlimited-power/pull/588
+LEDGER_EXIT	code=0
+QUERY	path=/home/dbeihl/git/utilicast/fm-homes/plugins-spark/projects/utilicast-plugins
+bin: ~/.local/bin/no-mistakes
+description: "Validate your code changes through the no-mistakes pipeline - automated code review, tests, lint, docs, push, PR, and CI - before they reach the configured push target. Use when the user asks to run no-mistakes, gate or ship or validate their changes, push safely, asks you to do a task and then validate it, or invokes /no-mistakes."
+repo: /home/dbeihl/git/utilicast/fm-homes/plugins-spark/projects/utilicast-plugins
+current_branch: main
+daemon: running
+other_branch_active_run:
+  id: "01M2FSEVQDK8DAB4D02213PJKD"
+  branch: fm/fix-257-preflight-verify-backport
+  status: running
+  awaiting_agent: parked 9h2m
+  head: edfc71b9
+  head_sha: edfc71b9eae179294e352f6b1c43dba8daebdf98
+  findings: 4 auto-fix
+  steps[9]{step,status,findings,duration_ms}:
+    intent,completed,0,17
+    rebase,completed,0,1234
+    review,fix_review,4,6369533
+    test,pending,0,0
+    document,pending,0,0
+    lint,pending,0,0
+    push,pending,0,0
+    pr,pending,0,0
+    ci,pending,0,0
+count: 10 of 28 total
+runs[10]{id,branch,status,head,pr}:
+  "01M2FT4S41FHTH18R6Z32R67A6",fm/fix-565-567-panel-trust,completed,9b0b8e6a,"https://github.com/Utilicast-LLC/utilicast-plugins/pull/571"
+  "01M2FSEVQDK8DAB4D02213PJKD",fm/fix-257-preflight-verify-backport,running,edfc71b9,""
+  "01M2FS8H3W3TPF6WQSQFFD70HQ",fm/fix-393-salvage-controls,running,cf3dbddd,""
+  "01M2FRZZCDR7XQ7WZCVKXZ96AT",fm/fix-339-agent-disclosure,cancelled,a509201f,"https://github.com/Utilicast-LLC/utilicast-plugins/pull/569"
+  "01M2FRPF3M3FJAABNNHC6RKST3",fm/fix-562-deploy-seam-pointer,completed,9c189450,"https://github.com/Utilicast-LLC/utilicast-plugins/pull/568"
+  "01M2C2KZH4QYMEMV5DMKGG1YKF",fm/fix-458-parse-skill-frontmatter,cancelled,b017d4d5,"https://github.com/Utilicast-LLC/utilicast-plugins/pull/566"
+  "01M2C1XQBAFH1Y6TV89JEKVENP",fm/fix-552-workflow-count-check,completed,d4c7ff27,"https://github.com/Utilicast-LLC/utilicast-plugins/pull/564"
+  "01M2C1KWPHCCS8ZCTVVQB0MFJZ",fm/fix-513-entra-disambiguate,completed,"016b95c8","https://github.com/Utilicast-LLC/utilicast-plugins/pull/563"
+  "01M2C1JG4F6T0YXYTKYAE3AJPP",fm/fix-410-forward-guard-goldens,completed,5e872bf3,"https://github.com/Utilicast-LLC/utilicast-plugins/pull/561"
+  "01M298EZKFWCP70NPDRDND90G9",fm/update-protection-snapshot-enforce-admins,completed,e649304d,"https://github.com/Utilicast-LLC/utilicast-plugins/pull/560"
+help[5]: "Run `no-mistakes axi run --intent \"<what the user set out to accomplish>\"` to validate your changes",Another active run is on fm/fix-257-preflight-verify-backport; leave it alone unless you are working on that branch,"Commit post-pipeline follow-up work on top of the existing branch so every pipeline fix commit remains present. Never abort-and-restart, reset, or replace the branch in a way that drops prior gate-fix commits.",The calling agent drives AXI gates but does not replace the configured pipeline agent; run `no-mistakes doctor` if no native agent or ACP runner is available,"How to drive the pipeline: `no-mistakes axi run --help`, or the `/no-mistakes` skill (loaded when you invoke `/no-mistakes`)"
+IDENTITY_EXIT	code=0
+  completed    fm/fix-565-567-panel-trust 9b0b8e6a  2026-09-14 11:16  https://github.com/Utilicast-LLC/utilicast-plugins/pull/571
+  running      fm/fix-257-preflight-verify-backport edfc71b9  2026-09-14 11:04
+  running      fm/fix-393-salvage-controls cf3dbddd  2026-09-14 11:01
+  cancelled    fm/fix-339-agent-disclosure a509201f  2026-09-14 10:56  https://github.com/Utilicast-LLC/utilicast-plugins/pull/569
+  completed    fm/fix-562-deploy-seam-pointer 9c189450  2026-09-14 10:51  https://github.com/Utilicast-LLC/utilicast-plugins/pull/568
+  cancelled    fm/fix-458-parse-skill-frontmatter b017d4d5  2026-09-13 00:28  https://github.com/Utilicast-LLC/utilicast-plugins/pull/566
+  completed    fm/fix-552-workflow-count-check d4c7ff27  2026-09-13 00:15  https://github.com/Utilicast-LLC/utilicast-plugins/pull/564
+  completed    fm/fix-513-entra-disambiguate 016b95c8  2026-09-13 00:10  https://github.com/Utilicast-LLC/utilicast-plugins/pull/563
+  completed    fm/fix-410-forward-guard-goldens 5e872bf3  2026-09-13 00:09  https://github.com/Utilicast-LLC/utilicast-plugins/pull/561
+  completed    fm/update-protection-snapshot-enforce-admins e649304d  2026-09-11 22:12  https://github.com/Utilicast-LLC/utilicast-plugins/pull/560
+  failed       fm/update-protection-snapshot-enforce-admins e649304d  2026-09-11 21:12
+  completed    fm/windows-hooks-portability-implementation 59a25adf  2026-09-11 19:26  https://github.com/Utilicast-LLC/utilicast-plugins/pull/559
+  failed       fm/windows-hooks-portability-implementation 9139e44e  2026-09-11 19:05
+  cancelled    fm/update-protection-snapshot-enforce-admins 044f0b44  2026-09-11 19:00
+  failed       fm/windows-hooks-portability-implementation 9139e44e  2026-09-11 18:15
+  completed    fm/fix-sweep-workflow-false-failures b16c1311  2026-09-11 12:43  https://github.com/Utilicast-LLC/utilicast-plugins/pull/555
+  completed    fm/require-issue-labels d2180eb6  2026-09-09 19:58  https://github.com/Utilicast-LLC/utilicast-plugins/pull/553
+  failed       fm/require-issue-labels d2180eb6  2026-09-09 14:26
+  completed    fm/description-coverage-baseline-independent-gate c8300026  2026-09-08 20:14  https://github.com/Utilicast-LLC/utilicast-plugins/pull/551
+  completed    fm/review-loop-retro-remainder 4eaf4c8c  2026-09-08 18:01  https://github.com/Utilicast-LLC/utilicast-plugins/pull/550
+  cancelled    fm/pip-uv-routing-control 4344fe49  2026-09-08 16:42
+  failed       fm/pip-uv-routing-control 82202364  2026-09-08 16:34
+  failed       fm/bare-assert-panel-cycle-batch-evals 148539fe  2026-09-08 16:33  https://github.com/Utilicast-LLC/utilicast-plugins/pull/547
+  failed       fm/pip-uv-routing-control 635a8342  2026-09-08 16:24
+  completed    fm/bare-assert-panel-cycle-batch-evals 5b4659b4  2026-09-08 16:01  https://github.com/Utilicast-LLC/utilicast-plugins/pull/547
+  failed       fm/pip-uv-routing-control 635a8342  2026-09-08 16:00
+  failed       fm/pip-uv-routing-control 635a8342  2026-09-08 15:46
+  completed    fm/bare-assert-panel-cycle-batch-evals d584df70  2026-09-08 15:30  https://github.com/Utilicast-LLC/utilicast-plugins/pull/547
+LEDGER_EXIT	code=0
+QUERY	path=/home/dbeihl/git/utilicast/fm-homes/plugins-spark/projects/utilicast-pm-copilot-agent
+bin: ~/.local/bin/no-mistakes
+description: "Validate your code changes through the no-mistakes pipeline - automated code review, tests, lint, docs, push, PR, and CI - before they reach the configured push target. Use when the user asks to run no-mistakes, gate or ship or validate their changes, push safely, asks you to do a task and then validate it, or invokes /no-mistakes."
+repo: /home/dbeihl/git/utilicast/fm-homes/plugins-spark/projects/utilicast-pm-copilot-agent
+current_branch: main
+daemon: running
+runs: 0 runs yet in this repository
+help[4]: "Run `no-mistakes axi run --intent \"<what the user set out to accomplish>\"` to validate your changes","Commit post-pipeline follow-up work on top of the existing branch so every pipeline fix commit remains present. Never abort-and-restart, reset, or replace the branch in a way that drops prior gate-fix commits.",The calling agent drives AXI gates but does not replace the configured pipeline agent; run `no-mistakes doctor` if no native agent or ACP runner is available,"How to drive the pipeline: `no-mistakes axi run --help`, or the `/no-mistakes` skill (loaded when you invoke `/no-mistakes`)"
+IDENTITY_EXIT	code=0
+  no runs yet. Push through the gate to start a pipeline:
+  git push no-mistakes <branch>
+LEDGER_EXIT	code=0
+REGISTERED_HOME	id=portal-save-mate	path=/home/dbeihl/git/utilicast/fm-homes/portal-save-mate
+QUERY	path=/home/dbeihl/git/utilicast/fm-homes/portal-save-mate
+error: repo not initialized (run 'no-mistakes init' first)
+help[1]: Run `no-mistakes init` to set up the gate in this repository
+IDENTITY_EXIT	code=1
+QUERY	path=/home/dbeihl/git/utilicast/fm-homes/portal-save-mate/projects/utilicast-management-portal
+error: repo not initialized (run 'no-mistakes init' first)
+help[1]: Run `no-mistakes init` to set up the gate in this repository
+IDENTITY_EXIT	code=1
+REGISTERED_HOME	id=project-portal-spark	path=/home/dbeihl/git/utilicast/fm-homes/project-portal-spark
+QUERY	path=/home/dbeihl/git/utilicast/fm-homes/project-portal-spark
+error: repo not initialized (run 'no-mistakes init' first)
+help[1]: Run `no-mistakes init` to set up the gate in this repository
+IDENTITY_EXIT	code=1
+QUERY	path=/home/dbeihl/git/utilicast/fm-homes/project-portal-spark/projects/utilicast_front_v2
+bin: ~/.local/bin/no-mistakes
+description: "Validate your code changes through the no-mistakes pipeline - automated code review, tests, lint, docs, push, PR, and CI - before they reach the configured push target. Use when the user asks to run no-mistakes, gate or ship or validate their changes, push safely, asks you to do a task and then validate it, or invokes /no-mistakes."
+repo: /home/dbeihl/git/utilicast/fm-homes/project-portal-spark/projects/utilicast_front_v2
+current_branch: master
+daemon: running
+other_branch_active_run:
+  id: "01M2GYDTP30GVMFHCQ97BJ86KK"
+  branch: fm/portal-front-issue43-sow-warn
+  status: running
+  head: 16073fd3
+  head_sha: 16073fd39617c44295f37892b9b6c30ad85a5117
+  findings: 1 awaiting
+  steps[9]{step,status,findings,duration_ms}:
+    intent,completed,0,17
+    rebase,completed,0,1042
+    review,fixing,1,399213
+    test,pending,0,0
+    document,pending,0,0
+    lint,pending,0,0
+    push,pending,0,0
+    pr,pending,0,0
+    ci,pending,0,0
+  active_steps[1]{step,status,active_for,round_active_for,last_activity,agent_pid,round}:
+    review,fixing,9m37s,51s,"5s ago: codex producing output","978283",fix 1
+count: 4 of 4 total
+runs[4]{id,branch,status,head,pr}:
+  "01M2GYDTP30GVMFHCQ97BJ86KK",fm/portal-front-issue43-sow-warn,running,16073fd3,""
+  "01M2GRWAPGQXF3VAHG85R878FR",fm/portal-front-issue43-rate-warn-s1,cancelled,16b66549,"https://github.com/Utilicast/utilicast_front_v2/pull/51"
+  "01M2GPGJ6RX0YW8TP8HM6QZ8DP",fm/portal-front-issue43-rate-warn-s1,cancelled,453e352b,"https://github.com/Utilicast/utilicast_front_v2/pull/51"
+  "01M29ABS5Y4AR4ZGBKH4BDZS4N",fm/portal-token-console-s8,completed,d8c47b96,"https://github.com/Utilicast/utilicast_front_v2/pull/49"
+help[5]: "Run `no-mistakes axi run --intent \"<what the user set out to accomplish>\"` to validate your changes",Another active run is on fm/portal-front-issue43-sow-warn; leave it alone unless you are working on that branch,"Commit post-pipeline follow-up work on top of the existing branch so every pipeline fix commit remains present. Never abort-and-restart, reset, or replace the branch in a way that drops prior gate-fix commits.",The calling agent drives AXI gates but does not replace the configured pipeline agent; run `no-mistakes doctor` if no native agent or ACP runner is available,"How to drive the pipeline: `no-mistakes axi run --help`, or the `/no-mistakes` skill (loaded when you invoke `/no-mistakes`)"
+IDENTITY_EXIT	code=0
+  running      fm/portal-front-issue43-sow-warn 16073fd3  2026-09-14 21:51
+  cancelled    fm/portal-front-issue43-rate-warn-s1 16b66549  2026-09-14 20:14  https://github.com/Utilicast/utilicast_front_v2/pull/51
+  cancelled    fm/portal-front-issue43-rate-warn-s1 453e352b  2026-09-14 19:32  https://github.com/Utilicast/utilicast_front_v2/pull/51
+  completed    fm/portal-token-console-s8 d8c47b96  2026-09-11 22:45  https://github.com/Utilicast/utilicast_front_v2/pull/49
+LEDGER_EXIT	code=0
+QUERY	path=/home/dbeihl/git/utilicast/fm-homes/project-portal-spark/projects/utilicast_server_v2
+bin: ~/.local/bin/no-mistakes
+description: "Validate your code changes through the no-mistakes pipeline - automated code review, tests, lint, docs, push, PR, and CI - before they reach the configured push target. Use when the user asks to run no-mistakes, gate or ship or validate their changes, push safely, asks you to do a task and then validate it, or invokes /no-mistakes."
+repo: /home/dbeihl/git/utilicast/fm-homes/project-portal-spark/projects/utilicast_server_v2
+current_branch: master
+daemon: running
+count: 1 of 1 total
+runs[1]{id,branch,status,head,pr}:
+  "01M292KTG0XCSG0WJ0CQ3QCMXV",fm/portal-msal-p1-q7,completed,4a87b1cb,"https://github.com/Utilicast/utilicast_server_v2/pull/119"
+help[4]: "Run `no-mistakes axi run --intent \"<what the user set out to accomplish>\"` to validate your changes","Commit post-pipeline follow-up work on top of the existing branch so every pipeline fix commit remains present. Never abort-and-restart, reset, or replace the branch in a way that drops prior gate-fix commits.",The calling agent drives AXI gates but does not replace the configured pipeline agent; run `no-mistakes doctor` if no native agent or ACP runner is available,"How to drive the pipeline: `no-mistakes axi run --help`, or the `/no-mistakes` skill (loaded when you invoke `/no-mistakes`)"
+IDENTITY_EXIT	code=0
+  completed    fm/portal-msal-p1-q7 4a87b1cb  2026-09-11 20:30  https://github.com/Utilicast/utilicast_server_v2/pull/119
+LEDGER_EXIT	code=0
+REGISTERED_HOME	id=streamlit-mate	path=/home/dbeihl/git/utilicast/fm-homes/streamlit-mate
+QUERY	path=/home/dbeihl/git/utilicast/fm-homes/streamlit-mate
+error: repo not initialized (run 'no-mistakes init' first)
+help[1]: Run `no-mistakes init` to set up the gate in this repository
+IDENTITY_EXIT	code=1
+QUERY	path=/home/dbeihl/git/utilicast/fm-homes/streamlit-mate/projects/utilicast-streamlit
+bin: ~/.local/bin/no-mistakes
+description: "Validate your code changes through the no-mistakes pipeline - automated code review, tests, lint, docs, push, PR, and CI - before they reach the configured push target. Use when the user asks to run no-mistakes, gate or ship or validate their changes, push safely, asks you to do a task and then validate it, or invokes /no-mistakes."
+repo: /home/dbeihl/git/utilicast/fm-homes/streamlit-mate/projects/utilicast-streamlit
+current_branch: dev
+daemon: running
+other_branch_active_run:
+  id: "01M25ZCWP0X129H83889XKB01B"
+  branch: fm/upload-ux-billing
+  status: running
+  awaiting_agent: parked 4d6h
+  head: "00f5ca87"
+  head_sha: "00f5ca87038b448f8b8cc89c109294db1835245c"
+  findings: 1 awaiting
+  steps[9]{step,status,findings,duration_ms}:
+    intent,completed,0,8
+    rebase,completed,0,1004
+    review,awaiting_approval,1,708727
+    test,pending,0,0
+    document,pending,0,0
+    lint,pending,0,0
+    push,pending,0,0
+    pr,pending,0,0
+    ci,pending,0,0
+count: 10 of 23 total
+runs[10]{id,branch,status,head,pr}:
+  "01M2G3NGKMPE337Z26PGTB6AN8",fm/issue-93-complete-cap,failed,9a22b9bf,""
+  "01M2FZ1R8MA5XHQ9HZJRPJJ38W",fm/issue-93-cap-problem-report,failed,130f96b1,""
+  "01M2FVSEARHNKSRT8GKRS3HHP6",fm/issue-84-cell-guard-first-slice,cancelled,24c47ec2,"https://github.com/Utilicast-LLC/utilicast-streamlit/pull/143"
+  "01M2FVN68SKW6C7WWMHNYG0KHW",fm/issue-93-cap-problem-report,cancelled,7d7986e4,"https://github.com/Utilicast-LLC/utilicast-streamlit/pull/142"
+  "01M2FVBYSNKFRNPD2TK3WSKBGT",fm/issue-105-irs-2026-limits,cancelled,1358914f,"https://github.com/Utilicast-LLC/utilicast-streamlit/pull/141"
+  "01M2BZV7S83208W27AN341RVV4",fix/94b-review-flags-post-neutralization-length,cancelled,4a5f00a4,"https://github.com/Utilicast-LLC/utilicast-streamlit/pull/132"
+  "01M2BYMJZSXYCPB1YBT6307KVH",work/pr130-update,cancelled,429d9c30,""
+  "01M2BQB2F36YB22VTC9H4A1AV5",fm/billing-drop-forced-theme,cancelled,85875bb8,"https://github.com/Utilicast-LLC/utilicast-streamlit/pull/128"
+  "01M2BPQKP2KRDPQJS2FG2JKK80",fm/billing-drop-forced-theme,failed,2fadb5da,""
+  "01M2BN9ZQS2X21CSQX1K61NG20",fm/billing-drop-forced-theme,failed,2fadb5da,""
+help[5]: "Run `no-mistakes axi run --intent \"<what the user set out to accomplish>\"` to validate your changes",Another active run is on fm/upload-ux-billing; leave it alone unless you are working on that branch,"Commit post-pipeline follow-up work on top of the existing branch so every pipeline fix commit remains present. Never abort-and-restart, reset, or replace the branch in a way that drops prior gate-fix commits.",The calling agent drives AXI gates but does not replace the configured pipeline agent; run `no-mistakes doctor` if no native agent or ACP runner is available,"How to drive the pipeline: `no-mistakes axi run --help`, or the `/no-mistakes` skill (loaded when you invoke `/no-mistakes`)"
+IDENTITY_EXIT	code=0
+  failed       fm/issue-93-complete-cap 9a22b9bf  2026-09-14 14:03
+  failed       fm/issue-93-cap-problem-report 130f96b1  2026-09-14 12:42
+  cancelled    fm/issue-84-cell-guard-first-slice 24c47ec2  2026-09-14 11:45  https://github.com/Utilicast-LLC/utilicast-streamlit/pull/143
+  cancelled    fm/issue-93-cap-problem-report 7d7986e4  2026-09-14 11:43  https://github.com/Utilicast-LLC/utilicast-streamlit/pull/142
+  cancelled    fm/issue-105-irs-2026-limits 1358914f  2026-09-14 11:38  https://github.com/Utilicast-LLC/utilicast-streamlit/pull/141
+  cancelled    fix/94b-review-flags-post-neutralization-length 4a5f00a4  2026-09-12 23:39  https://github.com/Utilicast-LLC/utilicast-streamlit/pull/132
+  cancelled    work/pr130-update    429d9c30  2026-09-12 23:18
+  cancelled    fm/billing-drop-forced-theme 85875bb8  2026-09-12 21:10  https://github.com/Utilicast-LLC/utilicast-streamlit/pull/128
+  failed       fm/billing-drop-forced-theme 2fadb5da  2026-09-12 21:00
+  failed       fm/billing-drop-forced-theme 2fadb5da  2026-09-12 20:35
+  cancelled    fm/billing-period-freshness-check 67e36aa9  2026-09-11 20:59  https://github.com/Utilicast-LLC/utilicast-streamlit/pull/126
+  cancelled    fm/billing-period-freshness-check 2d249e91  2026-09-11 19:17
+  cancelled    fm/billing-sidebar-doubled-divider b0902ccd  2026-09-11 18:34  https://github.com/Utilicast-LLC/utilicast-streamlit/pull/127
+  cancelled    fm/billing-period-freshness-check a02b7dc0  2026-09-11 18:32
+  cancelled    fm/billing-cid-eid-indistinguishable c09adcff  2026-09-11 18:24  https://github.com/Utilicast-LLC/utilicast-streamlit/pull/125
+  cancelled    fm/billing-positional-column-defect b9c3ccf3  2026-09-10 19:01  https://github.com/Utilicast-LLC/utilicast-streamlit/pull/123
+  running      fm/upload-ux-billing 00f5ca87  2026-09-10 15:36
+  cancelled    fm/upload-ux-billing 00f5ca87  2026-09-10 14:51
+  cancelled    fm/upload-ux-billing 7c104745  2026-09-10 13:14
+  cancelled    fm/upload-ux-billing 5667bb78  2026-09-10 12:58
+  completed    fm/billing-guided-upload-screen cf1bd462  2026-09-10 10:58  https://github.com/Utilicast-LLC/utilicast-streamlit/pull/120
+  cancelled    fm/billing-guided-upload-screen 3a4ca4fc  2026-09-10 01:08  https://github.com/Utilicast-LLC/utilicast-streamlit/pull/120
+  cancelled    fm/upload-ux-billing 734ec1e8  2026-09-09 21:24  https://github.com/Utilicast-LLC/utilicast-streamlit/pull/119
+LEDGER_EXIT	code=0
+REGISTERED_HOME	id=tande-spark	path=/home/dbeihl/git/utilicast/fm-homes/tande-spark
+QUERY	path=/home/dbeihl/git/utilicast/fm-homes/tande-spark
+error: repo not initialized (run 'no-mistakes init' first)
+help[1]: Run `no-mistakes init` to set up the gate in this repository
+IDENTITY_EXIT	code=1
+QUERY	path=/home/dbeihl/git/utilicast/fm-homes/tande-spark/projects/time-and-expense-system
+bin: ~/.local/bin/no-mistakes
+description: "Validate your code changes through the no-mistakes pipeline - automated code review, tests, lint, docs, push, PR, and CI - before they reach the configured push target. Use when the user asks to run no-mistakes, gate or ship or validate their changes, push safely, asks you to do a task and then validate it, or invokes /no-mistakes."
+repo: /home/dbeihl/git/utilicast/fm-homes/tande-spark/projects/time-and-expense-system
+current_branch: main
+daemon: running
+runs: 0 runs yet in this repository
+help[4]: "Run `no-mistakes axi run --intent \"<what the user set out to accomplish>\"` to validate your changes","Commit post-pipeline follow-up work on top of the existing branch so every pipeline fix commit remains present. Never abort-and-restart, reset, or replace the branch in a way that drops prior gate-fix commits.",The calling agent drives AXI gates but does not replace the configured pipeline agent; run `no-mistakes doctor` if no native agent or ACP runner is available,"How to drive the pipeline: `no-mistakes axi run --help`, or the `/no-mistakes` skill (loaded when you invoke `/no-mistakes`)"
+IDENTITY_EXIT	code=0
+  no runs yet. Push through the gate to start a pipeline:
+  git push no-mistakes <branch>
+LEDGER_EXIT	code=0
+REGISTERED_HOME	id=triage-spark-new	path=/home/dbeihl/git/utilicast/fm-homes/triage-mate
+QUERY	path=/home/dbeihl/git/utilicast/fm-homes/triage-mate
+error: repo not initialized (run 'no-mistakes init' first)
+help[1]: Run `no-mistakes init` to set up the gate in this repository
+IDENTITY_EXIT	code=1
+QUERY	path=/home/dbeihl/git/utilicast/fm-homes/triage-mate/projects/utilicast-triage
+bin: ~/.local/bin/no-mistakes
+description: "Validate your code changes through the no-mistakes pipeline - automated code review, tests, lint, docs, push, PR, and CI - before they reach the configured push target. Use when the user asks to run no-mistakes, gate or ship or validate their changes, push safely, asks you to do a task and then validate it, or invokes /no-mistakes."
+repo: /home/dbeihl/git/utilicast/fm-homes/triage-mate/projects/utilicast-triage
+current_branch: dev
+daemon: running
+other_branch_active_run:
+  id: "01M2GTDQ3MT7GBT8MH6RB2D5CW"
+  branch: fm/itadmin-high-tier-preset-exception-01
+  status: running
+  head: 63e93e12
+  head_sha: 63e93e1204f5588c918304f71dcc490546803c92
+  findings: 1 auto-fix
+  steps[9]{step,status,findings,duration_ms}:
+    intent,completed,0,12
+    rebase,completed,0,1018
+    review,fixing,1,4141266
+    test,pending,0,0
+    document,pending,0,0
+    lint,pending,0,0
+    push,pending,0,0
+    pr,pending,0,0
+    ci,pending,0,0
+  active_steps[1]{step,status,active_for,round_active_for,last_activity,agent_pid,round}:
+    review,fixing,1h19m,1m19s,"6s ago: codex producing output","940318",fix 6
+count: 10 of 38 total
+runs[10]{id,branch,status,head,pr}:
+  "01M2GTDQ3MT7GBT8MH6RB2D5CW",fm/itadmin-high-tier-preset-exception-01,running,63e93e12,""
+  "01M2GSKGRD6FFMM93QHE1CSK36",fm/itadmin-autoreply-misread-gate-01,completed,53b97cbe,"https://github.com/Utilicast-LLC/utilicast-triage/pull/980"
+  "01M2GRM56Q367CBVB6W64FMS77",fm/itadmin-send-as-it-stamp-01,running,cb7f805c,"https://github.com/Utilicast-LLC/utilicast-triage/pull/982"
+  "01M2GRJDRFMAFZ0KJ6527BXWG0",fm/itadmin-reply-as-it-enable-01,running,bb35223d,"https://github.com/Utilicast-LLC/utilicast-triage/pull/981"
+  "01M2GKK7AGDCGXYV6AJ38B8A49",feat/pgbouncer-6432,completed,"70052680","https://github.com/Utilicast-LLC/utilicast-triage/pull/979"
+  "01M2GAVM5PQ7T6YK9NMFYX8AW1",fix/pgbouncer-param-order,completed,a7af2fcc,"https://github.com/Utilicast-LLC/utilicast-triage/pull/978"
+  "01M2GAFK6QVTPY1FK28E0W88EE",fix/pgbouncer-param-order,cancelled,"9696e121",""
+  "01M2G733SKMASDDA4TVGMRFANT",fm/nm028-metadata-read-build-01,completed,f0c8b5c0,"https://github.com/Utilicast-LLC/utilicast-triage/pull/977"
+  "01M2G72Z2A33EA0C5M6F0WFDZF",fm/nonadmin-test-identity-01,completed,1dfff5ce,"https://github.com/Utilicast-LLC/utilicast-triage/pull/976"
+  "01M2G411N7THS84WWJP5DKZD2X",fm/presidio-span-quadratic-sweep-01,completed,c8370995,"https://github.com/Utilicast-LLC/utilicast-triage/pull/975"
+help[5]: "Run `no-mistakes axi run --intent \"<what the user set out to accomplish>\"` to validate your changes",Another active run is on fm/itadmin-high-tier-preset-exception-01; leave it alone unless you are working on that branch,"Commit post-pipeline follow-up work on top of the existing branch so every pipeline fix commit remains present. Never abort-and-restart, reset, or replace the branch in a way that drops prior gate-fix commits.",The calling agent drives AXI gates but does not replace the configured pipeline agent; run `no-mistakes doctor` if no native agent or ACP runner is available,"How to drive the pipeline: `no-mistakes axi run --help`, or the `/no-mistakes` skill (loaded when you invoke `/no-mistakes`)"
+IDENTITY_EXIT	code=0
+  running      fm/itadmin-high-tier-preset-exception-01 63e93e12  2026-09-14 20:41
+  completed    fm/itadmin-autoreply-misread-gate-01 53b97cbe  2026-09-14 20:26  https://github.com/Utilicast-LLC/utilicast-triage/pull/980
+  running      fm/itadmin-send-as-it-stamp-01 cb7f805c  2026-09-14 20:09  https://github.com/Utilicast-LLC/utilicast-triage/pull/982
+  running      fm/itadmin-reply-as-it-enable-01 bb35223d  2026-09-14 20:08  https://github.com/Utilicast-LLC/utilicast-triage/pull/981
+  completed    feat/pgbouncer-6432  70052680  2026-09-14 18:41  https://github.com/Utilicast-LLC/utilicast-triage/pull/979
+  completed    fix/pgbouncer-param-order a7af2fcc  2026-09-14 16:09  https://github.com/Utilicast-LLC/utilicast-triage/pull/978
+  cancelled    fix/pgbouncer-param-order 9696e121  2026-09-14 16:02
+  completed    fm/nm028-metadata-read-build-01 f0c8b5c0  2026-09-14 15:03  https://github.com/Utilicast-LLC/utilicast-triage/pull/977
+  completed    fm/nonadmin-test-identity-01 1dfff5ce  2026-09-14 15:03  https://github.com/Utilicast-LLC/utilicast-triage/pull/976
+  completed    fm/presidio-span-quadratic-sweep-01 c8370995  2026-09-14 14:09  https://github.com/Utilicast-LLC/utilicast-triage/pull/975
+  completed    fm/dispatch-audit-atomic-963-01 f9262d9c  2026-09-14 13:53  https://github.com/Utilicast-LLC/utilicast-triage/pull/973
+  failed       fm/nonadmin-test-identity-01 065c02d7  2026-09-14 13:50
+  failed       fm/nm028-metadata-read-build-01 952b5804  2026-09-14 13:38
+  cancelled    fm/dispatch-audit-atomic-963-01 012d0000  2026-09-14 13:02  https://github.com/Utilicast-LLC/utilicast-triage/pull/973
+  completed    fm/pooler-build-01   0c1b7b26  2026-09-14 12:20  https://github.com/Utilicast-LLC/utilicast-triage/pull/974
+  completed    fm/adapter-not-configured-reason-01 bd2070af  2026-09-13 21:41  https://github.com/Utilicast-LLC/utilicast-triage/pull/969
+  completed    fm/foundry-flag-survives-deploy-01 c7183035  2026-09-13 21:30  https://github.com/Utilicast-LLC/utilicast-triage/pull/970
+  cancelled    relay/phase1-recognizer-calibration 2dd63b5c  2026-09-12 12:57  https://github.com/Utilicast-LLC/utilicast-triage/pull/965
+  failed       relay/phase1-recognizer-calibration 0e801fcf  2026-09-12 02:01
+  cancelled    relay/phase1-recognizer-calibration 32ea2dbb  2026-09-11 23:03  https://github.com/Utilicast-LLC/utilicast-triage/pull/965
+  failed       relay/phase1-recognizer-calibration ef209195  2026-09-11 21:46
+  completed    fm/mcp-availability-fix-01 690b7608  2026-09-11 20:15  https://github.com/Utilicast-LLC/utilicast-triage/pull/966
+  cancelled    relay/phase1-recognizer-calibration 289730f0  2026-09-11 16:47  https://github.com/Utilicast-LLC/utilicast-triage/pull/965
+  completed    fm/search-by-id-browser-wiring-01 ee35c4e4  2026-09-10 19:04  https://github.com/Utilicast-LLC/utilicast-triage/pull/957
+  cancelled    fm/search-by-id-browser-wiring-01 cdeb6286  2026-09-10 17:21
+  failed       fm/search-by-id-browser-wiring-01 97a877c3  2026-09-10 14:56
+  completed    fm/redacted-subject-search-01 d083fb1e  2026-09-10 13:04  https://github.com/Utilicast-LLC/utilicast-triage/pull/952
+  completed    fm/autoclose-control-951-01 99925198  2026-09-10 12:37  https://github.com/Utilicast-LLC/utilicast-triage/pull/955
+  completed    fm/alert-wording-depth-vs-cause-01 4ce93b81  2026-09-09 22:58  https://github.com/Utilicast-LLC/utilicast-triage/pull/949
+  completed    fm/search-by-id-sensitivity-01 761d5486  2026-09-09 22:44  https://github.com/Utilicast-LLC/utilicast-triage/pull/950
+  completed    fm/confidence-unknown-render-01 bbd67936  2026-09-09 22:09  https://github.com/Utilicast-LLC/utilicast-triage/pull/948
+  failed       fm/sendgate-own-basis-01 9da82fa5  2026-09-09 18:55
+  completed    fm/pooler-interim-bound-01 88d77e04  2026-09-09 17:18  https://github.com/Utilicast-LLC/utilicast-triage/pull/947
+  cancelled    fm/pooler-interim-bound-01 47390671  2026-09-09 16:30
+  failed       fm/sensitivity-scoring-split-01 2d62607e  2026-09-09 14:26
+  failed       fm/sensitivity-scoring-split-01 0418e3ae  2026-09-09 14:19
+  failed       fm/sensitivity-scoring-split-01 0418e3ae  2026-09-09 13:57
+  completed    fm/autoreply-arming-followup-01 c7e10ee1  2026-09-08 16:40  https://github.com/Utilicast-LLC/utilicast-triage/pull/941
+LEDGER_EXIT	code=0

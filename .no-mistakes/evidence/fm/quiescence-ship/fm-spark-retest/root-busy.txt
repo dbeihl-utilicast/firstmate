@@ -1,0 +1,3 @@
+RUN	host=fm-spark	home=root@fm-spark	clone=firstmate	branch=fm/host-plugins-remote-homes-converge-the-configured-cla-ad	head=3acc2bca	state=running	age=31m	started=2026-09-14T21:39
+REPO	fm-spark	/home/dbeihl/git/utilicast/firstmate	1	0
+HOME	host=fm-spark	home=root@fm-spark	path=/home/dbeihl/git/utilicast/firstmate	clones=1	runs=1	gaps=0	status=busy

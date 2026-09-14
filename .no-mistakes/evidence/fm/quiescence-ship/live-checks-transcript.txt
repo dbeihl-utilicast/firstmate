@@ -1,0 +1,152 @@
+Installed dependency: no-mistakes version v1.72.0 (9fcc865) 2026-09-08T13:12:57Z
+Target: 68379d4fe6f481f91162c976cd752e377b1ad409
+
+SCENARIO unconfigured-local
+COMMAND /Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP/bin/fm-nm-quiescence.sh
+GAP	host=local	home=root@local	clone=01M2GT7AXS7BMKDKVEKPZCG3NP	reason=validation-not-configured
+HOME	host=local	home=root@local	path=/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP	clones=1	runs=0	gaps=1	status=incomplete
+GAP	host=local	home=main	clone=01M2GT7AXS7BMKDKVEKPZCG3NP	reason=validation-not-configured
+HOME	host=local	home=main	path=/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP	clones=1	runs=0	gaps=1	status=incomplete
+SUMMARY	result=incomplete	runs=0	gaps=2
+EXIT 2
+
+SCENARIO registered-projectless-home
+COMMAND /Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP/bin/fm-nm-quiescence.sh
+GAP	host=local	home=root@local	clone=01M2GT7AXS7BMKDKVEKPZCG3NP	reason=validation-not-configured
+HOME	host=local	home=root@local	path=/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP	clones=1	runs=0	gaps=1	status=incomplete
+GAP	host=local	home=main	clone=01M2GT7AXS7BMKDKVEKPZCG3NP	reason=validation-not-configured
+HOME	host=local	home=main	path=/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP	clones=1	runs=0	gaps=1	status=incomplete
+GAP	host=local	home=child	clone=projectless-home	reason=validation-not-configured
+HOME	host=local	home=child	path=/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP/.quiescence-live-test/projectless-home	clones=1	runs=0	gaps=1	status=incomplete
+SUMMARY	result=incomplete	runs=0	gaps=3
+EXIT 2
+
+SCENARIO projects-override
+COMMAND env FM_PROJECTS_OVERRIDE=/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP/.quiescence-live-test/alternate-projects /Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP/bin/fm-nm-quiescence.sh
+GAP	host=local	home=root@local	clone=01M2GT7AXS7BMKDKVEKPZCG3NP	reason=validation-not-configured
+HOME	host=local	home=root@local	path=/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP	clones=1	runs=0	gaps=1	status=incomplete
+GAP	host=local	home=main	clone=01M2GT7AXS7BMKDKVEKPZCG3NP	reason=validation-not-configured
+GAP	host=local	home=main	clone=override-project	reason=validation-not-configured
+HOME	host=local	home=main	path=/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP	clones=2	runs=0	gaps=2	status=incomplete
+GAP	host=local	home=child	clone=projectless-home	reason=validation-not-configured
+GAP	host=local	home=child	clone=child-project	reason=validation-not-configured
+HOME	host=local	home=child	path=/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP/.quiescence-live-test/projectless-home	clones=2	runs=0	gaps=2	status=incomplete
+SUMMARY	result=incomplete	runs=0	gaps=5
+EXIT 2
+
+SCENARIO inaccessible-home
+COMMAND /Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP/bin/fm-nm-quiescence.sh
+GAP	host=local	home=root@local	clone=01M2GT7AXS7BMKDKVEKPZCG3NP	reason=validation-not-configured
+HOME	host=local	home=root@local	path=/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP	clones=1	runs=0	gaps=1	status=incomplete
+GAP	host=local	home=main	clone=01M2GT7AXS7BMKDKVEKPZCG3NP	reason=validation-not-configured
+HOME	host=local	home=main	path=/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP	clones=1	runs=0	gaps=1	status=incomplete
+GAP	host=local	home=child	clone=-	reason=home-unreachable
+HOME	host=local	home=child	path=/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP/.quiescence-live-test/projectless-home	clones=0	runs=0	gaps=1	status=incomplete
+SUMMARY	result=incomplete	runs=0	gaps=3
+EXIT 2
+
+SCENARIO inaccessible-data-u-r
+COMMAND /Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP/bin/fm-nm-quiescence.sh
+GAP	host=local	home=root@local	clone=01M2GT7AXS7BMKDKVEKPZCG3NP	reason=validation-not-configured
+HOME	host=local	home=root@local	path=/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP	clones=1	runs=0	gaps=1	status=incomplete
+GAP	host=local	home=main	clone=01M2GT7AXS7BMKDKVEKPZCG3NP	reason=validation-not-configured
+HOME	host=local	home=main	path=/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP	clones=1	runs=0	gaps=1	status=incomplete
+GAP	host=local	home=main	clone=-	reason=registry-unavailable	detail=/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP/.quiescence-live-test/data
+SUMMARY	result=incomplete	runs=0	gaps=3
+EXIT 2
+
+SCENARIO inaccessible-data-u-x
+COMMAND /Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP/bin/fm-nm-quiescence.sh
+GAP	host=local	home=root@local	clone=01M2GT7AXS7BMKDKVEKPZCG3NP	reason=validation-not-configured
+HOME	host=local	home=root@local	path=/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP	clones=1	runs=0	gaps=1	status=incomplete
+GAP	host=local	home=main	clone=01M2GT7AXS7BMKDKVEKPZCG3NP	reason=validation-not-configured
+HOME	host=local	home=main	path=/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP	clones=1	runs=0	gaps=1	status=incomplete
+GAP	host=local	home=main	clone=-	reason=registry-unavailable	detail=/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP/.quiescence-live-test/data
+SUMMARY	result=incomplete	runs=0	gaps=3
+EXIT 2
+
+SCENARIO inaccessible-projects-u-r
+COMMAND /Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP/bin/fm-nm-quiescence.sh
+GAP	host=local	home=root@local	clone=01M2GT7AXS7BMKDKVEKPZCG3NP	reason=validation-not-configured
+HOME	host=local	home=root@local	path=/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP	clones=1	runs=0	gaps=1	status=incomplete
+GAP	host=local	home=main	clone=01M2GT7AXS7BMKDKVEKPZCG3NP	reason=validation-not-configured
+GAP	host=local	home=main	clone=-	reason=projects-unreachable
+HOME	host=local	home=main	path=/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP	clones=1	runs=0	gaps=2	status=incomplete
+GAP	host=local	home=child	clone=projectless-home	reason=validation-not-configured
+GAP	host=local	home=child	clone=child-project	reason=validation-not-configured
+HOME	host=local	home=child	path=/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP/.quiescence-live-test/projectless-home	clones=2	runs=0	gaps=2	status=incomplete
+SUMMARY	result=incomplete	runs=0	gaps=5
+EXIT 2
+
+SCENARIO inaccessible-projects-u-x
+COMMAND /Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP/bin/fm-nm-quiescence.sh
+GAP	host=local	home=root@local	clone=01M2GT7AXS7BMKDKVEKPZCG3NP	reason=validation-not-configured
+HOME	host=local	home=root@local	path=/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP	clones=1	runs=0	gaps=1	status=incomplete
+GAP	host=local	home=main	clone=01M2GT7AXS7BMKDKVEKPZCG3NP	reason=validation-not-configured
+GAP	host=local	home=main	clone=-	reason=projects-unreachable
+HOME	host=local	home=main	path=/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP	clones=1	runs=0	gaps=2	status=incomplete
+GAP	host=local	home=child	clone=projectless-home	reason=validation-not-configured
+GAP	host=local	home=child	clone=child-project	reason=validation-not-configured
+HOME	host=local	home=child	path=/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP/.quiescence-live-test/projectless-home	clones=2	runs=0	gaps=2	status=incomplete
+SUMMARY	result=incomplete	runs=0	gaps=5
+EXIT 2
+
+SCENARIO hidden-data-ancestor
+COMMAND env FM_DATA_OVERRIDE=/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP/.quiescence-live-test/hidden/data /Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP/bin/fm-nm-quiescence.sh
+GAP	host=local	home=root@local	clone=01M2GT7AXS7BMKDKVEKPZCG3NP	reason=validation-not-configured
+HOME	host=local	home=root@local	path=/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP	clones=1	runs=0	gaps=1	status=incomplete
+GAP	host=local	home=main	clone=01M2GT7AXS7BMKDKVEKPZCG3NP	reason=validation-not-configured
+HOME	host=local	home=main	path=/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP	clones=1	runs=0	gaps=1	status=incomplete
+GAP	host=local	home=main	clone=-	reason=registry-unavailable	detail=/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP/.quiescence-live-test/hidden/data
+SUMMARY	result=incomplete	runs=0	gaps=3
+EXIT 2
+
+SCENARIO hidden-projects-ancestor
+COMMAND env FM_PROJECTS_OVERRIDE=/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP/.quiescence-live-test/hidden/projects /Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP/bin/fm-nm-quiescence.sh
+GAP	host=local	home=root@local	clone=01M2GT7AXS7BMKDKVEKPZCG3NP	reason=validation-not-configured
+HOME	host=local	home=root@local	path=/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP	clones=1	runs=0	gaps=1	status=incomplete
+GAP	host=local	home=main	clone=01M2GT7AXS7BMKDKVEKPZCG3NP	reason=validation-not-configured
+GAP	host=local	home=main	clone=-	reason=projects-unreachable
+HOME	host=local	home=main	path=/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP	clones=1	runs=0	gaps=2	status=incomplete
+GAP	host=local	home=child	clone=projectless-home	reason=validation-not-configured
+GAP	host=local	home=child	clone=child-project	reason=validation-not-configured
+HOME	host=local	home=child	path=/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP/.quiescence-live-test/projectless-home	clones=2	runs=0	gaps=2	status=incomplete
+SUMMARY	result=incomplete	runs=0	gaps=5
+EXIT 2
+
+SCENARIO unsafe-project-entry
+COMMAND /Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP/bin/fm-nm-quiescence.sh
+GAP	host=local	home=root@local	clone=01M2GT7AXS7BMKDKVEKPZCG3NP	reason=validation-not-configured
+HOME	host=local	home=root@local	path=/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP	clones=1	runs=0	gaps=1	status=incomplete
+GAP	host=local	home=main	clone=01M2GT7AXS7BMKDKVEKPZCG3NP	reason=validation-not-configured
+GAP	host=local	home=main	clone=symlink-project	reason=unsafe-project-entry
+HOME	host=local	home=main	path=/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP	clones=2	runs=0	gaps=2	status=incomplete
+GAP	host=local	home=child	clone=projectless-home	reason=validation-not-configured
+GAP	host=local	home=child	clone=child-project	reason=validation-not-configured
+HOME	host=local	home=child	path=/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP/.quiescence-live-test/projectless-home	clones=2	runs=0	gaps=2	status=incomplete
+SUMMARY	result=incomplete	runs=0	gaps=5
+EXIT 2
+
+SCENARIO malformed-registry
+COMMAND /Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP/bin/fm-nm-quiescence.sh
+GAP	host=local	home=root@local	clone=01M2GT7AXS7BMKDKVEKPZCG3NP	reason=validation-not-configured
+HOME	host=local	home=root@local	path=/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP	clones=1	runs=0	gaps=1	status=incomplete
+GAP	host=local	home=main	clone=01M2GT7AXS7BMKDKVEKPZCG3NP	reason=validation-not-configured
+HOME	host=local	home=main	path=/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP	clones=1	runs=0	gaps=1	status=incomplete
+GAP	host=local	home=main	clone=-	reason=malformed-registry-entry	detail=line=1
+SUMMARY	result=incomplete	runs=0	gaps=3
+EXIT 2
+
+SCENARIO unreachable-ssh
+COMMAND env FM_SSH_BIN=/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP/.quiescence-live-test/ssh-client QUIESCENCE_SSH_CONFIG=/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP/.quiescence-live-test/ssh-config /Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP/bin/fm-nm-quiescence.sh
+GAP	host=local	home=root@local	clone=01M2GT7AXS7BMKDKVEKPZCG3NP	reason=validation-not-configured
+HOME	host=local	home=root@local	path=/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP	clones=1	runs=0	gaps=1	status=incomplete
+GAP	host=local	home=main	clone=01M2GT7AXS7BMKDKVEKPZCG3NP	reason=validation-not-configured
+HOME	host=local	home=main	path=/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GT7AXS7BMKDKVEKPZCG3NP	clones=1	runs=0	gaps=1	status=incomplete
+GAP	host=quiescence-unreachable	home=root@quiescence-unreachable	clone=-	reason=host-unreachable	detail=ssh: connect to host 127.0.0.1 port 1: Connection refused 
+GAP	host=quiescence-unreachable	home=alpha	clone=-	reason=host-unreachable	detail=ssh: connect to host 127.0.0.1 port 1: Connection refused 
+GAP	host=quiescence-unreachable	home=beta	clone=-	reason=host-unreachable	detail=ssh: connect to host 127.0.0.1 port 1: Connection refused 
+SUMMARY	result=incomplete	runs=0	gaps=5
+EXIT 2
+
+All exercised live failure boundaries returned incomplete with the required attribution.

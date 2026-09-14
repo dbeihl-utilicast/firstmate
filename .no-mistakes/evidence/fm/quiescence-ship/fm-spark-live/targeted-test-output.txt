@@ -1,0 +1,27 @@
+FM_TEST_BEGIN 2026-09-14T22:03:26Z tests/fm-nm-quiescence.test.sh family=unclassified expected_gate_skip=none
+ok - non-terminal run returns red with state and age
+ok - local secondmate homes are discovered from the registry
+ok - project-less home repositories are queried and shared checkout paths are deduplicated
+ok - linked homes retain checkout-specific ledger coverage
+ok - shared ledger outcomes reach every local home and count once per home and fleet
+ok - failed and malformed repository identity queries are explicit gaps
+ok - projects overrides apply to the active home while children retain their directories
+ok - home search-permission failures are explicit gaps
+ok - unreadable and unsearchable inventory directories are explicit gaps
+ok - inaccessible override ancestors cannot hide inventories
+ok - unconfigured clones are explicit gaps
+ok - unparseable run data makes the census incomplete
+ok - empty and partial ledger responses are explicit gaps
+ok - recognized empty and terminal ledgers remain clear
+ok - Perl fallback preserves signal and nonzero exits and the census reports gaps
+ok - remote home mode includes the home's own repository
+ok - remote modes retain cached statuses without emitting duplicate records
+ok - distinct remote roots on one host are queried once each
+ok - remote homes inherit shared outcomes while independent and other-host ledgers remain distinct
+ok - unreachable host names every unchecked home
+ok - remote home runs are included in the fleet result
+FM_TEST_END 2026-09-14T22:03:32Z tests/fm-nm-quiescence.test.sh exit=0 duration_ms=5560 gate_skip=false
+FM_TEST_SUMMARY total=1 failed=0 skipped_gate=0 duration_ms=5615
+FM_TEST_SUMMARY_FAMILY family=unclassified count=1 duration_ms=5560 failed=0
+FM_TEST_SLOWEST rank=1 script=tests/fm-nm-quiescence.test.sh duration_ms=5560
+fm-test-run: wrote timing artifact: /Users/davidsair/.no-mistakes/evidence/01M2GT7AXS7BMKDKVEKPZCG3NP/fm-spark-live/targeted-test-results.json

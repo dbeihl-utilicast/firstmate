@@ -1,0 +1,2 @@
+REPO	fm-spark	/home/dbeihl/git/utilicast/fm-homes/azure-ops-mate/projects/utilicast-streamlit	0	0
+HOME	host=fm-spark	home=empty-project	path=/home/dbeihl/git/utilicast/fm-homes/azure-ops-mate/projects/utilicast-streamlit	clones=1	runs=0	gaps=0	status=clear

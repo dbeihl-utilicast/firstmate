@@ -1,0 +1,98 @@
+{
+  "tested_head_sha": "68379d4fe6f481f91162c976cd752e377b1ad409",
+  "date": "2026-09-14",
+  "host": "fm-spark",
+  "dependency": "no-mistakes v1.72.0 (9fcc865)",
+  "verdict": "partial-live-coverage",
+  "root_cause": "The previous run lacked a registered ledger and remote registry inside the isolated worktree. The real fm-spark daemon is accessible read-only. No product failure was reproduced.",
+  "source_changes": [],
+  "verification": {
+    "focused_regression": "tests/fm-nm-quiescence.test.sh: 21 behavior checks passed, exit 0, 5.560 seconds",
+    "live_census_cases": 6,
+    "method": "Streamed this worktree's two helper libraries followed by the candidate census over SSH to bash /dev/stdin. Only the two source directives were omitted because their exact current libraries were inlined. No remote source files were read or installed. FM_ROOT_OVERRIDE and FM_HOME selected observed real repositories; no-mistakes axi, axi status --run, and runs were read-only.",
+    "parked_evidence": "axi status --run 01M2FSEVQDK8DAB4D02213PJKD confirmed awaiting_agent: parked 9h4m. Candidate reported fm/fix-257-preflight-verify-backport at edfc71b9 and fm/fix-393-salvage-controls at cf3dbddd, state=running, ages 10h57m and 11h0m. Exit 3 preserved the separate unregistered-home coverage gap.",
+    "baseline": "Read-only ledger queries found 11 running rows across the real root and project ledgers under 14 seeded homes; these are a dated inventory snapshot, not a claim that the normal registry-driven census scanned every home."
+  },
+  "scenarios": [
+    {
+      "name": "Registered root with a live run",
+      "result": "pass",
+      "live": true,
+      "exit": 1,
+      "evidence": "root-busy.txt"
+    },
+    {
+      "name": "Real parked project runs with branch, head, state, age, and busy result",
+      "result": "pass",
+      "live": true,
+      "exit": 3,
+      "evidence": "parked-projects.txt; parked-run-status.txt"
+    },
+    {
+      "name": "Real empty ledger",
+      "result": "pass",
+      "live": true,
+      "exit": 0,
+      "evidence": "empty-ledger.txt; ledger-baseline.txt"
+    },
+    {
+      "name": "Real terminal-only ledger",
+      "result": "pass",
+      "live": true,
+      "exit": 0,
+      "evidence": "terminal-ledger.txt; ledger-baseline.txt"
+    },
+    {
+      "name": "Same root/home ledger counted once with both HOME results busy",
+      "result": "pass",
+      "live": true,
+      "exit": 1,
+      "evidence": "shared-root-home.txt"
+    },
+    {
+      "name": "Existing linked worktree inherits a real cached repository result",
+      "result": "pass",
+      "live": true,
+      "exit": 1,
+      "evidence": "inherited-worktree.txt; root-busy.txt"
+    },
+    {
+      "name": "Normal registered remote route and complete fleet aggregation",
+      "result": "untested",
+      "live": false,
+      "reason": "The isolated worktree has no existing secondmate registry and the remote code root lacks the unlanded census executable. No registry was invented and no remote installation was performed. Direct streamed remote-mode execution does not prove fm-on routing, remote worker execution, or complete registry coverage."
+    },
+    {
+      "name": "Parked run in a home repository",
+      "result": "untested",
+      "live": false,
+      "reason": "All 14 observed seeded home repositories returned repo not initialized. Actual root and project run detection was tested; no home run was manufactured."
+    },
+    {
+      "name": "Separately registered linked worktree and shared-ledger query failure",
+      "result": "untested",
+      "live": false,
+      "reason": "The observed linked worktree inherits its root registration successfully. No separate worktree registration or failing shared ledger was created. These remain portable-regression evidence only."
+    },
+    {
+      "name": "Signal-killed or malformed live ledger query",
+      "result": "untested",
+      "live": false,
+      "reason": "The real read-only queries succeeded. No daemon interruption or dependency replacement was introduced. Signal, empty-output, and malformed-output handling remains portable-regression evidence only."
+    }
+  ],
+  "limits": "Passing focused regressions and the six direct live cases do not prove full fleet quiescence, deployed remote routing, every supported failure mode, or current CI readiness. Remote CI remains the outer executor's required broad gate.",
+  "artifacts": [
+    "ledger-baseline.txt",
+    "parked-run-status.txt",
+    "root-busy.txt",
+    "parked-projects.txt",
+    "empty-ledger.txt",
+    "terminal-ledger.txt",
+    "shared-root-home.txt",
+    "inherited-worktree.txt",
+    "targeted-test-output.txt",
+    "targeted-test-results.json",
+    "pr-body-evidence.md"
+  ]
+}

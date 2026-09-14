@@ -1,0 +1,52 @@
+2026-09-14T22:10:09Z
+68379d4fe6f481f91162c976cd752e377b1ad409
+dff0327a8d838b32d322a10f0ac0ea6c34acfd7904726ec82a9cc8915c6c0796  bin/fm-nm-quiescence.sh
+de644edd55b25eea9b51a2d2014b69e9a5b68574640e042140972042b3d16f91  bin/fm-nm-run-lib.sh
+8ace16266479fedb84891b08bdf95a73970429324f83201ba83abcd28ffe0d23  bin/fm-secondmate-registry-lib.sh
+
+CASE root-busy
+RUN	host=fm-spark	home=root@fm-spark	clone=firstmate	branch=fm/host-plugins-remote-homes-converge-the-configured-cla-ad	head=3acc2bca	state=running	age=31m	started=2026-09-14T21:39
+REPO	fm-spark	/home/dbeihl/git/utilicast/firstmate	1	0
+HOME	host=fm-spark	home=root@fm-spark	path=/home/dbeihl/git/utilicast/firstmate	clones=1	runs=1	gaps=0	status=busy
+EXIT 1 (expected 1)
+
+CASE parked-projects
+GAP	host=fm-spark	home=plugins-spark	clone=plugins-spark	reason=validation-not-configured
+REPO	fm-spark	/home/dbeihl/git/utilicast/fm-homes/plugins-spark/projects/unlimited-power	0	0
+RUN	host=fm-spark	home=plugins-spark	clone=utilicast-plugins	branch=fm/fix-257-preflight-verify-backport	head=edfc71b9	state=running	age=11h6m	started=2026-09-14T11:04
+RUN	host=fm-spark	home=plugins-spark	clone=utilicast-plugins	branch=fm/fix-393-salvage-controls	head=cf3dbddd	state=running	age=11h9m	started=2026-09-14T11:01
+REPO	fm-spark	/home/dbeihl/git/utilicast/fm-homes/plugins-spark/projects/utilicast-plugins	2	0
+REPO	fm-spark	/home/dbeihl/git/utilicast/fm-homes/plugins-spark/projects/utilicast-pm-copilot-agent	0	0
+HOME	host=fm-spark	home=plugins-spark	path=/home/dbeihl/git/utilicast/fm-homes/plugins-spark	clones=4	runs=2	gaps=1	status=incomplete
+EXIT 3 (expected 3)
+
+CASE empty-ledger
+REPO	fm-spark	/home/dbeihl/git/utilicast/fm-homes/azure-ops-mate/projects/utilicast-streamlit	0	0
+HOME	host=fm-spark	home=empty-project	path=/home/dbeihl/git/utilicast/fm-homes/azure-ops-mate/projects/utilicast-streamlit	clones=1	runs=0	gaps=0	status=clear
+EXIT 0 (expected 0)
+
+CASE terminal-ledger
+REPO	fm-spark	/home/dbeihl/git/utilicast/fm-homes/plugins-spark/projects/unlimited-power	0	0
+HOME	host=fm-spark	home=terminal-project	path=/home/dbeihl/git/utilicast/fm-homes/plugins-spark/projects/unlimited-power	clones=1	runs=0	gaps=0	status=clear
+EXIT 0 (expected 0)
+
+CASE shared-root-home
+RUN	host=local	home=root@local	clone=firstmate	branch=fm/host-plugins-remote-homes-converge-the-configured-cla-ad	head=3acc2bca	state=running	age=31m	started=2026-09-14T21:39
+HOME	host=local	home=root@local	path=/home/dbeihl/git/utilicast/firstmate	clones=1	runs=1	gaps=0	status=busy
+HOME	host=local	home=main	path=/home/dbeihl/git/utilicast/firstmate	clones=1	runs=1	gaps=0	status=busy
+SUMMARY	result=busy	runs=1	gaps=0
+EXIT 1 (expected 1)
+
+CASE inherited-worktree
+HOME	host=fm-spark	home=inherited-worktree	path=/home/dbeihl/.treehouse/firstmate-1d7d78/5/firstmate	clones=1	runs=1	gaps=0	status=busy
+EXIT 1 (expected 1)
+
+CASE selected-home-census
+RUN	host=local	home=root@local	clone=firstmate	branch=fm/host-plugins-remote-homes-converge-the-configured-cla-ad	head=3acc2bca	state=running	age=31m	started=2026-09-14T21:39
+HOME	host=local	home=root@local	path=/home/dbeihl/git/utilicast/firstmate	clones=1	runs=1	gaps=0	status=busy
+GAP	host=local	home=main	clone=plugins-spark	reason=validation-not-configured
+RUN	host=local	home=main	clone=utilicast-plugins	branch=fm/fix-257-preflight-verify-backport	head=edfc71b9	state=running	age=11h6m	started=2026-09-14T11:04
+RUN	host=local	home=main	clone=utilicast-plugins	branch=fm/fix-393-salvage-controls	head=cf3dbddd	state=running	age=11h9m	started=2026-09-14T11:01
+HOME	host=local	home=main	path=/home/dbeihl/git/utilicast/fm-homes/plugins-spark	clones=4	runs=2	gaps=1	status=incomplete
+SUMMARY	result=busy-incomplete	runs=3	gaps=1
+EXIT 3 (expected 3)

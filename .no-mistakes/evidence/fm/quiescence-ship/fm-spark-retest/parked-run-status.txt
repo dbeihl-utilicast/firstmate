@@ -1,0 +1,63 @@
+2026-09-14T22:10:52Z
+
+RUN_ID	01M2FSEVQDK8DAB4D02213PJKD
+current_branch: main
+other_branch_run:
+  id: "01M2FSEVQDK8DAB4D02213PJKD"
+  branch: fm/fix-257-preflight-verify-backport
+  status: running
+  awaiting_agent: parked 9h12m
+  head: edfc71b9
+  head_sha: edfc71b9eae179294e352f6b1c43dba8daebdf98
+  findings: 4 auto-fix
+  steps[9]{step,status,findings,duration_ms}:
+    intent,completed,0,17
+    rebase,completed,0,1234
+    review,fix_review,4,6369533
+    test,pending,0,0
+    document,pending,0,0
+    lint,pending,0,0
+    push,pending,0,0
+    pr,pending,0,0
+    ci,pending,0,0
+gate:
+  step: review
+  status: fix_review
+  risk: high
+  note: "Review auto-fix is disabled by default (`auto_fix.review: 0`; a repo or global `auto_fix.review > 0` override re-enables it), so blocking and ask-user review findings park for your decision rather than being silently self-fixed."
+  findings[4]{id,severity,file,action,description}:
+    NM-020,error,plugins/utilicast-azure/skills/azure-deployment-preflight/tools/check_deploy_params.py,auto-fix,"`--command-line` still partially admits syntax it cannot model. For `-p a=*`, a Bash working directory containing a file named `a=` makes pathname expansion send `a=` to Azure, while `shlex` leaves `*` literal and the checker exits 0. Also, Azure declares `--parameters` as `nargs='+'`; with `--parameters=a= b=`, this parser handles only `a` and silently ignores `b`, allowing a legitimate waiver for `a` to hide `b` being blanked. Default-deny unquoted glob syntax and reject the equals form rather than partially parsing it. See [Bash filename expansion](https://www.gnu.org/software/bash/manual/h… (truncated, 782 chars total)"
+    NM-021,error,plugins/utilicast-azure/skills/azure-deployment-preflight/tools/check_deploy_params.py,auto-fix,"The captured deployment is never bound to the template being inspected. If `--template safe.json` is checked while the real command names `--template-file risky.bicep`, the loop ignores that option and can exit 0 from `safe.json` even though Azure deploys the empty defaults in `risky.bicep`. Require exactly one supported local template source matching `--template`; fail closed for URI, template-spec, or implicit bicepparam sources. Azure documents these as distinct deployment inputs in [the command reference](https://learn.microsoft.com/en-us/cli/azure/deployment/group?view=azure-cli-latest#az… (truncated, 626 chars total)"
+    NM-022,error,plugins/utilicast-azure/skills/azure-deployment-preflight/tools/check_deploy_params.py,auto-fix,"Live waiver verification checks only `containers[0]`. If `TOKEN` is absent from the first container but secretRef-backed in a sidecar, the query returns null, accepts `--known-empty TOKEN`, and the checker exits 0 before the deployment blanks the sidecar. Query every entry in `properties.template.containers[*].env` and refuse the waiver when any match is set. Multiple containers are a supported Container Apps configuration per [Microsoft’s documentation](https://learn.microsoft.com/en-us/azure/container-apps/containers#multiple-containers)."
+    NM-023,warning,plugins/utilicast-azure/skills/azure-deployment-preflight/tools/test_check_deploy_params.py,auto-fix,"Two new tests never reach the behavior they claim to cover: the malformed-command case here and the unpaired resource-group case at line 908 both pass `/nonexistent`, so `main()` exits at the earlier template-existence check. Use a real temporary template and assert the relevant diagnostic; otherwise removing either new validation leaves the suite green."
+help[2]: The explicitly selected gate for run 01M2FSEVQDK8DAB4D02213PJKD is inspection-only; no run-scoped response command exists,Run `no-mistakes axi logs --run 01M2FSEVQDK8DAB4D02213PJKD --step review --full` to read the full step log
+
+RUN_ID	01M2FS8H3W3TPF6WQSQFFD70HQ
+current_branch: main
+other_branch_run:
+  id: "01M2FS8H3W3TPF6WQSQFFD70HQ"
+  branch: fm/fix-393-salvage-controls
+  status: running
+  awaiting_agent: parked 10h24m
+  head: cf3dbddd
+  head_sha: cf3dbddd587bd22f333ed9bbc2e15fed39269d19
+  findings: "1 awaiting, 1 auto-fix"
+  steps[9]{step,status,findings,duration_ms}:
+    intent,completed,0,14
+    rebase,completed,0,1219
+    review,fix_review,2,2419672
+    test,pending,0,0
+    document,pending,0,0
+    lint,pending,0,0
+    push,pending,0,0
+    pr,pending,0,0
+    ci,pending,0,0
+gate:
+  step: review
+  status: fix_review
+  risk: high
+  note: "Review auto-fix is disabled by default (`auto_fix.review: 0`; a repo or global `auto_fix.review > 0` override re-enables it), so blocking and ask-user review findings park for your decision rather than being silently self-fixed."
+  findings[2]{id,severity,file,action,description}:
+    nested-git-index-bypass,error,scripts/validate_skills.py,auto-fix,"`_is_tracked` lets the target directory choose which Git index answers. If an untracked nested repository contains tracked `scripts/real.py`, an outer hook can reference that present-but-untracked path; `git -C <nested-dir> ls-files real.py` succeeds against the nested index although the enclosing commit will not ship it. Codegraph paths have the same bypass. Query from `confine_to` using the target’s literal root-relative path."
+    canonical-root-indirection-bypass,error,scripts/validate_skills.py,ask-user,"The required “one canonical spelling” rule remains bypassable because `root_ref` recognizes only `$` expansions. For example, `python3 \"$(printenv CLAUDE_PLUGIN_ROOT)/scripts/wip.py\" || exit 0` produces zero detected references, so an untracked-but-present script can run locally while the validator passes and the committed plugin omits it. Closing this honestly requires authorizing exact supported wrapper schemas rather than adding another regex spelling."
+help[2]: The explicitly selected gate for run 01M2FS8H3W3TPF6WQSQFFD70HQ is inspection-only; no run-scoped response command exists,Run `no-mistakes axi logs --run 01M2FS8H3W3TPF6WQSQFFD70HQ --step review --full` to read the full step log
