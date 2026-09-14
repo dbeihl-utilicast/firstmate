@@ -294,7 +294,7 @@ test_inaccessible_inventory_directories_are_gaps() {
 
       chmod u+rx "$directory"
       expect_code 2 "$rc" "$inventory with $permission was treated as an empty inventory"
-      case "$inventory" in data) reason=registry-unavailable ;; projects) reason=projects-unreachable ;; esac
+      case "$inventory" in data) reason=registry-unavailable ;; projects) reason='projects-unreachable' ;; esac
       assert_contains "$output" "reason=$reason" "$inventory access failure was not reported"
     done
   done
@@ -319,7 +319,7 @@ test_inaccessible_override_ancestors_are_gaps() {
       reason=registry-unavailable
     else
       output=$(FM_PROJECTS_OVERRIDE="$directory/projects" run_check "$home") || rc=$?
-      reason=projects-unreachable
+      reason='projects-unreachable'
     fi
 
     chmod u+x "$directory"
