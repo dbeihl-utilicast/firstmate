@@ -189,8 +189,8 @@ restart_mate() {  # <array-index>
     fi
     remote_rc=0
     fm_remote_readiness_ensure "$SCRIPT_DIR" "$id" || remote_rc=$?
-    fm_lock_release "$remote_lock" || true
     if [ "$remote_rc" -ne 0 ]; then
+      fm_lock_release "$remote_lock" || true
       report_unreached "$id" "plugin readiness failed after inherited config landed, so the host was not relaunched"
       return
     fi
@@ -198,6 +198,7 @@ restart_mate() {  # <array-index>
       fm-remote-secondmate-control.sh relaunch \
       "$id" "${HARNESS[i]}" "${MODEL[i]:-default}" "${EFFORT[i]:-default}" < /dev/null 2>&1)
     restart_rc=$?
+    fm_lock_release "$remote_lock" || true
   else
     restart_out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
       "$SCRIPT_DIR/fm-control.sh" "$id" relaunch 2>&1)

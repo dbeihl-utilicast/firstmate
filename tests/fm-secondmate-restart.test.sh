@@ -244,6 +244,13 @@ run_restart() {  # <case-dir> <args...>
     "$RESTART" "$@" 2>&1
 }
 
+run_config_push() {  # <case-dir>
+  local dir=$1
+  env PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" FM_FAKE_DIR="$dir/fake" \
+    FM_SPAWN_NO_GUARD=1 FM_SSH_BIN="${FM_TEST_SSH_BIN:-ssh}" \
+    "$ROOT/bin/fm-config-push.sh" 2>&1
+}
+
 # --- T1: the persist request is the task subset of /stow, and it gates --------
 test_persist_gates_and_asks_only_for_open_records() {
   local dir out rc request
@@ -468,6 +475,11 @@ case "${FM_FAKE_SSH_MODE:-ok}" in
     : > "$FM_FAKE_DIR/remote-relaunch-start"
     ;;
 esac
+if [ "${rargs[0]:-}" = fm-remote-inherit.sh ] \
+  && [ -e "$FM_FAKE_DIR/remote-relaunch-active" ] \
+  && [ ! -e "$FM_FAKE_DIR/remote-relaunch-end" ]; then
+  : > "$FM_FAKE_DIR/inherit-during-relaunch"
+fi
 case "${rargs[1]:-}" in
   send)
     # Model the live remote mate: act on the instruction and report back on the
@@ -482,6 +494,7 @@ case "${rargs[1]:-}" in
     case "${FM_FAKE_SSH_MODE:-ok}" in
       slow-relaunch)
         : > "$FM_FAKE_DIR/remote-relaunch-start"
+        : > "$FM_FAKE_DIR/remote-relaunch-active"
         /bin/sleep 2
         : > "$FM_FAKE_DIR/remote-relaunch-end"
         ;;
@@ -547,6 +560,40 @@ test_remote_restart_refuses_when_post_inherit_readiness_fails() {
   assert_no_grep '^fm-remote-secondmate-control.sh relaunch' "$dir/ssh.log" \
     "a readiness failure still reached the host-local relaunch"
   pass "T6b a remote restart does not relaunch when post-inheritance readiness fails"
+}
+
+test_remote_restart_serializes_config_push_through_relaunch() {
+  local dir restart_out restart_rc config_out config_rc driver i inherit_before inherit_after
+  dir=$(new_case remote-lock-race)
+  setup_remote_case "$dir" sm1 slow-relaunch
+  export FM_FAKE_ANSWER_STATUS="$dir/home/state/sm1.status"
+  restart_out="$dir/restart.out"
+  restart_rc="$dir/restart.rc"
+
+  ( run_restart "$dir" sm1 > "$restart_out" 2>&1; printf '%s\n' "$?" > "$restart_rc" ) &
+  driver=$!
+  i=0
+  while [ "$i" -lt 200 ]; do
+    [ -e "$dir/fake/remote-relaunch-active" ] && break
+    kill -0 "$driver" 2>/dev/null || fail "remote restart exited before relaunch began"
+    /bin/sleep 0.01
+    i=$((i + 1))
+  done
+  assert_present "$dir/fake/remote-relaunch-active" "remote restart never reached relaunch"
+  assert_absent "$dir/fake/remote-relaunch-end" "remote relaunch ended before the competing config push"
+  inherit_before=$(grep -c '^fm-remote-inherit.sh ' "$dir/ssh.log" || true)
+  config_out=$(run_config_push "$dir"); config_rc=$?
+  wait "$driver" || true
+  unset FM_FAKE_ANSWER_STATUS
+
+  expect_code 0 "$(cat "$restart_rc")" "the serialized remote restart failed"$'\n'"$(cat "$restart_out")"
+  expect_code 0 "$config_rc" "the competing config push failed"$'\n'"$config_out"
+  inherit_after=$(grep -c '^fm-remote-inherit.sh ' "$dir/ssh.log" || true)
+  [ "$inherit_after" -gt "$inherit_before" ] \
+    || fail "the competing config push never reached remote inheritance"
+  assert_absent "$dir/fake/inherit-during-relaunch" \
+    "a config push changed inherited material while the relaunched agent was starting"
+  pass "T6c remote restart holds inherited config stable through relaunch"
 }
 
 # --- T7: an unreachable host is unknown, never a claimed reload --------------
@@ -876,6 +923,7 @@ test_local_restart_uses_the_home_pin_and_reports_what_ran
 test_native_ultra_restart_keeps_local_and_remote_profiles
 test_remote_mate_restarts_over_the_transport_hop
 test_remote_restart_refuses_when_post_inherit_readiness_fails
+test_remote_restart_serializes_config_push_through_relaunch
 test_unreachable_host_is_reported_unknown
 test_concurrent_reply_cannot_release_persist_gate
 test_persist_waits_are_polled_together

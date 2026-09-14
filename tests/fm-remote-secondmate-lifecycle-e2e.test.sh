@@ -143,9 +143,9 @@ argv_b64=$4
 command_fields=$(perl -MMIME::Base64=decode_base64 -e '
   my $data=decode_base64($ARGV[0]);
   my @args=split(/\0/, $data);
-  print join("\t", map { defined $_ ? $_ : "" } @args[0..2]);
+  print join("\t", map { defined $_ ? $_ : "" } @args[0..3]);
 ' "$argv_b64")
-IFS=$'\t' read -r command_name _command_action command_rel <<EOF
+IFS=$'\t' read -r command_name _command_action command_rel command_extra <<EOF
 $command_fields
 EOF
 case "${FM_FAKE_SSH_MODE:-normal}:$command_name:$command_rel" in
@@ -164,6 +164,12 @@ esac
 # boundary owns only what the callers do with its verdict.
 if [ "$command_name" = fm-remote-doctor.sh ]; then
   printf '%s %s\n' "${FM_FAKE_SSH_MODE:-normal}" "${_command_action:--}" >> "$FM_FAKE_DOCTOR_LOG"
+  if [ "${FM_FAKE_REQUIRE_PLUGIN_SKIP:-0}" = 1 ]; then
+    case " ${_command_action:-} ${command_rel:-} ${command_extra:-} " in
+      *' --skip-check host-plugins '*) ;;
+      *) printf 'error: pre-inheritance readiness touched host plugins\n' >&2; exit 97 ;;
+    esac
+  fi
   case "${FM_FAKE_SSH_MODE:-normal}" in
     unreachable) exit 255 ;;
     doctor-fix-unknown)
@@ -272,6 +278,7 @@ remote_env() {
   FM_FAKE_SEED_RELEASE="$TMP_ROOT/seed.release" \
   FM_FAKE_DOCTOR_LOG="$DOCTOR_LOG" \
   FM_FAKE_DOCTOR_REPAIRED="$TMP_ROOT/doctor.repaired" \
+  FM_FAKE_REQUIRE_PLUGIN_SKIP="${FM_FAKE_REQUIRE_PLUGIN_SKIP:-0}" \
   FM_FAKE_INHERIT_ENTERED="$TMP_ROOT/inherit.entered" \
   FM_FAKE_INHERIT_RELEASE="$TMP_ROOT/inherit.release" \
   FM_FAKE_INHERIT_PAYLOAD="$TMP_ROOT/inherit.payload" \
@@ -309,6 +316,7 @@ seed_env() {
   FM_FAKE_SEED_RELEASE="$TMP_ROOT/seed.release" \
   FM_FAKE_DOCTOR_LOG="$DOCTOR_LOG" \
   FM_FAKE_DOCTOR_REPAIRED="$TMP_ROOT/doctor.repaired" \
+  FM_FAKE_REQUIRE_PLUGIN_SKIP="${FM_FAKE_REQUIRE_PLUGIN_SKIP:-0}" \
   "$@"
 }
 
@@ -404,7 +412,7 @@ assert_present "$TMP_ROOT/seed-parent/data/seed-unknown/brief.md" \
   "unknown readiness removed the scaffolded brief"
 assert_absent "$TMP_ROOT/seed-unknown-home" \
   "unknown readiness proceeded into remote home provisioning"
-[ "$(cat "$DOCTOR_LOG")" = 'doctor-fix-unknown -
+[ "$(cat "$DOCTOR_LOG")" = 'doctor-fix-unknown --skip-check
 doctor-fix-unknown --fix' ] || fail "unknown readiness did not occur during the repair stage"$'\n'"$(cat "$DOCTOR_LOG")"
 pass "unknown readiness preserves its route and brief for reconciliation"
 
@@ -429,23 +437,24 @@ assert_no_grep '- seed-toolless ' "$TMP_ROOT/seed-parent/data/secondmates.md" \
   "the refused route survived the preflight rollback"
 assert_absent "$TMP_ROOT/seed-parent/data/seed-toolless/brief.md" \
   "the refused route left its scaffolded charter behind"
-[ "$(cat "$DOCTOR_LOG")" = 'doctor-human -
+[ "$(cat "$DOCTOR_LOG")" = 'doctor-human --skip-check
 doctor-human --fix
-doctor-human -' ] || fail "the seed did not run the check, repair, re-check sequence"$'\n'"$(cat "$DOCTOR_LOG")"
+doctor-human --skip-check' ] || fail "the seed did not run the check, repair, re-check sequence"$'\n'"$(cat "$DOCTOR_LOG")"
 pass "remote seeding checks, repairs, and re-checks readiness, then stops on a remaining gap"
 
 # The same gate must accept a host whose only gaps were repairable.
 : > "$DOCTOR_LOG"
 rm -f "$TMP_ROOT/doctor.repaired"
 out=$(FM_SECONDMATE_CHARTER='Repairable host charter.' FM_SECONDMATE_SCOPE='repairable host' \
-  FM_FAKE_SSH_MODE=doctor-fixable seed_env "$ROOT/bin/fm-remote-home-seed.sh" \
+  FM_FAKE_SSH_MODE=doctor-fixable FM_FAKE_REQUIRE_PLUGIN_SKIP=1 \
+  seed_env "$ROOT/bin/fm-remote-home-seed.sh" \
   seed-repair remote-mac "$REMOTE_ROOT" "$TMP_ROOT/seed-repair-home" --no-projects 2>&1) \
   || fail "seeding refused a host whose gaps the repair closed"$'\n'"$out"
 assert_present "$TMP_ROOT/seed-repair-home/.fm-secondmate-home" "the repaired host was never provisioned"
 assert_grep '- seed-repair ' "$TMP_ROOT/seed-parent/data/secondmates.md" "the repaired route was not registered"
-[ "$(cat "$DOCTOR_LOG")" = 'doctor-fixable -
+[ "$(cat "$DOCTOR_LOG")" = 'doctor-fixable --skip-check
 doctor-fixable --fix
-doctor-fixable -' ] || fail "the repaired seed did not re-check after its repair"$'\n'"$(cat "$DOCTOR_LOG")"
+doctor-fixable --skip-check' ] || fail "the repaired seed did not re-check after its repair"$'\n'"$(cat "$DOCTOR_LOG")"
 pass "remote seeding proceeds once the repair closes every gap"
 
 # Seeding must not need a copy of the project in this home: firstmate names the
@@ -1094,10 +1103,11 @@ rm -f "$TMP_ROOT/doctor.repaired"
 [ "$(FM_FAKE_SSH_MODE=doctor-fixable remote_env "$ROOT/bin/fm-on.sh" ios fm-remote-secondmate-control.sh state ios)" = unreadable ] \
   || fail "the stopped-server fixture did not make the pre-repair endpoint probe unreadable"
 launches_before_repair=$(grep -c '^tab create' "$HERDR_LOG" || true)
-BOOT_REPAIRED=$(FM_FAKE_SSH_MODE=doctor-fixable remote_env "$ROOT/bin/fm-bootstrap.sh")
-[ "$(cat "$DOCTOR_LOG")" = 'doctor-fixable -
+BOOT_REPAIRED=$(FM_FAKE_SSH_MODE=doctor-fixable FM_FAKE_REQUIRE_PLUGIN_SKIP=1 \
+  remote_env "$ROOT/bin/fm-bootstrap.sh")
+[ "$(cat "$DOCTOR_LOG")" = 'doctor-fixable --skip-check
 doctor-fixable --fix
-doctor-fixable -' ] || fail "liveness did not check, repair, and re-check readiness before probing"$'\n'"$(cat "$DOCTOR_LOG")"
+doctor-fixable --skip-check' ] || fail "liveness did not check, repair, and re-check readiness before probing"$'\n'"$(cat "$DOCTOR_LOG")"
 assert_not_contains "$BOOT_REPAIRED" 'SECONDMATE_LIVENESS: secondmate ios:' \
   "successful pre-probe readiness repair produced a liveness failure"
 launches_after_repair=$(grep -c '^tab create' "$HERDR_LOG" || true)

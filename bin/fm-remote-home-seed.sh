@@ -227,7 +227,7 @@ restore_registry_and_brief() {
 # created on that host. The doctor runs through the same fixed entrypoint as
 # every later call, so it sees the exact PATH the remote home will run under.
 set +e
-fm_remote_readiness_ensure "$SCRIPT_DIR" "$ID"
+fm_remote_readiness_ensure "$SCRIPT_DIR" "$ID" --skip-check host-plugins
 PREFLIGHT_RC=$?
 set -e
 if [ "$PREFLIGHT_RC" -ne 0 ]; then
