@@ -18,11 +18,12 @@
 #
 # Groups, in captain-scan order:
 #   rotting             open rows with no date, no dependency, and nobody named
-#   waiting_on_you      live and aged captain holds
+#   waiting_on_you      captain-hold items, including dated holds (the date is
+#                       the way back, not the owner of the wait)
 #   waiting_on_outside  paused work, external holds, and non-placeholder gate reasons
 #   blocked             unresolved blockers, blocker id shown
-#   waiting_on_date     dated holds, until-date shown
-#   moving              live in-flight work not already grouped above
+#   waiting_on_date     time-gated work that is not a captain hold
+#   moving              in-flight work whose current state is working
 #
 # The rotting count is printed first. Age is shown in days when the snapshot
 # supplies it (held-Nd notes); otherwise the row shows "-" and the status line
@@ -88,6 +89,9 @@ MODEL=$(printf '%s' "$SNAP" | jq '
     sort_by([(.age_days == null), -(.age_days // 0), .id]);
   def mark($st; $id): $st + {seen: ($st.seen + {($id): true})};
   def unseen($st; $id): ($id | type == "string") and ($st.seen[$id] | not);
+  def is_dead_copy($dead; $t):
+    (($dead | index($t.id)) != null)
+    or (($t.doing // "") | test("gone"; "i"));
 
   . as $snap
   | ($snap.decisions_open // []) as $decisions
@@ -95,6 +99,7 @@ MODEL=$(printf '%s' "$SNAP" | jq '
   | ($snap.in_flight // []) as $inflight
   | ($snap.secondmates // []) as $mates
   | ($snap.omitted // []) as $omitted
+  | (($snap.unhealthy_endpoints // []) | map(.id | strings)) as $dead_ids
   | {
       seen: {},
       waiting_on_you: [],
@@ -120,7 +125,8 @@ MODEL=$(printf '%s' "$SNAP" | jq '
         .warnings += [{id:$g.id, title:dash($g.title), reason:dash($g.reason)}]
         | mark(.; $g.id)
       elif unseen(.; $g.id) and nonempty(until_date($g.reason)) then
-        .waiting_on_date += [row($g.id; $g.title; $g.owner; null; until_date($g.reason))]
+        .waiting_on_you += [row($g.id; $g.title; $g.owner; null;
+                               ("until " + until_date($g.reason)))]
         | mark(.; $g.id)
       elif unseen(.; $g.id) and nonempty($g.blocked_by) then
         .blocked += [row($g.id; $g.title; $g.owner; held_days($g.reason); $g.blocked_by)]
@@ -136,8 +142,11 @@ MODEL=$(printf '%s' "$SNAP" | jq '
         | mark(.; $g.id)
       else . end)
   | reduce $inflight[] as $t (.;
-      if unseen(.; $t.id) then
+      if unseen(.; $t.id) and ($t.state == "working") and (is_dead_copy($dead_ids; $t) | not) then
         .moving += [row($t.id; $t.doing; null; null; $t.doing)]
+        | mark(.; $t.id)
+      elif unseen(.; $t.id) then
+        .rotting += [row($t.id; $t.doing // $t.id; null; null; $t.doing // $t.id)]
         | mark(.; $t.id)
       else . end)
   | reduce $mates[] as $m (.;

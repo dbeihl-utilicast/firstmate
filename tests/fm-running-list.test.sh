@@ -83,6 +83,8 @@ write_open_work_fixture() {  # <home>
 - [ ] ship-task - Ship the thing (repo: sample) (kind: ship) (since 2026-09-12)
 - [ ] paused-task - Wait on counsel (repo: sample) (kind: ship) (since 2026-09-10)
 - [ ] working-held - Held while working (repo: sample) (kind: captain) (hold: choose a route) (hold-kind: captain) (since 2026-09-13)
+- [ ] qwen-process - Idle qwen copy (repo: sample) (kind: ship) (since 2026-09-01)
+- [ ] watch-ssh - Idle watch copy (repo: sample) (kind: ship) (since 2026-09-01)
 
 ## Queued
 - [ ] live-hold - Live call (repo: sample) (kind: captain) (hold: choose a route) (hold-kind: captain) (since 2026-09-13)
@@ -111,6 +113,14 @@ EOF
     "project=sample" "harness=claude" "kind=captain" "mode=ship"
   record_claude_state "$home/state" working-held busy
   printf 'working: still held for a route choice\n' > "$home/state/working-held.status"
+  fm_write_meta "$home/state/qwen-process.meta" \
+    "window=firstmate:fm-qwen-process" "worktree=$home/projects/missing-qwen" \
+    "project=sample" "harness=claude" "kind=ship" "mode=ship"
+  printf 'done: leftover idle copy\n' > "$home/state/qwen-process.status"
+  fm_write_meta "$home/state/watch-ssh.meta" \
+    "window=firstmate:fm-watch-ssh" "worktree=$home/projects/missing-watch" \
+    "project=sample" "harness=claude" "kind=ship" "mode=ship"
+  printf 'done: leftover idle copy\n' > "$home/state/watch-ssh.status"
 }
 
 test_help_and_bad_flag() {
@@ -135,17 +145,19 @@ test_groups_open_work_and_names_unreadables() {
   printf '%s' "$json" | jq -e '.schema == "fm-running-list.v1"' >/dev/null \
     || fail "schema missing: $json"
   printf '%s' "$json" | jq -e '
-    .nothing_brings_them_back == 2
-      and (.rotting | map(.id) | sort) == ["abandoned-issue", "vault-note"]
-      and (.waiting_on_you | map(.id) | sort) == ["aged-hold", "live-hold", "working-held"]
+    .nothing_brings_them_back == 4
+      and (.rotting | map(.id) | sort) == ["abandoned-issue", "qwen-process", "vault-note", "watch-ssh"]
+      and (.waiting_on_you | map(.id) | sort) == ["aged-hold", "dated-hold", "live-hold", "working-held"]
       and (.waiting_on_you | map(select(.id == "working-held")) | length) == 1
       and (.moving | map(.id) | index("working-held") == null)
-      and (.waiting_on_date | map(.id)) == ["dated-hold"]
-      and (.waiting_on_date[] | select(.id == "dated-hold") | .wait) == "2026-12-01"
+      and (.waiting_on_date | length) == 0
+      and (.waiting_on_you[] | select(.id == "dated-hold") | .wait) == "until 2026-12-01"
       and (.blocked | map(.id)) == ["blocked-work"]
       and (.blocked[] | select(.id == "blocked-work") | .wait) == "ship-task"
       and (.waiting_on_outside | map(.id) | sort) == ["observation", "paused-task"]
       and (.moving | map(.id)) == ["ship-task"]
+      and (.moving | map(.id) | index("qwen-process") == null)
+      and (.moving | map(.id) | index("watch-ssh") == null)
       and (.unreadables | map(.id)) == ["missing-mate"]
       and (.waiting_on_you | any(.id == "aged-hold" and .age_days != null))
       and ([.rotting[], .waiting_on_you[], .waiting_on_outside[], .blocked[],
@@ -154,14 +166,16 @@ test_groups_open_work_and_names_unreadables() {
                .waiting_on_date[], .moving[]] | map(.id) | length)
   ' >/dev/null || fail "open-work grouping wrong: $json"
   human=$(run_list "$home" "$fakebin") || fail "human running list failed"
-  assert_contains "$human" "2 with nothing that will bring them back" \
+  assert_contains "$human" "4 with nothing that will bring them back" \
     "rotting count should lead the human view"
   assert_contains "$human" "abandoned-issue" "rotting rows should be listed"
-  assert_contains "$human" "Waiting on you (3)" "captain holds should be grouped"
+  assert_contains "$human" "Waiting on you (4)" "captain holds should be grouped"
+  assert_contains "$human" "until 2026-12-01" "dated captain holds should show the way-back date"
   assert_contains "$human" "Waiting on someone outside (2)" "named outside waiters should be grouped"
   assert_contains "$human" "Blocked on other work (1)" "blockers should be grouped"
-  assert_contains "$human" "Waiting on a date (1)" "dated holds should be grouped"
+  assert_contains "$human" "Waiting on a date (0)" "dated captain holds are not waiting on a date"
   assert_contains "$human" "Moving (1)" "live work should be grouped"
+  assert_not_contains "$human" "Moving (3)" "idle copies must not inflate Moving"
   assert_contains "$human" "Homes that could not be read: missing-mate" \
     "unreadable homes should be named"
   assert_contains "$human" "Snapshot cannot supply:" "missing snapshot fields should be named"
