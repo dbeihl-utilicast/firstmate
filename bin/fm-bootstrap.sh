@@ -1160,7 +1160,7 @@ crew_dispatch_validate() {
       | split("/")[-1] as $model
       | if ($model | test("astra"; "i")) then "astra"
         elif ($model | test("fable"; "i")) then "fable"
-        elif (["gpt-5.6-terra", "sonnet", "claude-sonnet-5"] | index($model)) != null then "ordinary"
+        elif (["gpt-5.6-terra", "sonnet", "claude-sonnet-5", "gpt-5.6-sol-xhigh", "grok-4.6", "cursor-grok-4.6-high-fast", "composer-2.5"] | index($model)) != null then "ordinary"
         else v2_fail("unclassified model: " + $selector)
         end;
     def v2_profile:
@@ -1183,12 +1183,13 @@ crew_dispatch_validate() {
         else $profile
         end;
     def v2_match:
-      v2_fields("rule match"; ["task_kind", "task_shape", "delivery", "project"]; [])
+      v2_fields("rule match"; ["task_kind", "task_shape", "delivery", "project", "host"]; [])
       | if length == 0 then v2_fail("rule match needs at least one field") else . end
       | if has("task_kind") then v2_string_array("rule match"; "task_kind") else . end
       | if has("task_shape") then v2_string_array("rule match"; "task_shape") else . end
       | if has("delivery") then v2_string("rule match"; "delivery") else . end
-      | if has("project") then v2_string("rule match"; "project") else . end;
+      | if has("project") then v2_string("rule match"; "project") else . end
+      | if has("host") then v2_string("rule match"; "host") else . end;
     def v2_reasoning:
       v2_fields("rule reasoning"; ["mode", "target", "dispatch_reason_required"]; ["mode"])
       | v2_enum("rule reasoning"; "mode"; ["generic", "fixed"])
@@ -1288,11 +1289,11 @@ crew_dispatch_validate() {
         else $dispatch
         end;
     def v2_rule:
-      v2_fields("rule"; ["id", "when", "match", "independence", "reasoning", "use", "decision_refs"]; ["id", "when", "match", "reasoning", "use"])
+      v2_fields("rule"; ["id", "when", "match", "independence", "reasoning", "use", "decision_refs"]; ["id", "when", "reasoning", "use"])
       | v2_string("rule"; "id")
       | v2_string("rule"; "when")
       | . as $rule
-      | ($rule.match | v2_match) as $match
+      | (if ($rule | has("match")) then ($rule.match | v2_match) else null end) as $match
       | ($rule.reasoning | v2_reasoning) as $reasoning
       | (if ($rule | has("independence")) then ($rule.independence | v2_independence) else null end) as $independence
       | (if ($rule | has("decision_refs")) then ($rule | v2_string_array("rule"; "decision_refs")) else $rule end) as $decision_refs
