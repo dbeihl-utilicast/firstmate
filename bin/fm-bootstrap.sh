@@ -1288,11 +1288,11 @@ crew_dispatch_validate() {
         else $dispatch
         end;
     def v2_rule:
-      v2_fields("rule"; ["id", "when", "match", "independence", "reasoning", "use", "decision_refs"]; ["id", "when", "match", "reasoning", "use"])
+      v2_fields("rule"; ["id", "when", "match", "independence", "reasoning", "use", "decision_refs"]; ["id", "when", "reasoning", "use"])
       | v2_string("rule"; "id")
       | v2_string("rule"; "when")
       | . as $rule
-      | ($rule.match | v2_match) as $match
+      | (if ($rule | has("match")) then ($rule.match | v2_match) else null end) as $match
       | ($rule.reasoning | v2_reasoning) as $reasoning
       | (if ($rule | has("independence")) then ($rule.independence | v2_independence) else null end) as $independence
       | (if ($rule | has("decision_refs")) then ($rule | v2_string_array("rule"; "decision_refs")) else $rule end) as $decision_refs
