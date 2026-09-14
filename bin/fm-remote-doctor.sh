@@ -1496,7 +1496,7 @@ EOF
         ;;
     esac
     set +e
-    out=$(host_plugins_claude plugin install --scope user --yes -- "$id" 2>&1)
+    out=$(host_plugins_claude plugin install --scope user -- "$id" 2>&1)
     rc=$?
     set -e
     if [ "$rc" -eq 0 ]; then

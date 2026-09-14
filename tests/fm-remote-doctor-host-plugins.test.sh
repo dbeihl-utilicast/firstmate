@@ -97,14 +97,12 @@ SH
 printf '%s\n' "claude_config=${CLAUDE_CONFIG_DIR:-} $*" >> "$state/commands.log"
 json_flag=0
 scope=user
-yes=0
 args=()
 for arg in "$@"; do
   case "$arg" in
     --json) json_flag=1 ;;
     --scope) ;;
     user|project|local) scope=$arg ;;
-    --yes|-y) yes=1 ;;
     --) ;;
     *) args+=("$arg") ;;
   esac
@@ -279,8 +277,10 @@ assert_contains "$DOCTOR_OUT" 'check host-plugins=ok: configured Claude Code plu
   "--fix did not prove a skill resolves after install"
 assert_contains "$(cat "$CASE_STATE/commands.log")" 'plugin marketplace add -- https://github.com/example/example-plugins.git' \
   "--fix did not add the configured marketplace source"
-assert_contains "$(cat "$CASE_STATE/commands.log")" 'plugin install --scope user --yes -- example-core@example-plugins' \
+assert_contains "$(cat "$CASE_STATE/commands.log")" 'plugin install --scope user -- example-core@example-plugins' \
   "--fix did not install the configured plugin id"
+assert_not_contains "$(cat "$CASE_STATE/commands.log")" '--yes' \
+  "--fix pre-approved a marketplace-declared command"
 assert_not_contains "$(cat "$CASE_STATE/commands.log")" 'other-plugins' \
   "--fix added a marketplace that is not in config"
 pass "a missing marketplace is registered and its plugin is installed, then a skill resolves"
