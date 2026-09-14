@@ -734,6 +734,7 @@ check_entrypoint_link() {
 # or plugin@marketplace ids whose --fix clone or install failed on authentication
 # so the post-repair re-check reports a human gap instead of a loop of fixable.
 HOST_PLUGINS_AUTH_ITEMS=
+HOST_PLUGINS_DEPENDENCY_GAP=
 
 host_plugins_config_path() {
   if [ -n "${FM_CONFIG_OVERRIDE:-}" ]; then
@@ -868,12 +869,15 @@ for item in data:
         continue
     url = item.get("url")
     source = item.get("source")
+    location = item.get("installLocation")
     bound = ""
     if isinstance(url, str) and url.strip():
         bound = url.strip()
     elif isinstance(source, str) and source.strip() and "://" in source:
         bound = source.strip()
-    print("%s\t%s" % (name, bound))
+    if not isinstance(location, str):
+        location = ""
+    print("%s\t%s\t%s" % (name, bound, location.strip()))
 '
 }
 
@@ -885,17 +889,222 @@ host_plugins_source_matches() { # <configured> <bound>
 }
 
 host_plugins_registered_source() { # <name> <rows> -> bound source or empty
-  local name=$1 rows=$2 line row_name
+  local name=$1 rows=$2 line row_name rest
   while IFS= read -r line; do
     [ -n "$line" ] || continue
     row_name=${line%%$'\t'*}
     [ "$row_name" = "$name" ] || continue
-    printf '%s\n' "${line#*$'\t'}"
+    rest=${line#*$'\t'}
+    printf '%s\n' "${rest%%$'\t'*}"
     return 0
   done <<EOF
 $rows
 EOF
   return 1
+}
+
+host_plugins_dependency_audit() { # <catalogue-path> <marketplace-json> <plugin-json> <stage-missing:0|1>
+  FM_HOST_PLUGIN_MARKETPLACES_JSON=$2 \
+    FM_HOST_PLUGIN_LIST_JSON=$3 \
+    FM_HOST_PLUGIN_STAGE_MISSING=$4 \
+    python3 - "$1" <<'PY'
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+
+
+class AuditError(Exception):
+    pass
+
+
+def source_bound(item):
+    url = item.get("url")
+    source = item.get("source")
+    if isinstance(url, str) and url.strip():
+        return url.strip()
+    if isinstance(source, str) and source.strip() and "://" in source:
+        return source.strip()
+    return ""
+
+
+def source_matches(configured, bound):
+    configured_normalized = configured[:-4] if configured.endswith(".git") else configured
+    bound_normalized = bound[:-4] if bound.endswith(".git") else bound
+    return bool(bound) and (configured == bound or configured_normalized == bound_normalized)
+
+
+def load_json(path, label):
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            return json.load(handle)
+    except Exception as exc:
+        raise AuditError("%s is not usable JSON: %s" % (label, exc)) from exc
+
+
+def marketplace_root(item, name):
+    location = item.get("installLocation")
+    if not isinstance(location, str) or not location.strip():
+        raise AuditError("marketplace %s has no resolved installLocation" % name)
+    location_path = Path(location)
+    if not location_path.is_absolute():
+        raise AuditError("marketplace %s installLocation is not absolute" % name)
+    root = location_path.resolve()
+    if not root.is_dir():
+        raise AuditError("marketplace %s installLocation is not a directory" % name)
+    return root
+
+
+def child_path(root, relative, label):
+    candidate = (root / relative).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError as exc:
+        raise AuditError("%s escapes its marketplace checkout" % label) from exc
+    return candidate
+
+
+catalogue_path = Path(sys.argv[1])
+stage_missing = os.environ.get("FM_HOST_PLUGIN_STAGE_MISSING") == "1"
+try:
+    catalogue = load_json(catalogue_path, "host plugin catalogue")
+    current = json.loads(os.environ["FM_HOST_PLUGIN_MARKETPLACES_JSON"])
+    installed = json.loads(os.environ["FM_HOST_PLUGIN_LIST_JSON"])
+    if not isinstance(current, list):
+        raise AuditError("Claude marketplace list is not an array")
+    if not isinstance(installed, list):
+        raise AuditError("Claude plugin list is not an array")
+except AuditError as exc:
+    print("ERROR %s" % exc)
+    sys.exit(0)
+except Exception as exc:
+    print("ERROR Claude plugin metadata is not usable JSON: %s" % exc)
+    sys.exit(0)
+
+marketplaces = {item["name"]: item["source"] for item in catalogue["marketplaces"]}
+configured_plugins = set(catalogue["plugins"])
+current_by_name = {
+    item.get("name"): item
+    for item in current
+    if isinstance(item, dict) and isinstance(item.get("name"), str)
+}
+installed_by_id = {
+    item.get("id"): item
+    for item in installed
+    if isinstance(item, dict) and item.get("scope") == "user" and isinstance(item.get("id"), str)
+}
+
+try:
+    with tempfile.TemporaryDirectory(prefix="fm-host-plugin-audit.") as probe_dir:
+        roots = {}
+        for index, (name, source) in enumerate(marketplaces.items()):
+            item = current_by_name.get(name)
+            if item is not None:
+                if source_matches(source, source_bound(item)):
+                    roots[name] = marketplace_root(item, name)
+                continue
+            if not stage_missing:
+                continue
+            local_source = Path(source).expanduser()
+            if local_source.is_dir():
+                roots[name] = local_source.resolve()
+                continue
+            git = shutil.which("git")
+            if not git:
+                raise AuditError("git does not resolve while staging marketplace %s" % name)
+            clone_source = source
+            if re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", source):
+                clone_source = "https://github.com/%s.git" % source
+            destination = Path(probe_dir) / ("marketplace-%d" % index)
+            env = os.environ.copy()
+            env["GIT_TERMINAL_PROMPT"] = "0"
+            cloned = subprocess.run(
+                [git, "clone", "--depth", "1", "--", clone_source, str(destination)],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=env,
+                check=False,
+            )
+            if cloned.returncode != 0:
+                detail = (cloned.stderr or cloned.stdout or "no diagnostic").strip().splitlines()[0]
+                raise AuditError("marketplace %s could not be staged: %s" % (name, detail))
+            roots[name] = destination.resolve()
+
+        uncatalogued = set()
+        for plugin_id in sorted(configured_plugins):
+            plugin, marketplace = plugin_id.rsplit("@", 1)
+            installed_item = installed_by_id.get(plugin_id)
+            if installed_item is not None:
+                install_path = installed_item.get("installPath")
+                if not isinstance(install_path, str) or not install_path.strip():
+                    raise AuditError("%s has no resolved installPath" % plugin_id)
+                install_path = Path(install_path)
+                if not install_path.is_absolute():
+                    raise AuditError("%s installPath is not absolute" % plugin_id)
+                plugin_root = install_path.resolve()
+                if not plugin_root.is_dir():
+                    raise AuditError("%s installPath is not a directory" % plugin_id)
+            else:
+                root = roots.get(marketplace)
+                if root is None:
+                    continue
+                marketplace_manifest = child_path(root, ".claude-plugin/marketplace.json", "marketplace %s manifest" % marketplace)
+                if not marketplace_manifest.is_file():
+                    raise AuditError("marketplace %s has no .claude-plugin/marketplace.json" % marketplace)
+                manifest = load_json(marketplace_manifest, "marketplace %s manifest" % marketplace)
+                entries = manifest.get("plugins") if isinstance(manifest, dict) else None
+                if not isinstance(entries, list):
+                    raise AuditError("marketplace %s manifest has no plugins array" % marketplace)
+                matches = [entry for entry in entries if isinstance(entry, dict) and entry.get("name") == plugin]
+                if len(matches) != 1:
+                    raise AuditError("%s does not resolve to exactly one marketplace entry" % plugin_id)
+                plugin_source = matches[0].get("source")
+                if not isinstance(plugin_source, str) or not plugin_source.strip():
+                    raise AuditError("%s has no local marketplace source" % plugin_id)
+                plugin_root = child_path(root, plugin_source, plugin_id)
+            plugin_manifest = child_path(plugin_root, ".claude-plugin/plugin.json", "%s manifest" % plugin_id)
+            if not plugin_manifest.is_file():
+                raise AuditError("%s has no .claude-plugin/plugin.json" % plugin_id)
+            plugin_data = load_json(plugin_manifest, "%s manifest" % plugin_id)
+            if not isinstance(plugin_data, dict) or plugin_data.get("name") != plugin:
+                raise AuditError("%s manifest name does not match its marketplace entry" % plugin_id)
+            dependencies = plugin_data.get("dependencies", [])
+            if not isinstance(dependencies, list):
+                raise AuditError("%s dependencies must be an array" % plugin_id)
+            for dependency in dependencies:
+                if not isinstance(dependency, str) or not dependency.strip() or dependency.count("@") > 1 \
+                        or any(character in dependency for character in "\n\r\t"):
+                    raise AuditError("%s has an invalid dependency declaration" % plugin_id)
+                dependency = dependency.strip()
+                dependency_id = dependency if "@" in dependency else "%s@%s" % (dependency, marketplace)
+                if dependency_id not in configured_plugins:
+                    uncatalogued.add((plugin_id, dependency_id))
+        if uncatalogued:
+            print("UNCATALOGUED " + ", ".join("%s requires %s" % item for item in sorted(uncatalogued)))
+        else:
+            print("OK")
+except AuditError as exc:
+    print("ERROR %s" % exc)
+PY
+}
+
+host_plugins_record_dependency_gap() { # <audit-result>
+  case "$1" in
+    UNCATALOGUED*)
+      record host-plugins "human: configured plugin dependency is not named in the host plugin catalogue (${1#UNCATALOGUED })" \
+        "add every authorized dependency to config/host-plugins.json or remove the dependency from its plugin manifest, then rerun this command with --fix"
+      ;;
+    *)
+      record host-plugins "human: configured plugin dependencies could not be verified (${1#ERROR })" \
+        "repair access to the named marketplace source or its plugin manifest, then rerun this command with --fix"
+      ;;
+  esac
 }
 
 host_plugins_plugin_rows() {
@@ -954,8 +1163,9 @@ EOF
 
 check_host_plugins() {
   local path parsed line name source plugin marketplace claude_bin rest id
-  local mp_json mp_rows plugin_json plugin_rows state details i bound host_plugins_dir_rc
-  local missing_mp=() mismatched_mp=() missing_plugin=() disabled_plugin=() unresolved=() auth_human=()
+  local mp_json mp_rows plugin_json plugin_rows state details i bound host_plugins_dir_rc dependency_audit
+  local row_pid row_marketplace configured seen candidate
+  local missing_mp=() mismatched_mp=() missing_plugin=() disabled_plugin=() unresolved=() auth_human=() unexpected_plugin=()
   local -a marketplaces_n=() marketplaces_s=() plugins_n=() plugins_m=()
   local ready_mp=()
   if ! path=$(host_plugins_config_path); then
@@ -1049,6 +1259,43 @@ EOF
       "repair the claude CLI on that account, then rerun this command"
     return 0
   fi
+  if [ -n "$HOST_PLUGINS_DEPENDENCY_GAP" ]; then
+    host_plugins_record_dependency_gap "$HOST_PLUGINS_DEPENDENCY_GAP"
+    return 0
+  fi
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    row_pid=${line%%$'\t'*}
+    case "$row_pid" in *@*) ;; *) continue ;; esac
+    row_marketplace=${row_pid##*@}
+    configured=0
+    for candidate in "${marketplaces_n[@]}"; do
+      [ "$candidate" = "$row_marketplace" ] && configured=1
+    done
+    [ "$configured" -eq 1 ] || continue
+    for i in "${!plugins_n[@]}"; do
+      [ "$row_pid" = "${plugins_n[$i]}@${plugins_m[$i]}" ] && configured=2
+    done
+    [ "$configured" -eq 1 ] || continue
+    seen=0
+    for candidate in "${unexpected_plugin[@]}"; do
+      [ "$candidate" = "$row_pid" ] && seen=1
+    done
+    [ "$seen" -eq 0 ] && unexpected_plugin+=("$row_pid")
+  done <<EOF
+$plugin_rows
+EOF
+  if [ "${#unexpected_plugin[@]}" -gt 0 ]; then
+    record host-plugins "human: installed plugin from a configured marketplace is not named in the host plugin catalogue (${unexpected_plugin[*]})" \
+      "uninstall each named plugin or add it to config/host-plugins.json if it is authorized, then rerun this command"
+    return 0
+  fi
+  dependency_audit=$(host_plugins_dependency_audit "$path" "$mp_json" "$plugin_json" 0) \
+    || dependency_audit="ERROR dependency audit could not run"
+  if [ "$dependency_audit" != OK ]; then
+    host_plugins_record_dependency_gap "$dependency_audit"
+    return 0
+  fi
   local i=0
   while [ "$i" -lt "${#marketplaces_n[@]}" ]; do
     name=${marketplaces_n[$i]}
@@ -1135,7 +1382,7 @@ EOF
 }
 
 fix_host_plugins() {
-  local path parsed line name source plugin marketplace id out rc i rest
+  local path parsed line name source plugin marketplace id out rc i rest dependency_audit
   local mp_json mp_rows plugin_json plugin_rows state
   local -a marketplaces_n=() marketplaces_s=() plugins_n=() plugins_m=()
   path=$(host_plugins_config_path) || return 0
@@ -1170,6 +1417,21 @@ EOF
   fi
   if ! mp_rows=$(printf '%s' "$mp_json" | host_plugins_marketplace_rows); then
     fix_report host-plugins failed "claude plugin marketplace list --json was not usable JSON"
+    return 1
+  fi
+  if ! plugin_json=$(host_plugins_claude plugin list --json 2>/dev/null); then
+    fix_report host-plugins failed "claude plugin list --json failed"
+    return 1
+  fi
+  if ! plugin_rows=$(printf '%s' "$plugin_json" | host_plugins_plugin_rows); then
+    fix_report host-plugins failed "claude plugin list --json was not usable JSON"
+    return 1
+  fi
+  dependency_audit=$(host_plugins_dependency_audit "$path" "$mp_json" "$plugin_json" 1) \
+    || dependency_audit="ERROR dependency audit could not run"
+  if [ "$dependency_audit" != OK ]; then
+    HOST_PLUGINS_DEPENDENCY_GAP=$dependency_audit
+    fix_report host-plugins failed "plugin dependency preflight refused every mutation: ${dependency_audit#* }"
     return 1
   fi
   local i=0 bound
