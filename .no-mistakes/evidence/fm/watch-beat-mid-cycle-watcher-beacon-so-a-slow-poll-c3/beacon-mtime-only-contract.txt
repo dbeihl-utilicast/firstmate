@@ -1,0 +1,2 @@
+slow-progress beacon bytes=0
+hung-step beacon bytes=0

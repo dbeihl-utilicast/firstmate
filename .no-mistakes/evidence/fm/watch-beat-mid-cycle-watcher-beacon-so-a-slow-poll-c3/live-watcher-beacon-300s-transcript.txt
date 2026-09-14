@@ -1,0 +1,43 @@
+registered: state/stage-1.check.sh
+registered: state/stage-2.check.sh
+registered: state/stage-3.check.sh
+registered: state/stage-4.check.sh
+SCENARIO slow-progress: real watcher begins one cycle with four 101s registered checks; guard grace is its default 300s
+slow-progress sample-1 beat_age=31s guard=healthy
+slow-progress sample-2 beat_age=62s guard=healthy
+slow-progress sample-3 beat_age=92s guard=healthy
+slow-progress sample-4 beat_age=22s guard=healthy
+slow-progress sample-5 beat_age=52s guard=healthy
+slow-progress sample-6 beat_age=83s guard=healthy
+slow-progress sample-7 beat_age=13s guard=healthy
+slow-progress sample-8 beat_age=43s guard=healthy
+slow-progress sample-9 beat_age=74s guard=healthy
+slow-progress sample-10 beat_age=3s guard=healthy
+slow-progress after-304s-in-one-cycle beat_age=4s guard=healthy
+events:
+  1789401839	stage-1-start
+  1789401940	stage-1-end
+  1789401940	stage-2-start
+  1789402041	stage-2-end
+  1789402041	stage-3-start
+  1789402142	stage-3-end
+  1789402143	stage-4-start
+PASS: a single poll cycle remained distinguishable from a dead watcher after 304s because completed work refreshed the mtime-only beacon
+registered: state/hung.check.sh
+SCENARIO hung-step: real watcher enters one non-returning registered check; guard grace is its default 300s
+hung-step sample-1 beat_age=31s guard=healthy
+hung-step sample-2 beat_age=61s guard=healthy
+hung-step sample-3 beat_age=92s guard=healthy
+hung-step sample-4 beat_age=123s guard=healthy
+hung-step sample-5 beat_age=153s guard=healthy
+hung-step sample-6 beat_age=184s guard=healthy
+hung-step sample-7 beat_age=214s guard=healthy
+hung-step sample-8 beat_age=245s guard=healthy
+hung-step sample-9 beat_age=276s guard=healthy
+hung-step after-no-progress beat_age=306s watcher_process=alive
+  ●  WATCHER DOWN - SUPERVISION IS OFF
+  ●  1 registered custom check(s), but no watcher has a fresh beacon (last beat: 306s ago, grace 300s).
+  ●  This read-only session should report the lapse, not repair it.
+  ●  This is a supervision warning only; the guarded operation WILL still run.
+PASS: a live process stuck inside one step stopped refreshing the beacon and the unchanged 300s guard reported it down
+LIVE PRODUCT RESULT: PASS

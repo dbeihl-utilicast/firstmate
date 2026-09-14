@@ -1,0 +1,4 @@
+NEGATIVE CONTROL: same real product flow, compressed to a 2s grace
+target after stage A returned: beat_age=1s guard=healthy expected=healthy
+base after stage A returned: beat_age=5s guard=DOWN expected=DOWN
+NEGATIVE CONTROL RESULT: PASS (the base reproduces the false alarm; the target removes it)
