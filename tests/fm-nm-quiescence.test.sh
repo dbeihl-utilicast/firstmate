@@ -13,8 +13,22 @@ mkdir -p "$FAKEBIN"
 cat > "$FAKEBIN/no-mistakes" <<'SH'
 #!/usr/bin/env bash
 set -u
+repo=$PWD
+if [ -f "$PWD/.test-nm-repository" ]; then
+  IFS= read -r repo < "$PWD/.test-nm-repository"
+fi
+if [ "${1:-}" = axi ]; then
+  case "$(basename "$PWD")" in
+    identity-failed) printf 'repo: "%s"\n' "$repo"; exit 7 ;;
+    identity-missing) printf 'current_branch: main\n'; exit 0 ;;
+    identity-malformed) printf 'repo: null\n'; exit 0 ;;
+  esac
+  printf 'repo: "%s"\n' "$repo"
+  exit 0
+fi
+[ "${1:-}" = runs ] || exit 64
 [ -z "${FM_TEST_NM_CALLS:-}" ] || printf '%s\n' "$PWD" >> "$FM_TEST_NM_CALLS"
-case "$(basename "$PWD")" in
+case "$(basename "$repo")" in
   parked|parked-home|linked-parked)
     printf '%s\n' 'running fm/parked a1b2c3d4 2026-09-13 08:00'
     ;;
@@ -135,7 +149,7 @@ test_projectless_home_repository_is_queried_once() {
 
 test_linked_home_keeps_its_own_ledger() {
   local main child output rc=0
-  main=$(make_home linked-main)
+  main=$(make_home independent/parked-home)
   fm_git_init_commit "$main"
   child="$TMP_ROOT/linked-parked"
   git -C "$main" worktree add --quiet --detach "$child" HEAD
@@ -147,7 +161,51 @@ test_linked_home_keeps_its_own_ledger() {
   expect_code 1 "$rc" "distinct worktree ledger was deduplicated by shared git storage"
   assert_contains "$output" $'RUN\thost=local\thome=linked\tclone=linked-parked' \
     "linked home was not queried at its own checkout path"
+  assert_contains "$output" $'SUMMARY\tresult=busy\truns=2\tgaps=0' \
+    "identical rows from separately registered repositories were collapsed"
   pass "linked homes retain checkout-specific ledger coverage"
+}
+
+test_linked_homes_share_inherited_ledger() {
+  local main child sibling calls output rc=0
+  main=$(make_home 'inherited root/parked-home')
+  fm_git_init_commit "$main"
+  child="$TMP_ROOT/inherited-child"
+  sibling="$TMP_ROOT/inherited-sibling"
+  git -C "$main" worktree add --quiet --detach "$child" HEAD
+  git -C "$main" worktree add --quiet --detach "$sibling" HEAD
+  printf '%s\n' "$main" > "$child/.test-nm-repository"
+  printf '%s\n' "$main" > "$sibling/.test-nm-repository"
+  printf -- '- child - inherited ledger (home: %s; scope: firstmate; projects: none; added 2026-09-14)\n' \
+    "$child" > "$main/data/secondmates.md"
+  printf -- '- sibling - inherited ledger (home: %s; scope: firstmate; projects: none; added 2026-09-14)\n' \
+    "$sibling" >> "$main/data/secondmates.md"
+  calls="$TMP_ROOT/inherited-calls"
+
+  output=$(FM_ROOT_OVERRIDE="$main" FM_TEST_NM_CALLS="$calls" run_check "$main") || rc=$?
+
+  expect_code 1 "$rc" "inherited parked run was not reported as busy"
+  assert_equals "$main" "$(cat "$calls")" "inherited repository ledger was queried repeatedly"
+  assert_contains "$output" $'SUMMARY\tresult=busy\truns=1\tgaps=0' \
+    "linked homes counted the inherited run more than once"
+  pass "linked homes share one resolved no-mistakes repository ledger"
+}
+
+test_unavailable_repository_identity_is_a_gap() {
+  local home clone output rc reason
+  for clone in identity-failed identity-missing identity-malformed; do
+    home=$(make_home "$clone-main")
+    make_project "$home" "$clone"
+    rc=0
+
+    output=$(run_check "$home") || rc=$?
+
+    expect_code 2 "$rc" "$clone repository identity was accepted as complete coverage"
+    case "$clone" in identity-failed) reason=validation-identity-query-failed ;; *) reason=invalid-repository-identity ;; esac
+    assert_contains "$output" "clone=$clone"$'\t'"reason=$reason" \
+      "$clone repository identity failure was not reported"
+  done
+  pass "failed and malformed repository identity queries are explicit gaps"
 }
 
 test_projects_override_is_scoped_to_active_home() {
@@ -372,7 +430,7 @@ case "$1" in
   beta) root=$FM_TEST_REMOTE_SECOND ;;
   *) exit 1 ;;
 esac
-FM_ROOT_OVERRIDE="$root" FM_HOME="$root" "$FM_TEST_QUIESCENCE" "$3" "$4" "$5"
+FM_ROOT_OVERRIDE="$root" FM_HOME="$root" "$FM_TEST_QUIESCENCE" "$3" "$4" "$5" "$6"
 SH
   chmod +x "$runner"
   printf -- '- alpha - first root (host: fm-spark; root: %s; home: %s; scope: firstmate; projects: none; added 2026-09-14)\n' \
@@ -392,6 +450,49 @@ SH
   assert_contains "$output" $'SUMMARY\tresult=busy\truns=1\tgaps=0' \
     "remote root and home scans double-counted or omitted the parked run"
   pass "distinct remote roots on one host are queried once each"
+}
+
+test_remote_inherited_ledgers_are_deduplicated_per_host() {
+  local home primary inherited separate runner calls output rc=0
+  home=$(make_home remote-inherited-main)
+  primary="$TMP_ROOT/remote-inherited/parked-home"
+  inherited="$TMP_ROOT/remote-inherited/home"
+  separate="$TMP_ROOT/remote-inherited/linked-parked"
+  fm_git_init_commit "$primary"
+  git -C "$primary" worktree add --quiet --detach "$inherited" HEAD
+  git -C "$primary" worktree add --quiet --detach "$separate" HEAD
+  printf '%s\n' "$primary" > "$inherited/.test-nm-repository"
+  runner="$TMP_ROOT/remote-inherited-runner"
+  calls="$TMP_ROOT/remote-inherited-calls"
+  cat > "$runner" <<'SH'
+#!/usr/bin/env bash
+case "$1" in
+  shared) home=$FM_TEST_REMOTE_INHERITED ;;
+  separate) home=$FM_TEST_REMOTE_SEPARATE ;;
+  otherhost) home=$FM_TEST_REMOTE_INHERITED ;;
+  *) exit 1 ;;
+esac
+FM_ROOT_OVERRIDE="$FM_TEST_REMOTE_ROOT" FM_HOME="$home" "$FM_TEST_QUIESCENCE" "$3" "$4" "$5" "$6"
+SH
+  chmod +x "$runner"
+  printf -- '- shared - shared ledger (host: fm-spark; root: %s; home: %s; scope: firstmate; projects: none; added 2026-09-14)\n' \
+    "$primary" "$inherited" > "$home/data/secondmates.md"
+  printf -- '- separate - own ledger (host: fm-spark; root: %s; home: %s; scope: firstmate; projects: none; added 2026-09-14)\n' \
+    "$primary" "$separate" >> "$home/data/secondmates.md"
+  printf -- '- otherhost - other host ledger (host: fm-other; root: %s; home: %s; scope: firstmate; projects: none; added 2026-09-14)\n' \
+    "$primary" "$inherited" >> "$home/data/secondmates.md"
+
+  output=$(FM_TEST_REMOTE_ROOT="$primary" FM_TEST_REMOTE_INHERITED="$inherited" \
+    FM_TEST_REMOTE_SEPARATE="$separate" FM_TEST_QUIESCENCE="$CHECK" \
+    FM_TEST_NM_CALLS="$calls" FM_NM_ON_BIN="$runner" run_check "$home") || rc=$?
+
+  expect_code 1 "$rc" "remote registered ledgers were not reported as busy"
+  assert_equals "$ROOT"$'\n'"$primary"$'\n'"$primary"$'\n'"$separate" "$(cat "$calls")" \
+    "remote ledger deduplication ignored resolved identity or host boundaries"
+  assert_contains "$output" $'SUMMARY\tresult=busy\truns=3\tgaps=0' \
+    "inherited, independent, and same-path remote ledgers were miscounted"
+  assert_not_contains "$output" $'REPO\t' "internal repository records leaked into the fleet report"
+  pass "remote inherited ledgers are deduplicated while independent and other-host ledgers remain distinct"
 }
 
 test_unreachable_remote_names_host_and_every_home() {
@@ -457,6 +558,8 @@ test_parked_run_returns_red_with_state_and_age
 test_local_secondmate_is_discovered_from_registry
 test_projectless_home_repository_is_queried_once
 test_linked_home_keeps_its_own_ledger
+test_linked_homes_share_inherited_ledger
+test_unavailable_repository_identity_is_a_gap
 test_projects_override_is_scoped_to_active_home
 test_inaccessible_home_is_a_gap
 test_inaccessible_inventory_directories_are_gaps
@@ -468,5 +571,6 @@ test_recognized_empty_and_terminal_ledgers_are_clear
 test_perl_fallback_preserves_signal_and_exit_failures
 test_remote_home_mode_queries_its_repository
 test_distinct_remote_roots_on_one_host_are_queried_once
+test_remote_inherited_ledgers_are_deduplicated_per_host
 test_unreachable_remote_names_host_and_every_home
 test_remote_home_run_is_included

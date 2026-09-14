@@ -28,6 +28,7 @@ ROOTS=()
 HOMES=()
 REMOTES=()
 SEEN_REPOSITORIES=$'\n'
+REMOTE_SCAN=0
 
 usage() {
   sed -n '2,4p' "$0" | sed 's/^# \{0,1\}//'
@@ -144,8 +145,26 @@ emit_run() {
 
 scan_repository() {
   local host=$1 home=$2 clone=$3 repo=$4 ledger rc row state branch head day clock pr extra
-  list_has "$repo" "$SEEN_REPOSITORIES" && return
-  SEEN_REPOSITORIES+="$repo"$'\n'
+  local metadata identity key
+  rc=0
+  metadata=$(fm_nm_run_bounded "$repo" "$QUERY_TIMEOUT" axi 2>&1) || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    case "$metadata" in
+      *"repo not initialized"*) emit_gap "$host" "$home" "$clone" validation-not-configured ;;
+      *) emit_gap "$host" "$home" "$clone" validation-identity-query-failed "$(first_line "$metadata")" ;;
+    esac
+    return
+  fi
+  identity=$(fm_nm_strip_quotes "$(printf '%s\n' "$metadata" | sed -n 's/^repo:[[:space:]]*//p')")
+  case "$identity" in
+    *$'\t'*|*$'\r'*|*$'\n'*) emit_gap "$host" "$home" "$clone" invalid-repository-identity; return ;;
+    /*) ;;
+    *) emit_gap "$host" "$home" "$clone" invalid-repository-identity; return ;;
+  esac
+  key=$host$'\t'$identity
+  list_has "$key" "$SEEN_REPOSITORIES" && return
+  SEEN_REPOSITORIES+="$key"$'\n'
+  [ "$REMOTE_SCAN" -eq 0 ] || printf 'REPO\t%s\n' "$key"
   rc=0
   ledger=$(fm_nm_run_bounded "$repo" "$QUERY_TIMEOUT" runs --limit "$RUN_LIMIT" 2>&1) || rc=$?
   if [ "$rc" -ne 0 ]; then
@@ -339,6 +358,7 @@ remote_output_records() {
   local output=$1 line saw_home=0 bad=
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in
+      REPO$'\t'*) SEEN_REPOSITORIES+="${line#*$'\t'}"$'\n' ;;
       RUN$'\t'*) printf '%s\n' "$line"; RUN_COUNT=$((RUN_COUNT + 1)) ;;
       GAP$'\t'*) printf '%s\n' "$line"; GAP_COUNT=$((GAP_COUNT + 1)) ;;
       HOME$'\t'*) printf '%s\n' "$line"; saw_home=1 ;;
@@ -353,7 +373,7 @@ remote_output_records() {
 run_remote() {
   local route=$1 mode=$2 label=$3 host=$4 output rc=0
   REMOTE_ERROR=
-  output=$("$ON_BIN" "$route" fm-nm-quiescence.sh "$mode" "$label" "$host" 2>&1) || rc=$?
+  output=$("$ON_BIN" "$route" fm-nm-quiescence.sh "$mode" "$label" "$host" "$SEEN_REPOSITORIES" 2>&1) || rc=$?
   case "$rc" in
     0|1|2|3)
       if ! remote_output_records "$output"; then
@@ -403,9 +423,10 @@ case "${1:-}" in
     usage
     ;;
   --home-only)
-    [ "$#" -eq 3 ] || usage
+    [ "$#" -ge 3 ] && [ "$#" -le 4 ] || usage
+    REMOTE_SCAN=1
+    SEEN_REPOSITORIES=${4:-$'\n'}
     NOW_EPOCH="${FM_NM_QUIESCENCE_NOW_EPOCH:-$(date +%s)}"
-    SEEN_REPOSITORIES+="$(canonical_dir "$FM_ROOT")"$'\n'
     scan_home "$3" "$2" "$FM_HOME" "$PROJECTS"
     if [ "$RUN_COUNT" -gt 0 ] && [ "$GAP_COUNT" -gt 0 ]; then exit 3; fi
     if [ "$RUN_COUNT" -gt 0 ]; then exit 1; fi
@@ -413,7 +434,9 @@ case "${1:-}" in
     exit 0
     ;;
   --root-only)
-    [ "$#" -eq 3 ] || usage
+    [ "$#" -ge 3 ] && [ "$#" -le 4 ] || usage
+    REMOTE_SCAN=1
+    SEEN_REPOSITORIES=${4:-$'\n'}
     NOW_EPOCH="${FM_NM_QUIESCENCE_NOW_EPOCH:-$(date +%s)}"
     scan_root "$3" "$2" "$FM_ROOT"
     if [ "$RUN_COUNT" -gt 0 ] && [ "$GAP_COUNT" -gt 0 ]; then exit 3; fi
