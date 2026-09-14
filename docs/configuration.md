@@ -436,7 +436,7 @@ This section is the single owner of the canonical V2 schema and its per-field se
 | `dispatch` | `selector: "quota-array-dispatch"`, non-empty `target_host_checks` naming checks for firstmate to perform on the target host, `higher_reasoning_requires_reason: true`, and `history_ref: "data/crew-dispatch-history.md"`. These declarations do not run checks or write history. |
 | `constraints` | At least one constraint. Each must set `allowed_projects` to exactly `["Utilicast-LLC/utilicast-triage"]`, block the `astra` and `fable` model classes, treat an unknown model class as blocked, and report when no candidate remains. |
 | `exceptions` | Exactly `[]`. Quota eligibility, runway, and ranking follow `quota-array-dispatch`. |
-| `rules` | A non-empty ordered array of `id`, natural-language `when`, structured `match`, `reasoning`, and non-empty `use` profiles. `independence` and `decision_refs` are optional. A fixed reasoning rule must name an effort target and require a dispatch reason. |
+| `rules` | A non-empty ordered array of `id`, natural-language `when`, `reasoning`, and non-empty `use` profiles. `match`, `independence`, and `decision_refs` are optional; an absent `match` matches whatever no earlier rule already claimed, so rule order carries a fallback rule's precedence. A fixed reasoning rule must name an effort target and require a dispatch reason. |
 | `default` | A non-empty quota-aware array of ordinary profiles used only when no task-shaped rule matches. |
 
 The `placement.rules` and `rules` arrays carry rule order; `default` defines default membership.
