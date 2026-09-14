@@ -481,7 +481,7 @@ EOF
       "project=sample" "harness=claude" "kind=ship" "mode=ship"
     record_claude_state "$mixed/state" "$id" idle
     case "$id" in
-      done-child) state=done ;;
+      done-child) state='done' ;;
       failed-child) state=failed ;;
     esac
     printf '%s: terminal fixture\n' "$state" > "$mixed/state/$id.status"
