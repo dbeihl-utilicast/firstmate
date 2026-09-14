@@ -127,19 +127,15 @@ print_refusal() {
 
 run_hook() {
   local name=${1-} url=${2-}
-  local input prev rc=0 nm_url dest
+  local prev rc=0 nm_url dest
   local hook_dir
   hook_dir=$(cd "$(dirname -- "$0")" && pwd)
   prev="$hook_dir/$PREV_NAME"
-  input=$(mktemp "${TMPDIR:-/tmp}/fm-origin-push-guard.XXXXXX") || die "cannot create stdin temp"
-  cat > "$input"
   nm_url=$(no_mistakes_url)
   if [ -z "$nm_url" ] || destination_is_no_mistakes "$name" "$url" || allow_unguarded_override; then
-    run_chained_hook "$prev" "$@" < "$input" || rc=$?
-    rm -f "$input"
+    run_chained_hook "$prev" "$@" || rc=$?
     return "$rc"
   fi
-  rm -f "$input"
   dest=$name
   [ -n "$dest" ] || dest=$url
   [ -n "$dest" ] || dest='(unknown remote)'

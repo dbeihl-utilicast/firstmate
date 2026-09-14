@@ -206,6 +206,41 @@ SH
   pass "install chains an existing pre-push on allow and skips it on refuse"
 }
 
+test_allowed_route_streams_refs_directly_to_chained_hook() {
+  local repo log fakebin sha expected nm_url rc=0
+  repo=$(make_repo "$TMP_ROOT/direct-ref-stream")
+  add_no_mistakes "$repo"
+  rm -rf "$repo.hooks"
+  log="$TMP_ROOT/direct-ref-stream.log"
+  sha=$(git -C "$repo" rev-parse HEAD)
+  expected="refs/heads/topic $sha refs/heads/topic $ZERO"
+  nm_url=$(git -C "$repo" config --get remote.no-mistakes.url)
+  cat > "$repo/.git/hooks/pre-push" <<SH
+#!/usr/bin/env bash
+IFS= read -r line || exit 42
+[ "\$line" = "$expected" ] || exit 43
+printf '%s\n' "\$line" > "$log"
+SH
+  chmod 755 "$repo/.git/hooks/pre-push"
+  "$HOOK" install "$repo" || fail "install refused the ref-reading pre-push"
+  fakebin="$TMP_ROOT/direct-ref-stream-bin"
+  mkdir -p "$fakebin"
+  cat > "$fakebin/cat" <<'SH'
+#!/usr/bin/env bash
+exit 1
+SH
+  chmod 755 "$fakebin/cat"
+  (
+    cd "$repo" || exit 1
+    printf '%s\n' "$expected" \
+      | PATH="$fakebin:$PATH" .git/hooks/pre-push no-mistakes "$nm_url"
+  ) || rc=$?
+  expect_code 0 "$rc" "allowed route must pass Git's ref stream to the chained hook"
+  assert_contains "$(cat "$log")" "$expected" \
+    "chained hook did not receive Git's original ref stream"
+  pass "allowed route passes Git's ref stream directly to the chained hook"
+}
+
 test_install_preserves_disabled_pre_push() {
   local repo log rc=0
   repo=$(make_repo "$TMP_ROOT/disabled-chain")
@@ -387,6 +422,7 @@ test_protocol_refuse_without_git_push
 test_install_writes_pre_push_and_is_idempotent
 test_installed_hook_refuses_origin
 test_install_chains_existing_pre_push
+test_allowed_route_streams_refs_directly_to_chained_hook
 test_install_preserves_disabled_pre_push
 test_env_override_still_runs_chained_hook
 test_install_skips_hooks_path_outside_clone
