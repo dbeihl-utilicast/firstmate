@@ -1183,12 +1183,13 @@ crew_dispatch_validate() {
         else $profile
         end;
     def v2_match:
-      v2_fields("rule match"; ["task_kind", "task_shape", "delivery", "project"]; [])
+      v2_fields("rule match"; ["task_kind", "task_shape", "delivery", "project", "host"]; [])
       | if length == 0 then v2_fail("rule match needs at least one field") else . end
       | if has("task_kind") then v2_string_array("rule match"; "task_kind") else . end
       | if has("task_shape") then v2_string_array("rule match"; "task_shape") else . end
       | if has("delivery") then v2_string("rule match"; "delivery") else . end
-      | if has("project") then v2_string("rule match"; "project") else . end;
+      | if has("project") then v2_string("rule match"; "project") else . end
+      | if has("host") then v2_string("rule match"; "host") else . end;
     def v2_reasoning:
       v2_fields("rule reasoning"; ["mode", "target", "dispatch_reason_required"]; ["mode"])
       | v2_enum("rule reasoning"; "mode"; ["generic", "fixed"])
