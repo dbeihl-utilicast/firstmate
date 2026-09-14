@@ -373,6 +373,10 @@
       "audience": "operator-example"
     },
     {
+      "path": "docs/examples/host-plugins.json",
+      "audience": "operator-example"
+    },
+    {
       "path": "docs/examples/watched-tools.json",
       "audience": "operator-example"
     },

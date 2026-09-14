@@ -436,6 +436,37 @@ Regression coverage executes emitted launch commands with synthetic nonsecret va
 
 Every claude launch's inline `--settings` JSON also carries `"attribution":{"commit":"","pr":"","sessionUrl":false}`, so a spawned worker never writes a Co-Authored-By trailer, Claude-Session link, or generated-with line into a commit or PR body regardless of which settings scopes end up loaded.
 
+## Host Claude Code plugins (config/host-plugins.json)
+
+The optional local, gitignored `config/host-plugins.json` names the Claude Code marketplaces and plugins a remote second-mate host must carry.
+It is inherited into secondmate homes under the [primary-authoritative configuration contract](../.agents/skills/secondmate-provisioning/SKILL.md).
+`bin/fm-remote-doctor.sh` reads the copy in the remote home and converges that account's user-scope Claude Code plugins as one more readiness check; its header owns the exact check, repair, and operator-action lines.
+An absent file means the check is not applicable and the public template is unchanged.
+The doctor never installs Claude Code itself, never adds a marketplace or plugin that is not in this file, and never supplies credentials.
+
+The file is a JSON object with two arrays.
+`marketplaces` lists objects with a `name` and a `source` (a URL, path, or GitHub repo the `claude plugin marketplace add` command accepts).
+`plugins` lists `plugin@marketplace` strings for that host's user-scope installs.
+
+```json
+{
+  "marketplaces": [
+    {
+      "name": "example-plugins",
+      "source": "https://github.com/example/example-plugins.git"
+    }
+  ],
+  "plugins": [
+    "example-core@example-plugins",
+    "example-docs@example-plugins"
+  ]
+}
+```
+
+See [`docs/examples/host-plugins.json`](examples/host-plugins.json) for a copyable starting point.
+Proof of readiness is a named skill resolving from `claude plugin details` for each configured plugin, not an install reporting success.
+Claude Code plugins reach Claude Code sessions only; workers on other harnesses still do not see these skills.
+
 ## Crew dispatch profiles (config/crew-dispatch.json)
 
 `config/crew-dispatch.json` is an optional local, gitignored file containing natural-language rules that firstmate reads before dispatching a crewmate or scout.
