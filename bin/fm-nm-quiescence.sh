@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Usage: fm-nm-quiescence.sh
-# Reports HOME/RUN/GAP records for this root and every registry-discovered home; --home-only and --root-only are internal fm-on.sh modes.
+# Reports HOME/RUN/GAP records and a fleet SUMMARY; coverage and settings: docs/configuration.md (Validation census). --home-only and --root-only are internal fm-on.sh modes.
 # Exit bitmask: 0 complete and clear, 1 runs exist, 2 checks incomplete, 3 runs and gaps coexist.
 set -u
 

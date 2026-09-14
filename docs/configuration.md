@@ -242,6 +242,26 @@ The [`firstmate-coding-guidelines` skill](../.agents/skills/firstmate-coding-gui
 See [CONTRIBUTING.md](../CONTRIBUTING.md) for the firstmate-specific local test policy and entry points.
 Portable shard evidence and coverage rules are in [fm-test-portable-shards.md](fm-test-portable-shards.md); [herdr-backend.md](herdr-backend.md#destructive-lab-safety) owns the real-Herdr lane's isolation boundary, and [runtime-backends.md](verification/runtime-backends.md#herdr) owns active evidence.
 
+## Validation census
+
+Use [`bin/fm-nm-quiescence.sh`](../bin/fm-nm-quiescence.sh) with `FM_HOME` selecting the home whose secondmate registry defines the fleet to inspect.
+The script header owns invocation modes, record names, and exit codes; this section owns coverage and interpretation.
+The census reads no-mistakes repository identities and run ledgers for the code root, repositories backing the active and registered homes, and each home's immediate project clones, including homes with no projects.
+The active home honors `FM_PROJECTS_OVERRIDE`, while registered local children use their own `projects/` directories.
+Remote routes go through [`fm-on.sh`](../bin/fm-on.sh), querying each distinct registered host/root and every registered remote home; those roots must already contain compatible census code and satisfy the [remote setup requirements](remote-secondmates.md).
+Discovery uses only the invoking home's registry, so child registries and repositories or hosts outside that inventory are outside the result's coverage.
+
+A parked run remains busy while its ledger state is nonterminal, regardless of whether its worker is responding.
+Reported age is elapsed time since the ledger's start timestamp.
+Ledgers are deduplicated by reported host label and resolved no-mistakes repository identity, preserving separately registered worktrees and each home's busy or incomplete outcome while counting shared runs and ledger gaps once in fleet totals.
+Home totals can therefore overlap and must not be summed into a fleet total.
+Incomplete home status takes precedence when a home has both runs and gaps.
+Unconfigured repositories, inaccessible or unsafe inventory entries, transport or query failures, unusable ledger output, unknown run states, and unavailable or future run ages leave coverage incomplete.
+A clear result requires recognized successful ledger responses with no outstanding runs or gaps throughout the discovered inventory; the sequential scan does not prevent a new run from starting afterward.
+
+The [focused regression suite](../tests/fm-nm-quiescence.test.sh) uses stubbed no-mistakes responses and remote runners.
+Live daemon and remote-host demonstrations, including scenarios that could not be exercised, belong in PR evidence; passing that suite alone does not establish live fleet coverage.
+
 ## Captain Preferences (data/captain.md / data/captain-shared.md)
 
 Domain-local preferences for one captain's fleet live locally in each home's `data/captain.md`; it is gitignored and printed in the session-start context digest after `data/projects.md` and optional `data/secondmates.md`.
@@ -1002,6 +1022,9 @@ FM_WHEN_OUTPUT_TAIL_BYTES=8192          # bound on the command-output tail insid
 FM_CODEX_WATCH_CHECKPOINT=180   # seconds per foreground watcher checkpoint in Codex primary supervision
 FM_CREW_STATE_NM_TIMEOUT=10   # seconds allowed per no-mistakes query inside fm-crew-state.sh
 FM_TEARDOWN_NM_TIMEOUT=10    # seconds allowed per no-mistakes query or abort inside fm-teardown.sh
+FM_NM_QUIESCENCE_TIMEOUT=15  # positive integer seconds per local census identity or ledger query; fm-on does not forward this override
+FM_NM_QUIESCENCE_NOW_EPOCH=  # optional nonnegative epoch seconds for local census ages; defaults to the current clock and is not forwarded by fm-on
+FM_NM_ON_BIN=               # test override for the census remote runner; defaults to bin/fm-on.sh beside the census script
 FM_CREW_STATE_RUNS_LIMIT=200  # recent no-mistakes run rows scanned when the runs ledger is consulted: axi status cannot be attributed directly, or its answer is terminal and may have a live sibling run
 FM_TEARDOWN_NM_RUNS_LIMIT=200  # recent no-mistakes run rows scanned to prove an unresolved-head parked run belongs to teardown's task
 FM_CREW_STATE_BIN=bin/fm-crew-state.sh   # test override for the current-state reader used by working/paused watcher triage
