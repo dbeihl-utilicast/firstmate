@@ -33,8 +33,9 @@
 # (timeout, gtimeout, or its bash fallback) exists; under its perl fallback,
 # interrupt behavior is not guaranteed.
 # A missing command, inaccessible system-wide result, failed or timed-out query,
-# unreadable device set, or interrupted scan emits a NOT CHECKED finding instead
-# of silently making a broader claim than it proved.
+# query warning, unreadable device set, or interrupted scan emits a NOT CHECKED
+# finding instead of silently making a broader claim than it proved; records a
+# warned query did return are still reported.
 # lsof sees only the caller's own sockets unless run as root, so a non-root run
 # reports other users' sockets as NOT CHECKED.
 #
@@ -150,7 +151,7 @@ report_listener_records() {  # <protocol> <lsof output>
 
 scan_listeners() {
   local protocol=$1; shift
-  local output="$TMP_ROOT/lsof-$protocol" errors="$TMP_ROOT/lsof-$protocol.err" rc=0
+  local output="$TMP_ROOT/lsof-$protocol" errors="$TMP_ROOT/lsof-$protocol.err" rc=0 warning
   if ! command -v lsof >/dev/null 2>&1; then
     finding "NOT CHECKED: $protocol network sockets (lsof unavailable)"
     return
@@ -164,9 +165,13 @@ scan_listeners() {
     finding "NOT CHECKED: $protocol network sockets (lsof query timed out)"
     return
   fi
-  if [ "$rc" -gt 1 ] || [ -s "$errors" ]; then
+  if [ "$rc" -gt 1 ]; then
     finding "NOT CHECKED: $protocol network sockets (lsof query incomplete)"
     return
+  fi
+  if [ -s "$errors" ]; then
+    IFS= read -r warning < "$errors"
+    finding "NOT CHECKED: $protocol network sockets possibly omitted by lsof warning ($warning)"
   fi
   if [ "$(id -u)" != 0 ]; then
     finding "NOT CHECKED: $protocol network sockets owned by other users (not run as root)"

@@ -24,6 +24,9 @@ case "${FM_INVENTORY_LSOF:-quiet}" in
   listener)
     case " $* " in *' -iTCP '*) printf 'p101\nccodex\nn*:4310\n' ;; *) printf 'p102\nccnode\nn*:5353\nn*:*\nn192.168.1.129:51898->142.251.157.119:443\n' ;; esac ;;
   error) echo 'lsof fixture error' >&2; exit 2 ;;
+  warning)
+    printf '%s\n' "lsof: WARNING: can't stat() smbfs file system /Volumes/.timemachine/fixture" '      Output information may be incomplete.' >&2
+    case " $* " in *' -iTCP '*) printf 'p101\nccodex\nn*:4310\n' ;; *) printf 'p102\nccnode\nn*:5353\n' ;; esac ;;
 esac
 SH
   cat > "$case_dir/fakebin/ps" <<'SH'
@@ -188,6 +191,18 @@ test_reports_incomplete_measurement_instead_of_claiming_the_host_is_clean() {
   pass 'incomplete listener scan narrows the claim visibly'
 }
 
+test_lsof_warning_keeps_measured_listeners() {
+  local case_dir output
+  case_dir=$(make_case lsof-warning)
+  output=$(FM_INVENTORY_LSOF=warning run_inventory "$case_dir" 2>&1 || true)
+  assert_contains "$output" 'LISTENER: protocol=TCP pid=101 age=2-00:00:00 command=codex endpoint=*:4310' 'lsof warning discarded a measured TCP listener'
+  assert_contains "$output" 'LISTENER: protocol=UDP pid=102 age=2-00:00:00 command=cnode endpoint=*:5353' 'lsof warning discarded a measured UDP listener'
+  assert_contains "$output" "NOT CHECKED: TCP network sockets possibly omitted by lsof warning (lsof: WARNING: can't stat() smbfs file system /Volumes/.timemachine/fixture)" 'TCP lsof warning was silent'
+  assert_contains "$output" "NOT CHECKED: UDP network sockets possibly omitted by lsof warning (lsof: WARNING: can't stat() smbfs file system /Volumes/.timemachine/fixture)" 'UDP lsof warning was silent'
+  assert_not_contains "$output" 'lsof query incomplete' 'warned but successful lsof query was reported as failed'
+  pass 'lsof warning keeps measured listeners and names the possible gap'
+}
+
 test_reports_timed_out_queries() {
   local case_dir developer output
   case_dir=$(make_case timeouts)
@@ -243,5 +258,6 @@ test_non_root_listener_scan_reports_other_users_as_unmeasured
 test_reports_each_other_leak_class
 test_discovers_simulator_device_sets
 test_reports_incomplete_measurement_instead_of_claiming_the_host_is_clean
+test_lsof_warning_keeps_measured_listeners
 test_reports_timed_out_queries
 test_interrupted_scan_does_not_exit_clean
