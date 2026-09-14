@@ -33,9 +33,9 @@
 # (timeout, gtimeout, or its bash fallback) exists; under its perl fallback,
 # interrupt behavior is not guaranteed.
 # A missing command, inaccessible system-wide result, failed or timed-out query,
-# query warning, unreadable device set, or interrupted scan emits a NOT CHECKED
+# lsof warning, unreadable device set, or interrupted scan emits a NOT CHECKED
 # finding instead of silently making a broader claim than it proved; records a
-# warned query did return are still reported.
+# warned lsof query did return are still reported.
 # lsof sees only the caller's own sockets unless run as root, so a non-root run
 # reports other users' sockets as NOT CHECKED.
 #
