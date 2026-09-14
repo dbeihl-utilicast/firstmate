@@ -1,0 +1,43 @@
+SCENARIO an existing pre-push is preserved and receives the original Git ref stream
+install exit: 0
+preserved hook executable: yes
+command: git push no-mistakes HEAD:refs/heads/chained-route
+exit: 0
+
+chained hook log:
+chained remote=no-mistakes
+ref=HEAD 2f7bb12787f986d2d6ec26a6066c49cc228bd536 refs/heads/chained-route 0000000000000000000000000000000000000000
+command: git push origin HEAD:refs/heads/chained-must-refuse
+exit: 1
+fm-origin-push-guard: refused push to origin
+This checkout has a no-mistakes remote; use: git push no-mistakes
+Deliberate override: git push --no-verify  or  FM_ALLOW_UNGUARDED_PUSH=1 git push ...
+error: failed to push some refs to '/tmp/fm-push-guard-safety.hppnRs/chain.origin.git'
+chained log unchanged on refusal: yes
+
+SCENARIO a deliberately disabled existing hook stays disabled
+preserved mode: 644
+command: git push no-mistakes HEAD:refs/heads/disabled-stays-disabled
+exit: 0
+
+disabled hook ran: no
+
+SCENARIO a pre-push symlink cannot redirect installation outside the repo
+install exit: 1
+fm-origin-push-guard: cannot install: /tmp/fm-push-guard-safety.hppnRs/symlink-pre-push/.git/hooks/pre-push is a symbolic link
+external target unchanged: yes
+symlink retained: yes
+unexpected preserved file: absent
+
+SCENARIO tracked worktree hooks are not rewritten and bootstrap blocks operation with an actionable diagnostic
+installer exit: 1
+fm-origin-push-guard: cannot install: core.hooksPath is inside the worktree but outside the git directory
+bootstrap exit: 0
+ORIGIN_PUSH_GUARD: fm-origin-push-guard: cannot install: core.hooksPath is inside the worktree but outside the git directory; resolve the hook path and rerun bin/fm-bootstrap.sh
+tracked hook status before: clean
+tracked hook status after: clean
+preserved sibling created: no
+
+SCENARIO an unresolvable hook conflict is surfaced as operationally blocking
+bootstrap exit: 0
+ORIGIN_PUSH_GUARD: fm-origin-push-guard: cannot install: /tmp/fm-push-guard-safety.hppnRs/hook-conflict/.git/hooks/pre-push and /tmp/fm-push-guard-safety.hppnRs/hook-conflict/.git/hooks/pre-push.fm-prev both exist; resolve the hook path and rerun bin/fm-bootstrap.sh

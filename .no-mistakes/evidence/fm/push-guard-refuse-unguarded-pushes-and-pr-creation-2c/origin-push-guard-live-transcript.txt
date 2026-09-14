@@ -1,0 +1,71 @@
+SCENARIO pre-change fast path reproduced before hook installation
+command: git push origin HEAD:refs/heads/pre-guard-fast-path
+exit: 0
+
+origin ref after command: 2ab4a03a2435a00b7ccaa49899699cac3265ef9f
+
+SCENARIO bootstrap installs the live guard
+command: FM_BOOTSTRAP_NETWORK=skip bin/fm-bootstrap.sh
+exit: 0
+hook executable: yes
+
+SCENARIO ordinary origin push is refused
+command: git push origin HEAD:refs/heads/blocked-by-guard
+exit: 1
+fm-origin-push-guard: refused push to origin
+This checkout has a no-mistakes remote; use: git push no-mistakes
+Deliberate override: git push --no-verify  or  FM_ALLOW_UNGUARDED_PUSH=1 git push ...
+error: failed to push some refs to '/tmp/fm-push-guard-live.hz7rAn/origin.git'
+origin ref after refusal: absent
+
+SCENARIO guarded route remains usable
+command: git push no-mistakes HEAD:refs/heads/guarded-route
+exit: 0
+
+no-mistakes ref after command: 2ab4a03a2435a00b7ccaa49899699cac3265ef9f
+
+SCENARIO undocumented boolean alias is adversarially refused
+command: FM_ALLOW_UNGUARDED_PUSH=yes git push origin HEAD:refs/heads/alias-must-fail
+exit: 1
+fm-origin-push-guard: refused push to origin
+This checkout has a no-mistakes remote; use: git push no-mistakes
+Deliberate override: git push --no-verify  or  FM_ALLOW_UNGUARDED_PUSH=1 git push ...
+error: failed to push some refs to '/tmp/fm-push-guard-live.hz7rAn/origin.git'
+origin ref: absent
+
+SCENARIO exact deliberate override remains usable
+command: FM_ALLOW_UNGUARDED_PUSH=1 git push origin HEAD:refs/heads/exact-override
+exit: 0
+
+origin ref after deliberate override: 2ab4a03a2435a00b7ccaa49899699cac3265ef9f
+
+SCENARIO Git standard deliberate override remains usable
+command: git push --no-verify origin HEAD:refs/heads/no-verify-override
+exit: 0
+
+origin ref after --no-verify: 2ab4a03a2435a00b7ccaa49899699cac3265ef9f
+
+SCENARIO remote named install cannot enter installer mode
+command: git push install HEAD:refs/heads/install-bypass
+exit: 1
+fm-origin-push-guard: refused push to install
+This checkout has a no-mistakes remote; use: git push no-mistakes
+Deliberate override: git push --no-verify  or  FM_ALLOW_UNGUARDED_PUSH=1 git push ...
+error: failed to push some refs to '/tmp/fm-push-guard-live.hz7rAn/install-target'
+target ref: absent
+target hook mutation: absent
+
+SCENARIO linked worktree shares the common-dir refusal
+command: (linked worktree) git push origin HEAD:refs/heads/linked-bypass
+exit: 1
+fm-origin-push-guard: refused push to origin
+This checkout has a no-mistakes remote; use: git push no-mistakes
+Deliberate override: git push --no-verify  or  FM_ALLOW_UNGUARDED_PUSH=1 git push ...
+error: failed to push some refs to '/tmp/fm-push-guard-live.hz7rAn/origin.git'
+origin linked ref: absent
+
+SCENARIO checkout without no-mistakes remote is unchanged
+command: git push origin HEAD:refs/heads/public-template-route
+exit: 0
+
+plain origin ref after command: d035450b8fcc9d2a446a1837dfd0d1a4be66618d
