@@ -64,7 +64,7 @@ TXT
   {
     printf '%s\n' '#!/usr/bin/env bash' 'set -u' "state='$state'"
     cat <<'SH'
-printf '%s\n' "$*" >> "$state/commands.log"
+printf '%s\n' "claude_config=${CLAUDE_CONFIG_DIR:-} $*" >> "$state/commands.log"
 json_flag=0
 scope=user
 yes=0
@@ -185,6 +185,7 @@ run_doctor() { # [--fix]
   DOCTOR_OUT=$(
     HOME="$CASE_HOME" \
     FM_HOME="$CASE_FM_HOME" \
+    CLAUDE_CONFIG_DIR="${CLAUDE_CONFIG_DIR:-}" \
     PATH="$CASE_CLAUDE_BIN:$BASE_PATH" \
     "$ROOT/bin/fm-remote-doctor.sh" "$@" 2>&1
   )
@@ -296,7 +297,7 @@ new_host
 write_catalogue "$CASE_FM_HOME"
 python3 - "$CASE_STATE/marketplaces.json" "$CASE_STATE/plugins.json" <<'PY'
 import json, sys
-json.dump([{"name": "example-plugins", "source": "git"}], open(sys.argv[1], "w"))
+json.dump([{"name": "example-plugins", "source": "git", "url": "https://github.com/example/example-plugins.git"}], open(sys.argv[1], "w"))
 json.dump([{"id": "example-core@example-plugins", "scope": "user", "enabled": True}], open(sys.argv[2], "w"))
 PY
 printf 'example-core 1.0.0\n  Skills (0)\n' > "$CASE_STATE/details/example-core@example-plugins"
@@ -314,7 +315,7 @@ new_host
 write_catalogue "$CASE_FM_HOME"
 python3 - "$CASE_STATE/marketplaces.json" "$CASE_STATE/plugins.json" <<'PY'
 import json, sys
-json.dump([{"name": "example-plugins", "source": "git"}], open(sys.argv[1], "w"))
+json.dump([{"name": "example-plugins", "source": "git", "url": "https://github.com/example/example-plugins.git"}], open(sys.argv[1], "w"))
 json.dump([{"id": "example-core@example-plugins", "scope": "user", "enabled": True}], open(sys.argv[2], "w"))
 PY
 run_doctor
@@ -332,3 +333,52 @@ assert_not_contains "$(cat "$CASE_STATE/commands.log")" 'plugin install' \
 assert_not_contains "$(cat "$CASE_STATE/commands.log")" 'plugin enable' \
   "--fix on a converged host enabled a plugin"
 pass "a converged host changes nothing and prints no plugin repair"
+
+# --- same name from a different source is not the configured marketplace ----
+
+new_host
+write_catalogue "$CASE_FM_HOME"
+python3 - "$CASE_STATE/marketplaces.json" "$CASE_STATE/plugins.json" <<'PY'
+import json, sys
+json.dump([{"name": "example-plugins", "source": "git", "url": "https://github.com/other/other-plugins.git"}], open(sys.argv[1], "w"))
+json.dump([{"id": "example-core@example-plugins", "scope": "user", "enabled": True}], open(sys.argv[2], "w"))
+PY
+: > "$CASE_STATE/commands.log"
+run_doctor
+assert_contains "$DOCTOR_OUT" 'check host-plugins=human: configured marketplace is registered from a different source' \
+  "a same-name marketplace from another source was accepted"
+assert_not_contains "$DOCTOR_OUT" 'check host-plugins=ok:' "a substituted marketplace source was treated as ready"
+: > "$CASE_STATE/commands.log"
+run_doctor --fix
+assert_not_contains "$(cat "$CASE_STATE/commands.log")" 'plugin install' \
+  "--fix installed a plugin from a marketplace bound to the wrong source"
+assert_not_contains "$DOCTOR_OUT" 'fix host-plugins=applied: installed' \
+  "--fix claimed to install from a mismatched marketplace"
+pass "a marketplace is bound to its configured source"
+
+# --- --skip-check host-plugins is the pre-inheritance pass ------------------
+
+new_host
+write_catalogue "$CASE_FM_HOME"
+: > "$CASE_STATE/commands.log"
+run_doctor --skip-check host-plugins
+assert_contains "$DOCTOR_OUT" 'check host-plugins=skip: plugin catalogue is checked after inherited config lands' \
+  "--skip-check host-plugins did not skip the catalogue"
+[ ! -s "$CASE_STATE/commands.log" ] || fail "--skip-check host-plugins still invoked claude"
+pass "the pre-inheritance doctor pass does not touch plugins"
+
+# --- CLAUDE_CONFIG_DIR is the store the doctor talks to ---------------------
+
+new_host
+write_catalogue "$CASE_FM_HOME"
+python3 - "$CASE_STATE/marketplaces.json" "$CASE_STATE/plugins.json" <<'PY'
+import json, sys
+json.dump([{"name": "example-plugins", "source": "git", "url": "https://github.com/example/example-plugins.git"}], open(sys.argv[1], "w"))
+json.dump([{"id": "example-core@example-plugins", "scope": "user", "enabled": True}], open(sys.argv[2], "w"))
+PY
+: > "$CASE_STATE/commands.log"
+CLAUDE_CONFIG_DIR="$CASE_DIR/claude-store" run_doctor
+assert_contains "$(cat "$CASE_STATE/commands.log")" "claude_config=$CASE_DIR/claude-store" \
+  "the doctor did not run claude against CLAUDE_CONFIG_DIR"
+assert_contains "$DOCTOR_OUT" 'check host-plugins=ok:' "an isolated CLAUDE_CONFIG_DIR store was not accepted"
+pass "the doctor uses CLAUDE_CONFIG_DIR as the effective Claude store"

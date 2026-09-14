@@ -441,6 +441,8 @@ Every claude launch's inline `--settings` JSON also carries `"attribution":{"com
 The optional local, gitignored `config/host-plugins.json` names the Claude Code marketplaces and plugins a remote second-mate host must carry.
 It is inherited into secondmate homes under the [primary-authoritative configuration contract](../.agents/skills/secondmate-provisioning/SKILL.md).
 `bin/fm-remote-doctor.sh` reads the copy in the remote home and converges that account's user-scope Claude Code plugins as one more readiness check; its header owns the exact check, repair, and operator-action lines.
+A registered marketplace must match the configured source, not only the name.
+The doctor uses the same effective Claude store as a launched pane: `CLAUDE_CONFIG_DIR` when set, otherwise `HOME`.
 An absent file means the check is not applicable and the public template is unchanged.
 The doctor never installs Claude Code itself, never adds a marketplace or plugin that is not in this file, and never supplies credentials.
 

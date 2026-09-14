@@ -91,6 +91,10 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 . "$SCRIPT_DIR/fm-secondmate-nudge-lib.sh"
 # shellcheck source=bin/fm-pending-reply-lib.sh
 . "$SCRIPT_DIR/fm-pending-reply-lib.sh"
+# shellcheck source=bin/fm-wake-lib.sh
+. "$SCRIPT_DIR/fm-wake-lib.sh"
+# shellcheck source=bin/fm-remote-readiness-lib.sh
+. "$SCRIPT_DIR/fm-remote-readiness-lib.sh"
 
 PERSIST_WAIT=${FM_SECONDMATE_PERSIST_WAIT:-900}
 PERSIST_POLL=${FM_SECONDMATE_PERSIST_POLL:-5}
@@ -161,8 +165,35 @@ report_unreached() {  # <id> <reason>
 
 restart_mate() {  # <array-index>
   local i=$1 id restart_out restart_rc restart_reason ran_on
+  local remote_lock remote_generation remote_rc
   id=${IDS[$i]}
   if [ "${PLACEMENT[i]}" = remote ]; then
+    remote_lock=$(fm_remote_inherit_transaction_lock_path "$STATE" "$id") || {
+      report_unreached "$id" "the restart could not lock inherited config before relaunch"
+      return
+    }
+    if ! fm_lock_acquire_wait "$remote_lock"; then
+      report_unreached "$id" "the restart could not lock inherited config before relaunch"
+      return
+    fi
+    remote_generation=$(fm_remote_inherit_generation_next "$STATE" "$id" 2>/dev/null || true)
+    if [ -z "$remote_generation" ]; then
+      fm_lock_release "$remote_lock" || true
+      report_unreached "$id" "the restart could not publish an inheritance generation before relaunch"
+      return
+    fi
+    if ! "$SCRIPT_DIR/fm-remote-inherit-push.sh" "$id" "$remote_generation" >/dev/null; then
+      fm_lock_release "$remote_lock" || true
+      report_unreached "$id" "inherited config did not land, so the host was not relaunched"
+      return
+    fi
+    remote_rc=0
+    fm_remote_readiness_ensure "$SCRIPT_DIR" "$id" || remote_rc=$?
+    fm_lock_release "$remote_lock" || true
+    if [ "$remote_rc" -ne 0 ]; then
+      report_unreached "$id" "plugin readiness failed after inherited config landed, so the host was not relaunched"
+      return
+    fi
     restart_out=$(FM_HOME="$FM_HOME" "$SCRIPT_DIR/fm-on.sh" "$id" \
       fm-remote-secondmate-control.sh relaunch \
       "$id" "${HARNESS[i]}" "${MODEL[i]:-default}" "${EFFORT[i]:-default}" < /dev/null 2>&1)

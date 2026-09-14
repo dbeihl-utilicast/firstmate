@@ -459,6 +459,14 @@ while IFS= read -r -d '' a; do rargs+=("$a"); done < <(decode "$argv_b64")
 printf '%s\n' "${rargs[*]}" >> "$FM_FAKE_SSH_LOG"
 case "${FM_FAKE_SSH_MODE:-ok}" in
   unreachable) exit 255 ;;
+  doctor-fail)
+    case "${rargs[0]:-}" in
+      fm-remote-doctor.sh) exit 1 ;;
+    esac
+    ;;
+  slow-relaunch)
+    : > "$FM_FAKE_DIR/remote-relaunch-start"
+    ;;
 esac
 case "${rargs[1]:-}" in
   send)
@@ -513,7 +521,32 @@ test_remote_mate_restarts_over_the_transport_hop() {
   [ "$(grep -n '^fm-remote-secondmate-control.sh send' "$dir/ssh.log" | head -1 | cut -d: -f1)" \
      -lt "$(grep -n '^fm-remote-secondmate-control.sh relaunch' "$dir/ssh.log" | head -1 | cut -d: -f1)" ] \
     || fail "the remote mate was restarted before it was asked to persist"$'\n'"$(cat "$dir/ssh.log")"
+  [ "$(grep -n '^fm-remote-inherit.sh ' "$dir/ssh.log" | head -1 | cut -d: -f1)" \
+     -lt "$(grep -n '^fm-remote-secondmate-control.sh relaunch' "$dir/ssh.log" | head -1 | cut -d: -f1)" ] \
+    || fail "the remote mate was relaunched before inherited config landed"$'\n'"$(cat "$dir/ssh.log")"
+  [ "$(grep -n '^fm-remote-doctor.sh' "$dir/ssh.log" | head -1 | cut -d: -f1)" \
+     -lt "$(grep -n '^fm-remote-secondmate-control.sh relaunch' "$dir/ssh.log" | head -1 | cut -d: -f1)" ] \
+    || fail "the remote mate was relaunched before post-inheritance readiness"$'\n'"$(cat "$dir/ssh.log")"
   pass "T6 a remote mate restarts through the host-local control plane over the fm-on hop"
+}
+
+test_remote_restart_refuses_when_post_inherit_readiness_fails() {
+  local dir out rc
+  dir=$(new_case remote-ready-fail)
+  setup_remote_case "$dir" sm2 doctor-fail
+  export FM_FAKE_ANSWER_STATUS="$dir/home/state/sm2.status"
+  printf 'codex big-model high\n' > "$dir/home/config/secondmate-harness"
+
+  out=$(run_restart "$dir" fm-sm2); rc=$?
+  unset FM_FAKE_ANSWER_STATUS
+
+  expect_code 3 "$rc" "a readiness failure must not claim a remote reload"$'\n'"$out"
+  assert_contains "$out" "sm2:" "the blocked mate must still be named"
+  assert_contains "$out" "plugin readiness failed" "the refusal must name the post-inheritance gate"
+  assert_not_contains "$out" "restarted: sm2" "a readiness failure must not relaunch"
+  assert_no_grep '^fm-remote-secondmate-control.sh relaunch' "$dir/ssh.log" \
+    "a readiness failure still reached the host-local relaunch"
+  pass "T6b a remote restart does not relaunch when post-inheritance readiness fails"
 }
 
 # --- T7: an unreachable host is unknown, never a claimed reload --------------
@@ -842,6 +875,7 @@ test_refused_restart_falls_back_without_claiming_a_reload
 test_local_restart_uses_the_home_pin_and_reports_what_ran
 test_native_ultra_restart_keeps_local_and_remote_profiles
 test_remote_mate_restarts_over_the_transport_hop
+test_remote_restart_refuses_when_post_inherit_readiness_fails
 test_unreachable_host_is_reported_unknown
 test_concurrent_reply_cannot_release_persist_gate
 test_persist_waits_are_polled_together

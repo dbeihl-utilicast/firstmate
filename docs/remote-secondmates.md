@@ -105,6 +105,7 @@ Herdr's own SSH remote attach starts such a server when it finds none, and at bo
 It starts the same workers directly on Linux, recreates the `~/.local/bin/fm-remote-entrypoint.sh` symlink when it is absent, and creates only Firstmate-owned required-tool wrappers that it can prove resolve to a version-manager target, stopping after one harness satisfies the at-least-one requirement.
 It never installs required-tool packages, never installs Claude Code itself, and never overwrites a non-Firstmate file at a reserved wrapper path.
 When the optional inherited `config/host-plugins.json` catalogue is present, the same doctor registers and installs only the marketplaces and plugins named there, then proves at least one named skill resolves per plugin; an absent file leaves that check inapplicable.
+A fresh remote-agent launch, spawn or restart, inherits that catalogue first and then runs this check once; the earlier readiness pass skips it so a stale remote copy cannot install or block first.
 The schema lives in [configuration.md](configuration.md#host-claude-code-plugins-confighost-pluginsjson), and the doctor's header owns the exact check and repair.
 The dedicated Herdr launch agent owns only the remote-secondmate `fm-remote` server and does not inspect, rewrite, start, stop, or require the user's interactive `default` session or its `dev.firstmate.herdr` launch agent.
 It re-derives every check from the host afterwards, so what it prints is the state after the repair rather than the intent of one.

@@ -8,7 +8,8 @@
 # tracked non-symlink fm-*.sh under this worker's configured FM_ROOT/bin.
 #
 # Each child runs under env -i with the shared filesystem-composed PATH, HOME,
-# FM_HOME, FM_ROOT_OVERRIDE, and FM_REMOTE_JOB_ACTIVE=1. Commands receive their
+# FM_HOME, FM_ROOT_OVERRIDE, optional CLAUDE_CONFIG_DIR from this worker, and
+# FM_REMOTE_JOB_ACTIVE=1. Commands receive their
 # captured stdin and have a 360-second default timeout. Their stdout and stderr
 # are independently constrained to the job library's 1048576-byte bound. A
 # record is marked done only after its bounded outputs and numeric exit status
@@ -751,6 +752,9 @@ worker_run_job() { # <account-home> <job-dir>
     "FM_ROOT_OVERRIDE=$root"
     FM_REMOTE_JOB_ACTIVE=1
   )
+  if [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then
+    child_env+=("CLAUDE_CONFIG_DIR=$CLAUDE_CONFIG_DIR")
+  fi
   if [ -n "${FM_REMOTE_JOB_PLATFORM_OVERRIDE:-}" ]; then
     child_env+=("FM_REMOTE_JOB_PLATFORM_OVERRIDE=$FM_REMOTE_JOB_PLATFORM_OVERRIDE")
   fi

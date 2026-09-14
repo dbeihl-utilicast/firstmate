@@ -42,7 +42,7 @@ printf 'fixture\n' > "$REMOTE_ROOT/AGENTS.md"
 cat > "$REMOTE_ROOT/bin/fm-probe-job.sh" <<'SH'
 #!/bin/bash
 set -u
-printf 'home=%s\nroot=%s\nactive=%s\npath=%s\n' "$FM_HOME" "$FM_ROOT_OVERRIDE" "${FM_REMOTE_JOB_ACTIVE:-}" "$PATH"
+printf 'home=%s\nroot=%s\nactive=%s\npath=%s\nclaude_config=%s\n' "$FM_HOME" "$FM_ROOT_OVERRIDE" "${FM_REMOTE_JOB_ACTIVE:-}" "$PATH" "${CLAUDE_CONFIG_DIR:-}"
 printf 'args:'
 printf ' <%s>' "$@"
 printf '\n'
@@ -188,6 +188,7 @@ pass "operator PATH orders discovered tool installs deterministically"
 
 HOME="$ACCOUNT_HOME" PATH="$RUNTIME_BIN:/usr/bin:/bin:/usr/sbin:/sbin" FM_FAKE_PERL_LOG="$FAKE_PERL_LOG" \
   FM_ROOT_OVERRIDE="$REMOTE_ROOT" FM_REMOTE_JOB_STATE_ROOT="$STATE_ROOT" \
+  CLAUDE_CONFIG_DIR="$ACCOUNT_HOME/.claude-store" \
   FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux FM_REMOTE_JOB_TIMEOUT=5 \
   "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" > "$TMP_ROOT/worker.out" 2> "$TMP_ROOT/worker.err" &
 for _ in $(seq 1 100); do
@@ -223,6 +224,8 @@ assert_contains "$OUT" 'args: <two words> <$(not executed)>' "the worker changed
 assert_contains "$OUT" 'stdin=first line' "the worker lost staged stdin"
 assert_contains "$OUT" 'stdin=second line' "the worker lost staged stdin"
 assert_contains "$OUT" 'secret=absent' "ambient environment crossed into the worker child"
+assert_contains "$OUT" "claude_config=$ACCOUNT_HOME/.claude-store" \
+  "the worker did not forward CLAUDE_CONFIG_DIR into the empty child environment"
 case "$OUT" in *"$REMOTE_ROOT/bin:$ACCOUNT_HOME/.local/bin:"*) : ;; *) fail "worker PATH omitted its fixed root and account head" ;; esac
 fm_remote_job_reap "$ACCOUNT_HOME" "$JOB_ID" || fail "the completed job could not be reaped"
 assert_absent "$JOB_DIR" "reap retained a completed job record"
