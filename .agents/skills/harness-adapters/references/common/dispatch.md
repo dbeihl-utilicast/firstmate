@@ -6,7 +6,8 @@ Load this with the selected tool reference for dispatch, start, or adapter verif
 
 Use the router's detection and safety sections for static crew and secondmate harness resolution and all explicit overrides.
 `config/crew-dispatch.json` can override that static default for one crewmate or scout with concrete harness, model, and effort axes.
-Routing precedence is an explicit per-task captain override, then the best-fit configured rule, then the configured default, then the static crewmate harness.
+Routing precedence is an explicit per-task captain override, then the best-fit configured rule, then the required configured default.
+Automatic static crewmate harness resolution applies only when the dispatch file is absent; invalid configuration or an unusable candidate set must be reported rather than bypassed.
 For a profile array, load `quota-array-dispatch` after establishing harness and provider facts here.
 
 `../secondmate-provisioning/SKILL.md` owns secondmate harness pins and inherited local material.
