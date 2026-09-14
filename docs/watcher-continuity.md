@@ -109,6 +109,7 @@ The file is size-capped through `FM_WATCH_CYCLE_LOG_MAX_BYTES` and `FM_WATCH_CYC
 
 The default 300-second grace is unchanged.
 Only the watcher process touches `state/.last-watcher-beat`; no helper process can make a wedged watcher appear healthy.
+Mid-cycle freshness still comes from that same process making progress; `docs/turnend-guard.md` owns when the beacon is written.
 
 ## Regression coverage
 

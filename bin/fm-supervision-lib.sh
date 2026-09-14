@@ -4,8 +4,9 @@
 #
 # Reports whether a firstmate home needs supervision (fm_supervision_status
 # below is the single owner of that condition set), and whether its watcher has
-# a fresh liveness beacon (state/.last-watcher-beat, touched every poll cycle,
-# within the grace window).
+# a fresh liveness beacon (state/.last-watcher-beat, refreshed during poll
+# work as well as at cycle start, within the grace window; docs/turnend-guard.md
+# "Guard grace and the poll cadence").
 # bin/fm-turnend-guard.sh uses the PID-strict fm_watcher_healthy from
 # bin/fm-wake-lib.sh for its block decision. bin/fm-guard.sh uses the model-aware
 # fm_watcher_supervision_verdict (also in bin/fm-wake-lib.sh), which owns what a
