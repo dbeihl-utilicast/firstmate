@@ -2527,7 +2527,7 @@ EOF
   ' >/dev/null || fail "canonical mixed-domain classification was wrong: $canonical"
   json=$(run "$home" "$fakebin" --json --fields bodies --all-landed)
   printf '%s' "$json" | jq -e '
-    ([.in_flight[].id] | sort) == ["hibit/dogfood-program", "hibit/hibit-worker", "home-assistant/prep", "wheel/wheel-worker"]
+    ([.in_flight[].id] | sort) == ["hibit/dogfood-program", "hibit/hibit-worker", "home-assistant/prep", "sshhip/unreadable-child", "wheel/wheel-worker"]
       and (.decisions_open | any(.id == "sshhip/reviewer-decision"))
       and (.decisions_open | any(.id == "home-assistant/captain-run") | not)
       and (.gates | any(.id == "production-observation" and .owner == "wheel"
