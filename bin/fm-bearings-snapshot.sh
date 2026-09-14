@@ -23,9 +23,9 @@
 # This wrapper consumes canonical status decisions plus canonically normalized
 # backlog roles, unresolved blockers, and captain actionability. It never infers
 # decisions from report or visual-review prose or reimplements snapshot semantics.
-# Underway (in_flight) projects every main live worker plus every active child
-# from every readable secondmate ledger, independently of that home's
-# bearings_state. A home classified captain_decision because it has an open
+# Underway (in_flight) projects every main live worker plus every active or
+# child-state-held child from every readable secondmate ledger, independently
+# of that home's bearings_state. A home classified captain_decision because it has an open
 # captain hold still contributes each working child as its own Underway row;
 # the home row on secondmates[] keeps the decision and gate classification.
 # Captain-hold placement follows the canonical snapshot's hold_bucket and
@@ -470,7 +470,15 @@ MODEL=$(printf '%s' "$SNAP" | jq \
             kind:(.kind // "secondmate"),
             state:(.state // "working"),
             repo:(.repo // null),
-            doing:((.doing // .state) | trunc(90))} ]) as $in_flight_all
+            doing:((.doing // .state) | trunc(90))} ]
+     + [ $secondmate_views[] as $m
+         | $m.holds[]?
+         | select(.source == "child-state")
+         | {id:($m.id + "/" + .id),
+            kind:"secondmate",
+            state:(.state // "unknown"),
+            repo:null,
+            doing:((.reason // .state // "held") | trunc(90))} ]) as $in_flight_all
   | ([ .backlog.records[]
          | . as $record
          | select(.structured and .hold_bucket != null)
@@ -508,7 +516,11 @@ MODEL=$(printf '%s' "$SNAP" | jq \
           title:((.main_inventory.reason // "main inventory invalid") | trunc(60)),
           blocked_by:"-",
           reason:"main inventory",
-          owner:"(main)"}]
+          owner:"(main)",
+          hold_kind:null,
+          hold_bucket:null,
+          hold_until:null,
+          hold_age_days:null}]
       else [] end)
      + [ .backlog.records[]
          | . as $record
@@ -577,8 +589,14 @@ MODEL=$(printf '%s' "$SNAP" | jq \
          | ([($m.omitted // [])[] | select(.surface == "decisions_open") | .count] | add // 0) as $n
          | if $n > 0 then {surface:("secondmate " + $m.id + " decisions_open omitted by snapshot bound: \($n)"), reveal:"raise FM_SNAPSHOT_SECONDMATE_DECISIONS"} else empty end),
         (($snap.secondmate_current.records // [])[] as $m
+         | ([($m.omitted // [])[] | select(.surface == "holds") | .count] | add // 0) as $n
+         | if $n > 0 then {surface:("secondmate " + $m.id + " holds omitted by snapshot bound: \($n)"), reveal:"raise FM_SNAPSHOT_SECONDMATE_QUEUED"} else empty end),
+        (($snap.secondmate_current.records // [])[] as $m
          | ([($m.omitted // [])[] | select(.surface == "queued") | .count] | add // 0) as $n
          | if $n > 0 then {surface:("secondmate " + $m.id + " queued omitted by snapshot bound: \($n)"), reveal:"raise FM_SNAPSHOT_SECONDMATE_QUEUED"} else empty end),
+        (($snap.secondmate_current.records // [])[] as $m
+         | ([($m.omitted // [])[] | select(.surface == "endpoints") | .count] | add // 0) as $n
+         | if $n > 0 then {surface:("secondmate " + $m.id + " endpoints omitted by snapshot bound: \($n)"), reveal:"raise FM_SNAPSHOT_SECONDMATE_CHILDREN"} else empty end),
         (if $all_secondmates == 0 and ($secondmates_all | length) > $secondmates_n then {surface:("secondmates showing \($secondmates_n) of \($secondmates_all | length)"), reveal:"--all-secondmates"} else empty end),
         (if (($snap.secondmate_current.truncated // 0) > 0) then {surface:("registered secondmates omitted by snapshot bound: \($snap.secondmate_current.truncated)"), reveal:"raise FM_SNAPSHOT_SECONDMATES"} else empty end),
         (if $snap.secondmate_current.registry.input_truncated == true then {surface:"secondmate registry input truncated by bounded read", reveal:"raise FM_SNAPSHOT_REGISTRY_LINES or FM_SNAPSHOT_REGISTRY_BYTES"} else empty end),

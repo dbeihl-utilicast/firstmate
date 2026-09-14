@@ -96,7 +96,8 @@ MODEL=$(printf '%s' "$SNAP" | jq '
     (.surface // "") as $surface
     | ($surface | test("^main (in-flight|unstructured current)"))
       or ($surface | test("^in_flight showing "))
-      or ($surface | test("^secondmate .* (active children|decisions_open|queued) omitted by snapshot bound:"))
+      or ($surface | test("^secondmate .* (active children|decisions_open|holds|queued|endpoints) omitted by snapshot bound:"))
+      or ($surface | test("^secondmate .* served from cached home ledger$"))
       or ($surface | test("^secondmates showing "))
       or ($surface | test("^registered secondmates omitted by snapshot bound:"))
       or ($surface | test("^secondmate registry (input truncated|records omitted|unavailable:)"));
@@ -171,9 +172,6 @@ MODEL=$(printf '%s' "$SNAP" | jq '
   | reduce $mates[] as $m (.;
       if is_unreadable($m) then
         .unreadables += [{id:$m.id, reason:dash($m.reason // $m.doing)}]
-      elif ($m.state == "externally_held") and unseen(.; $m.id; $m.id) then
-        .waiting_on_outside += [row($m.id; $m.doing; $m.id; null; $m.doing)]
-        | mark(.; $m.id; $m.id)
       else . end)
   | . as $st
   | ([.waiting_on_you[], .waiting_on_outside[], .blocked[], .waiting_on_date[],

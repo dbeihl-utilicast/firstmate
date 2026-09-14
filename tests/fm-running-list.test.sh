@@ -8,6 +8,7 @@ set -u
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 LIST="$ROOT/bin/fm-running-list.sh"
+BEARINGS="$ROOT/bin/fm-bearings-snapshot.sh"
 TMP_ROOT=$(fm_test_tmproot fm-running-list)
 FM_ROOT_OVERRIDE="$TMP_ROOT/fixture-root"
 mkdir -p "$FM_ROOT_OVERRIDE"
@@ -107,6 +108,37 @@ run_list() {  # <home> <fakebin> [args...]
   shift 2
   PATH="$fakebin:$PATH" FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
     FM_BEARINGS_NOW="$NOW" FM_SNAPSHOT_NOW="$NOW" \
+    "$LIST" "$@"
+}
+
+add_remote_ledger_ssh() {  # <fakebin>
+  local fb=$1
+  cat > "$fb/fake-ssh" <<'SH'
+#!/usr/bin/env bash
+set -u
+while [ "$#" -gt 0 ]; do
+  case "$1" in -o) shift 2 ;; --) shift; break ;; *) exit 90 ;; esac
+done
+shift 2
+remote_home=$(perl -MMIME::Base64=decode_base64 -e 'print decode_base64($ARGV[0])' "$3")
+args=()
+while IFS= read -r -d '' arg; do args+=("$arg"); done \
+  < <(perl -MMIME::Base64=decode_base64 -e 'print decode_base64($ARGV[0])' "$4")
+[ "${args[0]:-}" = fm-remote-file.sh ] || exit 91
+[ ! -f "$remote_home/state/fail-ledger-read" ] || exit 1
+cat "$remote_home/state/home-summary.json"
+SH
+  chmod +x "$fb/fake-ssh"
+}
+
+run_remote_list() {  # <home> <fakebin> [args...]
+  local home=$1 fakebin=$2
+  shift 2
+  PATH="$fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" \
+    FM_STATE_OVERRIDE="$home/state" \
+    FM_BEARINGS_NOW="$NOW" FM_SNAPSHOT_NOW="$NOW" \
+    FM_SSH_BIN="$fakebin/fake-ssh" \
+    FM_SNAPSHOT_CACHE_DIR="$home/state/summary-cache" \
     "$LIST" "$@"
 }
 
@@ -373,6 +405,104 @@ test_discloses_bounded_secondmate_overflow() {
   pass "bounded secondmate overflow is disclosed"
 }
 
+test_projects_bounded_secondmate_child_holds() {
+  local home mate fakebin i id json
+  home=$(make_home mixed-child-state)
+  mate="$TMP_ROOT/mixed-child-state-home"
+  : > "$home/data/secondmates.md"
+  make_secondmate_home mixed "$mate"
+  register_secondmate "$home" mixed "$mate"
+  : > "$mate/data/backlog.md"
+  printf '%s\n' '## In flight' >> "$mate/data/backlog.md"
+  i=1
+  while [ "$i" -le 21 ]; do
+    id=$(printf 'paused-%02d' "$i")
+    mkdir -p "$mate/projects/$id"
+    printf -- '- [ ] %s - Paused child %02d (repo: sample) (kind: ship)\n' \
+      "$id" "$i" >> "$mate/data/backlog.md"
+    fm_write_meta "$mate/state/$id.meta" \
+      "window=firstmate:fm-$id" "worktree=$mate/projects/$id" \
+      "project=sample" "harness=claude" "kind=ship" "mode=ship"
+    record_claude_state "$mate/state" "$id" idle
+    printf 'paused: waiting for dependency %02d\n' "$i" > "$mate/state/$id.status"
+    i=$((i + 1))
+  done
+  id=zz-working
+  mkdir -p "$mate/projects/$id"
+  printf -- '- [ ] %s - Working child (repo: sample) (kind: ship)\n' "$id" \
+    >> "$mate/data/backlog.md"
+  fm_write_meta "$mate/state/$id.meta" \
+    "window=firstmate:fm-$id" "worktree=$mate/projects/$id" \
+    "project=sample" "harness=claude" "kind=ship" "mode=ship"
+  record_claude_state "$mate/state" "$id" busy
+  printf 'working: progressing mixed child work\n' > "$mate/state/$id.status"
+  printf '%s\n' '' '## Queued' \
+    '- [ ] captain-call - Choose route (repo: sample) (kind: captain) (hold: choose route) (hold-kind: captain)' \
+    '' '## Done' >> "$mate/data/backlog.md"
+  fakebin=$(make_fakebin "$home")
+  refresh_secondmate_home "$mate" "$fakebin"
+
+  json=$(run_list "$home" "$fakebin" --json) || fail "mixed child-state list failed"
+  printf '%s' "$json" | jq -e '
+    (.waiting_on_you | any(.id == "mixed/captain-call" and .owner == "mixed"))
+      and ([.waiting_on_outside[]
+            | select(.owner == "mixed" and (.id | startswith("mixed/paused-")))] | length) == 19
+      and (.waiting_on_outside | any(.id == "mixed") | not)
+      and (.moving | any(.id == "mixed/zz-working" and .owner == "mixed"))
+      and (.missing | index("secondmate mixed holds omitted by snapshot bound: 2") != null)
+      and (.missing | index("secondmate mixed endpoints omitted by snapshot bound: 2") != null)
+  ' >/dev/null || fail "secondmate child-state holds were collapsed or silently bounded: $json"
+  pass "secondmate child-state holds stay task-qualified with bounded gaps disclosed"
+}
+
+test_preserves_cached_ledger_disclosure() {
+  local home mate fakebin json
+  home=$(make_home cached-ledger)
+  mate="$TMP_ROOT/cached-ledger-home"
+  : > "$home/data/secondmates.md"
+  make_secondmate_home cached "$mate"
+  printf -- '- cached - fixture domain (host: fixture-host; root: /remote/root; home: %s; scope: fixture; projects: sample; added 2026-09-14)\n' \
+    "$mate" >> "$home/data/secondmates.md"
+  fm_write_meta "$home/state/cached.meta" \
+    "kind=secondmate" "mode=secondmate" "harness=pi" \
+    "remote_host=fixture-host" "remote_root=/remote/root" "home=$mate"
+  fakebin=$(make_fakebin "$home")
+  add_remote_ledger_ssh "$fakebin"
+  refresh_secondmate_home "$mate" "$fakebin"
+
+  json=$(run_remote_list "$home" "$fakebin" --json) || fail "live remote list failed"
+  printf '%s' "$json" | jq -e '
+    .missing | index("secondmate cached served from cached home ledger") == null
+  ' >/dev/null || fail "live remote ledger was incorrectly labeled cached: $json"
+  : > "$mate/state/fail-ledger-read"
+  json=$(run_remote_list "$home" "$fakebin" --json) || fail "cached remote list failed"
+  printf '%s' "$json" | jq -e '
+    .missing | index("secondmate cached served from cached home ledger") != null
+  ' >/dev/null || fail "cached remote ledger disclosure was filtered out: $json"
+  pass "cached remote ledgers remain disclosed in the running list"
+}
+
+test_toon_warning_preserves_hold_columns() {
+  local home fakebin toon
+  home=$(make_home warning-gate-shape)
+  cat > "$home/data/backlog.md" <<'EOF'
+## In flight
+- [ ] orphan - Orphan task (repo: sample) (kind: ship)
+
+## Queued
+- [ ] dated-external - Dated external wait (repo: sample) (kind: ship) (hold: wait for window) (hold-kind: external) (hold-until: 2026-12-15)
+
+## Done
+EOF
+  fakebin=$(make_fakebin "$home")
+  toon=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
+    FM_BEARINGS_NOW="$NOW" FM_SNAPSHOT_NOW="$NOW" \
+    "$BEARINGS" --all-queued) || fail "warning-gate TOON failed"
+  assert_contains "$toon" "2026-12-15" \
+    "warning-first TOON gates should retain later hold fields"
+  pass "warning-first TOON gates retain structured hold columns"
+}
+
 test_all_decisions_exceeds_default_bearings_cap() {
   local home fakebin i json
   home=$(make_home all-decisions)
@@ -401,4 +531,7 @@ test_does_not_mutate_backlog_or_holds
 test_done_rows_stay_off_the_list
 test_keeps_same_local_id_from_different_homes
 test_discloses_bounded_secondmate_overflow
+test_projects_bounded_secondmate_child_holds
+test_preserves_cached_ledger_disclosure
+test_toon_warning_preserves_hold_columns
 test_all_decisions_exceeds_default_bearings_cap
