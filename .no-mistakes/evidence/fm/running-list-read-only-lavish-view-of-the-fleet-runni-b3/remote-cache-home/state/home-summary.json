@@ -1,0 +1,49 @@
+{
+  "schema": "fm-secondmate-home-summary.v1",
+  "hold_classifier_schema": "fm-captain-hold-buckets.v1",
+  "generated": "2026-09-14T12:00:00Z",
+  "generated_epoch": 1789387200,
+  "home": "/home/dbeihl/.no-mistakes/evidence/01M2GD3QMMW5BRR3YKB1BXGFR7/remote-cache-home",
+  "valid": true,
+  "reason": null,
+  "invalidity": {
+    "kind": null,
+    "ids": []
+  },
+  "invalidities": [],
+  "state": "no_active_work",
+  "programs": [],
+  "active_children": [],
+  "decisions_open": [],
+  "holds": [],
+  "queued": [
+    {
+      "id": "remote-open",
+      "title": "Remote cached work stays visible",
+      "blocked_by": null,
+      "blocked_by_ids": [],
+      "unresolved_blocker_ids": [],
+      "blocked_reason": null,
+      "hold_reason": null,
+      "hold_kind": null,
+      "hold_until": null,
+      "hold_bucket": null,
+      "hold_age_days": 0,
+      "captain_actionable": false,
+      "repo": "firstmate",
+      "kind": "ship"
+    }
+  ],
+  "landed": [],
+  "endpoints": [],
+  "counts": {
+    "programs": 0,
+    "active_children": 0,
+    "decisions_open": 0,
+    "holds": 0,
+    "queued": 1,
+    "landed": 0,
+    "endpoints": 0
+  },
+  "omitted": []
+}

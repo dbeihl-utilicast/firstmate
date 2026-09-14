@@ -1,0 +1,184 @@
+{
+  "schema": "fm-running-list.v1",
+  "home": ".nm-live-running-list/many",
+  "generated": "2026-09-14T12:00:00Z",
+  "nothing_brings_them_back": 0,
+  "rotting": [],
+  "waiting_on_you": [
+    {
+      "id": "captain-01",
+      "title": "Captain call 01: captain answer needed",
+      "owner": "(main)",
+      "kind": "captain",
+      "age_days": 0,
+      "wait": "Captain call 01: captain answer needed"
+    },
+    {
+      "id": "captain-02",
+      "title": "Captain call 02: captain answer needed",
+      "owner": "(main)",
+      "kind": "captain",
+      "age_days": 0,
+      "wait": "Captain call 02: captain answer needed"
+    },
+    {
+      "id": "captain-03",
+      "title": "Captain call 03: captain answer needed",
+      "owner": "(main)",
+      "kind": "captain",
+      "age_days": 0,
+      "wait": "Captain call 03: captain answer needed"
+    },
+    {
+      "id": "captain-04",
+      "title": "Captain call 04: captain answer needed",
+      "owner": "(main)",
+      "kind": "captain",
+      "age_days": 0,
+      "wait": "Captain call 04: captain answer needed"
+    },
+    {
+      "id": "captain-05",
+      "title": "Captain call 05: captain answer needed",
+      "owner": "(main)",
+      "kind": "captain",
+      "age_days": 0,
+      "wait": "Captain call 05: captain answer needed"
+    },
+    {
+      "id": "captain-06",
+      "title": "Captain call 06: captain answer needed",
+      "owner": "(main)",
+      "kind": "captain",
+      "age_days": 0,
+      "wait": "Captain call 06: captain answer needed"
+    },
+    {
+      "id": "captain-07",
+      "title": "Captain call 07: captain answer needed",
+      "owner": "(main)",
+      "kind": "captain",
+      "age_days": 0,
+      "wait": "Captain call 07: captain answer needed"
+    },
+    {
+      "id": "captain-08",
+      "title": "Captain call 08: captain answer needed",
+      "owner": "(main)",
+      "kind": "captain",
+      "age_days": 0,
+      "wait": "Captain call 08: captain answer needed"
+    },
+    {
+      "id": "captain-09",
+      "title": "Captain call 09: captain answer needed",
+      "owner": "(main)",
+      "kind": "captain",
+      "age_days": 0,
+      "wait": "Captain call 09: captain answer needed"
+    },
+    {
+      "id": "captain-10",
+      "title": "Captain call 10: captain answer needed",
+      "owner": "(main)",
+      "kind": "captain",
+      "age_days": 0,
+      "wait": "Captain call 10: captain answer needed"
+    },
+    {
+      "id": "captain-11",
+      "title": "Captain call 11: captain answer needed",
+      "owner": "(main)",
+      "kind": "captain",
+      "age_days": 0,
+      "wait": "Captain call 11: captain answer needed"
+    },
+    {
+      "id": "captain-12",
+      "title": "Captain call 12: captain answer needed",
+      "owner": "(main)",
+      "kind": "captain",
+      "age_days": 0,
+      "wait": "Captain call 12: captain answer needed"
+    },
+    {
+      "id": "captain-13",
+      "title": "Captain call 13: captain answer needed",
+      "owner": "(main)",
+      "kind": "captain",
+      "age_days": 0,
+      "wait": "Captain call 13: captain answer needed"
+    },
+    {
+      "id": "captain-14",
+      "title": "Captain call 14: captain answer needed",
+      "owner": "(main)",
+      "kind": "captain",
+      "age_days": 0,
+      "wait": "Captain call 14: captain answer needed"
+    },
+    {
+      "id": "captain-15",
+      "title": "Captain call 15: captain answer needed",
+      "owner": "(main)",
+      "kind": "captain",
+      "age_days": 0,
+      "wait": "Captain call 15: captain answer needed"
+    },
+    {
+      "id": "captain-16",
+      "title": "Captain call 16: captain answer needed",
+      "owner": "(main)",
+      "kind": "captain",
+      "age_days": 0,
+      "wait": "Captain call 16: captain answer needed"
+    },
+    {
+      "id": "captain-17",
+      "title": "Captain call 17: captain answer needed",
+      "owner": "(main)",
+      "kind": "captain",
+      "age_days": 0,
+      "wait": "Captain call 17: captain answer needed"
+    },
+    {
+      "id": "captain-18",
+      "title": "Captain call 18: captain answer needed",
+      "owner": "(main)",
+      "kind": "captain",
+      "age_days": 0,
+      "wait": "Captain call 18: captain answer needed"
+    },
+    {
+      "id": "captain-19",
+      "title": "Captain call 19: captain answer needed",
+      "owner": "(main)",
+      "kind": "captain",
+      "age_days": 0,
+      "wait": "Captain call 19: captain answer needed"
+    },
+    {
+      "id": "captain-20",
+      "title": "Captain call 20: captain answer needed",
+      "owner": "(main)",
+      "kind": "captain",
+      "age_days": 0,
+      "wait": "Captain call 20: captain answer needed"
+    },
+    {
+      "id": "captain-21",
+      "title": "Captain call 21: captain answer needed",
+      "owner": "(main)",
+      "kind": "captain",
+      "age_days": 0,
+      "wait": "Captain call 21: captain answer needed"
+    }
+  ],
+  "waiting_on_outside": [],
+  "blocked": [],
+  "waiting_on_date": [],
+  "moving": [],
+  "unreadables": [],
+  "warnings": [],
+  "missing": []
+}

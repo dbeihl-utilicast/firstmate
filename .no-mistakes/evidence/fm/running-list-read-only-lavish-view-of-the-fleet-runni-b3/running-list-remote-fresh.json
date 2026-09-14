@@ -1,0 +1,24 @@
+{
+  "schema": "fm-running-list.v1",
+  "home": ".nm-live-running-list/remote-main",
+  "generated": "2026-09-14T12:00:00Z",
+  "nothing_brings_them_back": 1,
+  "rotting": [
+    {
+      "id": "remote-open",
+      "title": "Remote cached work stays visible",
+      "owner": "remote-cache",
+      "kind": "ship",
+      "age_days": 0,
+      "wait": "Remote cached work stays visible"
+    }
+  ],
+  "waiting_on_you": [],
+  "waiting_on_outside": [],
+  "blocked": [],
+  "waiting_on_date": [],
+  "moving": [],
+  "unreadables": [],
+  "warnings": [],
+  "missing": []
+}

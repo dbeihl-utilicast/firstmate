@@ -1,0 +1,32 @@
+.nm-live-running-list/main  2026-09-14T12:00:00Z
+
+4 with nothing that will bring them back
+  0d  blocker-main  Dependency  (main)
+  0d  orphan-main  Abandoned issue still reading as a to-do  (main)
+  -  mate-a/orphan-child  in-flight work has no child metadata  mate-a
+  -  mate-a/terminal-child  terminal child still listed in flight  mate-a
+
+Waiting on you (2)
+  0d  captain-main  Answer the promotion question: captain decision pending  (main)
+  0d  mate-b/deploy  Captain owns the colliding task id: captain decision pending  mate-b
+
+Waiting on someone outside (2)
+  0d  deploy  until vendor ships  mate-a
+  0d  outside-main  legal review  (main)
+
+Blocked or state unclear (3)
+  0d  blocked-main  blocker-main  (main)
+  -  mate-a/unknown-child  current child state unavailable  mate-a
+  -  mate-b/mate-b-program [program]  program-blocker  mate-b
+
+Waiting on a date (1)
+  0d  date-main  until 2026-12-15  (main)
+
+Moving (3)
+  -  mate-a/mate-program [program]  Fleet-wide durable notes audit  mate-a
+  -  moving-main  harness busy (claude-hook)  (main)
+  -  program-main [program]  Long-running vault-note census  (main)
+
+Homes that could not be read: mate-a
+
+Snapshot cannot supply: age in days where the snapshot has no structured age; secondmate mate-a holds omitted by snapshot bound: 3; secondmate mate-a queued omitted by snapshot bound: 2; secondmate mate-b queued omitted by snapshot bound: 1; secondmate mate-a endpoints omitted by snapshot bound: 2

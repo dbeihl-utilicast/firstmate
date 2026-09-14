@@ -1,0 +1,12 @@
+.nm-live-running-list/empty  2026-09-14T12:00:00Z
+
+1 with nothing that will bring them back
+  0d  undated-only  Undated open work  (main)
+
+Waiting on you (0)
+
+Waiting on someone outside (0)
+
+Blocked or state unclear (0)
+
+Moving (0)

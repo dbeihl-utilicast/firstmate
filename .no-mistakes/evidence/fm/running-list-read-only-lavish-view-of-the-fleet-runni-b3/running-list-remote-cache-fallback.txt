@@ -1,0 +1,14 @@
+.nm-live-running-list/remote-main  2026-09-14T12:01:00Z
+
+1 with nothing that will bring them back
+  0d  remote-open  Remote cached work stays visible  remote-cache
+
+Waiting on you (0)
+
+Waiting on someone outside (0)
+
+Blocked or state unclear (0)
+
+Moving (0)
+
+Snapshot cannot supply: secondmate remote-cache served from cached home ledger

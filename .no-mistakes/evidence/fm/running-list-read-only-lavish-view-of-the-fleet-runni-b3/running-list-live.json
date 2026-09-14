@@ -1,0 +1,180 @@
+{
+  "schema": "fm-running-list.v1",
+  "home": ".nm-live-running-list/main",
+  "generated": "2026-09-14T12:00:00Z",
+  "nothing_brings_them_back": 5,
+  "rotting": [
+    {
+      "id": "blocker-main",
+      "title": "Dependency",
+      "owner": "(main)",
+      "kind": "ship",
+      "age_days": 0,
+      "wait": "Dependency"
+    },
+    {
+      "id": "orphan-main",
+      "title": "Abandoned issue still reading as a to-do",
+      "owner": "(main)",
+      "kind": "ship",
+      "age_days": 0,
+      "wait": "Abandoned issue still reading as a to-do"
+    },
+    {
+      "id": "program-blocker",
+      "title": "Program dependency",
+      "owner": "mate-b",
+      "kind": "ship",
+      "age_days": 0,
+      "wait": "Program dependency"
+    },
+    {
+      "id": "mate-a/orphan-child",
+      "title": "in-flight work has no child metadata",
+      "owner": "mate-a",
+      "kind": "secondmate",
+      "age_days": null,
+      "wait": "in-flight work has no child metadata"
+    },
+    {
+      "id": "mate-a/terminal-child",
+      "title": "terminal child still listed in flight",
+      "owner": "mate-a",
+      "kind": "secondmate",
+      "age_days": null,
+      "wait": "terminal child still listed in flight"
+    }
+  ],
+  "waiting_on_you": [
+    {
+      "id": "captain-main",
+      "title": "Answer the promotion question: captain decision pending",
+      "owner": "(main)",
+      "kind": "captain",
+      "age_days": 0,
+      "wait": "Answer the promotion question: captain decision pending"
+    },
+    {
+      "id": "mate-a/dated-captain",
+      "title": "Captain revisit date: until 2026-12-01: captain revisit",
+      "owner": "mate-a",
+      "kind": "captain",
+      "age_days": 0,
+      "wait": "until 2026-12-01"
+    },
+    {
+      "id": "mate-b/deploy",
+      "title": "Captain owns the colliding task id: captain decision pending",
+      "owner": "mate-b",
+      "kind": "captain",
+      "age_days": 0,
+      "wait": "Captain owns the colliding task id: captain decision pending"
+    }
+  ],
+  "waiting_on_outside": [
+    {
+      "id": "deploy",
+      "title": "Wait for vendor release",
+      "owner": "mate-a",
+      "kind": "ship",
+      "age_days": 0,
+      "wait": "until vendor ships"
+    },
+    {
+      "id": "outside-main",
+      "title": "Wait on legal",
+      "owner": "(main)",
+      "kind": "ship",
+      "age_days": 0,
+      "wait": "legal review"
+    },
+    {
+      "id": "mate-a/paused-child",
+      "title": "waiting on counsel",
+      "owner": "mate-a",
+      "kind": "ship",
+      "age_days": null,
+      "wait": "waiting on counsel"
+    }
+  ],
+  "blocked": [
+    {
+      "id": "blocked-main",
+      "title": "Unblock the release",
+      "owner": "(main)",
+      "kind": "ship",
+      "age_days": 0,
+      "wait": "blocker-main"
+    },
+    {
+      "id": "mate-a/unknown-child",
+      "title": "current child state unavailable",
+      "owner": "mate-a",
+      "kind": "secondmate",
+      "age_days": null,
+      "wait": "current child state unavailable"
+    },
+    {
+      "id": "mate-b/mate-b-program",
+      "title": "program-blocker",
+      "owner": "mate-b",
+      "kind": "program",
+      "age_days": null,
+      "wait": "program-blocker"
+    }
+  ],
+  "waiting_on_date": [
+    {
+      "id": "date-main",
+      "title": "Wait for the renewal window",
+      "owner": "(main)",
+      "kind": "ship",
+      "age_days": 0,
+      "wait": "until 2026-12-15"
+    },
+    {
+      "id": "mate-date",
+      "title": "Wait for scheduled handoff",
+      "owner": "mate-a",
+      "kind": "ship",
+      "age_days": 0,
+      "wait": "until 2026-12-20"
+    }
+  ],
+  "moving": [
+    {
+      "id": "mate-a/mate-program",
+      "title": "Fleet-wide durable notes audit",
+      "owner": "mate-a",
+      "kind": "program",
+      "age_days": null,
+      "wait": "Fleet-wide durable notes audit"
+    },
+    {
+      "id": "moving-main",
+      "title": "harness busy (claude-hook)",
+      "owner": "(main)",
+      "kind": "ship",
+      "age_days": null,
+      "wait": "harness busy (claude-hook)"
+    },
+    {
+      "id": "program-main",
+      "title": "Long-running vault-note census",
+      "owner": "(main)",
+      "kind": "program",
+      "age_days": null,
+      "wait": "Long-running vault-note census"
+    }
+  ],
+  "unreadables": [
+    {
+      "id": "mate-a",
+      "reason": "structured home state invalid: in-flight backlog item has no child metadata: orphan-child"
+    }
+  ],
+  "warnings": [],
+  "missing": [
+    "age in days where the snapshot has no structured age"
+  ]
+}
