@@ -9,8 +9,9 @@
 # advanced, beacon fresh), stopped-crew no-verb wakes surfaced (queue + exit),
 # provably-working stale panes absorbed-then-escalated past the threshold,
 # terminal-looking stale status lines overridden by an active run, the heartbeat
-# backstop fail-safe, and afk coherence (no double-triage while the away-mode
-# daemon owns supervision).
+# backstop fail-safe, afk coherence (no double-triage while the away-mode
+# daemon owns supervision), and the liveness beacon staying fresh during poll
+# work while a hung step still ages past grace.
 #
 # Daemon-side classification/injection lives in fm-daemon.test.sh; watcher/lock
 # liveness in fm-watcher-lock.test.sh; the durable-queue safety matrix in
@@ -62,6 +63,18 @@ wait_live() {
   return 0
 }
 
+# Cycle generation published at poll-loop start in the beacon file. Mid-cycle
+# freshness touches keep that generation and only refresh mtime, so a completed
+# cycle is the generation advancing, not an intra-work beat.
+watcher_cycle_gen() {
+  local v
+  v=$(cat "$1" 2>/dev/null || true)
+  case "$v" in
+    ''|*[!0-9]*) ;;
+    *) printf '%s' "$v" ;;
+  esac
+}
+
 # Wait until <pid>'s watcher has completed a whole poll cycle, or exited first.
 # A fixed wait_live budget only proves the process is still ALIVE: fm-watch.sh
 # does bounded startup work (the recovery-marker snapshot, lock acquisition)
@@ -69,10 +82,11 @@ wait_live() {
 # machine a short fixed budget can reap a round before the cycle it asserts on
 # ever ran - and then every "no wake, no marker" assertion passes vacuously
 # while every "marker written" assertion fails spuriously.
-# The liveness beacon is touched at the TOP of every poll, so this drops any
-# beacon left by an earlier round, waits for THIS watcher to write a fresh one
-# (some poll's top), then waits for that one to advance (the next poll's top) -
-# and the whole cycle in between is what the caller's assertions describe.
+# The beacon's mtime also advances mid-cycle while work makes progress, so this
+# drops any beacon left by an earlier round, waits for THIS watcher to publish a
+# cycle generation (a poll's start), then waits for that generation to change
+# (the next poll's start) - and the whole cycle in between is what the caller's
+# assertions describe.
 # 0 if the watcher is still alive after a completed cycle, 1 if it exited.
 wait_poll_cycle() {  # <state> <pid> [limit-ticks]
   local state=$1 pid=$2 limit=${3:-300} beat first now i=0
@@ -81,14 +95,15 @@ wait_poll_cycle() {  # <state> <pid> [limit-ticks]
   first=""
   while [ "$i" -lt "$limit" ]; do
     kill -0 "$pid" 2>/dev/null || return 1
-    first=$(file_mtime "$beat")
+    first=$(watcher_cycle_gen "$beat")
     [ -n "$first" ] && break
     sleep 0.1
     i=$((i + 1))
   done
+  [ -n "$first" ] || return 1
   while [ "$i" -lt "$limit" ]; do
     kill -0 "$pid" 2>/dev/null || return 1
-    now=$(file_mtime "$beat")
+    now=$(watcher_cycle_gen "$beat")
     if [ -n "$now" ] && [ "$now" != "$first" ]; then
       return 0
     fi
@@ -122,6 +137,12 @@ wait_numeric_file() {
 # fallback (which writes a partial filesystem dump on Linux; see fm-watch.sh).
 file_mtime() {
   if [ "$(uname)" = Darwin ]; then stat -f %m "$1" 2>/dev/null; else stat -c %Y "$1" 2>/dev/null; fi
+}
+
+# Fractional mtime so a mid-cycle freshness touch in the same wall-clock second
+# is still visible. Integer epoch seconds cannot prove intra-work progress.
+file_mtime_frac() {
+  python3 -c 'import os,sys; print(os.stat(sys.argv[1]).st_mtime)' "$1"
 }
 
 # Set <file>'s mtime to exactly <epoch> seconds, for aging a busy-turn marker by
@@ -4489,6 +4510,101 @@ test_beacon_stays_fresh_while_absorbing() {
   pass "the liveness beacon stays fresh while the watcher absorbs benign wakes (fm-guard never false-alarms)"
 }
 
+wait_marker() {  # <file> <pid> [limit-ticks]
+  local file=$1 pid=$2 limit=${3:-200} i=0
+  while [ "$i" -lt "$limit" ]; do
+    kill -0 "$pid" 2>/dev/null || return 1
+    [ -e "$file" ] && return 0
+    sleep 0.1
+    i=$((i + 1))
+  done
+  return 1
+}
+
+register_silent_check() {  # <state> <id>
+  local state=$1 id=$2
+  chmod 700 "$state/$id.check.sh"
+  FM_STATE_OVERRIDE="$state" "$ROOT/bin/fm-check-register.sh" "$id" >/dev/null \
+    || fail "could not register custom check $id"
+}
+
+test_beacon_refreshes_during_poll_work() {
+  local dir state fakebin out pid beat t0 t1 gen0 gen1
+  dir=$(make_case beacon-mid-cycle); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; beat="$state/.last-watcher-beat"
+  cat > "$state/progress.check.sh" <<EOF
+#!/usr/bin/env bash
+count=\$(cat '$state/progress-count' 2>/dev/null || echo 0)
+printf '%s\\n' "\$((count + 1))" > '$state/progress-count'
+: > '$state/progress-started'
+sleep 2
+exit 0
+EOF
+  cat > "$state/stuck.check.sh" <<EOF
+#!/usr/bin/env bash
+: > '$state/stuck-entered'
+sleep 1000
+exit 0
+EOF
+  register_silent_check "$state" progress
+  register_silent_check "$state" stuck
+  watch_bg "$state" "$fakebin" "$out" env FM_HOME="$dir" FM_CHECK_INTERVAL=0 FM_CHECK_TIMEOUT=30
+  pid=$!
+  wait_marker "$state/progress-started" "$pid" 200 \
+    || { reap "$pid"; fail "progress check never started: $(cat "$out")"; }
+  gen0=$(watcher_cycle_gen "$beat")
+  [ -n "$gen0" ] || { reap "$pid"; fail "watcher never published a cycle-start beacon"; }
+  t0=$(file_mtime_frac "$beat")
+  wait_marker "$state/stuck-entered" "$pid" 250 \
+    || { reap "$pid"; fail "stuck check never started after the progress check: $(cat "$out")"; }
+  t1=$(file_mtime_frac "$beat")
+  gen1=$(watcher_cycle_gen "$beat")
+  python3 -c 'import sys; raise SystemExit(0 if float(sys.argv[1]) > float(sys.argv[2]) else 1)' "$t1" "$t0" \
+    || { reap "$pid"; fail "beacon mtime did not advance during poll work (start=$t0 mid=$t1)"; }
+  [ "$gen1" = "$gen0" ] || { reap "$pid"; fail "poll work spanned a second cycle instead of refreshing mid-cycle (start=$gen0 mid=$gen1)"; }
+  [ "$(cat "$state/progress-count")" = 1 ] || { reap "$pid"; fail "progress check ran more than once while the cycle was still in the stuck step"; }
+  sleep 2
+  kill -0 "$pid" 2>/dev/null || { reap "$pid"; fail "watcher exited while the stuck step was still running: $(cat "$out")"; }
+  [ "$(watcher_cycle_gen "$beat")" = "$gen0" ] || { reap "$pid"; fail "a second poll started while the first cycle was still in the stuck step"; }
+  [ "$(cat "$state/progress-count")" = 1 ] || { reap "$pid"; fail "an overlapping poll re-ran the progress check"; }
+  reap "$pid"
+  pass "the liveness beacon refreshes during poll work in the same cycle, without overlapping polls"
+}
+
+test_hung_poll_step_ages_past_grace() {
+  local dir state fakebin out pid beat age
+  dir=$(make_case beacon-hung-step); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; beat="$state/.last-watcher-beat"
+  cat > "$state/stuck.check.sh" <<EOF
+#!/usr/bin/env bash
+: > '$state/stuck-entered'
+sleep 1000
+exit 0
+EOF
+  register_silent_check "$state" stuck
+  watch_bg "$state" "$fakebin" "$out" env FM_HOME="$dir" FM_CHECK_INTERVAL=0 FM_CHECK_TIMEOUT=30
+  pid=$!
+  wait_marker "$state/stuck-entered" "$pid" 200 \
+    || { reap "$pid"; fail "hung check never started: $(cat "$out")"; }
+  sleep 4
+  kill -0 "$pid" 2>/dev/null || { reap "$pid"; fail "watcher exited during the hung check: $(cat "$out")"; }
+  age=$(FM_HOME="$dir" FM_STATE_OVERRIDE="$state" bash -c '
+    # shellcheck source=bin/fm-wake-lib.sh
+    . "$1/bin/fm-wake-lib.sh"
+    fm_path_age "$2"
+  ' _ "$ROOT" "$beat")
+  [ "$age" -ge 2 ] || { reap "$pid"; fail "hung step still looked like progress (beacon age ${age}s)"; }
+  FM_HOME="$dir" FM_STATE_OVERRIDE="$state" bash -c '
+    # shellcheck source=bin/fm-wake-lib.sh
+    . "$1/bin/fm-wake-lib.sh"
+    fm_watcher_healthy "$2" "$3" "$4" "$5"
+  ' _ "$ROOT" "$state" "$WATCH" 2 "$dir" \
+    && { reap "$pid"; fail "fm_watcher_healthy treated a hung poll as live (beacon age ${age}s)"; }
+  kill -0 "$pid" 2>/dev/null || { reap "$pid"; fail "watcher died when the hung step went stale"; }
+  reap "$pid"
+  pass "a hung poll step ages the beacon past grace, so 300s still means no progress"
+}
+
 # --- afk coherence: the daemon owns triage; the watcher does not double-triage ---
 
 test_afk_signal_records_heartbeat_endpoint() {
@@ -4901,6 +5017,8 @@ test_heartbeat_no_change_absorbed
 test_heartbeat_backstop_surfaces_unsurfaced_status
 test_heartbeat_backstop_surfaces_a_masked_status
 test_beacon_stays_fresh_while_absorbing
+test_beacon_refreshes_during_poll_work
+test_hung_poll_step_ages_past_grace
 test_afk_signal_records_heartbeat_endpoint
 test_afk_present_reverts_watcher_to_one_shot
 test_afk_paused_changed_pane_hands_off_plain_stale

@@ -186,14 +186,15 @@ fi
 # turn-ended signature, annotation staleness checks, and guarded bookkeeping writes.
 
 POLL=${FM_POLL:-15}                   # seconds between cycles
-# The liveness beacon is touched once per cycle, immediately before the
-# terminal wait below (event_wait_or_sleep) as well as at the top of the next
-# one, so a healthy cycle's beacon can legitimately age up to POLL seconds
-# between touches. fm_poll_derived_grace (bin/fm-wake-lib.sh, already sourced
-# transitively above) is the single owner of the max(300, poll+60)
-# derivation - see docs/turnend-guard.md "Guard grace and the poll cadence".
-# This recomputes the library default above now that the real configured
-# POLL is known.
+# The liveness beacon is refreshed at cycle start, after each expensive inline
+# step, and immediately before the terminal wait (event_wait_or_sleep). A slow
+# poll that is still making progress stays fresh; a step that does not return
+# does not refresh the beacon, so grace still means no progress. The wait
+# itself can still age the beacon up to POLL seconds. fm_poll_derived_grace
+# (bin/fm-wake-lib.sh, already sourced transitively above) is the single owner
+# of the max(300, poll+60) derivation - see docs/turnend-guard.md "Guard grace
+# and the poll cadence". This recomputes the library default above now that
+# the real configured POLL is known.
 WATCHER_STALE_GRACE=${FM_WATCHER_STALE_GRACE:-${FM_GUARD_GRACE:-$(fm_poll_derived_grace "$POLL")}}
 HEARTBEAT=${FM_HEARTBEAT:-600}        # base seconds between heartbeat scans
 HEARTBEAT_MAX=${FM_HEARTBEAT_MAX:-7200}  # heartbeat backoff cap
@@ -2149,6 +2150,21 @@ resurface_after_downtime() {
   wake "check: rearm-resurface"
 }
 
+# Liveness beacon for fm-guard.sh: a fresh mtime means this watcher has made
+# progress. Only this process writes it; a helper cannot make a wedged poll
+# look healthy. Mid-cycle touches refresh mtime only. Cycle start also writes a
+# generation so a completed cycle is distinguishable from a progress touch.
+# docs/turnend-guard.md "Guard grace and the poll cadence" owns the contract.
+touch_watcher_beat() {
+  touch "$STATE/.last-watcher-beat"
+}
+
+WATCHER_CYCLE=0
+start_watcher_cycle_beat() {
+  WATCHER_CYCLE=$((WATCHER_CYCLE + 1))
+  printf '%s\n' "$WATCHER_CYCLE" > "$STATE/.last-watcher-beat"
+}
+
 while :; do
   # Self-eviction: if the singleton lock no longer names this process, a second
   # watcher has taken over (e.g. a transient duplicate from a racy arm). Stand
@@ -2160,9 +2176,7 @@ while :; do
     exit 0
   fi
 
-  # Liveness beacon for fm-guard.sh: a fresh mtime here means a watcher is
-  # alive. Supervision scripts warn when this goes stale with tasks in flight.
-  touch "$STATE/.last-watcher-beat"
+  start_watcher_cycle_beat
 
   if [ "$(age_of "$STATE/home-summary.json")" -ge "$HOME_SUMMARY_INTERVAL" ]; then
     home_summary_refresh_detached
@@ -2180,6 +2194,7 @@ while :; do
   # repost after grace, and escalate once if the recovery turn is also missed.
   # No conversation scraping; unresolved records are never silently expired.
   fm_pending_reply_tick "$STATE" || true
+  touch_watcher_beat
 
   # A live secondmate endpoint does not prove that its own wake loop is alive.
   # Observe the foreign queue before the rest of this cycle so an aged row wakes
@@ -2188,6 +2203,7 @@ while :; do
     echo "watcher: secondmate wake-loop observation failed" >&2
     exit 1
   }
+  touch_watcher_beat
 
   # Process-to-event liveness repair. This never discovers a result by polling:
   # each registered source has its own child blocking on that source, and this
@@ -2207,10 +2223,12 @@ while :; do
       FM_WAKE_POST_OUTPUT_ACTION=procevent_state_insecure_after_output
       wake "check: procevent-state-insecure"
     fi
+    touch_watcher_beat
   fi
   # Then deliver any queued-but-unsurfaced result, including one a runner
   # published while this watcher was between cycles.
   procevent_surface_queued
+  touch_watcher_beat
 
   # A process-event result carries richer adapter-owned wake context than the
   # generic recovery reason, so give that owner first refusal.
@@ -2228,6 +2246,7 @@ while :; do
   else
     triage_log "inactive-outcome reconciliation unavailable"
   fi
+  touch_watcher_beat
 
   # Slow per-task checks (firstmate writes these, e.g. a merged-PR poll).
   # Time-based via .last-check mtime so the cadence survives watcher restarts.
@@ -2250,6 +2269,7 @@ while :; do
           && [ -f "$FM_ROOT/bin/fm-x-poll.sh" ] && [ ! -L "$FM_ROOT/bin/fm-x-poll.sh" ]; then
           FM_HOME="$FM_HOME" run_check_capture "$FM_ROOT/bin/fm-x-poll.sh" || exit 1
           out=$FM_CHECK_RESULT
+          touch_watcher_beat
         else
           rejected_checks="$rejected_checks $c"
           continue
@@ -2267,10 +2287,12 @@ while :; do
           run_check_capture "$SCRIPT_DIR/fm-pr-poll.sh" --validated \
             "$provider" "$url" "$host" "$path" "$number" || exit 1
           out=$FM_CHECK_RESULT
+          touch_watcher_beat
         elif fm_custom_check_snapshot_prepare "$STATE" "$id"; then
           custom_snapshot=$FM_CUSTOM_CHECK_SNAPSHOT
           run_check_capture "$custom_snapshot" || exit 1
           out=$FM_CHECK_RESULT
+          touch_watcher_beat
           fm_custom_check_snapshot_cleanup
         else
           fm_custom_check_snapshot_cleanup
@@ -2346,6 +2368,7 @@ while :; do
     touch "$STATE/.last-check"
     [ -z "$check_reasons" ] || wake "$check_reasons"
   fi
+  touch_watcher_beat
 
   # On the first changed signal, linger one grace period and re-scan before
   # classifying: a crewmate's final status write and the same turn's turn-end
@@ -2355,6 +2378,7 @@ while :; do
   pending=$(scan_signals)
   if [ -n "$pending" ]; then
     sleep "$SIGNAL_GRACE"
+    touch_watcher_beat
     pending=$(printf '%s\n%s' "$pending" "$(scan_signals)")
     # The final coalesced signal set is the watcher-carried status-change
     # trigger for this home's published summary. Start it before either
@@ -2471,6 +2495,7 @@ EOF
       triage_log "absorbed benign $reason"
     fi
   fi
+  touch_watcher_beat
 
   # Layer 1 backbone: pane staleness. Two consecutive identical hashes with no busy
   # signature means the crewmate finished, is waiting, or is wedged. Each distinct
@@ -2498,7 +2523,9 @@ EOF
     if [ "$kind" = secondmate ] && ! status_is_paused_or_captain_held "$last"; then
       continue
     fi
-    tail40=$(fm_backend_capture "$(window_backend "$w")" "$w" 40 "$(window_label "$w")" 2>/dev/null) || continue
+    tail40=$(fm_backend_capture "$(window_backend "$w")" "$w" 40 "$(window_label "$w")" 2>/dev/null) \
+      || { touch_watcher_beat; continue; }
+    touch_watcher_beat
     h=$(printf '%s' "$tail40" | hash_pane)
     hf="$STATE/.hash-$key"
     cf="$STATE/.count-$key"
@@ -2732,6 +2759,7 @@ EOF
       triage_log "absorbed heartbeat (no captain-relevant change)"
     fi
   fi
+  touch_watcher_beat
 
   # Terminal wait: a bounded native-event wait for push-capable homes (herdr),
   # else the blind poll sleep. See event_wait_or_sleep.
