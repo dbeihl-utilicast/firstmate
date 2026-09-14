@@ -1,0 +1,426 @@
+Target: a8c677cc81af8fe4d805d11957e57e554510565b
+Bash: GNU bash, version 3.2.57(1)-release (arm64-apple-darwin25)
+FM_HOME=<isolated home inside the worktree> FM_ROOT_OVERRIDE=<target worktree> FM_BOOTSTRAP_NETWORK=skip FM_BOOTSTRAP_DETECT_ONLY=1 FM_BOOTSTRAP_VERBOSE_FACTS=1 /bin/bash bin/fm-bootstrap.sh
+Uses the installed toolchain; no fake executables or function replacements. Exit 0 is bootstrap's documented diagnostic protocol; invalid policies must produce CREW_DISPATCH and must not be advertised as active.
+
+Exact byte-for-byte copy of docs/examples/crew-dispatch.json
+Exit: 0
+BOOTSTRAP_INFO: crew dispatch active config/crew-dispatch.json
+BOOTSTRAP_INFO: crew dispatch rule: Review, verification, or second reading of work another runtime produced. -> quota-balanced[codex/gpt-5.6-terra, claude/sonnet]
+BOOTSTRAP_INFO: crew dispatch rule: Large, architecturally hard, multi-subsystem, open-ended design, or gnarly diagnostic work. -> quota-balanced[codex/gpt-5.6-terra/xhigh]
+BOOTSTRAP_INFO: crew dispatch default: quota-balanced[codex/gpt-5.6-terra, claude/sonnet]
+Input unchanged after execution; no state or handoff directories created.
+
+Missing optional dispatch file remains silent
+Mode: verbose facts
+Exit: 0
+(silent)
+
+Copied example remains silent by default
+Mode: default silence
+Exit: 0
+(silent)
+
+Malformed JSON produces an actionable diagnostic
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - malformed JSON
+
+Non-object JSON policy is refused
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - top-level value must be an object
+
+Copy the shipped V2 example verbatim and list active rules
+Mode: verbose facts
+Exit: 0
+BOOTSTRAP_INFO: crew dispatch active config/crew-dispatch.json
+BOOTSTRAP_INFO: crew dispatch rule: Review, verification, or second reading of work another runtime produced. -> quota-balanced[codex/gpt-5.6-terra, claude/sonnet]
+BOOTSTRAP_INFO: crew dispatch rule: Large, architecturally hard, multi-subsystem, open-ended design, or gnarly diagnostic work. -> quota-balanced[codex/gpt-5.6-terra/xhigh]
+BOOTSTRAP_INFO: crew dispatch default: quota-balanced[codex/gpt-5.6-terra, claude/sonnet]
+
+Reject legacy V1 object policy
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 top-level missing required key: schema_version
+
+Reject missing schema version
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 top-level missing required key: schema_version
+
+Reject schema version 1
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 schema_version must be 2
+
+Reject schema version 3
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 schema_version must be 2
+
+Reject schema version "2"
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 schema_version must be 2
+
+Reject schema version [2]
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 schema_version must be 2
+
+Reject schema version null
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 schema_version must be 2
+
+Reject unknown root key
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 top-level has unknown field: extra
+
+Reject missing required constraints
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 top-level missing required key: constraints
+
+Reject unknown nested profile field
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 profile has unknown field: unknown
+
+Reject missing nested placement enforcement
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 placement missing required key: enforcement
+
+Reject missing profile class
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 profile missing required key: model_class
+
+Reject empty rules
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 rules must be a non-empty array
+
+Reject empty default
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 default must be a non-empty array
+
+Reject empty constraints
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 constraints must be a non-empty array
+
+Reject legacy single-object candidates
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 rule use must be a non-empty array
+
+Reject empty candidate array
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 rule use must be a non-empty array
+
+Reject duplicate default profile IDs
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 default profile ids must be unique
+
+Reject duplicate candidate profile IDs
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 rule use profile ids must be unique
+
+Accept astra restricted to triage
+Mode: verbose facts
+Exit: 0
+BOOTSTRAP_INFO: crew dispatch active config/crew-dispatch.json
+BOOTSTRAP_INFO: crew dispatch rule: Review, verification, or second reading of work another runtime produced. -> quota-balanced[codex/gpt-6-astra]
+BOOTSTRAP_INFO: crew dispatch rule: Large, architecturally hard, multi-subsystem, open-ended design, or gnarly diagnostic work. -> quota-balanced[codex/gpt-5.6-terra/xhigh]
+BOOTSTRAP_INFO: crew dispatch default: quota-balanced[codex/gpt-5.6-terra, claude/sonnet]
+
+Accept provider-qualified astra restricted to triage
+Mode: verbose facts
+Exit: 0
+BOOTSTRAP_INFO: crew dispatch active config/crew-dispatch.json
+BOOTSTRAP_INFO: crew dispatch rule: Review, verification, or second reading of work another runtime produced. -> quota-balanced[pi/codex-native/gpt-6-astra]
+BOOTSTRAP_INFO: crew dispatch rule: Large, architecturally hard, multi-subsystem, open-ended design, or gnarly diagnostic work. -> quota-balanced[codex/gpt-5.6-terra/xhigh]
+BOOTSTRAP_INFO: crew dispatch default: quota-balanced[codex/gpt-5.6-terra, claude/sonnet]
+
+Reject astra without an exact project
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 top-tier model class astra requires rule match.project Utilicast-LLC/utilicast-triage
+
+Reject astra assigned to another project
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 top-tier model class astra requires rule match.project Utilicast-LLC/utilicast-triage
+
+Reject astra hidden behind ordinary label
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 profile.model_class does not match model: gpt-6-astra
+
+Reject provider-qualified uppercase astra hidden behind ordinary label
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 profile.model_class does not match model: CODEX-NATIVE/GPT-6-ASTRA
+
+Reject astra in defaults
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 top-tier model class astra cannot appear in default
+
+Reject astra default hidden behind ordinary label
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 profile.model_class does not match model: gpt-6-astra
+
+Reject widening allowed projects for astra
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 constraint.allowed_projects must contain only Utilicast-LLC/utilicast-triage
+
+Accept fable restricted to triage
+Mode: verbose facts
+Exit: 0
+BOOTSTRAP_INFO: crew dispatch active config/crew-dispatch.json
+BOOTSTRAP_INFO: crew dispatch rule: Review, verification, or second reading of work another runtime produced. -> quota-balanced[claude/fable]
+BOOTSTRAP_INFO: crew dispatch rule: Large, architecturally hard, multi-subsystem, open-ended design, or gnarly diagnostic work. -> quota-balanced[codex/gpt-5.6-terra/xhigh]
+BOOTSTRAP_INFO: crew dispatch default: quota-balanced[codex/gpt-5.6-terra, claude/sonnet]
+
+Accept provider-qualified fable restricted to triage
+Mode: verbose facts
+Exit: 0
+BOOTSTRAP_INFO: crew dispatch active config/crew-dispatch.json
+BOOTSTRAP_INFO: crew dispatch rule: Review, verification, or second reading of work another runtime produced. -> quota-balanced[pi/anthropic/fable]
+BOOTSTRAP_INFO: crew dispatch rule: Large, architecturally hard, multi-subsystem, open-ended design, or gnarly diagnostic work. -> quota-balanced[codex/gpt-5.6-terra/xhigh]
+BOOTSTRAP_INFO: crew dispatch default: quota-balanced[codex/gpt-5.6-terra, claude/sonnet]
+
+Reject fable without an exact project
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 top-tier model class fable requires rule match.project Utilicast-LLC/utilicast-triage
+
+Reject fable assigned to another project
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 top-tier model class fable requires rule match.project Utilicast-LLC/utilicast-triage
+
+Reject fable hidden behind ordinary label
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 profile.model_class does not match model: fable
+
+Reject provider-qualified uppercase fable hidden behind ordinary label
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 profile.model_class does not match model: ANTHROPIC/FABLE
+
+Reject fable in defaults
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 top-tier model class fable cannot appear in default
+
+Reject fable default hidden behind ordinary label
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 profile.model_class does not match model: fable
+
+Reject widening allowed projects for fable
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 constraint.allowed_projects must contain only Utilicast-LLC/utilicast-triage
+
+Reject replacing triage with another allowed project
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 constraint.allowed_projects must contain only Utilicast-LLC/utilicast-triage
+
+Reject unclassified model identity
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 unclassified model: unknown-model
+
+Reject automatic model alias
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 unclassified model: auto
+
+Reject ordinary identity labeled Astra
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 profile.model_class does not match model: gpt-5.6-terra
+
+Accept native Astra ultra when triage restricted
+Mode: verbose facts
+Exit: 0
+BOOTSTRAP_INFO: crew dispatch active config/crew-dispatch.json
+BOOTSTRAP_INFO: crew dispatch rule: Review, verification, or second reading of work another runtime produced. -> quota-balanced[pi/codex-native/gpt-6-astra/ultra]
+BOOTSTRAP_INFO: crew dispatch rule: Large, architecturally hard, multi-subsystem, open-ended design, or gnarly diagnostic work. -> quota-balanced[codex/gpt-5.6-terra/xhigh]
+BOOTSTRAP_INFO: crew dispatch default: quota-balanced[codex/gpt-5.6-terra, claude/sonnet]
+
+Accept supported provider-qualified ordinary model
+Mode: verbose facts
+Exit: 0
+BOOTSTRAP_INFO: crew dispatch active config/crew-dispatch.json
+BOOTSTRAP_INFO: crew dispatch rule: Review, verification, or second reading of work another runtime produced. -> quota-balanced[codex/gpt-5.6-terra, claude/sonnet]
+BOOTSTRAP_INFO: crew dispatch rule: Large, architecturally hard, multi-subsystem, open-ended design, or gnarly diagnostic work. -> quota-balanced[codex/gpt-5.6-terra/xhigh]
+BOOTSTRAP_INFO: crew dispatch default: quota-balanced[pi/anthropic/claude-sonnet-5, claude/sonnet]
+
+Reject array reasoning mode
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 rule reasoning.mode must be one of generic, fixed
+
+Reject empty array reasoning mode
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 rule reasoning.mode must be one of generic, fixed
+
+Reject array reasoning target
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 rule reasoning.target must be one of low, medium, high, xhigh, max
+
+Reject array profile classification
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 profile.model_class must be one of ordinary, astra, fable
+
+Reject array placement target kind
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 placement target.kind must be one of main-home, secondmate
+
+Reject fixed reasoning reason flag false
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 rule reasoning.dispatch_reason_required must be true
+
+Reject fixed reasoning reason flag "true"
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 rule reasoning.dispatch_reason_required must be true
+
+Reject fixed reasoning reason flag null
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 rule reasoning.dispatch_reason_required must be true
+
+Reject fixed reasoning without target
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 rule reasoning missing required key: target
+
+Reject fixed reasoning without reason flag
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 rule reasoning missing required key: dispatch_reason_required
+
+Reject generic reasoning with fixed fields
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 generic rule reasoning cannot set fixed-mode fields
+
+Reject unverified harness
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 unverified harness: spaceship
+
+Reject unsupported Codex effort
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 invalid effort: codex:max
+
+Reject ultra through a non-native provider
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 invalid effort: pi:ultra
+
+Reject nonempty quota exceptions
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 exceptions must be empty
+
+Reject malformed exceptions object
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 exceptions must be empty
+
+Reject parallel precedence declaration
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 top-level has unknown field: precedence
+
+Reject parallel default membership list
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 dispatch has unknown field: ordinary_default_profiles
+
+Reject removing Fable from blocked model classes
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 constraint.blocked_model_classes must contain only astra and fable
+
+Reject unknown-class admission
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 constraint.unknown_model_class must be treat_as_blocked
+
+Reject silent no-candidate fallback
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 constraint.on_no_eligible_candidate must be report
+
+Reject disabling higher reasoning explanations
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 dispatch.higher_reasoning_requires_reason must be true
+
+Reject replacing quota-array selector
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 dispatch.selector must be quota-array-dispatch
+
+Accept advisory secondmate target without creating a handoff
+Mode: verbose facts
+Exit: 0
+BOOTSTRAP_INFO: crew dispatch active config/crew-dispatch.json
+BOOTSTRAP_INFO: crew dispatch rule: Review, verification, or second reading of work another runtime produced. -> quota-balanced[codex/gpt-5.6-terra, claude/sonnet]
+BOOTSTRAP_INFO: crew dispatch rule: Large, architecturally hard, multi-subsystem, open-ended design, or gnarly diagnostic work. -> quota-balanced[codex/gpt-5.6-terra/xhigh]
+BOOTSTRAP_INFO: crew dispatch default: quota-balanced[codex/gpt-5.6-terra, claude/sonnet]
+
+Reject claiming mechanical placement enforcement
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 placement enforcement.current must be advisory until intake and backlog handoff read it
+
+Reject missing non-reader declaration
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 placement enforcement.not_read_by must list fm-bootstrap and fm-spawn
+
+Reject unknown placement capability
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 placement rule references unknown capability: missing
+
+Reject secondmate placement without a host
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 secondmate placement target missing required key: host
+
+Reject main-home placement with a host
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 main-home placement target cannot set host
+
+Reject unsupported unmatched placement policy
+Mode: verbose facts
+Exit: 0
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 placement.unmatched must be retain-intake-home
