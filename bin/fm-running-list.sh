@@ -17,16 +17,16 @@
 #   fm-running-list.sh --json the same model as JSON (schema fm-running-list.v1)
 #
 # Groups, in captain-scan order:
-#   rotting             open rows with no date, no dependency, and nobody named
+#   rotting             open rows with no viable continuation, including proven-dead copies
 #   waiting_on_you      captain-hold items, including dated holds (the date is
 #                       the way back, not the owner of the wait)
-#   waiting_on_outside  paused work, external holds, and non-placeholder gate reasons
-#   blocked             unresolved blockers, blocker id shown
+#   waiting_on_outside  paused work, undated external holds, and named gate reasons
+#   blocked             unresolved blockers and in-flight work with blocked or unknown state
 #   waiting_on_date     time-gated work that is not a captain hold
 #   moving              in-flight work whose current state is working
 #
 # The rotting count is printed first. Age is shown in days when the snapshot
-# supplies it (held-Nd notes); otherwise the row shows "-" and the status line
+# supplies a structured hold age; otherwise the row shows "-" and the status line
 # says so. Unreadable homes are named so a dead remote does not hide the rest.
 # Warning gates such as (main-inventory) are status, not open work.
 #
@@ -57,7 +57,8 @@ done
 
 command -v jq >/dev/null 2>&1 || { echo "fm-running-list: jq not found" >&2; exit 1; }
 
-SNAP=$("$BEARINGS" --json --all-in-flight --all-queued --all-secondmates --all-unhealthy) \
+SNAP=$("$BEARINGS" --json --all-in-flight --all-decisions --all-queued \
+  --all-secondmates --all-unhealthy) \
   || exit $?
 
 MODEL=$(printf '%s' "$SNAP" | jq '
@@ -67,14 +68,6 @@ MODEL=$(printf '%s' "$SNAP" | jq '
     if nonempty($fallback) then $fallback
     elif ($id | type == "string") and ($id | contains("/")) then ($id | split("/")[0])
     else "(main)" end;
-  def held_days($reason):
-    if (($reason // "") | test("^held [0-9]+d")) then
-      (($reason // "") | capture("^held (?<d>[0-9]+)d") | .d | tonumber)
-    else null end;
-  def until_date($reason):
-    if (($reason // "") | test("^until ")) then
-      (($reason // "") | capture("^until (?<d>[^:[:space:]]+)") | .d)
-    else null end;
   def is_warning($id):
     ($id | type == "string") and ($id | startswith("("));
   def is_unreadable($m):
@@ -86,12 +79,27 @@ MODEL=$(printf '%s' "$SNAP" | jq '
     {id:$id, title:dash($title), owner:owner_of($id; $owner),
      age_days:$age, wait:dash($wait)};
   def by_age_then_id:
-    sort_by([(.age_days == null), -(.age_days // 0), .id]);
-  def mark($st; $id): $st + {seen: ($st.seen + {($id): true})};
-  def unseen($st; $id): ($id | type == "string") and ($st.seen[$id] | not);
-  def is_dead_copy($dead; $t):
-    (($dead | index($t.id)) != null)
-    or (($t.doing // "") | test("gone"; "i"));
+    sort_by([(.age_days == null), -(.age_days // 0), .id, .owner]);
+  def identity($id; $fallback):
+    owner_of($id; $fallback) as $owner
+    | if $owner == "(main)" then ($owner + "/" + $id)
+      elif ($id | startswith($owner + "/")) then $id
+      else ($owner + "/" + $id) end;
+  def mark($st; $id; $owner):
+    $st + {seen: ($st.seen + {(identity($id; $owner)): true})};
+  def unseen($st; $id; $owner):
+    ($id | type == "string") and ($st.seen[identity($id; $owner)] | not);
+  def endpoint_dead($dead; $id): (($dead | index($id)) != null);
+  def state_wait($t):
+    if nonempty($t.doing) then $t.doing else ("state " + ($t.state // "unknown")) end;
+  def open_work_omission:
+    (.surface // "") as $surface
+    | ($surface | test("^main (in-flight|unstructured current)"))
+      or ($surface | test("^in_flight showing "))
+      or ($surface | test("^secondmate .* (active children|decisions_open|queued) omitted by snapshot bound:"))
+      or ($surface | test("^secondmates showing "))
+      or ($surface | test("^registered secondmates omitted by snapshot bound:"))
+      or ($surface | test("^secondmate registry (input truncated|records omitted|unavailable:)"));
 
   . as $snap
   | ($snap.decisions_open // []) as $decisions
@@ -112,49 +120,60 @@ MODEL=$(printf '%s' "$SNAP" | jq '
       unreadables: []
     }
   | reduce $decisions[] as $d (.;
-      (held_days($d.summary) // null) as $age
-      | .waiting_on_you += [row($d.id; $d.summary; $d.owner; $age; $d.summary)]
-      | mark(.; $d.id))
-  | reduce $inflight[] as $t (.;
-      if ($t.state == "paused") and unseen(.; $t.id) then
-        .waiting_on_outside += [row($t.id; $t.doing; null; null; $t.doing)]
-        | mark(.; $t.id)
-      else . end)
+      (if nonempty($d.hold_until) then ("until " + $d.hold_until)
+       else $d.summary end) as $wait
+      | .waiting_on_you += [row($d.id; $d.summary; $d.owner;
+                                ($d.hold_age_days // null); $wait)]
+      | mark(.; $d.id; $d.owner))
   | reduce $gates[] as $g (.;
       if is_warning($g.id) then
         .warnings += [{id:$g.id, title:dash($g.title), reason:dash($g.reason)}]
-        | mark(.; $g.id)
-      elif unseen(.; $g.id) and nonempty(until_date($g.reason)) then
-        .waiting_on_you += [row($g.id; $g.title; $g.owner; null;
-                               ("until " + until_date($g.reason)))]
-        | mark(.; $g.id)
-      elif unseen(.; $g.id) and nonempty($g.blocked_by) then
-        .blocked += [row($g.id; $g.title; $g.owner; held_days($g.reason); $g.blocked_by)]
-        | mark(.; $g.id)
-      elif unseen(.; $g.id) and (held_days($g.reason) != null) then
-        .waiting_on_you += [row($g.id; $g.title; $g.owner; held_days($g.reason); $g.reason)]
-        | mark(.; $g.id)
-      elif unseen(.; $g.id) and nonempty($g.reason) then
+        | mark(.; $g.id; $g.owner)
+      elif unseen(.; $g.id; $g.owner) and ($g.hold_kind == "captain") then
+        .waiting_on_you += [row($g.id; $g.title; $g.owner;
+                                ($g.hold_age_days // null);
+                                (if nonempty($g.hold_until) then ("until " + $g.hold_until)
+                                 else $g.reason end))]
+        | mark(.; $g.id; $g.owner)
+      elif unseen(.; $g.id; $g.owner) and nonempty($g.blocked_by) then
+        .blocked += [row($g.id; $g.title; $g.owner;
+                         ($g.hold_age_days // null); $g.blocked_by)]
+        | mark(.; $g.id; $g.owner)
+      elif unseen(.; $g.id; $g.owner) and nonempty($g.hold_until) then
+        .waiting_on_date += [row($g.id; $g.title; $g.owner;
+                                 ($g.hold_age_days // null);
+                                 ("until " + $g.hold_until))]
+        | mark(.; $g.id; $g.owner)
+      elif unseen(.; $g.id; $g.owner) and nonempty($g.reason) then
         .waiting_on_outside += [row($g.id; $g.title; $g.owner; null; $g.reason)]
-        | mark(.; $g.id)
-      elif unseen(.; $g.id) then
+        | mark(.; $g.id; $g.owner)
+      elif unseen(.; $g.id; $g.owner) then
         .rotting += [row($g.id; $g.title; $g.owner; null; $g.title)]
-        | mark(.; $g.id)
+        | mark(.; $g.id; $g.owner)
       else . end)
   | reduce $inflight[] as $t (.;
-      if unseen(.; $t.id) and ($t.state == "working") and (is_dead_copy($dead_ids; $t) | not) then
+      if unseen(.; $t.id; null) and endpoint_dead($dead_ids; $t.id) then
+        .rotting += [row($t.id; ($t.doing // $t.id); null; null; state_wait($t))]
+        | mark(.; $t.id; null)
+      elif unseen(.; $t.id; null) and ($t.state == "working") then
         .moving += [row($t.id; $t.doing; null; null; $t.doing)]
-        | mark(.; $t.id)
-      elif unseen(.; $t.id) then
+        | mark(.; $t.id; null)
+      elif unseen(.; $t.id; null) and ($t.state == "paused" or $t.state == "parked") then
+        .waiting_on_outside += [row($t.id; $t.doing; null; null; state_wait($t))]
+        | mark(.; $t.id; null)
+      elif unseen(.; $t.id; null) and ($t.state == "blocked" or $t.state == "unknown") then
+        .blocked += [row($t.id; ($t.doing // $t.id); null; null; state_wait($t))]
+        | mark(.; $t.id; null)
+      elif unseen(.; $t.id; null) then
         .rotting += [row($t.id; $t.doing // $t.id; null; null; $t.doing // $t.id)]
-        | mark(.; $t.id)
+        | mark(.; $t.id; null)
       else . end)
   | reduce $mates[] as $m (.;
       if is_unreadable($m) then
         .unreadables += [{id:$m.id, reason:dash($m.reason // $m.doing)}]
-      elif ($m.state == "externally_held") and unseen(.; $m.id) then
+      elif ($m.state == "externally_held") and unseen(.; $m.id; $m.id) then
         .waiting_on_outside += [row($m.id; $m.doing; $m.id; null; $m.doing)]
-        | mark(.; $m.id)
+        | mark(.; $m.id; $m.id)
       else . end)
   | . as $st
   | ([.waiting_on_you[], .waiting_on_outside[], .blocked[], .waiting_on_date[],
@@ -173,11 +192,8 @@ MODEL=$(printf '%s' "$SNAP" | jq '
       unreadables: $st.unreadables,
       warnings: $st.warnings,
       missing: (
-        [ if $age_missing then "age in days except held-Nd notes" else empty end,
-          "named outside waiters use gate reason and paused state; hold_kind is not in the snapshot" ]
-        + [ $omitted[]
-            | select((.surface // "") | test("unstructured|in_flight showing|gates showing|decisions_open showing"))
-            | .surface ]
+        [ if $age_missing then "age in days where the snapshot has no structured age" else empty end ]
+        + [ $omitted[] | select(open_work_omission) | .surface ]
       )
     }
 ') || { echo "fm-running-list: grouping failed" >&2; exit 1; }
@@ -206,9 +222,10 @@ printf '%s' "$MODEL" | jq -r '
     "",
     section("Waiting on someone outside"; .waiting_on_outside),
     "",
-    section("Blocked on other work"; .blocked),
-    "",
-    section("Waiting on a date"; .waiting_on_date),
+    section("Blocked or state unclear"; .blocked),
+    (if (.waiting_on_date | length) == 0 then empty
+     else "", section("Waiting on a date"; .waiting_on_date)
+     end),
     "",
     section("Moving"; .moving),
     (if (.unreadables | length) == 0 then empty

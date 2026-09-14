@@ -496,7 +496,6 @@ tests/fm-lint.test.sh 164262
 tests/fm-pi-primary-types.test.sh 8624
 tests/fm-pr-merge.test.sh 111145
 tests/fm-review-diff.test.sh 2747
-tests/fm-running-list.test.sh 2258
 tests/fm-send-popup-settle.test.sh 4939
 tests/fm-send-settle.test.sh 2051
 tests/fm-send-strict.test.sh 3861
@@ -739,6 +738,7 @@ tests/fm-remote-secondmate-lifecycle-e2e.test.sh 209631
 tests/fm-remote-secondmate-parent-binding.test.sh 29562
 tests/fm-remote-secondmate-trace-context.test.sh 67096
 tests/fm-remote-transport-lanes.test.sh 63976
+tests/fm-running-list.test.sh 2258
 tests/fm-secondmate-harness.test.sh 151589
 tests/fm-secondmate-lifecycle-e2e.test.sh 8793
 tests/fm-secondmate-liveness.test.sh 18146

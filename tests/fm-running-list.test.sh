@@ -27,7 +27,20 @@ SH
   cat > "$fb/tmux" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}" in
-  display-message) printf '%%1\n' ;;
+  list-windows)
+    printf '%s\n' fm-ship-task fm-paused-task fm-working-held fm-blocked-live fm-unknown-live
+    ;;
+  display-message)
+    case "$*" in
+      *pane_current_command*) printf 'claude\n' ;;
+      *pane_id*)
+        case "$*" in
+          *fm-dead-paused*|*fm-qwen-process*|*fm-watch-ssh*) exit 1 ;;
+          *) printf '%%1\n' ;;
+        esac
+        ;;
+    esac
+    ;;
   capture-pane) printf 'all quiet\n> \n' ;;
 esac
 exit 0
@@ -50,6 +63,31 @@ make_home() {  # <name>
   local home=$TMP_ROOT/$1
   mkdir -p "$home/state" "$home/data" "$home/projects" "$home/config"
   printf '%s\n' "$home"
+}
+
+make_secondmate_home() {  # <id> <home>
+  local id=$1 home=$2
+  mkdir -p "$home/state" "$home/data" "$home/config" "$home/projects" "$home/bin"
+  printf '# Firstmate fixture\n' > "$home/AGENTS.md"
+  printf '%s\n' "$id" > "$home/.fm-secondmate-home"
+  cat > "$home/data/backlog.md" <<'EOF'
+## In flight
+
+## Queued
+
+## Done
+EOF
+}
+
+register_secondmate() {  # <parent> <id> <home>
+  printf -- '- %s - fixture domain (home: %s; scope: fixture; projects: sample; added 2026-07-13)\n' \
+    "$2" "$3" >> "$1/data/secondmates.md"
+}
+
+refresh_secondmate_home() {  # <home> <fakebin>
+  PATH="$2:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$1" \
+    FM_SNAPSHOT_NOW="$NOW" "$ROOT/bin/fm-home-summary-refresh.sh" >/dev/null \
+    || fail "could not publish secondmate fixture ledger: $1"
 }
 
 record_claude_state() {  # <state-dir> <id> <busy|idle>
@@ -75,13 +113,18 @@ run_list() {  # <home> <fakebin> [args...]
 write_open_work_fixture() {  # <home>
   local home=$1 missing
   missing="$TMP_ROOT/missing-mate-home"
-  mkdir -p "$home/projects/ship-wt" "$home/projects/paused-wt"
+  mkdir -p "$home/projects/ship-wt" "$home/projects/paused-wt" \
+    "$home/projects/dead-paused-wt" "$home/projects/blocked-live-wt" \
+    "$home/projects/unknown-live-wt"
   printf -- '- missing-mate - fixture domain (home: %s; scope: fixture; projects: sample; added 2026-07-13)\n' \
     "$missing" > "$home/data/secondmates.md"
   cat > "$home/data/backlog.md" <<'EOF'
 ## In flight
 - [ ] ship-task - Ship the thing (repo: sample) (kind: ship) (since 2026-09-12)
 - [ ] paused-task - Wait on counsel (repo: sample) (kind: ship) (since 2026-09-10)
+- [ ] dead-paused - Dead paused copy (repo: sample) (kind: ship) (since 2026-09-10)
+- [ ] blocked-live - Blocked live work (repo: sample) (kind: ship) (since 2026-09-10)
+- [ ] unknown-live - Unclear live work (repo: sample) (kind: ship) (since 2026-09-10)
 - [ ] working-held - Held while working (repo: sample) (kind: captain) (hold: choose a route) (hold-kind: captain) (since 2026-09-13)
 - [ ] qwen-process - Idle qwen copy (repo: sample) (kind: ship) (since 2026-09-01)
 - [ ] watch-ssh - Idle watch copy (repo: sample) (kind: ship) (since 2026-09-01)
@@ -92,6 +135,9 @@ write_open_work_fixture() {  # <home>
 - [ ] aged-hold - Aged call (repo: sample) (kind: captain) (hold: choose a route) (hold-kind: captain) (since 2026-08-01)
 - [ ] blocked-work - Real queued work blocked-by: ship-task (repo: sample) (kind: ship)
 - [ ] observation - Held observation (repo: sample) (kind: scout) (hold: waiting on Jane at legal) (hold-kind: external)
+- [ ] vendor-wait - Vendor release (repo: sample) (kind: ship) (hold: until vendor ships) (hold-kind: external)
+- [ ] legal-wait - Legal review (repo: sample) (kind: ship) (hold: held 20d by legal) (hold-kind: external)
+- [ ] renewal-date - Renewal window (repo: sample) (kind: ship) (hold: wait for renewal) (hold-kind: external) (hold-until: 2026-12-15)
 - [ ] abandoned-issue - Still reading as a to-do (repo: sample) (kind: ship) (since 2026-07-01)
 - [ ] vault-note - Vault note with nobody tracking it (repo: sample) (kind: ship)
 
@@ -101,13 +147,26 @@ EOF
   fm_write_meta "$home/state/ship-task.meta" \
     "window=firstmate:fm-ship-task" "worktree=$home/projects/ship-wt" \
     "project=sample" "harness=claude" "kind=ship" "mode=ship"
-  record_claude_state "$home/state" ship-task busy
-  printf 'working: building the thing\n' > "$home/state/ship-task.status"
+  record_claude_state "$home/state" ship-task idle
+  printf 'working: building the gone-away safeguard\n' > "$home/state/ship-task.status"
   fm_write_meta "$home/state/paused-task.meta" \
     "window=firstmate:fm-paused-task" "worktree=$home/projects/paused-wt" \
     "project=sample" "harness=claude" "kind=ship" "mode=ship"
   record_claude_state "$home/state" paused-task idle
   printf 'paused: waiting on Jane at counsel\n' > "$home/state/paused-task.status"
+  fm_write_meta "$home/state/dead-paused.meta" \
+    "window=firstmate:fm-dead-paused" "worktree=$home/projects/dead-paused-wt" \
+    "project=sample" "harness=claude" "kind=ship" "mode=ship"
+  record_claude_state "$home/state" dead-paused idle
+  printf 'paused: waiting on counsel\n' > "$home/state/dead-paused.status"
+  fm_write_meta "$home/state/blocked-live.meta" \
+    "window=firstmate:fm-blocked-live" "worktree=$home/projects/blocked-live-wt" \
+    "project=sample" "harness=claude" "kind=ship" "mode=ship"
+  record_claude_state "$home/state" blocked-live idle
+  printf 'blocked: dependency unavailable\n' > "$home/state/blocked-live.status"
+  fm_write_meta "$home/state/unknown-live.meta" \
+    "window=firstmate:fm-unknown-live" "worktree=$home/projects/unknown-live-wt" \
+    "project=sample" "harness=claude" "kind=ship" "mode=ship"
   fm_write_meta "$home/state/working-held.meta" \
     "window=firstmate:fm-working-held" "worktree=$home/projects/ship-wt" \
     "project=sample" "harness=claude" "kind=captain" "mode=ship"
@@ -145,35 +204,39 @@ test_groups_open_work_and_names_unreadables() {
   printf '%s' "$json" | jq -e '.schema == "fm-running-list.v1"' >/dev/null \
     || fail "schema missing: $json"
   printf '%s' "$json" | jq -e '
-    .nothing_brings_them_back == 4
-      and (.rotting | map(.id) | sort) == ["abandoned-issue", "qwen-process", "vault-note", "watch-ssh"]
+    .nothing_brings_them_back == 5
+      and (.rotting | map(.id) | sort) == ["abandoned-issue", "dead-paused", "qwen-process", "vault-note", "watch-ssh"]
       and (.waiting_on_you | map(.id) | sort) == ["aged-hold", "dated-hold", "live-hold", "working-held"]
       and (.waiting_on_you | map(select(.id == "working-held")) | length) == 1
       and (.moving | map(.id) | index("working-held") == null)
-      and (.waiting_on_date | length) == 0
+      and (.waiting_on_date | map(.id)) == ["renewal-date"]
       and (.waiting_on_you[] | select(.id == "dated-hold") | .wait) == "until 2026-12-01"
-      and (.blocked | map(.id)) == ["blocked-work"]
+      and (.waiting_on_date[] | select(.id == "renewal-date") | .wait) == "until 2026-12-15"
+      and (.blocked | map(.id) | sort) == ["blocked-live", "blocked-work", "unknown-live"]
       and (.blocked[] | select(.id == "blocked-work") | .wait) == "ship-task"
-      and (.waiting_on_outside | map(.id) | sort) == ["observation", "paused-task"]
+      and (.waiting_on_outside | map(.id) | sort) == ["legal-wait", "observation", "paused-task", "vendor-wait"]
+      and (.waiting_on_outside | any(.id == "vendor-wait" and .wait == "until vendor ships"))
+      and (.waiting_on_outside | any(.id == "legal-wait" and .wait == "held 20d by legal"))
+      and (.waiting_on_you | any(.id == "vendor-wait" or .id == "legal-wait") | not)
       and (.moving | map(.id)) == ["ship-task"]
       and (.moving | map(.id) | index("qwen-process") == null)
       and (.moving | map(.id) | index("watch-ssh") == null)
       and (.unreadables | map(.id)) == ["missing-mate"]
       and (.waiting_on_you | any(.id == "aged-hold" and .age_days != null))
       and ([.rotting[], .waiting_on_you[], .waiting_on_outside[], .blocked[],
-            .waiting_on_date[], .moving[]] | map(.id) | unique | length)
+            .waiting_on_date[], .moving[]] | map([.owner, .id]) | unique | length)
           == ([.rotting[], .waiting_on_you[], .waiting_on_outside[], .blocked[],
-               .waiting_on_date[], .moving[]] | map(.id) | length)
+               .waiting_on_date[], .moving[]] | length)
   ' >/dev/null || fail "open-work grouping wrong: $json"
   human=$(run_list "$home" "$fakebin") || fail "human running list failed"
-  assert_contains "$human" "4 with nothing that will bring them back" \
+  assert_contains "$human" "5 with nothing that will bring them back" \
     "rotting count should lead the human view"
   assert_contains "$human" "abandoned-issue" "rotting rows should be listed"
   assert_contains "$human" "Waiting on you (4)" "captain holds should be grouped"
   assert_contains "$human" "until 2026-12-01" "dated captain holds should show the way-back date"
-  assert_contains "$human" "Waiting on someone outside (2)" "named outside waiters should be grouped"
-  assert_contains "$human" "Blocked on other work (1)" "blockers should be grouped"
-  assert_contains "$human" "Waiting on a date (0)" "dated captain holds are not waiting on a date"
+  assert_contains "$human" "Waiting on someone outside (4)" "named outside waiters should be grouped"
+  assert_contains "$human" "Blocked or state unclear (3)" "blocked and unknown live state should be explicit"
+  assert_contains "$human" "Waiting on a date (1)" "non-captain time gates should be grouped"
   assert_contains "$human" "Moving (1)" "live work should be grouped"
   assert_not_contains "$human" "Moving (3)" "idle copies must not inflate Moving"
   assert_contains "$human" "Homes that could not be read: missing-mate" \
@@ -183,7 +246,7 @@ test_groups_open_work_and_names_unreadables() {
   pass "groups open work, names unreadables, and stays off the network"
 }
 
-test_empty_fleet_still_prints_groups() {
+test_empty_fleet_prints_fixed_groups() {
   local home fakebin json human
   home=$(make_home empty)
   fakebin=$(make_fakebin "$home")
@@ -200,9 +263,10 @@ test_empty_fleet_still_prints_groups() {
     "empty rotting count should still print"
   assert_contains "$human" "Waiting on you (0)" "empty groups should still print"
   assert_contains "$human" "Moving (0)" "empty moving group should still print"
+  assert_not_contains "$human" "Waiting on a date" "the empty date group should stay hidden"
   assert_not_contains "$human" "Homes that could not be read:" \
     "empty fleet should not invent unreadable homes"
-  pass "empty fleet still prints every group"
+  pass "empty fleet prints fixed groups and hides the empty date group"
 }
 
 test_does_not_mutate_backlog_or_holds() {
@@ -244,8 +308,97 @@ EOF
   pass "done rows stay off the open list"
 }
 
+test_keeps_same_local_id_from_different_homes() {
+  local home mate fakebin json
+  home=$(make_home colliding-ids)
+  mate="$TMP_ROOT/colliding-ids-mate"
+  : > "$home/data/secondmates.md"
+  make_secondmate_home domain-a "$mate"
+  register_secondmate "$home" domain-a "$mate"
+  cat > "$home/data/backlog.md" <<'EOF'
+## In flight
+
+## Queued
+- [ ] deploy - Main deploy (repo: sample) (kind: ship)
+
+## Done
+EOF
+  cat > "$mate/data/backlog.md" <<'EOF'
+## In flight
+
+## Queued
+- [ ] deploy - Domain deploy (repo: sample) (kind: ship)
+
+## Done
+EOF
+  fakebin=$(make_fakebin "$home")
+  refresh_secondmate_home "$mate" "$fakebin"
+  json=$(run_list "$home" "$fakebin" --json) || fail "colliding-id list failed"
+  printf '%s' "$json" | jq -e '
+    ([.rotting[] | select(.id == "deploy")] | length) == 2
+      and ([.rotting[] | select(.id == "deploy") | .owner] | sort) == ["(main)", "domain-a"]
+  ' >/dev/null || fail "same local id from separate homes was deduplicated: $json"
+  pass "same local task id remains visible in separate homes"
+}
+
+test_discloses_bounded_secondmate_overflow() {
+  local home mate fakebin i json human
+  home=$(make_home mate-overflow)
+  mate="$TMP_ROOT/mate-overflow-home"
+  : > "$home/data/secondmates.md"
+  make_secondmate_home overflow "$mate"
+  register_secondmate "$home" overflow "$mate"
+  : > "$mate/data/backlog.md"
+  printf '%s\n' '## In flight' '' '## Queued' >> "$mate/data/backlog.md"
+  i=1
+  while [ "$i" -le 22 ]; do
+    printf -- '- [ ] call-%02d - Decision %02d (repo: sample) (kind: captain) (hold: choose route %02d) (hold-kind: captain)\n' \
+      "$i" "$i" "$i" >> "$mate/data/backlog.md"
+    i=$((i + 1))
+  done
+  printf '%s\n' '' '## Done' >> "$mate/data/backlog.md"
+  fakebin=$(make_fakebin "$home")
+  refresh_secondmate_home "$mate" "$fakebin"
+  json=$(run_list "$home" "$fakebin" --json) || fail "overflow list failed"
+  printf '%s' "$json" | jq -e '
+    (.waiting_on_you | length) == 20
+      and (.missing | index("secondmate overflow decisions_open omitted by snapshot bound: 2") != null)
+      and (.missing | index("secondmate overflow queued omitted by snapshot bound: 2") != null)
+  ' >/dev/null || fail "bounded secondmate overflow was not disclosed: $json"
+  human=$(run_list "$home" "$fakebin") || fail "overflow human list failed"
+  assert_contains "$human" "secondmate overflow decisions_open omitted by snapshot bound: 2" \
+    "decision overflow should reach the status line"
+  assert_contains "$human" "secondmate overflow queued omitted by snapshot bound: 2" \
+    "queued overflow should reach the status line"
+  pass "bounded secondmate overflow is disclosed"
+}
+
+test_all_decisions_exceeds_default_bearings_cap() {
+  local home fakebin i json
+  home=$(make_home all-decisions)
+  : > "$home/data/backlog.md"
+  printf '%s\n' '## In flight' '' '## Queued' >> "$home/data/backlog.md"
+  i=1
+  while [ "$i" -le 21 ]; do
+    printf -- '- [ ] call-%02d - Decision %02d (repo: sample) (kind: captain) (hold: choose route %02d) (hold-kind: captain)\n' \
+      "$i" "$i" "$i" >> "$home/data/backlog.md"
+    i=$((i + 1))
+  done
+  printf '%s\n' '' '## Done' >> "$home/data/backlog.md"
+  fakebin=$(make_fakebin "$home")
+  json=$(run_list "$home" "$fakebin" --json) || fail "all-decisions list failed"
+  printf '%s' "$json" | jq -e '
+    (.waiting_on_you | length) == 21
+      and (.missing | any(. == "decisions_open showing 20 of 21") | not)
+  ' >/dev/null || fail "the bearings decision cap hid an open captain hold: $json"
+  pass "all captain holds bypass the bearings display cap"
+}
+
 test_help_and_bad_flag
 test_groups_open_work_and_names_unreadables
-test_empty_fleet_still_prints_groups
+test_empty_fleet_prints_fixed_groups
 test_does_not_mutate_backlog_or_holds
 test_done_rows_stay_off_the_list
+test_keeps_same_local_id_from_different_homes
+test_discloses_bounded_secondmate_overflow
+test_all_decisions_exceeds_default_bearings_cap

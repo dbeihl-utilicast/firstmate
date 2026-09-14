@@ -132,8 +132,10 @@ remote homes under one shared snapshot budget and may refresh the parent-side ca
 Default fields: schema, home, generated, prs, in_flight{id,kind,state,repo,doing},
   secondmates{id,state,doing,provenance,freshness,age_seconds,contradiction,reason},
   secondmate_reconcile{id,spawn_gen,host,kind,ids},
-  decisions_open{id,key,verb,summary,owner}, landed{id,what,artifact,owner},
-  gates{id,title,blocked_by,reason,owner}, reports{id,path}, recorded_prs{id,url},
+  decisions_open{id,key,verb,summary,owner,hold_kind,hold_bucket,hold_until,hold_age_days},
+  landed{id,what,artifact,owner},
+  gates{id,title,blocked_by,reason,owner,hold_kind,hold_bucket,hold_until,hold_age_days},
+  reports{id,path}, recorded_prs{id,url},
   unhealthy_endpoints{...} (only when non-empty), omitted{surface,reveal}.
 landed merges this home's Done with registered secondmate homes' Done, bounded by
   a per-home cap (FM_BEARINGS_LANDED_PER_HOME) and an overall cap (FM_BEARINGS_LANDED),
@@ -381,7 +383,9 @@ MODEL=$(printf '%s' "$SNAP" | jq \
   def as_gate($owner):
     {id, title:(.title | trunc(60)),
      blocked_by:((.unresolved_blocker_ids // []) | if length > 0 then join(",") else "-" end | trunc(120)),
-     reason:(hold_gate_reason | trunc(40)), owner:$owner};
+     reason:(hold_gate_reason | trunc(40)), owner:$owner,
+     hold_kind:(.hold_kind // null), hold_bucket:(.hold_bucket // null),
+     hold_until:(.hold_until // null), hold_age_days:(.hold_age_days // null)};
   def round_robin_landed($n):
     . as $groups
     | [range(0; (($groups | map(length) | max) // 0)) as $i
@@ -472,14 +476,16 @@ MODEL=$(printf '%s' "$SNAP" | jq \
          | select(.structured and .hold_bucket != null)
          | select(($all_decisions == 1) or live_captain_call)
          | {id,key:.id,verb:"captain-hold",
-            summary:hold_summary(.title; .hold_reason),owner:"(main)"} ]
+            summary:hold_summary(.title; .hold_reason),owner:"(main)",
+            hold_kind,hold_bucket,hold_until,hold_age_days} ]
      + [ (.secondmate_current.records // [])[] as $m
          | ([ $m.decisions_open[]?
               | select(.source == "backlog" and .verb == "captain-hold")
               | select(($all_decisions == 1) or live_captain_call)
               | {id:($m.id + "/" + .id),key,verb,
                  summary:hold_summary((.summary // .id);
-                                      (.reason // "captain decision pending")),owner:$m.id} ]
+                                      (.reason // "captain decision pending")),owner:$m.id,
+                 hold_kind:"captain",hold_bucket,hold_until,hold_age_days} ]
             + [ $m.queued[]?
                 | select($all_decisions == 1 and .hold_kind == "captain")
                 | select(.id as $id
@@ -489,7 +495,8 @@ MODEL=$(printf '%s' "$SNAP" | jq \
                          | index($id) | not)
                 | {id:($m.id + "/" + .id),key:.id,verb:"captain-hold",
                    summary:hold_summary((.title // .id);
-                                        (.hold_reason // "captain decision pending")),owner:$m.id} ])[] ]) as $decisions_all
+                                        (.hold_reason // "captain decision pending")),owner:$m.id,
+                   hold_kind,hold_bucket,hold_until,hold_age_days} ])[] ]) as $decisions_all
   | ([ .backlog.records[]
          | . as $record
          | select(.structured and projected_deferred_hold) ]
@@ -566,6 +573,12 @@ MODEL=$(printf '%s' "$SNAP" | jq \
         (($snap.secondmate_current.records // [])[] as $m
          | ([($m.omitted // [])[] | select(.surface == "active_children") | .count] | add // 0) as $n
          | if $n > 0 then {surface:("secondmate " + $m.id + " active children omitted by snapshot bound: \($n)"), reveal:"raise FM_SNAPSHOT_SECONDMATE_CHILDREN"} else empty end),
+        (($snap.secondmate_current.records // [])[] as $m
+         | ([($m.omitted // [])[] | select(.surface == "decisions_open") | .count] | add // 0) as $n
+         | if $n > 0 then {surface:("secondmate " + $m.id + " decisions_open omitted by snapshot bound: \($n)"), reveal:"raise FM_SNAPSHOT_SECONDMATE_DECISIONS"} else empty end),
+        (($snap.secondmate_current.records // [])[] as $m
+         | ([($m.omitted // [])[] | select(.surface == "queued") | .count] | add // 0) as $n
+         | if $n > 0 then {surface:("secondmate " + $m.id + " queued omitted by snapshot bound: \($n)"), reveal:"raise FM_SNAPSHOT_SECONDMATE_QUEUED"} else empty end),
         (if $all_secondmates == 0 and ($secondmates_all | length) > $secondmates_n then {surface:("secondmates showing \($secondmates_n) of \($secondmates_all | length)"), reveal:"--all-secondmates"} else empty end),
         (if (($snap.secondmate_current.truncated // 0) > 0) then {surface:("registered secondmates omitted by snapshot bound: \($snap.secondmate_current.truncated)"), reveal:"raise FM_SNAPSHOT_SECONDMATES"} else empty end),
         (if $snap.secondmate_current.registry.input_truncated == true then {surface:"secondmate registry input truncated by bounded read", reveal:"raise FM_SNAPSHOT_REGISTRY_LINES or FM_SNAPSHOT_REGISTRY_BYTES"} else empty end),
