@@ -141,6 +141,8 @@ Pi's `/supervision-model` command pins a cheaper model and a shallower reasoning
 > alright merge it
 ```
 
+For a fleet-wide check of unfinished no-mistakes runs, use the [validation census](docs/configuration.md#validation-census).
+
 ### More backends
 
 Setup guides for tmux (the default) and every other supported backend (herdr, zellij, Orca, cmux) are linked in [Documentation](#documentation) below.
