@@ -1,0 +1,351 @@
+Real bootstrap CLI; 7927f5c416bfacd56d48cdfb502d4aabb95e24fb; 2026-09-14T22:23:23.882Z
+No tool stubs. Inputs are synthetic policies consumed by the real validator. No model launch or routing execution is claimed.
+
+## published-example
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+BOOTSTRAP_INFO: crew dispatch active config/crew-dispatch.json
+BOOTSTRAP_INFO: crew dispatch rule: Review, verification, or second reading of work another runtime produced. -> quota-balanced[codex/gpt-5.6-terra, claude/sonnet]
+BOOTSTRAP_INFO: crew dispatch rule: Large, architecturally hard, multi-subsystem, open-ended design, or gnarly diagnostic work. -> quota-balanced[codex/gpt-5.6-terra/xhigh]
+BOOTSTRAP_INFO: crew dispatch default: quota-balanced[codex/gpt-5.6-terra, claude/sonnet]
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## published-example-quiet
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="0" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## accept-gpt-5.6-sol-xhigh
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+BOOTSTRAP_INFO: crew dispatch active config/crew-dispatch.json
+BOOTSTRAP_INFO: crew dispatch rule: Review, verification, or second reading of work another runtime produced. -> quota-balanced[cursor/gpt-5.6-sol-xhigh]
+BOOTSTRAP_INFO: crew dispatch rule: Large, architecturally hard, multi-subsystem, open-ended design, or gnarly diagnostic work. -> quota-balanced[codex/gpt-5.6-terra/xhigh]
+BOOTSTRAP_INFO: crew dispatch default: quota-balanced[cursor/gpt-5.6-sol-xhigh]
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## refuse-typo-gpt-5.6-sol-xhigh
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 unclassified model: gpt-5.6-sol-xhigh-typo
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## accept-grok-4.6
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+BOOTSTRAP_INFO: crew dispatch active config/crew-dispatch.json
+BOOTSTRAP_INFO: crew dispatch rule: Review, verification, or second reading of work another runtime produced. -> quota-balanced[grok/grok-4.6]
+BOOTSTRAP_INFO: crew dispatch rule: Large, architecturally hard, multi-subsystem, open-ended design, or gnarly diagnostic work. -> quota-balanced[codex/gpt-5.6-terra/xhigh]
+BOOTSTRAP_INFO: crew dispatch default: quota-balanced[grok/grok-4.6]
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## refuse-typo-grok-4.6
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 unclassified model: grok-4.6-typo
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## accept-cursor-grok-4.6-high-fast
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+BOOTSTRAP_INFO: crew dispatch active config/crew-dispatch.json
+BOOTSTRAP_INFO: crew dispatch rule: Review, verification, or second reading of work another runtime produced. -> quota-balanced[cursor/cursor-grok-4.6-high-fast]
+BOOTSTRAP_INFO: crew dispatch rule: Large, architecturally hard, multi-subsystem, open-ended design, or gnarly diagnostic work. -> quota-balanced[codex/gpt-5.6-terra/xhigh]
+BOOTSTRAP_INFO: crew dispatch default: quota-balanced[cursor/cursor-grok-4.6-high-fast]
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## refuse-typo-cursor-grok-4.6-high-fast
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 unclassified model: cursor-grok-4.6-high-fast-typo
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## accept-composer-2.5
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+BOOTSTRAP_INFO: crew dispatch active config/crew-dispatch.json
+BOOTSTRAP_INFO: crew dispatch rule: Review, verification, or second reading of work another runtime produced. -> quota-balanced[cursor/composer-2.5]
+BOOTSTRAP_INFO: crew dispatch rule: Large, architecturally hard, multi-subsystem, open-ended design, or gnarly diagnostic work. -> quota-balanced[codex/gpt-5.6-terra/xhigh]
+BOOTSTRAP_INFO: crew dispatch default: quota-balanced[cursor/composer-2.5]
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## refuse-typo-composer-2.5
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 unclassified model: composer-2.5-typo
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## qualified-new-model
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+BOOTSTRAP_INFO: crew dispatch active config/crew-dispatch.json
+BOOTSTRAP_INFO: crew dispatch rule: Review, verification, or second reading of work another runtime produced. -> quota-balanced[pi/openai/gpt-5.6-sol-xhigh]
+BOOTSTRAP_INFO: crew dispatch rule: Large, architecturally hard, multi-subsystem, open-ended design, or gnarly diagnostic work. -> quota-balanced[codex/gpt-5.6-terra/xhigh]
+BOOTSTRAP_INFO: crew dispatch default: quota-balanced[pi/openai/gpt-5.6-sol-xhigh]
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## unknown-default-model
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 unclassified model: unclassified-model
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## automatic-default-model
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 unclassified model: auto
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## ordinary-model-misclassified
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 profile.model_class does not match model: gpt-5.6-sol-xhigh
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## new-model-invalid-effort
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 invalid effort: cursor:high
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## new-model-unverified-harness
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 unverified harness: spaceship
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## fallback-without-match
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+BOOTSTRAP_INFO: crew dispatch active config/crew-dispatch.json
+BOOTSTRAP_INFO: crew dispatch rule: Review, verification, or second reading of work another runtime produced. -> quota-balanced[codex/gpt-5.6-terra, claude/sonnet]
+BOOTSTRAP_INFO: crew dispatch rule: Large, architecturally hard, multi-subsystem, open-ended design, or gnarly diagnostic work. -> quota-balanced[codex/gpt-5.6-terra/xhigh]
+BOOTSTRAP_INFO: crew dispatch rule: All remaining work after earlier rules have been considered. -> quota-balanced[codex/gpt-5.6-terra, claude/sonnet]
+BOOTSTRAP_INFO: crew dispatch default: quota-balanced[codex/gpt-5.6-terra, claude/sonnet]
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## combined-fallback-with-fleet-order
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+BOOTSTRAP_INFO: crew dispatch active config/crew-dispatch.json
+BOOTSTRAP_INFO: crew dispatch rule: Review, verification, or second reading of work another runtime produced. -> quota-balanced[codex/gpt-5.6-terra, claude/sonnet]
+BOOTSTRAP_INFO: crew dispatch rule: Large, architecturally hard, multi-subsystem, open-ended design, or gnarly diagnostic work. -> quota-balanced[codex/gpt-5.6-terra/xhigh]
+BOOTSTRAP_INFO: crew dispatch rule: Keep this exact fallback text: punctuation, spacing, and precedence. -> quota-balanced[cursor/gpt-5.6-sol-xhigh, grok/grok-4.6, cursor/cursor-grok-4.6-high-fast, cursor/composer-2.5]
+BOOTSTRAP_INFO: crew dispatch default: quota-balanced[cursor/gpt-5.6-sol-xhigh, grok/grok-4.6, cursor/cursor-grok-4.6-high-fast, cursor/composer-2.5]
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## invalid-match-null
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 rule match must be an object
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## invalid-match-empty-object
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 rule match needs at least one field
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## invalid-match-array
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 rule match must be an object
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## invalid-match-string
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 rule match must be an object
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## invalid-match-number
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 rule match must be an object
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## fallback-missing-reasoning
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 rule missing required key: reasoning
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## fallback-missing-use
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 rule missing required key: use
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## unknown-match-field
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 rule match has unknown field: hosts
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## host-only-rule
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+BOOTSTRAP_INFO: crew dispatch active config/crew-dispatch.json
+BOOTSTRAP_INFO: crew dispatch rule: Review, verification, or second reading of work another runtime produced. -> quota-balanced[codex/gpt-5.6-terra, claude/sonnet]
+BOOTSTRAP_INFO: crew dispatch rule: Large, architecturally hard, multi-subsystem, open-ended design, or gnarly diagnostic work. -> quota-balanced[codex/gpt-5.6-terra/xhigh]
+BOOTSTRAP_INFO: crew dispatch default: quota-balanced[codex/gpt-5.6-terra, claude/sonnet]
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## host-combined-with-existing-fields
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+BOOTSTRAP_INFO: crew dispatch active config/crew-dispatch.json
+BOOTSTRAP_INFO: crew dispatch rule: Review, verification, or second reading of work another runtime produced. -> quota-balanced[codex/gpt-5.6-terra, claude/sonnet]
+BOOTSTRAP_INFO: crew dispatch rule: Large, architecturally hard, multi-subsystem, open-ended design, or gnarly diagnostic work. -> quota-balanced[codex/gpt-5.6-terra/xhigh]
+BOOTSTRAP_INFO: crew dispatch default: quota-balanced[codex/gpt-5.6-terra, claude/sonnet]
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## invalid-host-empty
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 rule match.host must be a non-empty string
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## invalid-host-null
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 rule match.host must be a non-empty string
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## invalid-host-array
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 rule match.host must be a non-empty string
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## invalid-host-number
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 rule match.host must be a non-empty string
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## invalid-host-boolean
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 rule match.host must be a non-empty string
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## invalid-host-object
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 rule match.host must be a non-empty string
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## host-outside-match
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 rule has unknown field: host
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## host-in-profile
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 profile has unknown field: host
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## host-at-top-level
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 top-level has unknown field: host
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## host-in-placement-match
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 placement rule match has unknown field: host
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## astra-triage-and-host
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+BOOTSTRAP_INFO: crew dispatch active config/crew-dispatch.json
+BOOTSTRAP_INFO: crew dispatch rule: Review, verification, or second reading of work another runtime produced. -> quota-balanced[codex/gpt-6-astra]
+BOOTSTRAP_INFO: crew dispatch rule: Large, architecturally hard, multi-subsystem, open-ended design, or gnarly diagnostic work. -> quota-balanced[codex/gpt-5.6-terra/xhigh]
+BOOTSTRAP_INFO: crew dispatch default: quota-balanced[codex/gpt-5.6-terra, claude/sonnet]
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## astra-absent-match
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 top-tier model class astra requires rule match.project Utilicast-LLC/utilicast-triage
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## astra-host-without-project
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 top-tier model class astra requires rule match.project Utilicast-LLC/utilicast-triage
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## astra-wrong-project
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 top-tier model class astra requires rule match.project Utilicast-LLC/utilicast-triage
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## astra-default
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 top-tier model class astra cannot appear in default
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## astra-misclassified
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 profile.model_class does not match model: gpt-6-astra
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## astra-qualified-absent-match
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 top-tier model class astra requires rule match.project Utilicast-LLC/utilicast-triage
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## fable-triage-and-host
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+BOOTSTRAP_INFO: crew dispatch active config/crew-dispatch.json
+BOOTSTRAP_INFO: crew dispatch rule: Review, verification, or second reading of work another runtime produced. -> quota-balanced[claude/fable]
+BOOTSTRAP_INFO: crew dispatch rule: Large, architecturally hard, multi-subsystem, open-ended design, or gnarly diagnostic work. -> quota-balanced[codex/gpt-5.6-terra/xhigh]
+BOOTSTRAP_INFO: crew dispatch default: quota-balanced[codex/gpt-5.6-terra, claude/sonnet]
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## fable-absent-match
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 top-tier model class fable requires rule match.project Utilicast-LLC/utilicast-triage
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## fable-host-without-project
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 top-tier model class fable requires rule match.project Utilicast-LLC/utilicast-triage
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## fable-wrong-project
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 top-tier model class fable requires rule match.project Utilicast-LLC/utilicast-triage
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## fable-default
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 top-tier model class fable cannot appear in default
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## fable-misclassified
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 profile.model_class does not match model: fable
+exit_code=0; input_unchanged=true; observed_result=pass
+
+
+## fable-qualified-absent-match
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-aRFMV4/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 top-tier model class fable requires rule match.project Utilicast-LLC/utilicast-triage
+exit_code=0; input_unchanged=true; observed_result=pass
+

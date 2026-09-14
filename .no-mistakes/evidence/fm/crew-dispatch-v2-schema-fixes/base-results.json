@@ -1,0 +1,857 @@
+{
+  "commit": "3e03587515ceadee6f4e9ea621ae2cb90c4c9d41",
+  "mode": "pre-fix reproduction",
+  "results": [
+    {
+      "id": "accept-gpt-5.6-sol-xhigh",
+      "scenario": "new-models",
+      "input": {
+        "schema_version": 2,
+        "placement": {
+          "capabilities": {
+            "mac-vault": {
+              "home": "main-home",
+              "path": "/Users/example/Documents/Utilicast"
+            }
+          },
+          "rules": [
+            {
+              "id": "main-vault",
+              "match": {
+                "repository": "dbeihl-utilicast/firstmate",
+                "requires_capability": "mac-vault"
+              },
+              "target": {
+                "kind": "main-home",
+                "id": "main-home"
+              }
+            }
+          ],
+          "unmatched": "retain-intake-home",
+          "enforcement": {
+            "current": "advisory",
+            "mechanical_owner": "intake-and-backlog-handoff",
+            "not_read_by": [
+              "fm-bootstrap",
+              "fm-spawn"
+            ]
+          }
+        },
+        "dispatch": {
+          "selector": "quota-array-dispatch",
+          "target_host_checks": [
+            "model_catalog",
+            "quota",
+            "authentication"
+          ],
+          "higher_reasoning_requires_reason": true,
+          "history_ref": "data/crew-dispatch-history.md"
+        },
+        "constraints": [
+          {
+            "id": "top-tier-triage-only",
+            "allowed_projects": [
+              "Utilicast-LLC/utilicast-triage"
+            ],
+            "blocked_model_classes": [
+              "astra",
+              "fable"
+            ],
+            "unknown_model_class": "treat_as_blocked",
+            "on_no_eligible_candidate": "report",
+            "decision_ref": "decision/example/top-tier-ceiling"
+          }
+        ],
+        "exceptions": [],
+        "rules": [
+          {
+            "id": "independent-review",
+            "when": "Review, verification, or second reading of work another runtime produced.",
+            "match": {
+              "task_kind": [
+                "review",
+                "verification",
+                "second-reading"
+              ]
+            },
+            "independence": {
+              "exclude_author_harness": true,
+              "minimum_distinct_harnesses": 1,
+              "explicit_task_instruction_may_raise_minimum": true
+            },
+            "reasoning": {
+              "mode": "generic"
+            },
+            "use": [
+              {
+                "id": "gpt-5.6-sol-xhigh",
+                "harness": "cursor",
+                "model": "gpt-5.6-sol-xhigh",
+                "model_class": "ordinary"
+              }
+            ]
+          },
+          {
+            "id": "hard-work",
+            "when": "Large, architecturally hard, multi-subsystem, open-ended design, or gnarly diagnostic work.",
+            "match": {
+              "task_shape": [
+                "large",
+                "architecturally-hard",
+                "multi-subsystem",
+                "open-ended-design",
+                "gnarly-diagnosis"
+              ]
+            },
+            "reasoning": {
+              "mode": "fixed",
+              "target": "xhigh",
+              "dispatch_reason_required": true
+            },
+            "use": [
+              {
+                "id": "codex-terra-xhigh",
+                "harness": "codex",
+                "model": "gpt-5.6-terra",
+                "effort": "xhigh",
+                "model_class": "ordinary"
+              }
+            ]
+          }
+        ],
+        "default": [
+          {
+            "id": "gpt-5.6-sol-xhigh",
+            "harness": "cursor",
+            "model": "gpt-5.6-sol-xhigh",
+            "model_class": "ordinary"
+          }
+        ]
+      },
+      "command": "FM_HOME=\"/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-asJU0Y/home\" FM_ROOT_OVERRIDE=\"/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-asJU0Y/home\" FM_CONFIG_OVERRIDE=\"/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-asJU0Y/home/config\" FM_DATA_OVERRIDE=\"/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-asJU0Y/home/data\" FM_STATE_OVERRIDE=\"/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-asJU0Y/home/state\" FM_PROJECTS_OVERRIDE=\"/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-asJU0Y/home/projects\" FM_BACKEND=\"tmux\" FM_BOOTSTRAP_DETECT_ONLY=\"1\" FM_BOOTSTRAP_NETWORK=\"skip\" FM_TIMING_LOG=\"\" FM_BOOTSTRAP_VERBOSE_FACTS=\"1\" /bin/bash \"/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-asJU0Y/base/bin/fm-bootstrap.sh\"",
+      "exitCode": 0,
+      "stdout": "CREW_DISPATCH: invalid config/crew-dispatch.json - v2 unclassified model: gpt-5.6-sol-xhigh\n",
+      "stderr": "",
+      "expectedDiagnostic": "v2 unclassified model: gpt-5.6-sol-xhigh",
+      "inputUnchanged": true,
+      "result": "pass",
+      "failures": []
+    },
+    {
+      "id": "accept-grok-4.6",
+      "scenario": "new-models",
+      "input": {
+        "schema_version": 2,
+        "placement": {
+          "capabilities": {
+            "mac-vault": {
+              "home": "main-home",
+              "path": "/Users/example/Documents/Utilicast"
+            }
+          },
+          "rules": [
+            {
+              "id": "main-vault",
+              "match": {
+                "repository": "dbeihl-utilicast/firstmate",
+                "requires_capability": "mac-vault"
+              },
+              "target": {
+                "kind": "main-home",
+                "id": "main-home"
+              }
+            }
+          ],
+          "unmatched": "retain-intake-home",
+          "enforcement": {
+            "current": "advisory",
+            "mechanical_owner": "intake-and-backlog-handoff",
+            "not_read_by": [
+              "fm-bootstrap",
+              "fm-spawn"
+            ]
+          }
+        },
+        "dispatch": {
+          "selector": "quota-array-dispatch",
+          "target_host_checks": [
+            "model_catalog",
+            "quota",
+            "authentication"
+          ],
+          "higher_reasoning_requires_reason": true,
+          "history_ref": "data/crew-dispatch-history.md"
+        },
+        "constraints": [
+          {
+            "id": "top-tier-triage-only",
+            "allowed_projects": [
+              "Utilicast-LLC/utilicast-triage"
+            ],
+            "blocked_model_classes": [
+              "astra",
+              "fable"
+            ],
+            "unknown_model_class": "treat_as_blocked",
+            "on_no_eligible_candidate": "report",
+            "decision_ref": "decision/example/top-tier-ceiling"
+          }
+        ],
+        "exceptions": [],
+        "rules": [
+          {
+            "id": "independent-review",
+            "when": "Review, verification, or second reading of work another runtime produced.",
+            "match": {
+              "task_kind": [
+                "review",
+                "verification",
+                "second-reading"
+              ]
+            },
+            "independence": {
+              "exclude_author_harness": true,
+              "minimum_distinct_harnesses": 1,
+              "explicit_task_instruction_may_raise_minimum": true
+            },
+            "reasoning": {
+              "mode": "generic"
+            },
+            "use": [
+              {
+                "id": "grok-4.6",
+                "harness": "grok",
+                "model": "grok-4.6",
+                "model_class": "ordinary"
+              }
+            ]
+          },
+          {
+            "id": "hard-work",
+            "when": "Large, architecturally hard, multi-subsystem, open-ended design, or gnarly diagnostic work.",
+            "match": {
+              "task_shape": [
+                "large",
+                "architecturally-hard",
+                "multi-subsystem",
+                "open-ended-design",
+                "gnarly-diagnosis"
+              ]
+            },
+            "reasoning": {
+              "mode": "fixed",
+              "target": "xhigh",
+              "dispatch_reason_required": true
+            },
+            "use": [
+              {
+                "id": "codex-terra-xhigh",
+                "harness": "codex",
+                "model": "gpt-5.6-terra",
+                "effort": "xhigh",
+                "model_class": "ordinary"
+              }
+            ]
+          }
+        ],
+        "default": [
+          {
+            "id": "grok-4.6",
+            "harness": "grok",
+            "model": "grok-4.6",
+            "model_class": "ordinary"
+          }
+        ]
+      },
+      "command": "FM_HOME=\"/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-asJU0Y/home\" FM_ROOT_OVERRIDE=\"/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-asJU0Y/home\" FM_CONFIG_OVERRIDE=\"/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-asJU0Y/home/config\" FM_DATA_OVERRIDE=\"/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-asJU0Y/home/data\" FM_STATE_OVERRIDE=\"/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-asJU0Y/home/state\" FM_PROJECTS_OVERRIDE=\"/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-asJU0Y/home/projects\" FM_BACKEND=\"tmux\" FM_BOOTSTRAP_DETECT_ONLY=\"1\" FM_BOOTSTRAP_NETWORK=\"skip\" FM_TIMING_LOG=\"\" FM_BOOTSTRAP_VERBOSE_FACTS=\"1\" /bin/bash \"/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-asJU0Y/base/bin/fm-bootstrap.sh\"",
+      "exitCode": 0,
+      "stdout": "CREW_DISPATCH: invalid config/crew-dispatch.json - v2 unclassified model: grok-4.6\n",
+      "stderr": "",
+      "expectedDiagnostic": "v2 unclassified model: grok-4.6",
+      "inputUnchanged": true,
+      "result": "pass",
+      "failures": []
+    },
+    {
+      "id": "accept-cursor-grok-4.6-high-fast",
+      "scenario": "new-models",
+      "input": {
+        "schema_version": 2,
+        "placement": {
+          "capabilities": {
+            "mac-vault": {
+              "home": "main-home",
+              "path": "/Users/example/Documents/Utilicast"
+            }
+          },
+          "rules": [
+            {
+              "id": "main-vault",
+              "match": {
+                "repository": "dbeihl-utilicast/firstmate",
+                "requires_capability": "mac-vault"
+              },
+              "target": {
+                "kind": "main-home",
+                "id": "main-home"
+              }
+            }
+          ],
+          "unmatched": "retain-intake-home",
+          "enforcement": {
+            "current": "advisory",
+            "mechanical_owner": "intake-and-backlog-handoff",
+            "not_read_by": [
+              "fm-bootstrap",
+              "fm-spawn"
+            ]
+          }
+        },
+        "dispatch": {
+          "selector": "quota-array-dispatch",
+          "target_host_checks": [
+            "model_catalog",
+            "quota",
+            "authentication"
+          ],
+          "higher_reasoning_requires_reason": true,
+          "history_ref": "data/crew-dispatch-history.md"
+        },
+        "constraints": [
+          {
+            "id": "top-tier-triage-only",
+            "allowed_projects": [
+              "Utilicast-LLC/utilicast-triage"
+            ],
+            "blocked_model_classes": [
+              "astra",
+              "fable"
+            ],
+            "unknown_model_class": "treat_as_blocked",
+            "on_no_eligible_candidate": "report",
+            "decision_ref": "decision/example/top-tier-ceiling"
+          }
+        ],
+        "exceptions": [],
+        "rules": [
+          {
+            "id": "independent-review",
+            "when": "Review, verification, or second reading of work another runtime produced.",
+            "match": {
+              "task_kind": [
+                "review",
+                "verification",
+                "second-reading"
+              ]
+            },
+            "independence": {
+              "exclude_author_harness": true,
+              "minimum_distinct_harnesses": 1,
+              "explicit_task_instruction_may_raise_minimum": true
+            },
+            "reasoning": {
+              "mode": "generic"
+            },
+            "use": [
+              {
+                "id": "cursor-grok-4.6-high-fast",
+                "harness": "cursor",
+                "model": "cursor-grok-4.6-high-fast",
+                "model_class": "ordinary"
+              }
+            ]
+          },
+          {
+            "id": "hard-work",
+            "when": "Large, architecturally hard, multi-subsystem, open-ended design, or gnarly diagnostic work.",
+            "match": {
+              "task_shape": [
+                "large",
+                "architecturally-hard",
+                "multi-subsystem",
+                "open-ended-design",
+                "gnarly-diagnosis"
+              ]
+            },
+            "reasoning": {
+              "mode": "fixed",
+              "target": "xhigh",
+              "dispatch_reason_required": true
+            },
+            "use": [
+              {
+                "id": "codex-terra-xhigh",
+                "harness": "codex",
+                "model": "gpt-5.6-terra",
+                "effort": "xhigh",
+                "model_class": "ordinary"
+              }
+            ]
+          }
+        ],
+        "default": [
+          {
+            "id": "cursor-grok-4.6-high-fast",
+            "harness": "cursor",
+            "model": "cursor-grok-4.6-high-fast",
+            "model_class": "ordinary"
+          }
+        ]
+      },
+      "command": "FM_HOME=\"/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-asJU0Y/home\" FM_ROOT_OVERRIDE=\"/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-asJU0Y/home\" FM_CONFIG_OVERRIDE=\"/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-asJU0Y/home/config\" FM_DATA_OVERRIDE=\"/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-asJU0Y/home/data\" FM_STATE_OVERRIDE=\"/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-asJU0Y/home/state\" FM_PROJECTS_OVERRIDE=\"/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-asJU0Y/home/projects\" FM_BACKEND=\"tmux\" FM_BOOTSTRAP_DETECT_ONLY=\"1\" FM_BOOTSTRAP_NETWORK=\"skip\" FM_TIMING_LOG=\"\" FM_BOOTSTRAP_VERBOSE_FACTS=\"1\" /bin/bash \"/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-asJU0Y/base/bin/fm-bootstrap.sh\"",
+      "exitCode": 0,
+      "stdout": "CREW_DISPATCH: invalid config/crew-dispatch.json - v2 unclassified model: cursor-grok-4.6-high-fast\n",
+      "stderr": "",
+      "expectedDiagnostic": "v2 unclassified model: cursor-grok-4.6-high-fast",
+      "inputUnchanged": true,
+      "result": "pass",
+      "failures": []
+    },
+    {
+      "id": "accept-composer-2.5",
+      "scenario": "new-models",
+      "input": {
+        "schema_version": 2,
+        "placement": {
+          "capabilities": {
+            "mac-vault": {
+              "home": "main-home",
+              "path": "/Users/example/Documents/Utilicast"
+            }
+          },
+          "rules": [
+            {
+              "id": "main-vault",
+              "match": {
+                "repository": "dbeihl-utilicast/firstmate",
+                "requires_capability": "mac-vault"
+              },
+              "target": {
+                "kind": "main-home",
+                "id": "main-home"
+              }
+            }
+          ],
+          "unmatched": "retain-intake-home",
+          "enforcement": {
+            "current": "advisory",
+            "mechanical_owner": "intake-and-backlog-handoff",
+            "not_read_by": [
+              "fm-bootstrap",
+              "fm-spawn"
+            ]
+          }
+        },
+        "dispatch": {
+          "selector": "quota-array-dispatch",
+          "target_host_checks": [
+            "model_catalog",
+            "quota",
+            "authentication"
+          ],
+          "higher_reasoning_requires_reason": true,
+          "history_ref": "data/crew-dispatch-history.md"
+        },
+        "constraints": [
+          {
+            "id": "top-tier-triage-only",
+            "allowed_projects": [
+              "Utilicast-LLC/utilicast-triage"
+            ],
+            "blocked_model_classes": [
+              "astra",
+              "fable"
+            ],
+            "unknown_model_class": "treat_as_blocked",
+            "on_no_eligible_candidate": "report",
+            "decision_ref": "decision/example/top-tier-ceiling"
+          }
+        ],
+        "exceptions": [],
+        "rules": [
+          {
+            "id": "independent-review",
+            "when": "Review, verification, or second reading of work another runtime produced.",
+            "match": {
+              "task_kind": [
+                "review",
+                "verification",
+                "second-reading"
+              ]
+            },
+            "independence": {
+              "exclude_author_harness": true,
+              "minimum_distinct_harnesses": 1,
+              "explicit_task_instruction_may_raise_minimum": true
+            },
+            "reasoning": {
+              "mode": "generic"
+            },
+            "use": [
+              {
+                "id": "composer-2.5",
+                "harness": "cursor",
+                "model": "composer-2.5",
+                "model_class": "ordinary"
+              }
+            ]
+          },
+          {
+            "id": "hard-work",
+            "when": "Large, architecturally hard, multi-subsystem, open-ended design, or gnarly diagnostic work.",
+            "match": {
+              "task_shape": [
+                "large",
+                "architecturally-hard",
+                "multi-subsystem",
+                "open-ended-design",
+                "gnarly-diagnosis"
+              ]
+            },
+            "reasoning": {
+              "mode": "fixed",
+              "target": "xhigh",
+              "dispatch_reason_required": true
+            },
+            "use": [
+              {
+                "id": "codex-terra-xhigh",
+                "harness": "codex",
+                "model": "gpt-5.6-terra",
+                "effort": "xhigh",
+                "model_class": "ordinary"
+              }
+            ]
+          }
+        ],
+        "default": [
+          {
+            "id": "composer-2.5",
+            "harness": "cursor",
+            "model": "composer-2.5",
+            "model_class": "ordinary"
+          }
+        ]
+      },
+      "command": "FM_HOME=\"/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-asJU0Y/home\" FM_ROOT_OVERRIDE=\"/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-asJU0Y/home\" FM_CONFIG_OVERRIDE=\"/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-asJU0Y/home/config\" FM_DATA_OVERRIDE=\"/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-asJU0Y/home/data\" FM_STATE_OVERRIDE=\"/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-asJU0Y/home/state\" FM_PROJECTS_OVERRIDE=\"/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-asJU0Y/home/projects\" FM_BACKEND=\"tmux\" FM_BOOTSTRAP_DETECT_ONLY=\"1\" FM_BOOTSTRAP_NETWORK=\"skip\" FM_TIMING_LOG=\"\" FM_BOOTSTRAP_VERBOSE_FACTS=\"1\" /bin/bash \"/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-asJU0Y/base/bin/fm-bootstrap.sh\"",
+      "exitCode": 0,
+      "stdout": "CREW_DISPATCH: invalid config/crew-dispatch.json - v2 unclassified model: composer-2.5\n",
+      "stderr": "",
+      "expectedDiagnostic": "v2 unclassified model: composer-2.5",
+      "inputUnchanged": true,
+      "result": "pass",
+      "failures": []
+    },
+    {
+      "id": "fallback-without-match",
+      "scenario": "fallback",
+      "input": {
+        "schema_version": 2,
+        "placement": {
+          "capabilities": {
+            "mac-vault": {
+              "home": "main-home",
+              "path": "/Users/example/Documents/Utilicast"
+            }
+          },
+          "rules": [
+            {
+              "id": "main-vault",
+              "match": {
+                "repository": "dbeihl-utilicast/firstmate",
+                "requires_capability": "mac-vault"
+              },
+              "target": {
+                "kind": "main-home",
+                "id": "main-home"
+              }
+            }
+          ],
+          "unmatched": "retain-intake-home",
+          "enforcement": {
+            "current": "advisory",
+            "mechanical_owner": "intake-and-backlog-handoff",
+            "not_read_by": [
+              "fm-bootstrap",
+              "fm-spawn"
+            ]
+          }
+        },
+        "dispatch": {
+          "selector": "quota-array-dispatch",
+          "target_host_checks": [
+            "model_catalog",
+            "quota",
+            "authentication"
+          ],
+          "higher_reasoning_requires_reason": true,
+          "history_ref": "data/crew-dispatch-history.md"
+        },
+        "constraints": [
+          {
+            "id": "top-tier-triage-only",
+            "allowed_projects": [
+              "Utilicast-LLC/utilicast-triage"
+            ],
+            "blocked_model_classes": [
+              "astra",
+              "fable"
+            ],
+            "unknown_model_class": "treat_as_blocked",
+            "on_no_eligible_candidate": "report",
+            "decision_ref": "decision/example/top-tier-ceiling"
+          }
+        ],
+        "exceptions": [],
+        "rules": [
+          {
+            "id": "independent-review",
+            "when": "Review, verification, or second reading of work another runtime produced.",
+            "match": {
+              "task_kind": [
+                "review",
+                "verification",
+                "second-reading"
+              ]
+            },
+            "independence": {
+              "exclude_author_harness": true,
+              "minimum_distinct_harnesses": 1,
+              "explicit_task_instruction_may_raise_minimum": true
+            },
+            "reasoning": {
+              "mode": "generic"
+            },
+            "use": [
+              {
+                "id": "codex-terra",
+                "harness": "codex",
+                "model": "gpt-5.6-terra",
+                "model_class": "ordinary"
+              },
+              {
+                "id": "claude-sonnet",
+                "harness": "claude",
+                "model": "sonnet",
+                "model_class": "ordinary"
+              }
+            ]
+          },
+          {
+            "id": "hard-work",
+            "when": "Large, architecturally hard, multi-subsystem, open-ended design, or gnarly diagnostic work.",
+            "match": {
+              "task_shape": [
+                "large",
+                "architecturally-hard",
+                "multi-subsystem",
+                "open-ended-design",
+                "gnarly-diagnosis"
+              ]
+            },
+            "reasoning": {
+              "mode": "fixed",
+              "target": "xhigh",
+              "dispatch_reason_required": true
+            },
+            "use": [
+              {
+                "id": "codex-terra-xhigh",
+                "harness": "codex",
+                "model": "gpt-5.6-terra",
+                "effort": "xhigh",
+                "model_class": "ordinary"
+              }
+            ]
+          },
+          {
+            "id": "fallback",
+            "when": "All remaining work after earlier rules have been considered.",
+            "reasoning": {
+              "mode": "generic"
+            },
+            "use": [
+              {
+                "id": "codex-terra",
+                "harness": "codex",
+                "model": "gpt-5.6-terra",
+                "model_class": "ordinary"
+              },
+              {
+                "id": "claude-sonnet",
+                "harness": "claude",
+                "model": "sonnet",
+                "model_class": "ordinary"
+              }
+            ]
+          }
+        ],
+        "default": [
+          {
+            "id": "codex-terra",
+            "harness": "codex",
+            "model": "gpt-5.6-terra",
+            "model_class": "ordinary"
+          },
+          {
+            "id": "claude-sonnet",
+            "harness": "claude",
+            "model": "sonnet",
+            "model_class": "ordinary"
+          }
+        ]
+      },
+      "command": "FM_HOME=\"/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-asJU0Y/home\" FM_ROOT_OVERRIDE=\"/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-asJU0Y/home\" FM_CONFIG_OVERRIDE=\"/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-asJU0Y/home/config\" FM_DATA_OVERRIDE=\"/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-asJU0Y/home/data\" FM_STATE_OVERRIDE=\"/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-asJU0Y/home/state\" FM_PROJECTS_OVERRIDE=\"/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-asJU0Y/home/projects\" FM_BACKEND=\"tmux\" FM_BOOTSTRAP_DETECT_ONLY=\"1\" FM_BOOTSTRAP_NETWORK=\"skip\" FM_TIMING_LOG=\"\" FM_BOOTSTRAP_VERBOSE_FACTS=\"1\" /bin/bash \"/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-asJU0Y/base/bin/fm-bootstrap.sh\"",
+      "exitCode": 0,
+      "stdout": "CREW_DISPATCH: invalid config/crew-dispatch.json - v2 rule missing required key: match\n",
+      "stderr": "",
+      "expectedDiagnostic": "v2 rule missing required key: match",
+      "inputUnchanged": true,
+      "result": "pass",
+      "failures": []
+    },
+    {
+      "id": "host-only-rule",
+      "scenario": "host",
+      "input": {
+        "schema_version": 2,
+        "placement": {
+          "capabilities": {
+            "mac-vault": {
+              "home": "main-home",
+              "path": "/Users/example/Documents/Utilicast"
+            }
+          },
+          "rules": [
+            {
+              "id": "main-vault",
+              "match": {
+                "repository": "dbeihl-utilicast/firstmate",
+                "requires_capability": "mac-vault"
+              },
+              "target": {
+                "kind": "main-home",
+                "id": "main-home"
+              }
+            }
+          ],
+          "unmatched": "retain-intake-home",
+          "enforcement": {
+            "current": "advisory",
+            "mechanical_owner": "intake-and-backlog-handoff",
+            "not_read_by": [
+              "fm-bootstrap",
+              "fm-spawn"
+            ]
+          }
+        },
+        "dispatch": {
+          "selector": "quota-array-dispatch",
+          "target_host_checks": [
+            "model_catalog",
+            "quota",
+            "authentication"
+          ],
+          "higher_reasoning_requires_reason": true,
+          "history_ref": "data/crew-dispatch-history.md"
+        },
+        "constraints": [
+          {
+            "id": "top-tier-triage-only",
+            "allowed_projects": [
+              "Utilicast-LLC/utilicast-triage"
+            ],
+            "blocked_model_classes": [
+              "astra",
+              "fable"
+            ],
+            "unknown_model_class": "treat_as_blocked",
+            "on_no_eligible_candidate": "report",
+            "decision_ref": "decision/example/top-tier-ceiling"
+          }
+        ],
+        "exceptions": [],
+        "rules": [
+          {
+            "id": "independent-review",
+            "when": "Review, verification, or second reading of work another runtime produced.",
+            "match": {
+              "host": "dev-host"
+            },
+            "independence": {
+              "exclude_author_harness": true,
+              "minimum_distinct_harnesses": 1,
+              "explicit_task_instruction_may_raise_minimum": true
+            },
+            "reasoning": {
+              "mode": "generic"
+            },
+            "use": [
+              {
+                "id": "codex-terra",
+                "harness": "codex",
+                "model": "gpt-5.6-terra",
+                "model_class": "ordinary"
+              },
+              {
+                "id": "claude-sonnet",
+                "harness": "claude",
+                "model": "sonnet",
+                "model_class": "ordinary"
+              }
+            ]
+          },
+          {
+            "id": "hard-work",
+            "when": "Large, architecturally hard, multi-subsystem, open-ended design, or gnarly diagnostic work.",
+            "match": {
+              "task_shape": [
+                "large",
+                "architecturally-hard",
+                "multi-subsystem",
+                "open-ended-design",
+                "gnarly-diagnosis"
+              ]
+            },
+            "reasoning": {
+              "mode": "fixed",
+              "target": "xhigh",
+              "dispatch_reason_required": true
+            },
+            "use": [
+              {
+                "id": "codex-terra-xhigh",
+                "harness": "codex",
+                "model": "gpt-5.6-terra",
+                "effort": "xhigh",
+                "model_class": "ordinary"
+              }
+            ]
+          }
+        ],
+        "default": [
+          {
+            "id": "codex-terra",
+            "harness": "codex",
+            "model": "gpt-5.6-terra",
+            "model_class": "ordinary"
+          },
+          {
+            "id": "claude-sonnet",
+            "harness": "claude",
+            "model": "sonnet",
+            "model_class": "ordinary"
+          }
+        ]
+      },
+      "command": "FM_HOME=\"/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-asJU0Y/home\" FM_ROOT_OVERRIDE=\"/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-asJU0Y/home\" FM_CONFIG_OVERRIDE=\"/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-asJU0Y/home/config\" FM_DATA_OVERRIDE=\"/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-asJU0Y/home/data\" FM_STATE_OVERRIDE=\"/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-asJU0Y/home/state\" FM_PROJECTS_OVERRIDE=\"/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-asJU0Y/home/projects\" FM_BACKEND=\"tmux\" FM_BOOTSTRAP_DETECT_ONLY=\"1\" FM_BOOTSTRAP_NETWORK=\"skip\" FM_TIMING_LOG=\"\" FM_BOOTSTRAP_VERBOSE_FACTS=\"1\" /bin/bash \"/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-asJU0Y/base/bin/fm-bootstrap.sh\"",
+      "exitCode": 0,
+      "stdout": "CREW_DISPATCH: invalid config/crew-dispatch.json - v2 rule match has unknown field: host\n",
+      "stderr": "",
+      "expectedDiagnostic": "v2 rule match has unknown field: host",
+      "inputUnchanged": true,
+      "result": "pass",
+      "failures": []
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+Real bootstrap CLI; 7927f5c416bfacd56d48cdfb502d4aabb95e24fb; 2026-09-14T22:23:09.273Z
+No tool stubs. Inputs are synthetic policies consumed by the real validator. No model launch or routing execution is claimed.
+
+## published-example
+$ FM_HOME="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-FzbmMd/home" FM_ROOT_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-FzbmMd/home" FM_CONFIG_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-FzbmMd/home/config" FM_DATA_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-FzbmMd/home/data" FM_STATE_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-FzbmMd/home/state" FM_PROJECTS_OVERRIDE="/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/.crew-dispatch-live-FzbmMd/home/projects" FM_BACKEND="tmux" FM_BOOTSTRAP_DETECT_ONLY="1" FM_BOOTSTRAP_NETWORK="skip" FM_TIMING_LOG="" FM_BOOTSTRAP_VERBOSE_FACTS="1" /bin/bash "/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M2GV838797KXQEJSX6E01A6B/bin/fm-bootstrap.sh"
+BOOTSTRAP_INFO: crew dispatch active config/crew-dispatch.json
+BOOTSTRAP_INFO: crew dispatch rule: Review, verification, or second reading of work another runtime produced. -> quota-balanced[codex/gpt-5.6-terra, claude/sonnet]
+BOOTSTRAP_INFO: crew dispatch rule: Large, architecturally hard, multi-subsystem, open-ended design, or gnarly diagnostic work. -> quota-balanced[codex/gpt-5.6-terra/xhigh]
+BOOTSTRAP_INFO: crew dispatch default: quota-balanced[codex/gpt-5.6-terra, claude/sonnet]
+exit_code=0; input_unchanged=true; observed_result=pass
+

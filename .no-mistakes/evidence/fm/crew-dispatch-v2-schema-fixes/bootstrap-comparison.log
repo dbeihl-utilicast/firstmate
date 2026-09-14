@@ -1,0 +1,125 @@
+Real bootstrap CLI comparison: 3e03587515ceadee6f4e9ea621ae2cb90c4c9d41 -> 7927f5c416bfacd56d48cdfb502d4aabb95e24fb
+Executed with /bin/bash and installed tools; no stubs. Detect-only mode, network sweeps disabled, isolated FM_HOME under the assigned worktree.
+The bootstrap diagnostic protocol exits 0 for configuration refusals. Refusal evidence is the CREW_DISPATCH line and absence of active-policy facts.
+These runs prove schema acceptance and refusal, not task matching, model availability, quota selection, remote propagation, or agent launches.
+
+=== accept-gpt-5.6-sol-xhigh ===
+BEFORE (3e03587):
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 unclassified model: gpt-5.6-sol-xhigh
+AFTER (7927f5c):
+BOOTSTRAP_INFO: crew dispatch active config/crew-dispatch.json
+BOOTSTRAP_INFO: crew dispatch rule: Review, verification, or second reading of work another runtime produced. -> quota-balanced[cursor/gpt-5.6-sol-xhigh]
+BOOTSTRAP_INFO: crew dispatch rule: Large, architecturally hard, multi-subsystem, open-ended design, or gnarly diagnostic work. -> quota-balanced[codex/gpt-5.6-terra/xhigh]
+BOOTSTRAP_INFO: crew dispatch default: quota-balanced[cursor/gpt-5.6-sol-xhigh]
+
+=== accept-grok-4.6 ===
+BEFORE (3e03587):
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 unclassified model: grok-4.6
+AFTER (7927f5c):
+BOOTSTRAP_INFO: crew dispatch active config/crew-dispatch.json
+BOOTSTRAP_INFO: crew dispatch rule: Review, verification, or second reading of work another runtime produced. -> quota-balanced[grok/grok-4.6]
+BOOTSTRAP_INFO: crew dispatch rule: Large, architecturally hard, multi-subsystem, open-ended design, or gnarly diagnostic work. -> quota-balanced[codex/gpt-5.6-terra/xhigh]
+BOOTSTRAP_INFO: crew dispatch default: quota-balanced[grok/grok-4.6]
+
+=== accept-cursor-grok-4.6-high-fast ===
+BEFORE (3e03587):
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 unclassified model: cursor-grok-4.6-high-fast
+AFTER (7927f5c):
+BOOTSTRAP_INFO: crew dispatch active config/crew-dispatch.json
+BOOTSTRAP_INFO: crew dispatch rule: Review, verification, or second reading of work another runtime produced. -> quota-balanced[cursor/cursor-grok-4.6-high-fast]
+BOOTSTRAP_INFO: crew dispatch rule: Large, architecturally hard, multi-subsystem, open-ended design, or gnarly diagnostic work. -> quota-balanced[codex/gpt-5.6-terra/xhigh]
+BOOTSTRAP_INFO: crew dispatch default: quota-balanced[cursor/cursor-grok-4.6-high-fast]
+
+=== accept-composer-2.5 ===
+BEFORE (3e03587):
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 unclassified model: composer-2.5
+AFTER (7927f5c):
+BOOTSTRAP_INFO: crew dispatch active config/crew-dispatch.json
+BOOTSTRAP_INFO: crew dispatch rule: Review, verification, or second reading of work another runtime produced. -> quota-balanced[cursor/composer-2.5]
+BOOTSTRAP_INFO: crew dispatch rule: Large, architecturally hard, multi-subsystem, open-ended design, or gnarly diagnostic work. -> quota-balanced[codex/gpt-5.6-terra/xhigh]
+BOOTSTRAP_INFO: crew dispatch default: quota-balanced[cursor/composer-2.5]
+
+=== fallback-without-match ===
+BEFORE (3e03587):
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 rule missing required key: match
+AFTER (7927f5c):
+BOOTSTRAP_INFO: crew dispatch active config/crew-dispatch.json
+BOOTSTRAP_INFO: crew dispatch rule: Review, verification, or second reading of work another runtime produced. -> quota-balanced[codex/gpt-5.6-terra, claude/sonnet]
+BOOTSTRAP_INFO: crew dispatch rule: Large, architecturally hard, multi-subsystem, open-ended design, or gnarly diagnostic work. -> quota-balanced[codex/gpt-5.6-terra/xhigh]
+BOOTSTRAP_INFO: crew dispatch rule: All remaining work after earlier rules have been considered. -> quota-balanced[codex/gpt-5.6-terra, claude/sonnet]
+BOOTSTRAP_INFO: crew dispatch default: quota-balanced[codex/gpt-5.6-terra, claude/sonnet]
+
+=== host-only-rule ===
+BEFORE (3e03587):
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 rule match has unknown field: host
+AFTER (7927f5c):
+BOOTSTRAP_INFO: crew dispatch active config/crew-dispatch.json
+BOOTSTRAP_INFO: crew dispatch rule: Review, verification, or second reading of work another runtime produced. -> quota-balanced[codex/gpt-5.6-terra, claude/sonnet]
+BOOTSTRAP_INFO: crew dispatch rule: Large, architecturally hard, multi-subsystem, open-ended design, or gnarly diagnostic work. -> quota-balanced[codex/gpt-5.6-terra/xhigh]
+BOOTSTRAP_INFO: crew dispatch default: quota-balanced[codex/gpt-5.6-terra, claude/sonnet]
+
+=== Combined fallback: exact rule text and candidate preference order ===
+BOOTSTRAP_INFO: crew dispatch active config/crew-dispatch.json
+BOOTSTRAP_INFO: crew dispatch rule: Review, verification, or second reading of work another runtime produced. -> quota-balanced[codex/gpt-5.6-terra, claude/sonnet]
+BOOTSTRAP_INFO: crew dispatch rule: Large, architecturally hard, multi-subsystem, open-ended design, or gnarly diagnostic work. -> quota-balanced[codex/gpt-5.6-terra/xhigh]
+BOOTSTRAP_INFO: crew dispatch rule: Keep this exact fallback text: punctuation, spacing, and precedence. -> quota-balanced[cursor/gpt-5.6-sol-xhigh, grok/grok-4.6, cursor/cursor-grok-4.6-high-fast, cursor/composer-2.5]
+BOOTSTRAP_INFO: crew dispatch default: quota-balanced[cursor/gpt-5.6-sol-xhigh, grok/grok-4.6, cursor/cursor-grok-4.6-high-fast, cursor/composer-2.5]
+
+=== Active attempts to break the boundaries ===
+refuse-typo-composer-2.5:
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 unclassified model: composer-2.5-typo
+
+automatic-default-model:
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 unclassified model: auto
+
+ordinary-model-misclassified:
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 profile.model_class does not match model: gpt-5.6-sol-xhigh
+
+invalid-match-null:
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 rule match must be an object
+
+invalid-match-empty-object:
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 rule match needs at least one field
+
+invalid-host-empty:
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 rule match.host must be a non-empty string
+
+invalid-host-array:
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 rule match.host must be a non-empty string
+
+host-outside-match:
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 rule has unknown field: host
+
+host-in-placement-match:
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 placement rule match has unknown field: host
+
+astra-absent-match:
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 top-tier model class astra requires rule match.project Utilicast-LLC/utilicast-triage
+
+astra-host-without-project:
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 top-tier model class astra requires rule match.project Utilicast-LLC/utilicast-triage
+
+astra-triage-and-host:
+BOOTSTRAP_INFO: crew dispatch active config/crew-dispatch.json
+BOOTSTRAP_INFO: crew dispatch rule: Review, verification, or second reading of work another runtime produced. -> quota-balanced[codex/gpt-6-astra]
+BOOTSTRAP_INFO: crew dispatch rule: Large, architecturally hard, multi-subsystem, open-ended design, or gnarly diagnostic work. -> quota-balanced[codex/gpt-5.6-terra/xhigh]
+BOOTSTRAP_INFO: crew dispatch default: quota-balanced[codex/gpt-5.6-terra, claude/sonnet]
+
+fable-absent-match:
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 top-tier model class fable requires rule match.project Utilicast-LLC/utilicast-triage
+
+fable-host-without-project:
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 top-tier model class fable requires rule match.project Utilicast-LLC/utilicast-triage
+
+fable-triage-and-host:
+BOOTSTRAP_INFO: crew dispatch active config/crew-dispatch.json
+BOOTSTRAP_INFO: crew dispatch rule: Review, verification, or second reading of work another runtime produced. -> quota-balanced[claude/fable]
+BOOTSTRAP_INFO: crew dispatch rule: Large, architecturally hard, multi-subsystem, open-ended design, or gnarly diagnostic work. -> quota-balanced[codex/gpt-5.6-terra/xhigh]
+BOOTSTRAP_INFO: crew dispatch default: quota-balanced[codex/gpt-5.6-terra, claude/sonnet]
+
+astra-default:
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 top-tier model class astra cannot appear in default
+
+fable-default:
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 top-tier model class fable cannot appear in default
+
