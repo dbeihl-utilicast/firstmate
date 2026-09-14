@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # fm-running-list.sh - on-demand grouped view of the open fleet backlog.
 #
-# This command reads. It never writes, mutates a task, answers a hold, or
-# starts a daemon. It shells out to `fm-bearings-snapshot.sh --json` with the
-# all-open bounds so main and registered second-mate homes are collected by
-# that existing reader; it does not parse backlog files, status logs, or home
-# ledgers itself. The underlying snapshot may still refresh its parent-side
-# remote-ledger cache; that observational cache is the snapshot's only
-# fleet-state mutation and is not owned here.
+# This command never mutates backlog state, task records, holds, or daemons.
+# It shells out to `fm-bearings-snapshot.sh --json` with the available all-open
+# flags so main and registered second-mate homes are collected by that existing
+# reader; it does not parse backlog files, status logs, or home ledgers itself.
+# The underlying snapshot may still refresh its parent-side remote-ledger cache;
+# that observational cache is the snapshot's only fleet-state mutation and is
+# not owned here.
 #
 # If the bearings projection omits a field this view needs, the status line
 # names the gap instead of inventing a second parser.
