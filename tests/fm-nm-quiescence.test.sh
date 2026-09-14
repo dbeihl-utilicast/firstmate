@@ -13,8 +13,9 @@ mkdir -p "$FAKEBIN"
 cat > "$FAKEBIN/no-mistakes" <<'SH'
 #!/usr/bin/env bash
 set -u
+[ -z "${FM_TEST_NM_CALLS:-}" ] || printf '%s\n' "$PWD" >> "$FM_TEST_NM_CALLS"
 case "$(basename "$PWD")" in
-  parked)
+  parked|parked-home|linked-parked)
     printf '%s\n' 'running fm/parked a1b2c3d4 2026-09-13 08:00'
     ;;
   unconfigured)
@@ -24,9 +25,29 @@ case "$(basename "$PWD")" in
   malformed)
     printf '%s\n' 'running incomplete-row'
     ;;
-  *)
-    printf '%s\n' 'no runs yet. Push through the gate to start a pipeline:'
+  empty)
+    ;;
+  whitespace)
+    printf '  \n\t\n'
+    ;;
+  partial)
     printf '%s\n' 'git push no-mistakes <branch>'
+    ;;
+  signaled)
+    kill -KILL "$$"
+    ;;
+  query-error)
+    printf '%s\n' 'query failed' >&2
+    exit 7
+    ;;
+  terminal)
+    printf '%s\n' 'completed fm/done a1b2c3d4 2026-09-13 08:00' \
+      'failed fm/failed deadbeef 2026-09-13 07:00' \
+      'cancelled fm/cancelled fedcba98 2026-09-13 06:00'
+    ;;
+  *)
+    printf '  %s\n' 'no runs yet. Push through the gate to start a pipeline:'
+    printf '  %s\n' 'git push no-mistakes <branch>'
     ;;
 esac
 SH
@@ -90,6 +111,142 @@ test_local_secondmate_is_discovered_from_registry() {
   pass "local secondmate homes are discovered from the registry"
 }
 
+test_projectless_home_repository_is_queried_once() {
+  local main child calls output rc=0
+  main=$(make_home projectless-main)
+  fm_git_init_commit "$main"
+  child="$TMP_ROOT/parked-home"
+  git clone --quiet "$main" "$child"
+  calls="$TMP_ROOT/projectless-calls"
+  printf -- '- reports - firstmate work (home: %s; scope: firstmate; projects: none; added 2026-09-14)\n' \
+    "$child" > "$main/data/secondmates.md"
+
+  output=$(FM_ROOT_OVERRIDE="$main" FM_TEST_NM_CALLS="$calls" run_check "$main") || rc=$?
+
+  expect_code 1 "$rc" "project-less home repository was omitted"
+  assert_contains "$output" $'RUN\thost=local\thome=reports\tclone=parked-home' \
+    "independently cloned home was not attributed to its registry entry"
+  assert_equals "$main"$'\n'"$child" "$(cat "$calls")" \
+    "code root and home did not query each distinct checkout exactly once"
+  assert_contains "$output" $'SUMMARY\tresult=busy\truns=1\tgaps=0' \
+    "project-less home's run was not counted exactly once"
+  pass "project-less home repositories are queried and shared checkout paths are deduplicated"
+}
+
+test_linked_home_keeps_its_own_ledger() {
+  local main child output rc=0
+  main=$(make_home linked-main)
+  fm_git_init_commit "$main"
+  child="$TMP_ROOT/linked-parked"
+  git -C "$main" worktree add --quiet --detach "$child" HEAD
+  printf -- '- linked - firstmate work (home: %s; scope: firstmate; projects: none; added 2026-09-14)\n' \
+    "$child" > "$main/data/secondmates.md"
+
+  output=$(FM_ROOT_OVERRIDE="$main" run_check "$main") || rc=$?
+
+  expect_code 1 "$rc" "distinct worktree ledger was deduplicated by shared git storage"
+  assert_contains "$output" $'RUN\thost=local\thome=linked\tclone=linked-parked' \
+    "linked home was not queried at its own checkout path"
+  pass "linked homes retain checkout-specific ledger coverage"
+}
+
+test_projects_override_is_scoped_to_active_home() {
+  local main child alternate output rc=0
+  main=$(make_home override-main)
+  child=$(make_home override-child)
+  alternate=$(make_home alternate)
+  make_project "$alternate" parked
+  make_project "$child" parked
+  rmdir "$main/projects"
+  printf -- '- child - child work (home: %s; scope: child; projects: parked; added 2026-09-14)\n' \
+    "$child" > "$main/data/secondmates.md"
+
+  output=$(FM_PROJECTS_OVERRIDE="$alternate/projects" run_check "$main") || rc=$?
+
+  expect_code 1 "$rc" "configured projects directory was omitted"
+  assert_contains "$output" $'RUN\thost=local\thome=main\tclone=parked' \
+    "active home's override was not scanned"
+  assert_contains "$output" $'RUN\thost=local\thome=child\tclone=parked' \
+    "active home's override displaced the child's own projects directory"
+  assert_contains "$output" $'SUMMARY\tresult=busy\truns=2\tgaps=0' \
+    "configured and registered project runs were not both counted"
+  pass "projects overrides apply to the active home while children retain their directories"
+}
+
+test_inaccessible_home_is_a_gap() {
+  local main child output rc=0
+  if [ "$(id -u)" -eq 0 ]; then
+    printf 'skip: home permission denial requires a non-root user\n'
+    return
+  fi
+  main=$(make_home inaccessible-main)
+  child=$(make_home inaccessible-child)
+  make_project "$child" parked
+  printf -- '- child - child work (home: %s; scope: child; projects: parked; added 2026-09-14)\n' \
+    "$child" > "$main/data/secondmates.md"
+  chmod u-x "$child"
+
+  output=$(run_check "$main") || rc=$?
+
+  chmod u+x "$child"
+  expect_code 2 "$rc" "inaccessible home was treated as an empty inventory"
+  assert_contains "$output" $'GAP\thost=local\thome=child\tclone=-\treason=home-unreachable' \
+    "home access failure did not name the unchecked home"
+  pass "home search-permission failures are explicit gaps"
+}
+
+test_inaccessible_inventory_directories_are_gaps() {
+  local home directory inventory permission output rc reason
+  if [ "$(id -u)" -eq 0 ]; then
+    printf 'skip: inventory permission denial requires a non-root user\n'
+    return
+  fi
+  for inventory in data projects; do
+    for permission in u-x u-r; do
+      home=$(make_home "inaccessible-$inventory-$permission")
+      directory="$home/$inventory"
+      chmod "$permission" "$directory"
+      rc=0
+
+      output=$(run_check "$home") || rc=$?
+
+      chmod u+rx "$directory"
+      expect_code 2 "$rc" "$inventory with $permission was treated as an empty inventory"
+      case "$inventory" in data) reason=registry-unavailable ;; projects) reason=projects-unreachable ;; esac
+      assert_contains "$output" "reason=$reason" "$inventory access failure was not reported"
+    done
+  done
+  pass "unreadable and unsearchable inventory directories are explicit gaps"
+}
+
+test_inaccessible_override_ancestors_are_gaps() {
+  local home directory inventory output rc reason
+  if [ "$(id -u)" -eq 0 ]; then
+    printf 'skip: override permission denial requires a non-root user\n'
+    return
+  fi
+  for inventory in data projects; do
+    home=$(make_home "inaccessible-override-$inventory")
+    directory="$home/overrides"
+    mkdir -p "$directory/$inventory"
+    chmod u-x "$directory"
+    rc=0
+
+    if [ "$inventory" = data ]; then
+      output=$(FM_DATA_OVERRIDE="$directory/data" run_check "$home") || rc=$?
+      reason=registry-unavailable
+    else
+      output=$(FM_PROJECTS_OVERRIDE="$directory/projects" run_check "$home") || rc=$?
+      reason=projects-unreachable
+    fi
+
+    chmod u+x "$directory"
+    expect_code 2 "$rc" "inaccessible $inventory ancestor was treated as a missing directory"
+    assert_contains "$output" "reason=$reason" "$inventory ancestor access failure was not reported"
+  done
+  pass "inaccessible override ancestors cannot hide inventories"
+}
+
 test_unconfigured_clone_is_an_explicit_gap() {
   local home output rc=0
   home=$(make_home unconfigured-main)
@@ -116,6 +273,125 @@ test_malformed_ledger_is_an_explicit_gap() {
   assert_contains "$output" $'GAP\thost=local\thome=main\tclone=malformed\treason=unparseable-ledger-row' \
     "malformed ledger row was silently omitted"
   pass "unparseable run data makes the census incomplete"
+}
+
+test_empty_or_partial_ledger_is_a_gap() {
+  local home clone output rc reason
+  for clone in empty whitespace partial; do
+    home=$(make_home "$clone-main")
+    make_project "$home" "$clone"
+    rc=0
+
+    output=$(run_check "$home") || rc=$?
+
+    expect_code 2 "$rc" "$clone query output was accepted as an empty ledger"
+    case "$clone" in partial) reason=unparseable-ledger-row ;; *) reason=empty-ledger-response ;; esac
+    assert_contains "$output" "clone=$clone"$'\t'"reason=$reason" \
+      "$clone query output did not produce a coverage gap"
+  done
+  pass "empty and partial ledger responses are explicit gaps"
+}
+
+test_recognized_empty_and_terminal_ledgers_are_clear() {
+  local home output rc=0
+  home=$(make_home clear-main)
+  make_project "$home" terminal
+  make_project "$home" no-runs
+
+  output=$(run_check "$home") || rc=$?
+
+  expect_code 0 "$rc" "recognized empty or terminal ledger was not clear"
+  assert_contains "$output" $'SUMMARY\tresult=clear\truns=0\tgaps=0' \
+    "complete terminal and empty ledgers did not prove quiescence"
+  pass "recognized empty and terminal ledgers remain clear"
+}
+
+test_perl_fallback_preserves_signal_and_exit_failures() {
+  local home toolbin tool clone output rc expected
+  home=$(make_home signal-main)
+  make_project "$home" signaled
+  make_project "$home" query-error
+  toolbin="$TMP_ROOT/perl-tools"
+  mkdir -p "$toolbin"
+  for tool in bash basename dirname date find git sed perl; do
+    ln -s "$(command -v "$tool")" "$toolbin/$tool"
+  done
+  for clone in signaled query-error; do
+    rc=0
+
+    output=$(PATH="$FAKEBIN:$toolbin" bash -c \
+      '. "$1"; fm_nm_run_bounded "$2" 15 runs --limit 1' \
+      _ "$ROOT/bin/fm-nm-run-lib.sh" "$home/projects/$clone" 2>&1) || rc=$?
+
+    case "$clone" in signaled) expected=137 ;; query-error) expected=7 ;; esac
+    expect_code "$expected" "$rc" "Perl fallback lost the $clone failure status"
+  done
+  rc=0
+
+  output=$(PATH="$toolbin" run_check "$home") || rc=$?
+
+  expect_code 2 "$rc" "failed queries through Perl were reported as clear"
+  assert_contains "$output" $'clone=signaled\treason=validation-query-failed' \
+    "signaled query was not reported as a query failure"
+  assert_contains "$output" $'clone=query-error\treason=validation-query-failed' \
+    "nonzero query exit was not reported as a query failure"
+  pass "Perl fallback preserves signal and nonzero exits and the census reports gaps"
+}
+
+test_remote_home_mode_queries_its_repository() {
+  local main child calls output rc=0
+  main=$(make_home remote-mode-root)
+  fm_git_init_commit "$main"
+  child="$TMP_ROOT/remote-mode/parked-home"
+  fm_git_init_commit "$child"
+  calls="$TMP_ROOT/remote-mode-calls"
+
+  output=$(FM_ROOT_OVERRIDE="$main" FM_TEST_NM_CALLS="$calls" \
+    run_check "$child" --home-only remote-child fm-spark) || rc=$?
+
+  expect_code 1 "$rc" "remote home mode omitted the home's own repository"
+  assert_contains "$output" $'RUN\thost=fm-spark\thome=remote-child\tclone=parked-home' \
+    "remote home mode lost the host or home attribution"
+  assert_equals "$child" "$(cat "$calls")" "remote home mode did not query only its home repository"
+  pass "remote home mode includes the home's own repository"
+}
+
+test_distinct_remote_roots_on_one_host_are_queried_once() {
+  local home first second runner calls output rc=0
+  home=$(make_home remote-roots-main)
+  first="$TMP_ROOT/remote-first"
+  second="$TMP_ROOT/remote-second/parked-home"
+  fm_git_init_commit "$first"
+  fm_git_init_commit "$second"
+  runner="$TMP_ROOT/remote-roots-runner"
+  calls="$TMP_ROOT/remote-roots-calls"
+  cat > "$runner" <<'SH'
+#!/usr/bin/env bash
+case "$1" in
+  alpha) root=$FM_TEST_REMOTE_FIRST ;;
+  beta) root=$FM_TEST_REMOTE_SECOND ;;
+  *) exit 1 ;;
+esac
+FM_ROOT_OVERRIDE="$root" FM_HOME="$root" "$FM_TEST_QUIESCENCE" "$3" "$4" "$5"
+SH
+  chmod +x "$runner"
+  printf -- '- alpha - first root (host: fm-spark; root: %s; home: %s; scope: firstmate; projects: none; added 2026-09-14)\n' \
+    "$first" "$first" > "$home/data/secondmates.md"
+  printf -- '- beta - second root (host: fm-spark; root: %s; home: %s; scope: firstmate; projects: none; added 2026-09-14)\n' \
+    "$second" "$second" >> "$home/data/secondmates.md"
+
+  output=$(FM_TEST_REMOTE_FIRST="$first" FM_TEST_REMOTE_SECOND="$second" \
+    FM_TEST_QUIESCENCE="$CHECK" FM_TEST_NM_CALLS="$calls" FM_NM_ON_BIN="$runner" \
+    run_check "$home") || rc=$?
+
+  expect_code 1 "$rc" "second repository on the same remote host was omitted"
+  assert_contains "$output" $'RUN\thost=fm-spark\thome=root@fm-spark\tclone=parked-home' \
+    "parked run in the second remote root was not reported"
+  assert_equals "$ROOT"$'\n'"$first"$'\n'"$second" "$(cat "$calls")" \
+    "remote roots were not each queried exactly once across root and home scans"
+  assert_contains "$output" $'SUMMARY\tresult=busy\truns=1\tgaps=0' \
+    "remote root and home scans double-counted or omitted the parked run"
+  pass "distinct remote roots on one host are queried once each"
 }
 
 test_unreachable_remote_names_host_and_every_home() {
@@ -179,7 +455,18 @@ SH
 
 test_parked_run_returns_red_with_state_and_age
 test_local_secondmate_is_discovered_from_registry
+test_projectless_home_repository_is_queried_once
+test_linked_home_keeps_its_own_ledger
+test_projects_override_is_scoped_to_active_home
+test_inaccessible_home_is_a_gap
+test_inaccessible_inventory_directories_are_gaps
+test_inaccessible_override_ancestors_are_gaps
 test_unconfigured_clone_is_an_explicit_gap
 test_malformed_ledger_is_an_explicit_gap
+test_empty_or_partial_ledger_is_a_gap
+test_recognized_empty_and_terminal_ledgers_are_clear
+test_perl_fallback_preserves_signal_and_exit_failures
+test_remote_home_mode_queries_its_repository
+test_distinct_remote_roots_on_one_host_are_queried_once
 test_unreachable_remote_names_host_and_every_home
 test_remote_home_run_is_included

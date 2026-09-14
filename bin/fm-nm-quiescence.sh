@@ -8,6 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
+PROJECTS="${FM_PROJECTS_OVERRIDE:-$FM_HOME/projects}"
 REG="$DATA/secondmates.md"
 ON_BIN="${FM_NM_ON_BIN:-$SCRIPT_DIR/fm-on.sh}"
 QUERY_TIMEOUT="${FM_NM_QUIESCENCE_TIMEOUT:-15}"
@@ -23,8 +24,10 @@ GAP_COUNT=0
 REMOTE_ERROR=
 IDS=()
 HOSTS=()
+ROOTS=()
 HOMES=()
 REMOTES=()
+SEEN_REPOSITORIES=$'\n'
 
 usage() {
   sed -n '2,4p' "$0" | sed 's/^# \{0,1\}//'
@@ -141,6 +144,8 @@ emit_run() {
 
 scan_repository() {
   local host=$1 home=$2 clone=$3 repo=$4 ledger rc row state branch head day clock pr extra
+  list_has "$repo" "$SEEN_REPOSITORIES" && return
+  SEEN_REPOSITORIES+="$repo"$'\n'
   rc=0
   ledger=$(fm_nm_run_bounded "$repo" "$QUERY_TIMEOUT" runs --limit "$RUN_LIMIT" 2>&1) || rc=$?
   if [ "$rc" -ne 0 ]; then
@@ -150,12 +155,14 @@ scan_repository() {
     esac
     return
   fi
+  ledger=$(printf '%s\n' "$ledger" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;/^$/d')
+  case "$ledger" in
+    'no runs yet. Push through the gate to start a pipeline:'$'\n''git push no-mistakes <branch>') return ;;
+    '') emit_gap "$host" "$home" "$clone" empty-ledger-response; return ;;
+  esac
   while IFS= read -r row || [ -n "$row" ]; do
     row=$(fm_nm_trim "$row")
     [ -n "$row" ] || continue
-    case "$row" in
-      'no runs yet. Push through the gate to start a pipeline:'|'git push no-mistakes <branch>') continue ;;
-    esac
     state=
     branch=
     head=
@@ -181,6 +188,14 @@ scan_repository() {
 
 canonical_dir() {
   CDPATH='' cd -- "$1" 2>/dev/null && pwd -P
+}
+
+can_inspect_directory() {
+  local path=$1
+  while [ ! -e "$path" ] && [ ! -L "$path" ]; do
+    path=$(dirname -- "$path")
+  done
+  [ -d "$path" ] && [ -r "$path" ] && [ -x "$path" ]
 }
 
 scan_root() {
@@ -212,24 +227,39 @@ scan_root() {
 scan_home() {
   local host=$1 home_id=$2 home_path=$3 before_runs=$RUN_COUNT before_gaps=$GAP_COUNT
   local projects project_path clone_count=0 project_real git_root
-  if [ ! -d "$home_path" ] || [ -L "$home_path" ]; then
+  if [ ! -d "$home_path" ] || [ -L "$home_path" ] || ! can_inspect_directory "$home_path"; then
     emit_gap "$host" "$home_id" - home-unreachable
     emit_home "$host" "$home_id" "$home_path" 0 "$before_runs" "$before_gaps"
     return
   fi
-  projects="$home_path/projects"
+  if git_root=$(git -C "$home_path" rev-parse --show-toplevel 2>/dev/null); then
+    if git_root=$(canonical_dir "$git_root"); then
+      clone_count=$((clone_count + 1))
+      scan_repository "$host" "$home_id" "$(basename "$git_root")" "$git_root"
+    else
+      emit_gap "$host" "$home_id" - home-repository-unreachable
+    fi
+  elif [ -e "$home_path/.git" ] || [ -L "$home_path/.git" ]; then
+    emit_gap "$host" "$home_id" - home-repository-unreachable
+  fi
+  projects=${4:-"$home_path/projects"}
+  if ! can_inspect_directory "$projects"; then
+    emit_gap "$host" "$home_id" - projects-unreachable
+    emit_home "$host" "$home_id" "$home_path" "$clone_count" "$before_runs" "$before_gaps"
+    return
+  fi
   if [ ! -e "$projects" ] && [ ! -L "$projects" ]; then
-    emit_home "$host" "$home_id" "$home_path" 0 "$before_runs" "$before_gaps"
+    emit_home "$host" "$home_id" "$home_path" "$clone_count" "$before_runs" "$before_gaps"
     return
   fi
   if [ ! -d "$projects" ] || [ -L "$projects" ]; then
     emit_gap "$host" "$home_id" - projects-unreachable
-    emit_home "$host" "$home_id" "$home_path" 0 "$before_runs" "$before_gaps"
+    emit_home "$host" "$home_id" "$home_path" "$clone_count" "$before_runs" "$before_gaps"
     return
   fi
   if ! find -P "$projects" -mindepth 1 -maxdepth 1 -print >/dev/null 2>&1; then
     emit_gap "$host" "$home_id" - projects-unreachable
-    emit_home "$host" "$home_id" "$home_path" 0 "$before_runs" "$before_gaps"
+    emit_home "$host" "$home_id" "$home_path" "$clone_count" "$before_runs" "$before_gaps"
     return
   fi
   for project_path in "$projects"/* "$projects"/.[!.]* "$projects"/..?*; do
@@ -266,6 +296,10 @@ safe_absolute_path() {
 
 load_registry() {
   local line line_number=0
+  if ! can_inspect_directory "$DATA"; then
+    emit_gap local main - registry-unavailable "$DATA"
+    return
+  fi
   [ -e "$REG" ] || [ -L "$REG" ] || return
   if [ ! -f "$REG" ] || [ -L "$REG" ] || [ ! -r "$REG" ]; then
     emit_gap local main - registry-unavailable "$REG"
@@ -295,6 +329,7 @@ load_registry() {
     fi
     IDS+=("$SECONDMATE_REGISTRY_ID")
     HOSTS+=("${SECONDMATE_REGISTRY_HOST:-local}")
+    ROOTS+=("$SECONDMATE_REGISTRY_ROOT")
     HOMES+=("$SECONDMATE_REGISTRY_HOME")
     REMOTES+=("$SECONDMATE_REGISTRY_REMOTE")
   done < "$REG"
@@ -370,7 +405,8 @@ case "${1:-}" in
   --home-only)
     [ "$#" -eq 3 ] || usage
     NOW_EPOCH="${FM_NM_QUIESCENCE_NOW_EPOCH:-$(date +%s)}"
-    scan_home "$3" "$2" "$FM_HOME"
+    SEEN_REPOSITORIES+="$(canonical_dir "$FM_ROOT")"$'\n'
+    scan_home "$3" "$2" "$FM_HOME" "$PROJECTS"
     if [ "$RUN_COUNT" -gt 0 ] && [ "$GAP_COUNT" -gt 0 ]; then exit 3; fi
     if [ "$RUN_COUNT" -gt 0 ]; then exit 1; fi
     if [ "$GAP_COUNT" -gt 0 ]; then exit 2; fi
@@ -395,7 +431,7 @@ NOW_EPOCH="${FM_NM_QUIESCENCE_NOW_EPOCH:-$(date +%s)}"
 case "$NOW_EPOCH" in ''|*[!0-9]*) printf 'error: FM_NM_QUIESCENCE_NOW_EPOCH must be a nonnegative integer\n' >&2; exit 2 ;; esac
 
 scan_root local root@local "$FM_ROOT"
-scan_home local main "$FM_HOME"
+scan_home local main "$FM_HOME" "$PROJECTS"
 load_registry
 
 for i in "${!IDS[@]}"; do
@@ -403,14 +439,15 @@ for i in "${!IDS[@]}"; do
   scan_home local "${IDS[$i]}" "${HOMES[$i]}"
 done
 
-seen_hosts=$'\n'
+seen_roots=$'\n'
 unreachable_hosts=$'\n'
 unreachable_details=$'\n'
 for i in "${!IDS[@]}"; do
   [ "${REMOTES[$i]}" -eq 1 ] || continue
   host=${HOSTS[$i]}
-  list_has "$host" "$seen_hosts" && continue
-  seen_hosts+="$host"$'\n'
+  root_key=$host$'\t'${ROOTS[$i]}
+  list_has "$root_key" "$seen_roots" && continue
+  seen_roots+="$root_key"$'\n'
   if ! run_remote "${IDS[$i]}" --root-only "root@$host" "$host"; then
     detail=$REMOTE_ERROR
     unreachable_hosts+="$host"$'\n'
