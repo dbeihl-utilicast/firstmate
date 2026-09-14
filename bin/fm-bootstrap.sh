@@ -14,6 +14,7 @@
 #                 "HOME_SUMMARY: <ledger never published|not republished since
 #                 <stamp>>; <n> failed attempt(s) ... last: <recorded failure>",
 #                 "BACKLOG_RECONCILE: <id>: <what this home could not reconcile>",
+#                 "ORIGIN_PUSH_GUARD: <hook installation skip or failure>",
 #                 "TANGLE: <remediation>",
 #                 "SECONDMATE_SYNC: secondmate <id>: skipped: <reason>",
 #                 "NUDGE_SECONDMATES: secondmate <id>: send failed: <reason>",
@@ -97,7 +98,7 @@
 #          Set FM_BOOTSTRAP_DETECT_ONLY=1 to skip the six MUTATING sweeps
 #          (backlog_record_reconcile, secondmate_sync,
 #          secondmate_liveness_sweep, secondmate_handoff_resume, x_mode_setup,
-#          fleet_sync) while still
+#          fleet_sync) and the origin-push-guard hook install while still
 #          printing every read-only detect line
 #          above; the TANGLE line switches to advisory-only wording with no
 #          checkout command. Used by
@@ -105,8 +106,11 @@
 #          the fleet lock, so a second concurrent session never race-mutates
 #          secondmate homes, pending handoff outboxes and receiver wakes,
 #          X-mode artifacts, project clones, or repair instructions.
-#          Unset/0 (the default) runs all six sweeps - this flag is purely
-#          additive.
+#          Unset/0 (the default) runs all six sweeps and the origin-push-guard
+#          hook install - this flag is purely additive.
+#          bin/fm-origin-push-guard.sh owns that local pre-push refusal; this
+#          script only invokes its installer against FM_ROOT on a mutable
+#          local-phase run.
 #          Set FM_BOOTSTRAP_NETWORK to split this run by whether a step talks to
 #          the network, so a session start can print its digest from local reads
 #          alone and run the network half off the digest's blocking path:
@@ -1746,6 +1750,19 @@ if [ "${FM_BOOTSTRAP_DETECT_ONLY:-0}" != 1 ]; then
   fi
   # x_mode_setup writes local Relay artifacts only and never leaves the machine.
   local_phase && x_mode_setup
+  # Origin-push-guard install is local, idempotent, and silent on success. It
+  # writes only inside this repository's Git common directory. The script header owns
+  # refusal, chaining, outside-hooksPath skip, and the deliberate overrides.
+  if local_phase && [ -x "$SCRIPT_DIR/fm-origin-push-guard.sh" ]; then
+    origin_push_guard_error='' origin_push_guard_rc=0
+    origin_push_guard_error=$("$SCRIPT_DIR/fm-origin-push-guard.sh" install "$FM_ROOT" 2>&1) \
+      || origin_push_guard_rc=$?
+    if [ "$origin_push_guard_rc" -ne 0 ] || [ -n "$origin_push_guard_error" ]; then
+      [ -n "$origin_push_guard_error" ] || origin_push_guard_error='install failed without a diagnostic'
+      printf 'ORIGIN_PUSH_GUARD: %s; resolve the hook path and rerun bin/fm-bootstrap.sh\n' \
+        "$origin_push_guard_error"
+    fi
+  fi
   if [ -n "$fleet_sync_pid" ]; then
     wait "$fleet_sync_pid" || true
     cat "$fleet_sync_out"

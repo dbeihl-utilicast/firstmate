@@ -26,6 +26,9 @@ GitHub Actions and Dependabot are exempt so their automation keeps working, but 
    git push no-mistakes
    ```
 
+   A checkout that has a `no-mistakes` remote refuses ordinary pushes outside the guarded route.
+   [`bin/fm-origin-push-guard.sh`](bin/fm-origin-push-guard.sh) owns that local hook, its installer, and the deliberate overrides; session-start bootstrap installs it or reports why it cannot.
+
 6. Run `no-mistakes` to attach to the pipeline, watch findings, authorize auto-fixes, and review ask-user findings as needed.
    Follow the installed no-mistakes version's SKILL.md and live `axi` help for gate mechanics.
 7. Once the pipeline passes, it pushes the branch to your fork and opens the PR against the parent repo for you.
