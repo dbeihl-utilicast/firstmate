@@ -419,45 +419,29 @@ Every claude launch's inline `--settings` JSON also carries `"attribution":{"com
 ## Crew dispatch profiles (config/crew-dispatch.json)
 
 `config/crew-dispatch.json` is an optional local, gitignored file containing natural-language rules that firstmate reads before dispatching a crewmate or scout.
-The shell scripts do not match those rules; firstmate chooses the best matching rule with judgment, resolves its profile object or array under the operating contracts in [`harness-adapters`](../.agents/skills/harness-adapters/SKILL.md) and [`quota-array-dispatch`](../.agents/skills/quota-array-dispatch/SKILL.md), and passes only concrete `--harness`, `--model`, and `--effort` flags to `fm-spawn.sh`.
+The shell scripts do not match task intent, choose a candidate, resolve quota, read the target-host catalogue, or hand work to a secondmate. Firstmate chooses the best matching natural-language rule with judgment, resolves its profile array under [`harness-adapters`](../.agents/skills/harness-adapters/SKILL.md) and [`quota-array-dispatch`](../.agents/skills/quota-array-dispatch/SKILL.md), then passes only concrete `--harness`, `--model`, and `--effort` flags to `fm-spawn.sh`.
 When the file exists, `fm-spawn.sh` enforces that contract by refusing crewmate and scout spawns that lack an explicit harness (`--harness`, a positional adapter, or a raw launch command).
 Batch spawns satisfy the same requirement with a shared `--harness`.
 Secondmate spawns are exempt and still resolve through `config/secondmate-harness` and its optional model and effort tokens.
-This section is the single owner of the canonical schema and its per-field semantics.
+V2 is the required fleet policy whenever this file exists. Bootstrap emits `CREW_DISPATCH: invalid ...` for a missing or non-2 `schema_version`, an unknown field, a missing required key, malformed value, unverified harness, invalid effort, or a top-tier candidate outside its allowed project.
+This section is the single owner of the canonical V2 schema and its per-field semantics.
 `AGENTS.md` section 4 owns the always-loaded dispatch intake boundary, and `quota-array-dispatch` owns the completion-aware profile-array selection procedure.
 
-```json
-{
-  "rules": [
-    {
-      "when": "<natural-language condition describing a kind of task>",
-      "use": [
-        { "harness": "<adapter>", "model": "<optional model>", "effort": "<low|medium|high|xhigh|max|ultra, optional>" }
-      ],
-      "why": "<optional rationale that helps firstmate choose>"
-    }
-  ],
-  "default": [
-    { "harness": "<adapter>", "model": "<optional model>", "effort": "<optional effort>" }
-  ]
-}
-```
+| V2 field | Required contents and effect |
+| --- | --- |
+| `schema_version` | The number `2`. |
+| `precedence` | Non-empty ordered `placement` and `runtime` rule ID arrays. They make the intended order visible to the reader; matching remains judgment. |
+| `placement` | Non-empty capability map and ordered target rules, `unmatched: "retain-intake-home"`, and an `enforcement` object. `enforcement.current` is required to be `"advisory"` and `not_read_by` must name `fm-bootstrap` and `fm-spawn`, because neither path implements routing from this field yet. `intake-and-backlog-handoff` is the named future mechanical owner. |
+| `dispatch` | `selector: "quota-array-dispatch"`, target-host checks, the ordinary default profile IDs, `higher_reasoning_requires_reason: true`, and `history_ref: "data/crew-dispatch-history.md"`. |
+| `constraints` | At least one constraint. The fleet ceiling lists the allowed project, blocks the `astra` and `fable` model classes, treats an unknown model class as blocked, and reports when no candidate remains. |
+| `exceptions` | An array of bounded eligibility exceptions, including their profiles, evidence conditions, effect, and decision reference. It may be empty. |
+| `rules` | A non-empty ordered array of `id`, natural-language `when`, structured `match`, `reasoning`, and non-empty `use` profiles. `independence` and `decision_refs` are optional. A fixed reasoning rule must name an effort target and require a dispatch reason. |
+| `default` | A non-empty quota-aware array of ordinary profiles used only when no task-shaped rule matches. |
 
-Per rule, `when` and `use` are required.
-Both `use` and the optional top-level `default` accept either one profile object or a non-empty array of profile objects.
-The single-object form stays fully backward-compatible, and every profile needs `harness`.
-Profile `model` and `effort` fields and rule `why` are optional.
-`ultra` is native-only: the model-aware validation contract and launch mapping are owned by `bin/fm-harness.sh validate-native-effort` and `bin/fm-spawn.sh` respectively.
-An omitted model or effort means the selected harness uses its own default for that axis.
-Every profile array is an implicit quota-aware choice resolved through `quota-array-dispatch`.
-If no dispatch rule fits, firstmate resolves `default` through the same object-or-array path before falling back to `config/crew-harness`.
-Except for `ultra`, which refuses unsupported profiles under the native-effort contract above, an effort value the chosen harness does not accept is recorded as `effort=` in task meta for traceability but omitted from the launch flags.
-Bootstrap reports unsupported harness/model/effort combinations as a `CREW_DISPATCH` diagnostic when they are visible in the file.
-See [`docs/examples/crew-dispatch.json`](examples/crew-dispatch.json) for a starting point to copy into local `config/crew-dispatch.json`.
-When the file exists, bootstrap validates it with `jq`.
-Valid files stay silent by default; with `FM_BOOTSTRAP_VERBOSE_FACTS=1`, bootstrap emits `BOOTSTRAP_INFO: crew dispatch active config/crew-dispatch.json`, one `BOOTSTRAP_INFO:` fact per rule, and one fact for the optional default profile set.
-Malformed JSON, an empty or malformed rule/default array, an unverified harness, or an effort value unsupported by that harness is reported as `CREW_DISPATCH: invalid config/crew-dispatch.json - ...`; missing `jq` is reported through the normal `MISSING: jq` install-consent flow.
-While the file remains present, no crewmate or scout spawn may proceed without an explicit resolved harness; malformed configuration must be reported and corrected rather than selected around.
+Every V2 profile has `id`, `harness`, `model`, and `model_class`; `effort`, `reasoning_target`, `reasoning_source`, `eligible_when`, and `preferred_when` are optional. `model_class` is one of `ordinary`, `astra`, or `fable`. A top-tier profile is valid only in a rule whose `match.project` is allowed by the `constraints` array; a top-tier default is rejected. This is a static file check, not a live catalogue lookup.
+`ultra` is native-only: the model-aware validation contract and launch mapping are owned by `bin/fm-harness.sh validate-native-effort` and `bin/fm-spawn.sh` respectively. Every profile array is a quota-aware choice resolved through `quota-array-dispatch`. If no dispatch rule fits, firstmate resolves `default` before falling back to `config/crew-harness`.
+See [`docs/examples/crew-dispatch.json`](examples/crew-dispatch.json) for a copyable V2 starting point. Valid files stay silent by default; with `FM_BOOTSTRAP_VERBOSE_FACTS=1`, bootstrap emits the active config, every rule, and the default profile set. Missing `jq` uses the normal `MISSING: jq` install-consent flow.
+While the file remains present, no crewmate or scout spawn may proceed without an explicit resolved harness. An invalid V2 file is not a usable policy: correct the reported configuration error rather than selecting around it.
 Secondmate homes inherit this file from the primary, so a secondmate's own crewmates apply the same dispatch profile behavior.
 
 ## Toolchain
