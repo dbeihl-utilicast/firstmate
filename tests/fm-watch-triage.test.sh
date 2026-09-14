@@ -49,7 +49,7 @@ watch_bg() {  # <state> <fakebin> <out> [extra env assignments...]
   local state=$1 fakebin=$2 out=$3
   shift 3
   PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
-    FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$@" "$WATCH" > "$out" &
+    FM_POLL=1 FM_SIGNAL_GRACE=0.1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$@" "$WATCH" > "$out" &
 }
 
 # Wait up to <limit> 0.1s ticks while <pid> stays alive; 0 if still alive, 1 if it died.
@@ -63,48 +63,35 @@ wait_live() {
   return 0
 }
 
-# Cycle generation published at poll-loop start in the beacon file. Mid-cycle
-# freshness touches keep that generation and only refresh mtime, so a completed
-# cycle is the generation advancing, not an intra-work beat.
-watcher_cycle_gen() {
-  local v
-  v=$(cat "$1" 2>/dev/null || true)
-  case "$v" in
-    ''|*[!0-9]*) ;;
-    *) printf '%s' "$v" ;;
-  esac
+watcher_is_between_polls() {
+  local pid=$1 child command
+  while IFS= read -r child; do
+    command=$(ps -o command= -p "$child" 2>/dev/null || true)
+    case "$command" in
+      *sleep\ 0.1) ;;
+      *sleep\ *) return 0 ;;
+    esac
+  done < <(pgrep -P "$pid" -x sleep 2>/dev/null || true)
+  return 1
 }
 
-# Wait until <pid>'s watcher has completed a whole poll cycle, or exited first.
+# Wait until <pid>'s watcher reaches the terminal wait after a poll cycle, or exits first.
 # A fixed wait_live budget only proves the process is still ALIVE: fm-watch.sh
 # does bounded startup work (the recovery-marker snapshot, lock acquisition)
 # before its first stale scan, so on a loaded
 # machine a short fixed budget can reap a round before the cycle it asserts on
 # ever ran - and then every "no wake, no marker" assertion passes vacuously
 # while every "marker written" assertion fails spuriously.
-# The beacon's mtime also advances mid-cycle while work makes progress, so this
-# drops any beacon left by an earlier round, waits for THIS watcher to publish a
-# cycle generation (a poll's start), then waits for that generation to change
-# (the next poll's start) - and the whole cycle in between is what the caller's
-# assertions describe.
+# This drops any beacon left by an earlier round, then requires both a fresh
+# beat from this watcher and its bounded poll sleep.
 # 0 if the watcher is still alive after a completed cycle, 1 if it exited.
 wait_poll_cycle() {  # <state> <pid> [limit-ticks]
-  local state=$1 pid=$2 limit=${3:-300} beat first now i=0
+  local state=$1 pid=$2 limit=${3:-300} beat i=0
   beat="$state/.last-watcher-beat"
   rm -f "$beat"
-  first=""
   while [ "$i" -lt "$limit" ]; do
     kill -0 "$pid" 2>/dev/null || return 1
-    first=$(watcher_cycle_gen "$beat")
-    [ -n "$first" ] && break
-    sleep 0.1
-    i=$((i + 1))
-  done
-  [ -n "$first" ] || return 1
-  while [ "$i" -lt "$limit" ]; do
-    kill -0 "$pid" 2>/dev/null || return 1
-    now=$(watcher_cycle_gen "$beat")
-    if [ -n "$now" ] && [ "$now" != "$first" ]; then
+    if [ -e "$beat" ] && watcher_is_between_polls "$pid"; then
       return 0
     fi
     sleep 0.1
@@ -4529,7 +4516,7 @@ register_silent_check() {  # <state> <id>
 }
 
 test_beacon_refreshes_during_poll_work() {
-  local dir state fakebin out pid beat t0 t1 gen0 gen1
+  local dir state fakebin out pid beat t0 t1
   dir=$(make_case beacon-mid-cycle); state="$dir/state"; fakebin="$dir/fakebin"
   out="$dir/watch.out"; beat="$state/.last-watcher-beat"
   cat > "$state/progress.check.sh" <<EOF
@@ -4552,20 +4539,15 @@ EOF
   pid=$!
   wait_marker "$state/progress-started" "$pid" 200 \
     || { reap "$pid"; fail "progress check never started: $(cat "$out")"; }
-  gen0=$(watcher_cycle_gen "$beat")
-  [ -n "$gen0" ] || { reap "$pid"; fail "watcher never published a cycle-start beacon"; }
   t0=$(file_mtime_frac "$beat")
   wait_marker "$state/stuck-entered" "$pid" 250 \
     || { reap "$pid"; fail "stuck check never started after the progress check: $(cat "$out")"; }
   t1=$(file_mtime_frac "$beat")
-  gen1=$(watcher_cycle_gen "$beat")
   python3 -c 'import sys; raise SystemExit(0 if float(sys.argv[1]) > float(sys.argv[2]) else 1)' "$t1" "$t0" \
     || { reap "$pid"; fail "beacon mtime did not advance during poll work (start=$t0 mid=$t1)"; }
-  [ "$gen1" = "$gen0" ] || { reap "$pid"; fail "poll work spanned a second cycle instead of refreshing mid-cycle (start=$gen0 mid=$gen1)"; }
   [ "$(cat "$state/progress-count")" = 1 ] || { reap "$pid"; fail "progress check ran more than once while the cycle was still in the stuck step"; }
   sleep 2
   kill -0 "$pid" 2>/dev/null || { reap "$pid"; fail "watcher exited while the stuck step was still running: $(cat "$out")"; }
-  [ "$(watcher_cycle_gen "$beat")" = "$gen0" ] || { reap "$pid"; fail "a second poll started while the first cycle was still in the stuck step"; }
   [ "$(cat "$state/progress-count")" = 1 ] || { reap "$pid"; fail "an overlapping poll re-ran the progress check"; }
   reap "$pid"
   pass "the liveness beacon refreshes during poll work in the same cycle, without overlapping polls"

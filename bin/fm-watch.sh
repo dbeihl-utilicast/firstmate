@@ -2151,18 +2151,10 @@ resurface_after_downtime() {
 }
 
 # Liveness beacon for fm-guard.sh: a fresh mtime means this watcher has made
-# progress. Only this process writes it; a helper cannot make a wedged poll
-# look healthy. Mid-cycle touches refresh mtime only. Cycle start also writes a
-# generation so a completed cycle is distinguishable from a progress touch.
-# docs/turnend-guard.md "Guard grace and the poll cadence" owns the contract.
+# progress. Only this process writes it, so a helper cannot make a wedged poll
+# look healthy. docs/turnend-guard.md owns the full contract.
 touch_watcher_beat() {
   touch "$STATE/.last-watcher-beat"
-}
-
-WATCHER_CYCLE=0
-start_watcher_cycle_beat() {
-  WATCHER_CYCLE=$((WATCHER_CYCLE + 1))
-  printf '%s\n' "$WATCHER_CYCLE" > "$STATE/.last-watcher-beat"
 }
 
 while :; do
@@ -2176,7 +2168,7 @@ while :; do
     exit 0
   fi
 
-  start_watcher_cycle_beat
+  touch_watcher_beat
 
   if [ "$(age_of "$STATE/home-summary.json")" -ge "$HOME_SUMMARY_INTERVAL" ]; then
     home_summary_refresh_detached
