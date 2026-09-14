@@ -441,7 +441,9 @@ This section is the single owner of the canonical V2 schema and its per-field se
 
 The `placement.rules` and `rules` arrays carry rule order; `default` defines default membership.
 Separate `precedence` and `dispatch.ordinary_default_profiles` declarations are rejected.
-Matching remains judgment.
+If supplied, a rule's `match` must be a non-empty object; `null` and `{}` are invalid.
+The optional `match.host` is a non-empty string that scopes the rule to the named dispatch host.
+Matching, including applying host scope, remains firstmate's judgment; bootstrap does not select or verify that host.
 
 Every V2 profile has `id`, `harness`, `model`, and `model_class`; `effort`, `reasoning_target`, `reasoning_source`, `eligible_when`, and `preferred_when` are optional non-empty strings.
 Profile IDs must be unique within each `use` array and within `default`.
