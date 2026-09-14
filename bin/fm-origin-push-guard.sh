@@ -3,9 +3,9 @@
 # Usage: fm-origin-push-guard.sh install [repo]
 #        fm-origin-push-guard.sh   (git pre-push hook: <remote-name> <remote-url>)
 #
-# When this checkout has a `no-mistakes` remote, refuse `git push` to any other
-# remote and print `git push no-mistakes`. A checkout without that remote is
-# unchanged, including the public template.
+# When a `no-mistakes` remote exists, refuse `git push` unless its destination is
+# named `no-mistakes` or matches one of its URLs, and print `git push no-mistakes`.
+# Checkouts without that remote, including the public template, remain unchanged.
 # Git's `pre-push` protocol is the public interface: two arguments (destination
 # name and URL) plus ref lines on stdin. Session-start bootstrap installs this
 # script into the checkout's effective hooks directory when that directory is

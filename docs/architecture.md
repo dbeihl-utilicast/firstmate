@@ -258,7 +258,7 @@ Independently, `fm-spawn.sh`, `fm-send.sh`, `fm-control.sh`, and `fm-teardown.sh
 A normal primary checkout or crewmate worktree has neither signal and remains unaffected.
 The helper's header owns the exact signal detection, relocated-home limitation, test-harness bypass, and relationship to no-mistakes' HEAD-continuity guard.
 
-This repository's checkout also refuses `git push` to a remote other than `no-mistakes` when that remote exists, so the unguarded origin route is not the default at the shell.
+When a `no-mistakes` remote exists, the local pre-push guard removes the unguarded origin route from the default shell path.
 [`bin/fm-origin-push-guard.sh`](../bin/fm-origin-push-guard.sh) owns the hook, the installer, chaining, and the deliberate overrides.
 Session-start bootstrap installs it only when the effective hooks directory is inside the repository's Git common directory.
 The refusal is local only: it does not change GitHub repository settings, branch protection, or administrator merge.
