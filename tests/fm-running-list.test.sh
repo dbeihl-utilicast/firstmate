@@ -456,62 +456,112 @@ test_projects_bounded_secondmate_child_holds() {
 }
 
 test_projects_secondmate_reconcile_rows() {
-  local home terminal unavailable fakebin json id state
+  local home mixed fakebin json id state
   home=$(make_home reconcile-rows)
-  terminal="$TMP_ROOT/reconcile-terminal-home"
-  unavailable="$TMP_ROOT/reconcile-unavailable-home"
+  mixed="$TMP_ROOT/reconcile-mixed-home"
   : > "$home/data/secondmates.md"
-  make_secondmate_home terminal "$terminal"
-  make_secondmate_home unavailable "$unavailable"
-  register_secondmate "$home" terminal "$terminal"
-  register_secondmate "$home" unavailable "$unavailable"
+  make_secondmate_home mixed "$mixed"
+  register_secondmate "$home" mixed "$mixed"
 
-  cat > "$terminal/data/backlog.md" <<'EOF'
+  cat > "$mixed/data/backlog.md" <<'EOF'
 ## In flight
+- [ ] orphan-child - Orphan child still open (repo: sample) (kind: ship)
 - [ ] done-child - Done child still open (repo: sample) (kind: ship)
 - [ ] failed-child - Failed child still open (repo: sample) (kind: ship)
-
-## Queued
-
-## Done
-EOF
-  for id in done-child failed-child; do
-    mkdir -p "$terminal/projects/$id"
-    fm_write_meta "$terminal/state/$id.meta" \
-      "window=firstmate:fm-$id" "worktree=$terminal/projects/$id" \
-      "project=sample" "harness=claude" "kind=ship" "mode=ship"
-    record_claude_state "$terminal/state" "$id" idle
-    case "$id" in
-      done-child) state=done ;;
-      failed-child) state=failed ;;
-    esac
-    printf '%s: terminal fixture\n' "$state" > "$terminal/state/$id.status"
-  done
-
-  cat > "$unavailable/data/backlog.md" <<'EOF'
-## In flight
 - [ ] unknown-child - Unknown child still open (repo: sample) (kind: ship)
 
 ## Queued
 
 ## Done
 EOF
-  mkdir -p "$unavailable/projects/unknown-child"
-  fm_write_meta "$unavailable/state/unknown-child.meta" \
+  for id in done-child failed-child; do
+    mkdir -p "$mixed/projects/$id"
+    fm_write_meta "$mixed/state/$id.meta" \
+      "window=firstmate:fm-$id" "worktree=$mixed/projects/$id" \
+      "project=sample" "harness=claude" "kind=ship" "mode=ship"
+    record_claude_state "$mixed/state" "$id" idle
+    case "$id" in
+      done-child) state=done ;;
+      failed-child) state=failed ;;
+    esac
+    printf '%s: terminal fixture\n' "$state" > "$mixed/state/$id.status"
+  done
+
+  mkdir -p "$mixed/projects/unknown-child"
+  fm_write_meta "$mixed/state/unknown-child.meta" \
     "window=firstmate:fm-unknown-child" \
-    "worktree=$unavailable/projects/unknown-child" \
+    "worktree=$mixed/projects/unknown-child" \
     "project=sample" "harness=claude" "kind=ship" "mode=ship"
 
   fakebin=$(make_fakebin "$home")
-  refresh_secondmate_home "$terminal" "$fakebin"
-  refresh_secondmate_home "$unavailable" "$fakebin"
+  refresh_secondmate_home "$mixed" "$fakebin"
   json=$(run_list "$home" "$fakebin" --json) || fail "reconcile-row list failed"
   printf '%s' "$json" | jq -e '
-    ([.rotting[] | select(.owner == "terminal") | .id] | sort)
-        == ["terminal/done-child", "terminal/failed-child"]
-      and (.blocked | any(.id == "unavailable/unknown-child" and .owner == "unavailable"))
+    ([.rotting[] | select(.owner == "mixed") | .id] | sort)
+        == ["mixed/done-child", "mixed/failed-child", "mixed/orphan-child"]
+      and (.blocked | any(.id == "mixed/unknown-child" and .owner == "mixed"))
   ' >/dev/null || fail "secondmate reconciliation rows disappeared from the list: $json"
-  pass "secondmate terminal and unavailable children remain visible"
+  pass "coexisting secondmate reconciliation failures remain visible"
+}
+
+test_places_and_labels_program_rows() {
+  local home mate fakebin json human next
+  home=$(make_home program-rows)
+  mate="$TMP_ROOT/program-secondmate-home"
+  make_secondmate_home program-mate "$mate"
+  register_secondmate "$home" program-mate "$mate"
+  cat > "$home/data/backlog.md" <<'EOF'
+## In flight
+- [ ] program-moving - Moving program (repo: sample) (kind: program)
+- [ ] program-blocked - Blocked program blocked-by: dependency (repo: sample) (kind: program)
+- [ ] program-outside - Outside program (repo: sample) (kind: program) (hold: waiting on vendor) (hold-kind: external)
+- [ ] program-date - Dated program (repo: sample) (kind: program) (hold: waiting on window) (hold-kind: external) (hold-until: 2026-12-15)
+- [ ] program-captain - Captain program (repo: sample) (kind: program) (hold: choose program route) (hold-kind: captain)
+
+## Queued
+
+## Done
+EOF
+  cat > "$mate/data/backlog.md" <<'EOF'
+## In flight
+- [ ] mate-program-moving - Moving secondmate program (repo: sample) (kind: program)
+- [ ] mate-program-bounded - Bounded secondmate program (repo: sample) (kind: program)
+- [ ] mate-program-outside - Outside secondmate program (repo: sample) (kind: program) (hold: waiting on vendor) (hold-kind: external)
+
+## Queued
+
+## Done
+EOF
+
+  fakebin=$(make_fakebin "$home")
+  FM_SNAPSHOT_SECONDMATE_CHILDREN=1 refresh_secondmate_home "$mate" "$fakebin"
+  json=$(run_list "$home" "$fakebin" --json) || fail "program-row list failed"
+  printf '%s' "$json" | jq -e '
+    (.moving | any(.id == "program-moving" and .kind == "program"))
+      and (.moving | any(.id == "program-mate/mate-program-moving" and .kind == "program"))
+      and (.blocked | any(.id == "program-blocked" and .kind == "program"))
+      and (.waiting_on_outside | any(.id == "program-outside" and .kind == "program"))
+      and (.waiting_on_outside | any(.id == "mate-program-outside" and .owner == "program-mate" and .kind == "program"))
+      and (.waiting_on_date | any(.id == "program-date" and .kind == "program"))
+      and (.waiting_on_you | any(.id == "program-captain" and .kind == "program"))
+      and (.rotting | any(.kind == "program") | not)
+      and (.missing | index("secondmate program-mate programs omitted by snapshot bound: 1") != null)
+  ' >/dev/null || fail "program rows were omitted, mislabeled, or misgrouped: $json"
+  human=$(run_list "$home" "$fakebin") || fail "human program-row list failed"
+  assert_contains "$human" "program-moving [program]" \
+    "main program row lacked its human label"
+  assert_contains "$human" "program-mate/mate-program-moving [program]" \
+    "secondmate program row lacked its human label"
+
+  next="$mate/state/home-summary.without-programs.json"
+  jq 'del(.programs)' "$mate/state/home-summary.json" > "$next" \
+    || fail "could not construct legacy home-summary fixture"
+  mv "$next" "$mate/state/home-summary.json"
+  json=$(run_list "$home" "$fakebin" --json) || fail "legacy program-ledger list failed"
+  printf '%s' "$json" | jq -e '
+    .missing | index("secondmate program-mate programs unavailable from home summary") != null
+  ' >/dev/null || fail "an unavailable secondmate program surface was silent: $json"
+  pass "program rows use existing groups, labels, and completeness disclosure"
 }
 
 test_preserves_structured_external_hold_age() {
@@ -613,6 +663,7 @@ test_keeps_same_local_id_from_different_homes
 test_discloses_bounded_secondmate_overflow
 test_projects_bounded_secondmate_child_holds
 test_projects_secondmate_reconcile_rows
+test_places_and_labels_program_rows
 test_preserves_structured_external_hold_age
 test_preserves_cached_ledger_disclosure
 test_toon_warning_preserves_hold_columns

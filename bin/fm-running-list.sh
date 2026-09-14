@@ -24,6 +24,7 @@
 #   blocked             unresolved blockers and in-flight work with blocked or unknown state
 #   waiting_on_date     time-gated work that is not a captain hold
 #   moving              in-flight work whose current state is working
+# Program rows use these same groups and carry a [program] label.
 #
 # The rotting count is printed first. Age is shown in days when the snapshot
 # supplies a structured hold age; otherwise the row shows "-" and the status line
@@ -75,9 +76,9 @@ MODEL=$(printf '%s' "$SNAP" | jq '
     or ($m.freshness == "unknown")
     or ($m.state == "unknown")
     or ($m.provenance == "unknown");
-  def row($id; $title; $owner; $age; $wait):
+  def row($id; $title; $owner; $kind; $age; $wait):
     {id:$id, title:dash($title), owner:owner_of($id; $owner),
-     age_days:$age, wait:dash($wait)};
+     kind:($kind // null), age_days:$age, wait:dash($wait)};
   def by_age_then_id:
     sort_by([(.age_days == null), -(.age_days // 0), .id, .owner]);
   def identity($id; $fallback):
@@ -96,7 +97,8 @@ MODEL=$(printf '%s' "$SNAP" | jq '
     (.surface // "") as $surface
     | ($surface | test("^main (in-flight|unstructured current)"))
       or ($surface | test("^in_flight showing "))
-      or ($surface | test("^secondmate .* (active children|decisions_open|holds|queued|endpoints) omitted by snapshot bound:"))
+      or ($surface | test("^secondmate .* (programs|active children|decisions_open|holds|queued|endpoints) omitted by snapshot bound:"))
+      or ($surface | test("^secondmate .* programs unavailable from home summary$"))
       or ($surface | test("^secondmate .* served from cached home ledger$"))
       or ($surface | test("^secondmates showing "))
       or ($surface | test("^registered secondmates omitted by snapshot bound:"))
@@ -123,7 +125,7 @@ MODEL=$(printf '%s' "$SNAP" | jq '
   | reduce $decisions[] as $d (.;
       (if nonempty($d.hold_until) then ("until " + $d.hold_until)
        else $d.summary end) as $wait
-      | .waiting_on_you += [row($d.id; $d.summary; $d.owner;
+      | .waiting_on_you += [row($d.id; $d.summary; $d.owner; $d.kind;
                                 ($d.hold_age_days // null); $wait)]
       | mark(.; $d.id; $d.owner))
   | reduce $gates[] as $g (.;
@@ -131,44 +133,44 @@ MODEL=$(printf '%s' "$SNAP" | jq '
         .warnings += [{id:$g.id, title:dash($g.title), reason:dash($g.reason)}]
         | mark(.; $g.id; $g.owner)
       elif unseen(.; $g.id; $g.owner) and ($g.hold_kind == "captain") then
-        .waiting_on_you += [row($g.id; $g.title; $g.owner;
+        .waiting_on_you += [row($g.id; $g.title; $g.owner; $g.kind;
                                 ($g.hold_age_days // null);
                                 (if nonempty($g.hold_until) then ("until " + $g.hold_until)
                                  else $g.reason end))]
         | mark(.; $g.id; $g.owner)
       elif unseen(.; $g.id; $g.owner) and nonempty($g.blocked_by) then
-        .blocked += [row($g.id; $g.title; $g.owner;
+        .blocked += [row($g.id; $g.title; $g.owner; $g.kind;
                          ($g.hold_age_days // null); $g.blocked_by)]
         | mark(.; $g.id; $g.owner)
       elif unseen(.; $g.id; $g.owner) and nonempty($g.hold_until) then
-        .waiting_on_date += [row($g.id; $g.title; $g.owner;
+        .waiting_on_date += [row($g.id; $g.title; $g.owner; $g.kind;
                                  ($g.hold_age_days // null);
                                  ("until " + $g.hold_until))]
         | mark(.; $g.id; $g.owner)
       elif unseen(.; $g.id; $g.owner) and nonempty($g.reason) then
-        .waiting_on_outside += [row($g.id; $g.title; $g.owner;
+        .waiting_on_outside += [row($g.id; $g.title; $g.owner; $g.kind;
                                     ($g.hold_age_days // null); $g.reason)]
         | mark(.; $g.id; $g.owner)
       elif unseen(.; $g.id; $g.owner) then
-        .rotting += [row($g.id; $g.title; $g.owner;
+        .rotting += [row($g.id; $g.title; $g.owner; $g.kind;
                          ($g.hold_age_days // null); $g.title)]
         | mark(.; $g.id; $g.owner)
       else . end)
   | reduce $inflight[] as $t (.;
       if unseen(.; $t.id; null) and endpoint_dead($dead_ids; $t.id) then
-        .rotting += [row($t.id; ($t.doing // $t.id); null; null; state_wait($t))]
+        .rotting += [row($t.id; ($t.doing // $t.id); null; $t.kind; null; state_wait($t))]
         | mark(.; $t.id; null)
       elif unseen(.; $t.id; null) and ($t.state == "working") then
-        .moving += [row($t.id; $t.doing; null; null; $t.doing)]
+        .moving += [row($t.id; $t.doing; null; $t.kind; null; $t.doing)]
         | mark(.; $t.id; null)
       elif unseen(.; $t.id; null) and ($t.state == "paused" or $t.state == "parked") then
-        .waiting_on_outside += [row($t.id; $t.doing; null; null; state_wait($t))]
+        .waiting_on_outside += [row($t.id; $t.doing; null; $t.kind; null; state_wait($t))]
         | mark(.; $t.id; null)
       elif unseen(.; $t.id; null) and ($t.state == "blocked" or $t.state == "unknown") then
-        .blocked += [row($t.id; ($t.doing // $t.id); null; null; state_wait($t))]
+        .blocked += [row($t.id; ($t.doing // $t.id); null; $t.kind; null; state_wait($t))]
         | mark(.; $t.id; null)
       elif unseen(.; $t.id; null) then
-        .rotting += [row($t.id; $t.doing // $t.id; null; null; $t.doing // $t.id)]
+        .rotting += [row($t.id; $t.doing // $t.id; null; $t.kind; null; $t.doing // $t.id)]
         | mark(.; $t.id; null)
       else . end)
   | reduce $mates[] as $m (.;
@@ -208,7 +210,7 @@ printf '%s' "$MODEL" | jq -r '
     if .age_days == null then "-"
     else "\(.age_days)d" end;
   def item:
-    "  \(age_col)  \(.id)  \(.wait)  \(.owner)";
+    "  \(age_col)  \(.id)\(if .kind == "program" then " [program]" else "" end)  \(.wait)  \(.owner)";
   def section($title; $rows):
     "\($title) (\($rows | length))",
     (if ($rows | length) == 0 then empty else ($rows[] | item) end);

@@ -23,9 +23,9 @@
 # This wrapper consumes canonical status decisions plus canonically normalized
 # backlog roles, unresolved blockers, and captain actionability. It never infers
 # decisions from report or visual-review prose or reimplements snapshot semantics.
-# Underway (in_flight) projects every main live worker plus every active,
-# child-state-held, or reconciled terminal/unavailable child from every readable
-# secondmate ledger, independently of that home's bearings_state. A home classified captain_decision because it has an open
+# Underway (in_flight) projects every main live worker and program plus every active,
+# child-state-held, program, or reconciled orphan/terminal/unavailable row from
+# every readable secondmate ledger, independently of that home's bearings_state. A home classified captain_decision because it has an open
 # captain hold still contributes each working child as its own Underway row;
 # the home row on secondmates[] keeps the decision and gate classification.
 # Captain-hold placement follows the canonical snapshot's hold_bucket and
@@ -132,9 +132,9 @@ remote homes under one shared snapshot budget and may refresh the parent-side ca
 Default fields: schema, home, generated, prs, in_flight{id,kind,state,repo,doing},
   secondmates{id,state,doing,provenance,freshness,age_seconds,contradiction,reason},
   secondmate_reconcile{id,spawn_gen,host,kind,ids},
-  decisions_open{id,key,verb,summary,owner,hold_kind,hold_bucket,hold_until,hold_age_days},
+  decisions_open{id,key,verb,summary,owner,kind,hold_kind,hold_bucket,hold_until,hold_age_days},
   landed{id,what,artifact,owner},
-  gates{id,title,blocked_by,reason,owner,hold_kind,hold_bucket,hold_until,hold_age_days},
+  gates{id,title,blocked_by,reason,owner,kind,hold_kind,hold_bucket,hold_until,hold_age_days},
   reports{id,path}, recorded_prs{id,url},
   unhealthy_endpoints{...} (only when non-empty), omitted{surface,reveal}.
 landed merges this home's Done with registered secondmate homes' Done, bounded by
@@ -384,6 +384,7 @@ MODEL=$(printf '%s' "$SNAP" | jq \
     {id, title:(.title | trunc(60)),
      blocked_by:((.unresolved_blocker_ids // []) | if length > 0 then join(",") else "-" end | trunc(120)),
      reason:(hold_gate_reason | trunc(40)), owner:$owner,
+     kind:(.kind // null),
      hold_kind:(.hold_kind // null), hold_bucket:(.hold_bucket // null),
      hold_until:(.hold_until // null), hold_age_days:(.hold_age_days // null)};
   def round_robin_landed($n):
@@ -429,16 +430,19 @@ MODEL=$(printf '%s' "$SNAP" | jq \
            bearings_state:(
              if .current.state == "captain_decision" then
                if ($captain_holds | length) > 0 then "captain_decision"
-               elif (.active_children | length) > 0 then "active_child_work"
+               elif (.active_children | length) > 0 or ((.programs // []) | length) > 0 then "active_child_work"
                elif ($backlog_holds | length) > 0 then "externally_held"
                else "unknown" end
              else .current.state end)
          } ]) as $secondmate_views
-  | ([ $secondmate_views[]
-       | select(.reconcile_inventory != null)
-       | {id, spawn_gen:(.spawn_gen // null), host:(.host // null),
-          kind:(.reconcile_inventory.kind // null),
-          ids:((.reconcile_inventory.ids // []) | map(select(type == "string")) | sort)} ]) as $secondmate_reconcile_all
+  | ([ $secondmate_views[] as $m
+       | (($m.reconcile_inventories //
+           (if ($m.reconcile_inventory.kind // null) != null
+            then [$m.reconcile_inventory] else [] end))[]) as $invalidity
+       | select(($invalidity.kind // null) != null)
+       | {id:$m.id, spawn_gen:($m.spawn_gen // null), host:($m.host // null),
+          kind:$invalidity.kind,
+          ids:(($invalidity.ids // []) | map(select(type == "string")) | sort)} ]) as $secondmate_reconcile_all
   | ([ if .secondmate_current.registry.available == false then
          {id:"(registry)",state:"unknown",doing:(.secondmate_current.registry.reason // "Registered secondmate table unavailable"),
           provenance:(.secondmate_current.registry.provenance // "registered-table"),
@@ -448,7 +452,8 @@ MODEL=$(printf '%s' "$SNAP" | jq \
      + [ $secondmate_views[]
        | {id,state:.bearings_state,
           doing:((if .bearings_state == "active_child_work" then
-                    ([.active_children[] | .id + ": " + (.doing // .state)] | join("; "))
+                    ([.active_children[]?, (.programs // [])[]
+                      | .id + ": " + (.doing // .state)] | join("; "))
                   elif .bearings_state == "captain_decision" then
                     ([.bearings_captain_holds[] | .summary] | join("; "))
                   elif .bearings_state == "externally_held" then
@@ -469,6 +474,14 @@ MODEL=$(printf '%s' "$SNAP" | jq \
         doing: ((.current_state.detail // "") as $d
                 | (if $d != "" then $d else (.hints.last_event_text // "") end) | trunc(90))
       } ]
+     + [ .backlog.records[]
+         | select(.structured and .state == "in_flight" and .current_role == "program")
+         | {id,kind:"program",
+            state:(if (.unresolved_blocker_ids | length) > 0 then "blocked" else "working" end),
+            repo:(.repo // .project // null),
+            doing:((if (.unresolved_blocker_ids | length) > 0
+                    then (.unresolved_blocker_ids | join(","))
+                    else .title end) | trunc(90))} ]
      + [ $secondmate_views[] as $m
          | $m.active_children[]?
          | {id:($m.id + "/" + .id),
@@ -477,22 +490,35 @@ MODEL=$(printf '%s' "$SNAP" | jq \
             repo:(.repo // null),
             doing:((.doing // .state) | trunc(90))} ]
      + [ $secondmate_views[] as $m
+         | ($m.programs // [])[]
+         | {id:($m.id + "/" + .id),
+            kind:"program",
+            state:(.state // "working"),
+            repo:(.repo // null),
+            doing:((.doing // .title // .state) | trunc(90))} ]
+     + [ $secondmate_views[] as $m
          | $m.holds[]?
          | select(.source == "child-state")
          | {id:($m.id + "/" + .id),
-            kind:"secondmate",
+            kind:(.kind // "secondmate"),
             state:(.state // "unknown"),
             repo:null,
             doing:((.reason // .state // "held") | trunc(90))} ]
      + [ $secondmate_reconcile_all[] as $r
-         | select($r.kind == "terminal_in_flight" or $r.kind == "child_current_unavailable")
+         | select($r.kind == "orphan_in_flight" or
+                  $r.kind == "terminal_in_flight" or
+                  $r.kind == "child_current_unavailable")
          | $r.ids[] as $id
          | {id:($r.id + "/" + $id),
             kind:"secondmate",
-            state:(if $r.kind == "terminal_in_flight" then "terminal" else "unknown" end),
+            state:(if $r.kind == "terminal_in_flight" then "terminal"
+                   elif $r.kind == "orphan_in_flight" then "orphan"
+                   else "unknown" end),
             repo:null,
             doing:(if $r.kind == "terminal_in_flight"
                    then "terminal child still listed in flight"
+                   elif $r.kind == "orphan_in_flight"
+                   then "in-flight work has no child metadata"
                    else "current child state unavailable" end)} ]) as $in_flight_all
   | ([ .backlog.records[]
          | . as $record
@@ -500,14 +526,16 @@ MODEL=$(printf '%s' "$SNAP" | jq \
          | select(($all_decisions == 1) or live_captain_call)
          | {id,key:.id,verb:"captain-hold",
             summary:hold_summary(.title; .hold_reason),owner:"(main)",
-            hold_kind,hold_bucket,hold_until,hold_age_days} ]
+            kind:(.kind // null),hold_kind,hold_bucket,hold_until,hold_age_days} ]
      + [ (.secondmate_current.records // [])[] as $m
          | ([ $m.decisions_open[]?
               | select(.source == "backlog" and .verb == "captain-hold")
               | select(($all_decisions == 1) or live_captain_call)
+              | .id as $decision_id
               | {id:($m.id + "/" + .id),key,verb,
                  summary:hold_summary((.summary // .id);
                                       (.reason // "captain decision pending")),owner:$m.id,
+                 kind:(.kind // ([ $m.queued[]? | select(.id == $decision_id) | .kind ][0] // null)),
                  hold_kind:"captain",hold_bucket,hold_until,hold_age_days} ]
             + [ $m.queued[]?
                 | select($all_decisions == 1 and .hold_kind == "captain")
@@ -519,7 +547,7 @@ MODEL=$(printf '%s' "$SNAP" | jq \
                 | {id:($m.id + "/" + .id),key:.id,verb:"captain-hold",
                    summary:hold_summary((.title // .id);
                                         (.hold_reason // "captain decision pending")),owner:$m.id,
-                   hold_kind,hold_bucket,hold_until,hold_age_days} ])[] ]) as $decisions_all
+                   kind:(.kind // null),hold_kind,hold_bucket,hold_until,hold_age_days} ])[] ]) as $decisions_all
   | ([ .backlog.records[]
          | . as $record
          | select(.structured and projected_deferred_hold) ]
@@ -532,6 +560,7 @@ MODEL=$(printf '%s' "$SNAP" | jq \
           blocked_by:"-",
           reason:"main inventory",
           owner:"(main)",
+          kind:null,
           hold_kind:null,
           hold_bucket:null,
           hold_until:null,
@@ -595,6 +624,12 @@ MODEL=$(printf '%s' "$SNAP" | jq \
         ((($snap.main_inventory.unstructured_current_count // 0)) as $n
          | if $n > 0 then {surface:("main unstructured current backlog row(s): \($n)"), reveal:"inspect main data/backlog.md In flight and Queued free-form rows"} else empty end),
         (if $all_in_flight == 0 and ($in_flight_all | length) > $in_flight_n then {surface:("in_flight showing \($in_flight_n) of \($in_flight_all | length)"), reveal:"--all-in-flight"} else empty end),
+        (($snap.secondmate_current.records // [])[] as $m
+         | ([($m.omitted // [])[] | select(.surface == "programs") | .count] | add // 0) as $n
+         | if $n > 0 then {surface:("secondmate " + $m.id + " programs omitted by snapshot bound: \($n)"), reveal:"raise FM_SNAPSHOT_SECONDMATE_CHILDREN"} else empty end),
+        (($snap.secondmate_current.records // [])[]
+         | select(.provenance.selected == "structured-home" and .programs_available != true)
+         | {surface:("secondmate " + .id + " programs unavailable from home summary"),reveal:"refresh the home summary ledger"}),
         (($snap.secondmate_current.records // [])[] as $m
          | ([($m.omitted // [])[] | select(.surface == "active_children") | .count] | add // 0) as $n
          | if $n > 0 then {surface:("secondmate " + $m.id + " active children omitted by snapshot bound: \($n)"), reveal:"raise FM_SNAPSHOT_SECONDMATE_CHILDREN"} else empty end),

@@ -161,6 +161,8 @@ home_summary_refresh_once() {
     and (.valid | type) == "boolean"
     and (.state | type) == "string"
     and (.invalidity | type) == "object"
+    and (.invalidities | type) == "array"
+    and (.programs | type) == "array"
     and (.active_children | type) == "array"
     and (.decisions_open | type) == "array"
     and (.holds | type) == "array"

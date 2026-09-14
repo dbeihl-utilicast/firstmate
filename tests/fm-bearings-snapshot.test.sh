@@ -228,7 +228,8 @@ write_remote_home_summary() {  # <remote-home> <generated-epoch>
     schema:"fm-secondmate-home-summary.v1",
     hold_classifier_schema:"fm-captain-hold-buckets.v1",
     generated:"2026-09-01T22:00:00Z",generated_epoch:$epoch,home:$home,
-    valid:true,reason:null,invalidity:{kind:null,ids:[]},state:"captain_decision",
+    valid:true,reason:null,invalidity:{kind:null,ids:[]},invalidities:[],state:"captain_decision",
+    programs:[],
     active_children:[],
     decisions_open:[
       {id:"remote-parked",key:"remote-parked",verb:"captain-hold",summary:"Remote parked hold",reason:"parked",hold_until:null,hold_bucket:"live",hold_age_days:null,source:"backlog"},
@@ -238,7 +239,7 @@ write_remote_home_summary() {  # <remote-home> <generated-epoch>
       {id:"remote-parked",title:"Remote parked hold",blocked_by:null,blocked_by_ids:[],unresolved_blocker_ids:[],blocked_reason:null,hold_reason:"parked",hold_kind:"captain",hold_until:null,hold_bucket:"live",hold_age_days:null,captain_actionable:true,repo:"firstmate",kind:"captain"},
       {id:"remote-aged",title:"Remote aged hold",blocked_by:null,blocked_by_ids:[],unresolved_blocker_ids:[],blocked_reason:null,hold_reason:"choose a route",hold_kind:"captain",hold_until:null,hold_bucket:"aged",hold_age_days:40,captain_actionable:false,repo:"firstmate",kind:"captain"}
     ],landed:[],endpoints:[],
-    counts:{active_children:0,decisions_open:2,holds:0,queued:2,landed:0,endpoints:0},omitted:[]
+    counts:{programs:0,active_children:0,decisions_open:2,holds:0,queued:2,landed:0,endpoints:0},omitted:[]
   }' > "$home/state/home-summary.json"
 }
 
@@ -2488,6 +2489,7 @@ EOF
     (.secondmate_current.records[] | select(.id == "hibit")
       | .current.state == "active_child_work"
         and [.active_children[].id] == ["hibit-worker"]
+        and [.programs[].id] == ["dogfood-program"]
         and ([.endpoints[].id] | index("dogfood-program") | not))
       and (.secondmate_current.records[] | select(.id == "wheel")
         | .current.state == "active_child_work"
@@ -2525,7 +2527,7 @@ EOF
   ' >/dev/null || fail "canonical mixed-domain classification was wrong: $canonical"
   json=$(run "$home" "$fakebin" --json --fields bodies --all-landed)
   printf '%s' "$json" | jq -e '
-    ([.in_flight[].id] | sort) == ["hibit/hibit-worker", "home-assistant/prep", "wheel/wheel-worker"]
+    ([.in_flight[].id] | sort) == ["hibit/dogfood-program", "hibit/hibit-worker", "home-assistant/prep", "wheel/wheel-worker"]
       and (.decisions_open | any(.id == "sshhip/reviewer-decision"))
       and (.decisions_open | any(.id == "home-assistant/captain-run") | not)
       and (.gates | any(.id == "production-observation" and .owner == "wheel"
