@@ -455,6 +455,86 @@ test_projects_bounded_secondmate_child_holds() {
   pass "secondmate child-state holds stay task-qualified with bounded gaps disclosed"
 }
 
+test_projects_secondmate_reconcile_rows() {
+  local home terminal unavailable fakebin json id state
+  home=$(make_home reconcile-rows)
+  terminal="$TMP_ROOT/reconcile-terminal-home"
+  unavailable="$TMP_ROOT/reconcile-unavailable-home"
+  : > "$home/data/secondmates.md"
+  make_secondmate_home terminal "$terminal"
+  make_secondmate_home unavailable "$unavailable"
+  register_secondmate "$home" terminal "$terminal"
+  register_secondmate "$home" unavailable "$unavailable"
+
+  cat > "$terminal/data/backlog.md" <<'EOF'
+## In flight
+- [ ] done-child - Done child still open (repo: sample) (kind: ship)
+- [ ] failed-child - Failed child still open (repo: sample) (kind: ship)
+
+## Queued
+
+## Done
+EOF
+  for id in done-child failed-child; do
+    mkdir -p "$terminal/projects/$id"
+    fm_write_meta "$terminal/state/$id.meta" \
+      "window=firstmate:fm-$id" "worktree=$terminal/projects/$id" \
+      "project=sample" "harness=claude" "kind=ship" "mode=ship"
+    record_claude_state "$terminal/state" "$id" idle
+    case "$id" in
+      done-child) state=done ;;
+      failed-child) state=failed ;;
+    esac
+    printf '%s: terminal fixture\n' "$state" > "$terminal/state/$id.status"
+  done
+
+  cat > "$unavailable/data/backlog.md" <<'EOF'
+## In flight
+- [ ] unknown-child - Unknown child still open (repo: sample) (kind: ship)
+
+## Queued
+
+## Done
+EOF
+  mkdir -p "$unavailable/projects/unknown-child"
+  fm_write_meta "$unavailable/state/unknown-child.meta" \
+    "window=firstmate:fm-unknown-child" \
+    "worktree=$unavailable/projects/unknown-child" \
+    "project=sample" "harness=claude" "kind=ship" "mode=ship"
+
+  fakebin=$(make_fakebin "$home")
+  refresh_secondmate_home "$terminal" "$fakebin"
+  refresh_secondmate_home "$unavailable" "$fakebin"
+  json=$(run_list "$home" "$fakebin" --json) || fail "reconcile-row list failed"
+  printf '%s' "$json" | jq -e '
+    ([.rotting[] | select(.owner == "terminal") | .id] | sort)
+        == ["terminal/done-child", "terminal/failed-child"]
+      and (.blocked | any(.id == "unavailable/unknown-child" and .owner == "unavailable"))
+  ' >/dev/null || fail "secondmate reconciliation rows disappeared from the list: $json"
+  pass "secondmate terminal and unavailable children remain visible"
+}
+
+test_preserves_structured_external_hold_age() {
+  local home fakebin json
+  home=$(make_home external-hold-age)
+  cat > "$home/data/backlog.md" <<'EOF'
+## In flight
+
+## Queued
+- [ ] aged-external - Aged external hold (repo: sample) (kind: ship) (hold: waiting on vendor) (hold-kind: external) (since 2026-08-01)
+
+## Done
+EOF
+  fakebin=$(make_fakebin "$home")
+  json=$(run_list "$home" "$fakebin" --json) || fail "aged external hold list failed"
+  printf '%s' "$json" | jq -e '
+    (.waiting_on_outside
+      | any(.id == "aged-external" and .owner == "(main)" and .age_days == 44))
+      and (.missing | index("age in days where the snapshot has no structured age") == null)
+  ' >/dev/null || fail "structured external hold age was discarded: $json"
+  pass "structured external hold age remains visible"
+}
+
 test_preserves_cached_ledger_disclosure() {
   local home mate fakebin json
   home=$(make_home cached-ledger)
@@ -532,6 +612,8 @@ test_done_rows_stay_off_the_list
 test_keeps_same_local_id_from_different_homes
 test_discloses_bounded_secondmate_overflow
 test_projects_bounded_secondmate_child_holds
+test_projects_secondmate_reconcile_rows
+test_preserves_structured_external_hold_age
 test_preserves_cached_ledger_disclosure
 test_toon_warning_preserves_hold_columns
 test_all_decisions_exceeds_default_bearings_cap

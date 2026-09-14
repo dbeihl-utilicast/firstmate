@@ -146,10 +146,12 @@ MODEL=$(printf '%s' "$SNAP" | jq '
                                  ("until " + $g.hold_until))]
         | mark(.; $g.id; $g.owner)
       elif unseen(.; $g.id; $g.owner) and nonempty($g.reason) then
-        .waiting_on_outside += [row($g.id; $g.title; $g.owner; null; $g.reason)]
+        .waiting_on_outside += [row($g.id; $g.title; $g.owner;
+                                    ($g.hold_age_days // null); $g.reason)]
         | mark(.; $g.id; $g.owner)
       elif unseen(.; $g.id; $g.owner) then
-        .rotting += [row($g.id; $g.title; $g.owner; null; $g.title)]
+        .rotting += [row($g.id; $g.title; $g.owner;
+                         ($g.hold_age_days // null); $g.title)]
         | mark(.; $g.id; $g.owner)
       else . end)
   | reduce $inflight[] as $t (.;

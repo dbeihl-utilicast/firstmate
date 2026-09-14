@@ -23,9 +23,9 @@
 # This wrapper consumes canonical status decisions plus canonically normalized
 # backlog roles, unresolved blockers, and captain actionability. It never infers
 # decisions from report or visual-review prose or reimplements snapshot semantics.
-# Underway (in_flight) projects every main live worker plus every active or
-# child-state-held child from every readable secondmate ledger, independently
-# of that home's bearings_state. A home classified captain_decision because it has an open
+# Underway (in_flight) projects every main live worker plus every active,
+# child-state-held, or reconciled terminal/unavailable child from every readable
+# secondmate ledger, independently of that home's bearings_state. A home classified captain_decision because it has an open
 # captain hold still contributes each working child as its own Underway row;
 # the home row on secondmates[] keeps the decision and gate classification.
 # Captain-hold placement follows the canonical snapshot's hold_bucket and
@@ -434,6 +434,11 @@ MODEL=$(printf '%s' "$SNAP" | jq \
                else "unknown" end
              else .current.state end)
          } ]) as $secondmate_views
+  | ([ $secondmate_views[]
+       | select(.reconcile_inventory != null)
+       | {id, spawn_gen:(.spawn_gen // null), host:(.host // null),
+          kind:(.reconcile_inventory.kind // null),
+          ids:((.reconcile_inventory.ids // []) | map(select(type == "string")) | sort)} ]) as $secondmate_reconcile_all
   | ([ if .secondmate_current.registry.available == false then
          {id:"(registry)",state:"unknown",doing:(.secondmate_current.registry.reason // "Registered secondmate table unavailable"),
           provenance:(.secondmate_current.registry.provenance // "registered-table"),
@@ -478,7 +483,17 @@ MODEL=$(printf '%s' "$SNAP" | jq \
             kind:"secondmate",
             state:(.state // "unknown"),
             repo:null,
-            doing:((.reason // .state // "held") | trunc(90))} ]) as $in_flight_all
+            doing:((.reason // .state // "held") | trunc(90))} ]
+     + [ $secondmate_reconcile_all[] as $r
+         | select($r.kind == "terminal_in_flight" or $r.kind == "child_current_unavailable")
+         | $r.ids[] as $id
+         | {id:($r.id + "/" + $id),
+            kind:"secondmate",
+            state:(if $r.kind == "terminal_in_flight" then "terminal" else "unknown" end),
+            repo:null,
+            doing:(if $r.kind == "terminal_in_flight"
+                   then "terminal child still listed in flight"
+                   else "current child state unavailable" end)} ]) as $in_flight_all
   | ([ .backlog.records[]
          | . as $record
          | select(.structured and .hold_bucket != null)
@@ -549,9 +564,7 @@ MODEL=$(printf '%s' "$SNAP" | jq \
       prs: $prs,
       in_flight: (if $all_in_flight == 1 then $in_flight_all else $in_flight_all[:$in_flight_n] end),
       secondmates: (if $all_secondmates == 1 then $secondmates_all else $secondmates_all[:$secondmates_n] end),
-      secondmate_reconcile: [ (.secondmate_current.records // [])[]
-        | select(.reconcile_inventory != null)
-        | {id, spawn_gen:(.spawn_gen // null), host:(.host // null), kind:(.reconcile_inventory.kind // null), ids:((.reconcile_inventory.ids // []) | map(select(type == "string")) | sort)} ],
+      secondmate_reconcile: $secondmate_reconcile_all,
       decisions_open: (if $all_decisions == 1 then $decisions_all else $decisions_all[:$decisions_n] end),
       landed: ($done | map({id, what:(.title | trunc(70)),
                             artifact:(landed_artifact // "-"),owner:.home_id})),
