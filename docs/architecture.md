@@ -260,7 +260,7 @@ The helper's header owns the exact signal detection, relocated-home limitation, 
 
 This repository's checkout also refuses `git push` to a remote other than `no-mistakes` when that remote exists, so the unguarded origin route is not the default at the shell.
 [`bin/fm-origin-push-guard.sh`](../bin/fm-origin-push-guard.sh) owns the hook, the installer, chaining, and the deliberate overrides.
-Session-start bootstrap installs it into the clone's hooks directory when that directory is inside the clone.
+Session-start bootstrap installs it only when the effective hooks directory is inside the repository's Git common directory.
 The refusal is local only: it does not change GitHub repository settings, branch protection, or administrator merge.
 
 ## Two task shapes

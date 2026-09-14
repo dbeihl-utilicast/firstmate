@@ -9,7 +9,8 @@
 # Git's `pre-push` protocol is the public interface: two arguments (destination
 # name and URL) plus ref lines on stdin. Session-start bootstrap installs this
 # script into the checkout's effective hooks directory when that directory is
-# inside the clone, chaining any existing `pre-push` rather than replacing it.
+# inside the repository's Git common directory, chaining any existing
+# `pre-push` rather than replacing it.
 # It never writes outside the clone, never sets `core.hooksPath`, and never
 # changes GitHub repository settings.
 # Deliberate escapes: `git push --no-verify` skips every local hook, including
@@ -169,8 +170,11 @@ install_into() {
   hooks_dir=$(git_abs_path "$repo" hooks) || die "cannot resolve hooks directory"
   common=$(git_abs_common_dir "$repo") || die "cannot resolve git common dir"
   toplevel=$(git -C "$repo" rev-parse --show-toplevel) || die "cannot resolve toplevel"
-  if ! path_is_inside "$hooks_dir" "$common" && ! path_is_inside "$hooks_dir" "$toplevel"; then
-    printf 'fm-origin-push-guard: skipped install: core.hooksPath is outside this clone\n' >&2
+  if ! path_is_inside "$hooks_dir" "$common"; then
+    if path_is_inside "$hooks_dir" "$toplevel"; then
+      die "cannot install: core.hooksPath is inside the worktree but outside the git directory"
+    fi
+    printf 'fm-origin-push-guard: skipped install: core.hooksPath is outside the git directory\n' >&2
     return 0
   fi
   mkdir -p "$hooks_dir" || die "cannot create $hooks_dir"
@@ -190,6 +194,11 @@ install_into() {
   write_hook "$pre_push"
 }
 
+if [ "${0##*/}" = pre-push ]; then
+  run_hook "$@"
+  exit $?
+fi
+
 if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
   sed -n '2,18{s/^# \{0,1\}//;p;}' "$SELF"
   exit 0
@@ -201,5 +210,5 @@ if [ "${1:-}" = install ]; then
   exit 0
 fi
 
-run_hook "$@"
-exit $?
+usage
+exit 2

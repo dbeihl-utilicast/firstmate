@@ -1586,7 +1586,7 @@ if [ "${FM_BOOTSTRAP_DETECT_ONLY:-0}" != 1 ]; then
   # x_mode_setup writes local Relay artifacts only and never leaves the machine.
   local_phase && x_mode_setup
   # Origin-push-guard install is local, idempotent, and silent on success. It
-  # writes only inside this clone's hooks directory. The script header owns
+  # writes only inside this repository's Git common directory. The script header owns
   # refusal, chaining, outside-hooksPath skip, and the deliberate overrides.
   if local_phase && [ -x "$SCRIPT_DIR/fm-origin-push-guard.sh" ]; then
     origin_push_guard_error='' origin_push_guard_rc=0

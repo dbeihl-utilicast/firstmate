@@ -138,15 +138,18 @@ test_no_verify_skips_the_hook() {
 }
 
 test_protocol_refuse_without_git_push() {
-  local repo sha rc=0 out
+  local repo hook sha rc=0 out
   repo=$(make_repo "$TMP_ROOT/protocol")
   add_no_mistakes "$repo"
+  rm -rf "$repo.hooks"
+  "$HOOK" install "$repo" || fail "install refused the protocol fixture"
+  hook="$repo/.git/hooks/pre-push"
   sha=$(git -C "$repo" rev-parse HEAD)
   origin_url=$(git -C "$repo" config --get remote.origin.url)
   out=$(
     cd "$repo" || exit 1
     printf 'refs/heads/topic %s refs/heads/topic %s\n' "$sha" "$ZERO" \
-      | "$HOOK" origin "$origin_url" 2>&1
+      | "$hook" origin "$origin_url" 2>&1
   ) || rc=$?
   expect_code 1 "$rc" "pre-push protocol to origin must be refused"
   assert_contains "$out" "git push no-mistakes" "protocol refusal did not name the guarded command"
@@ -178,6 +181,26 @@ test_installed_hook_refuses_origin() {
   expect_code 1 "$rc" "installed hook must refuse origin"
   assert_contains "$out" "git push no-mistakes" "installed refusal did not name the guarded command"
   pass "installed hooks/pre-push refuses origin without core.hooksPath"
+}
+
+test_remote_named_install_is_refused_as_hook_input() {
+  local repo target rc=0 out
+  repo=$(make_repo "$TMP_ROOT/install-remote")
+  add_no_mistakes "$repo"
+  rm -rf "$repo.hooks"
+  "$HOOK" install "$repo" || fail "install refused the install-remote fixture"
+  target="$TMP_ROOT/install-remote-target"
+  git clone --quiet "$repo" "$target"
+  git -C "$repo" remote add install "$target"
+  out=$(git -C "$repo" push --quiet install HEAD:refs/heads/install-bypass 2>&1) || rc=$?
+  expect_code 1 "$rc" "remote named install must reach the push refusal"
+  assert_contains "$out" "git push no-mistakes" \
+    "remote named install did not produce the push refusal"
+  assert_absent "$target/.git/hooks/pre-push" \
+    "remote named install rewrote the target repository's hooks"
+  git -C "$target" rev-parse --verify --quiet refs/heads/install-bypass >/dev/null \
+    && fail "remote named install received an unguarded push"
+  pass "remote named install is treated as hook input and refused"
 }
 
 test_install_chains_existing_pre_push() {
@@ -283,7 +306,7 @@ SH
   pass "FM_ALLOW_UNGUARDED_PUSH=1 still runs a chained pre-push"
 }
 
-test_install_skips_hooks_path_outside_clone() {
+test_install_skips_hooks_path_outside_git_dir() {
   local repo outside
   repo=$(make_repo "$TMP_ROOT/outside-hooks")
   add_no_mistakes "$repo"
@@ -294,9 +317,9 @@ test_install_skips_hooks_path_outside_clone() {
   "$HOOK" install "$repo" 2>"$TMP_ROOT/outside-hooks.err" || fail "outside hooksPath install exited non-zero"
   assert_absent "$outside/pre-push" "install wrote a hook outside the clone"
   assert_absent "$repo/.git/hooks/pre-push" "install fell back to ignored .git/hooks while hooksPath was outside"
-  assert_contains "$(cat "$TMP_ROOT/outside-hooks.err")" "outside this clone" \
+  assert_contains "$(cat "$TMP_ROOT/outside-hooks.err")" "outside the git directory" \
     "outside hooksPath skip did not explain why it did not install"
-  pass "install does not write outside the clone when core.hooksPath is external"
+  pass "install does not write outside the git directory when core.hooksPath is external"
 }
 
 test_install_resolves_symlinked_hooks_directory() {
@@ -310,7 +333,7 @@ test_install_resolves_symlinked_hooks_directory() {
   out=$("$HOOK" install "$repo" 2>&1) || rc=$?
   expect_code 0 "$rc" "external symlinked hooks directory must be skipped safely"
   assert_absent "$outside/pre-push" "install followed a symlinked hooks directory outside the clone"
-  assert_contains "$out" "outside this clone" \
+  assert_contains "$out" "outside the git directory" \
     "symlinked hooks directory skip did not explain the refusal"
   pass "install resolves the hooks directory before its containment check"
 }
@@ -336,18 +359,35 @@ test_install_rejects_symlinked_pre_push() {
   pass "install rejects a pre-push symlink without mutating its target"
 }
 
-test_repo_relative_hooks_path_is_installed() {
-  local repo rc=0 out
+test_repo_relative_hooks_path_is_an_actionable_conflict() {
+  local repo before after before_status after_status rc=0 out bootstrap_out
   repo=$(make_repo "$TMP_ROOT/relative-hooks")
-  add_no_mistakes "$repo"
   rm -rf "$repo.hooks"
+  mkdir -p "$repo/.githooks"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$repo/.githooks/pre-push"
+  chmod 755 "$repo/.githooks/pre-push"
+  git -C "$repo" add .githooks/pre-push
+  git -C "$repo" commit -q -m 'add tracked hook'
+  add_no_mistakes "$repo"
   git -C "$repo" config core.hooksPath .githooks
-  "$HOOK" install "$repo" || fail "install refused a repo-relative hooksPath"
-  assert_present "$repo/.githooks/pre-push" "install did not write the repo-relative hooksPath"
-  out=$(git -C "$repo" push --quiet origin HEAD:refs/heads/relative-block 2>&1) || rc=$?
-  expect_code 1 "$rc" "repo-relative hooksPath hook must refuse origin"
-  assert_contains "$out" "git push no-mistakes" "repo-relative refusal did not name the guarded command"
-  pass "repo-relative core.hooksPath is chained/installed and still refuses origin"
+  before=$(cksum "$repo/.githooks/pre-push")
+  before_status=$(git -C "$repo" status --short -- .githooks)
+  out=$("$HOOK" install "$repo" 2>&1) || rc=$?
+  expect_code 1 "$rc" "worktree-local core.hooksPath must be rejected"
+  assert_contains "$out" "outside the git directory" \
+    "worktree-local hooksPath rejection did not explain the conflict"
+  mkdir -p "$repo/data" "$repo/state" "$repo/config"
+  bootstrap_out=$(FM_ROOT_OVERRIDE="$repo" FM_HOME="$repo" FM_BOOTSTRAP_NETWORK=skip \
+    "$ROOT/bin/fm-bootstrap.sh" 2>&1) || true
+  assert_contains "$bootstrap_out" "ORIGIN_PUSH_GUARD:" \
+    "bootstrap did not surface the worktree-local hooksPath conflict"
+  after=$(cksum "$repo/.githooks/pre-push")
+  after_status=$(git -C "$repo" status --short -- .githooks)
+  [ "$before" = "$after" ] || fail "installer rewrote the tracked custom pre-push"
+  [ "$before_status" = "$after_status" ] || fail "installer dirtied the tracked custom hooks directory"
+  assert_absent "$repo/.githooks/pre-push.fm-prev" \
+    "installer moved the tracked custom pre-push before refusing"
+  pass "worktree-local core.hooksPath is an actionable conflict without source changes"
 }
 
 test_worktree_shares_the_installed_hook() {
@@ -421,14 +461,15 @@ test_no_verify_skips_the_hook
 test_protocol_refuse_without_git_push
 test_install_writes_pre_push_and_is_idempotent
 test_installed_hook_refuses_origin
+test_remote_named_install_is_refused_as_hook_input
 test_install_chains_existing_pre_push
 test_allowed_route_streams_refs_directly_to_chained_hook
 test_install_preserves_disabled_pre_push
 test_env_override_still_runs_chained_hook
-test_install_skips_hooks_path_outside_clone
+test_install_skips_hooks_path_outside_git_dir
 test_install_resolves_symlinked_hooks_directory
 test_install_rejects_symlinked_pre_push
-test_repo_relative_hooks_path_is_installed
+test_repo_relative_hooks_path_is_an_actionable_conflict
 test_worktree_shares_the_installed_hook
 test_detect_only_bootstrap_does_not_install
 test_bootstrap_installs_the_hook
