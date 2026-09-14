@@ -1142,15 +1142,23 @@ crew_dispatch_validate() {
       if (.[$field] | type) == "boolean" then . else v2_fail($label + "." + $field + " must be boolean") end;
     def v2_enum($label; $field; $choices):
       .[$field] as $value
-      | if ($choices | index($value)) == null
+      | if ($value | type) != "string" or ($choices | index($value)) == null
         then v2_fail($label + "." + $field + " must be one of " + ($choices | join(", ")))
         else .
         end;
-    def v2_array($label; $allow_empty):
-      if type != "array" or (($allow_empty | not) and length == 0)
-      then v2_fail($label + " must be " + (if $allow_empty then "an array" else "a non-empty array" end))
+    def v2_array($label):
+      if type != "array" or length == 0
+      then v2_fail($label + " must be a non-empty array")
       else .
       end;
+    def v2_model_class:
+      . as $selector
+      | split("/")[-1] as $model
+      | if ($model | test("astra"; "i")) then "astra"
+        elif ($model | test("fable"; "i")) then "fable"
+        elif (["gpt-5.6-terra", "sonnet", "claude-sonnet-5"] | index($model)) != null then "ordinary"
+        else v2_fail("unclassified model: " + $selector)
+        end;
     def v2_profile:
       v2_fields("profile"; ["id", "harness", "model", "effort", "model_class", "reasoning_target", "reasoning_source", "eligible_when", "preferred_when"]; ["id", "harness", "model", "model_class"])
       | v2_string("profile"; "id")
@@ -1164,6 +1172,8 @@ crew_dispatch_validate() {
       | if has("preferred_when") then v2_string("profile"; "preferred_when") else . end
       | . as $profile
       | if (verified($profile.harness) | not) then v2_fail("unverified harness: " + $profile.harness)
+        elif $profile.model_class != ($profile.model | v2_model_class)
+        then v2_fail("profile.model_class does not match model: " + $profile.model)
         elif (($profile | has("effort")) and (effort_ok($profile.harness; $profile.model; $profile.effort) | not))
         then v2_fail("invalid effort: " + $profile.harness + ":" + $profile.effort)
         else $profile
@@ -1187,7 +1197,10 @@ crew_dispatch_validate() {
         then v2_fail("generic rule reasoning cannot set fixed-mode fields")
         else $reasoning
         end
-      | if .mode == "fixed" then v2_enum("rule reasoning"; "target"; ["low", "medium", "high", "xhigh", "max"]) | v2_boolean("rule reasoning"; "dispatch_reason_required") else . end;
+      | if .mode == "fixed" then
+          v2_enum("rule reasoning"; "target"; ["low", "medium", "high", "xhigh", "max"])
+          | if .dispatch_reason_required != true then v2_fail("rule reasoning.dispatch_reason_required must be true") else . end
+        else . end;
     def v2_independence:
       v2_fields("rule independence"; ["exclude_author_harness", "minimum_distinct_harnesses", "explicit_task_instruction_may_raise_minimum"]; ["exclude_author_harness", "minimum_distinct_harnesses", "explicit_task_instruction_may_raise_minimum"])
       | v2_boolean("rule independence"; "exclude_author_harness")
@@ -1203,7 +1216,9 @@ crew_dispatch_validate() {
       | v2_string_array("constraint"; "blocked_model_classes")
       | v2_string("constraint"; "decision_ref")
       | . as $constraint
-      | if (($constraint.blocked_model_classes | index("astra")) == null or ($constraint.blocked_model_classes | index("fable")) == null
+      | if $constraint.allowed_projects != ["Utilicast-LLC/utilicast-triage"]
+        then v2_fail("constraint.allowed_projects must contain only Utilicast-LLC/utilicast-triage")
+        elif (($constraint.blocked_model_classes | index("astra")) == null or ($constraint.blocked_model_classes | index("fable")) == null
           or any($constraint.blocked_model_classes[]; . as $class | (["astra", "fable"] | index($class)) == null))
         then v2_fail("constraint.blocked_model_classes must contain only astra and fable")
         elif $constraint.unknown_model_class != "treat_as_blocked"
@@ -1243,7 +1258,7 @@ crew_dispatch_validate() {
       v2_fields("placement"; ["capabilities", "rules", "unmatched", "enforcement"]; ["capabilities", "rules", "unmatched", "enforcement"])
       | . as $placement
       | ($placement.capabilities | v2_capabilities) as $capabilities
-      | ($placement.rules | v2_array("placement rules"; false) | map(v2_placement_rule($capabilities))) as $rules
+      | ($placement.rules | v2_array("placement rules") | map(v2_placement_rule($capabilities))) as $rules
       | ($placement.enforcement | v2_fields("placement enforcement"; ["current", "mechanical_owner", "not_read_by"]; ["current", "mechanical_owner", "not_read_by"]) | v2_string("placement enforcement"; "current") | v2_string("placement enforcement"; "mechanical_owner") | v2_string_array("placement enforcement"; "not_read_by")) as $enforcement
       | if $placement.unmatched != "retain-intake-home"
         then v2_fail("placement.unmatched must be retain-intake-home")
@@ -1253,15 +1268,10 @@ crew_dispatch_validate() {
         then v2_fail("placement enforcement.not_read_by must list fm-bootstrap and fm-spawn")
         else $placement
         end;
-    def v2_precedence:
-      v2_fields("precedence"; ["placement", "runtime"]; ["placement", "runtime"])
-      | v2_string_array("precedence"; "placement")
-      | v2_string_array("precedence"; "runtime");
     def v2_dispatch:
-      v2_fields("dispatch"; ["selector", "target_host_checks", "ordinary_default_profiles", "higher_reasoning_requires_reason", "history_ref"]; ["selector", "target_host_checks", "ordinary_default_profiles", "higher_reasoning_requires_reason", "history_ref"])
+      v2_fields("dispatch"; ["selector", "target_host_checks", "higher_reasoning_requires_reason", "history_ref"]; ["selector", "target_host_checks", "higher_reasoning_requires_reason", "history_ref"])
       | v2_string("dispatch"; "selector")
       | v2_string_array("dispatch"; "target_host_checks")
-      | v2_string_array("dispatch"; "ordinary_default_profiles")
       | v2_boolean("dispatch"; "higher_reasoning_requires_reason")
       | v2_string("dispatch"; "history_ref")
       | . as $dispatch
@@ -1273,18 +1283,7 @@ crew_dispatch_validate() {
         then v2_fail("dispatch.history_ref must be data/crew-dispatch-history.md")
         else $dispatch
         end;
-    def v2_exception:
-      v2_fields("exception"; ["id", "profiles", "requires", "effect", "decision_ref"]; ["id", "profiles", "requires", "effect", "decision_ref"])
-      | v2_string("exception"; "id")
-      | v2_string_array("exception"; "profiles")
-      | v2_string("exception"; "decision_ref")
-      | (.requires | v2_fields("exception requires"; ["included_usage", "auto_usage", "api_usage", "only_unmeasurable"]; ["included_usage", "auto_usage", "api_usage", "only_unmeasurable"]) | v2_string("exception requires"; "included_usage") | v2_string("exception requires"; "auto_usage") | v2_string("exception requires"; "api_usage") | v2_string("exception requires"; "only_unmeasurable")) as $requires
-      | (.effect | v2_fields("exception effect"; ["runway", "spend_priority"]; ["runway", "spend_priority"]) | v2_string("exception effect"; "runway") | v2_string("exception effect"; "spend_priority"));
-    def v2_top_tier_allowed($profile; $match; $constraints):
-      if $profile.model_class == "ordinary" then true
-      else [ $constraints[] | select((.blocked_model_classes | index($profile.model_class)) != null and (.allowed_projects | index($match.project // "")) != null) ] | length > 0
-      end;
-    def v2_rule($constraints):
+    def v2_rule:
       v2_fields("rule"; ["id", "when", "match", "independence", "reasoning", "use", "decision_refs"]; ["id", "when", "match", "reasoning", "use"])
       | v2_string("rule"; "id")
       | v2_string("rule"; "when")
@@ -1293,17 +1292,17 @@ crew_dispatch_validate() {
       | ($rule.reasoning | v2_reasoning) as $reasoning
       | (if ($rule | has("independence")) then ($rule.independence | v2_independence) else null end) as $independence
       | (if ($rule | has("decision_refs")) then ($rule | v2_string_array("rule"; "decision_refs")) else $rule end) as $decision_refs
-      | ($rule.use | v2_array("rule use"; false) | map(v2_profile)) as $profiles
+      | ($rule.use | v2_array("rule use") | map(v2_profile)) as $profiles
       | ($profiles | map(.id)) as $ids
-      | ($profiles | map(select(v2_top_tier_allowed(.; $match; $constraints) | not))) as $blocked
+      | ($profiles | map(select(.model_class != "ordinary" and $match.project != "Utilicast-LLC/utilicast-triage"))) as $blocked
       | if ($ids | unique | length) != ($ids | length)
         then v2_fail("rule use profile ids must be unique")
         elif ($blocked | length) > 0
-        then v2_fail("top-tier model class " + $blocked[0].model_class + " requires a rule match.project allowed by constraints")
+        then v2_fail("top-tier model class " + $blocked[0].model_class + " requires rule match.project Utilicast-LLC/utilicast-triage")
         else $rule
         end;
     def v2_default:
-      v2_array("default"; false)
+      v2_array("default")
       | map(v2_profile)
       | . as $profiles
       | ($profiles | map(.id)) as $ids
@@ -1315,22 +1314,16 @@ crew_dispatch_validate() {
         else $profiles
         end;
     def v2_validate:
-      v2_fields("top-level"; ["schema_version", "precedence", "placement", "dispatch", "constraints", "exceptions", "rules", "default"]; ["schema_version", "precedence", "placement", "dispatch", "constraints", "exceptions", "rules", "default"])
+      v2_fields("top-level"; ["schema_version", "placement", "dispatch", "constraints", "exceptions", "rules", "default"]; ["schema_version", "placement", "dispatch", "constraints", "exceptions", "rules", "default"])
       | if .schema_version != 2 then v2_fail("schema_version must be 2") else . end
       | . as $config
-      | ($config.precedence | v2_precedence) as $precedence
       | ($config.placement | v2_placement) as $placement
       | ($config.dispatch | v2_dispatch) as $dispatch
-      | ($config.constraints | v2_array("constraints"; false) | map(v2_constraint)) as $constraints
-      | ($config.exceptions | v2_array("exceptions"; true) | map(v2_exception)) as $exceptions
-      | ($config.rules | v2_array("rules"; false) | map(v2_rule($constraints))) as $rules
+      | ($config.constraints | v2_array("constraints") | map(v2_constraint)) as $constraints
+      | if $config.exceptions != [] then v2_fail("exceptions must be empty") else . end
+      | ($config.rules | v2_array("rules") | map(v2_rule)) as $rules
       | ($config.default | v2_default) as $defaults
-      | ($defaults | map(.id)) as $default_ids
-      | ($dispatch.ordinary_default_profiles | map(. as $id | select(($default_ids | index($id)) == null))) as $unknown_default_profiles
-      | if ($unknown_default_profiles | length) > 0
-        then v2_fail("dispatch ordinary_default_profiles references unknown default profile: " + $unknown_default_profiles[0])
-        else empty
-        end;
+      | empty;
     try (
       if type != "object" then "top-level value must be an object"
       elif has("schema_version") then v2_validate

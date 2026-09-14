@@ -423,26 +423,28 @@ The shell scripts do not match task intent, choose a candidate, resolve quota, r
 When the file exists, `fm-spawn.sh` enforces that contract by refusing crewmate and scout spawns that lack an explicit harness (`--harness`, a positional adapter, or a raw launch command).
 Batch spawns satisfy the same requirement with a shared `--harness`.
 Secondmate spawns are exempt and still resolve through `config/secondmate-harness` and its optional model and effort tokens.
-V2 is the required fleet policy whenever this file exists. Bootstrap emits `CREW_DISPATCH: invalid ...` for a missing or non-2 `schema_version`, an unknown field, a missing required key, malformed value, unverified harness, invalid effort, or a top-tier candidate outside its allowed project.
+V2 is the required fleet policy whenever this file exists. Bootstrap emits `CREW_DISPATCH: invalid ...` for a missing or non-2 `schema_version`, an unknown field, a missing required key, malformed value, unverified harness, invalid effort, unclassified or misclassified model, or an Astra/Fable candidate outside `Utilicast-LLC/utilicast-triage`.
 This section is the single owner of the canonical V2 schema and its per-field semantics.
 `AGENTS.md` section 4 owns the always-loaded dispatch intake boundary, and `quota-array-dispatch` owns the completion-aware profile-array selection procedure.
 
 | V2 field | Required contents and effect |
 | --- | --- |
 | `schema_version` | The number `2`. |
-| `precedence` | Non-empty ordered `placement` and `runtime` rule ID arrays. They make the intended order visible to the reader; matching remains judgment. |
 | `placement` | Non-empty capability map and ordered target rules, `unmatched: "retain-intake-home"`, and an `enforcement` object. `enforcement.current` is required to be `"advisory"` and `not_read_by` must name `fm-bootstrap` and `fm-spawn`, because neither path implements routing from this field yet. `intake-and-backlog-handoff` is the named future mechanical owner. |
-| `dispatch` | `selector: "quota-array-dispatch"`, target-host checks, the ordinary default profile IDs, `higher_reasoning_requires_reason: true`, and `history_ref: "data/crew-dispatch-history.md"`. |
-| `constraints` | At least one constraint. The fleet ceiling lists the allowed project, blocks the `astra` and `fable` model classes, treats an unknown model class as blocked, and reports when no candidate remains. |
-| `exceptions` | An array of bounded eligibility exceptions, including their profiles, evidence conditions, effect, and decision reference. It may be empty. |
+| `dispatch` | `selector: "quota-array-dispatch"`, target-host checks, `higher_reasoning_requires_reason: true`, and `history_ref: "data/crew-dispatch-history.md"`. |
+| `constraints` | At least one constraint. Each must set `allowed_projects` to exactly `["Utilicast-LLC/utilicast-triage"]`, block the `astra` and `fable` model classes, treat an unknown model class as blocked, and report when no candidate remains. |
+| `exceptions` | Exactly `[]`. Quota eligibility, runway, and ranking follow `quota-array-dispatch`. |
 | `rules` | A non-empty ordered array of `id`, natural-language `when`, structured `match`, `reasoning`, and non-empty `use` profiles. `independence` and `decision_refs` are optional. A fixed reasoning rule must name an effort target and require a dispatch reason. |
 | `default` | A non-empty quota-aware array of ordinary profiles used only when no task-shaped rule matches. |
 
-Every V2 profile has `id`, `harness`, `model`, and `model_class`; `effort`, `reasoning_target`, `reasoning_source`, `eligible_when`, and `preferred_when` are optional. `model_class` is one of `ordinary`, `astra`, or `fable`. A top-tier profile is valid only in a rule whose `match.project` is allowed by the `constraints` array; a top-tier default is rejected. This is a static file check, not a live catalogue lookup.
+The `placement.rules` and `rules` arrays carry rule order; `default` defines default membership. Separate `precedence` and `dispatch.ordinary_default_profiles` declarations are rejected. Matching remains judgment.
+
+Every V2 profile has `id`, `harness`, `model`, and `model_class`; `effort`, `reasoning_target`, `reasoning_source`, `eligible_when`, and `preferred_when` are optional. `model_class` must agree with the static classification in `crew_dispatch_validate`: after removing provider prefixes, names containing `astra` or `fable` (case-insensitive) have that class; `gpt-5.6-terra`, `sonnet`, and `claude-sonnet-5` are ordinary. Other model IDs, including automatic aliases, are rejected until explicitly classified in that validator. This classification establishes policy eligibility; target-host catalogue and authentication checks still establish model availability. An Astra/Fable profile is valid only in a rule whose `match.project` is exactly `Utilicast-LLC/utilicast-triage`; Astra/Fable defaults are rejected.
 `ultra` is native-only: the model-aware validation contract and launch mapping are owned by `bin/fm-harness.sh validate-native-effort` and `bin/fm-spawn.sh` respectively. Every profile array is a quota-aware choice resolved through `quota-array-dispatch`. If no dispatch rule fits, firstmate resolves `default` before falling back to `config/crew-harness`.
 See [`docs/examples/crew-dispatch.json`](examples/crew-dispatch.json) for a copyable V2 starting point. Valid files stay silent by default; with `FM_BOOTSTRAP_VERBOSE_FACTS=1`, bootstrap emits the active config, every rule, and the default profile set. Missing `jq` uses the normal `MISSING: jq` install-consent flow.
 While the file remains present, no crewmate or scout spawn may proceed without an explicit resolved harness. An invalid V2 file is not a usable policy: correct the reported configuration error rather than selecting around it.
 Secondmate homes inherit this file from the primary, so a secondmate's own crewmates apply the same dispatch profile behavior.
+Before the V2 requirement merges, the configuration owner must migrate the live local file and provide successful V2 bootstrap validation evidence for the active homes. Updating the tracked example leaves live local configuration untouched.
 
 ## Toolchain
 

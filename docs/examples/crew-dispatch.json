@@ -1,13 +1,12 @@
 {
   "schema_version": 2,
-  "precedence": {"placement": ["main-vault"], "runtime": ["independent-review", "hard-work", "default"]},
   "placement": {
     "capabilities": {"mac-vault": {"home": "main-home", "path": "/Users/example/Documents/Utilicast"}},
     "rules": [{"id": "main-vault", "match": {"repository": "dbeihl-utilicast/firstmate", "requires_capability": "mac-vault"}, "target": {"kind": "main-home", "id": "main-home"}}],
     "unmatched": "retain-intake-home",
     "enforcement": {"current": "advisory", "mechanical_owner": "intake-and-backlog-handoff", "not_read_by": ["fm-bootstrap", "fm-spawn"]}
   },
-  "dispatch": {"selector": "quota-array-dispatch", "target_host_checks": ["model_catalog", "quota", "authentication"], "ordinary_default_profiles": ["codex-terra", "claude-sonnet"], "higher_reasoning_requires_reason": true, "history_ref": "data/crew-dispatch-history.md"},
+  "dispatch": {"selector": "quota-array-dispatch", "target_host_checks": ["model_catalog", "quota", "authentication"], "higher_reasoning_requires_reason": true, "history_ref": "data/crew-dispatch-history.md"},
   "constraints": [{"id": "top-tier-triage-only", "allowed_projects": ["Utilicast-LLC/utilicast-triage"], "blocked_model_classes": ["astra", "fable"], "unknown_model_class": "treat_as_blocked", "on_no_eligible_candidate": "report", "decision_ref": "decision/example/top-tier-ceiling"}],
   "exceptions": [],
   "rules": [

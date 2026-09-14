@@ -1103,14 +1103,13 @@ test_crew_dispatch_v2_validation() {
   base=$(cat <<'JSON'
 {
   "schema_version": 2,
-  "precedence": {"placement": ["main"], "runtime": ["default"]},
   "placement": {
     "capabilities": {"mac-vault": {"home": "main-home", "path": "/Users/example/Documents/Utilicast"}},
     "rules": [{"id": "main", "match": {"repository": "dbeihl-utilicast/firstmate", "requires_capability": "mac-vault"}, "target": {"kind": "main-home", "id": "main-home"}}],
     "unmatched": "retain-intake-home",
     "enforcement": {"current": "advisory", "mechanical_owner": "intake-and-backlog-handoff", "not_read_by": ["fm-bootstrap", "fm-spawn"]}
   },
-  "dispatch": {"selector": "quota-array-dispatch", "target_host_checks": ["model_catalog"], "ordinary_default_profiles": ["codex-terra"], "higher_reasoning_requires_reason": true, "history_ref": "data/crew-dispatch-history.md"},
+  "dispatch": {"selector": "quota-array-dispatch", "target_host_checks": ["model_catalog"], "higher_reasoning_requires_reason": true, "history_ref": "data/crew-dispatch-history.md"},
   "constraints": [{"id": "top-tier-triage-only", "allowed_projects": ["Utilicast-LLC/utilicast-triage"], "blocked_model_classes": ["astra", "fable"], "unknown_model_class": "treat_as_blocked", "on_no_eligible_candidate": "report", "decision_ref": "decision/test"}],
   "exceptions": [],
   "rules": [{"id": "ordinary", "when": "ordinary test work", "match": {"task_kind": ["test"]}, "reasoning": {"mode": "generic"}, "use": [{"id": "codex-terra", "harness": "codex", "model": "gpt-5.6-terra", "model_class": "ordinary"}]}],
@@ -1141,15 +1140,43 @@ missing v2 required key is refused^del(.constraints)^exact^CREW_DISPATCH: invali
 missing v2 nested key is refused^del(.placement.enforcement)^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 placement missing required key: enforcement
 missing v2 profile classification is refused^del(.rules[0].use[0].model_class)^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 profile missing required key: model_class
 malformed v2 profile classification is refused^.rules[0].use[0].model_class = 5^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 profile.model_class must be one of ordinary, astra, fable
+array v2 profile classification is refused^.rules[0].use[0].model_class = ["ordinary"]^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 profile.model_class must be one of ordinary, astra, fable
+unknown v2 model is refused^.rules[0].use[0].model = "unclassified-model"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 unclassified model: unclassified-model
+automatic default model is refused^.default[0].model = "auto"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 unclassified model: auto
+ordinary model cannot claim astra class^.rules[0].use[0].model_class = "astra"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 profile.model_class does not match model: gpt-5.6-terra
 unverified v2 harness is refused^.rules[0].use[0].harness = "spaceship"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 unverified harness: spaceship
 unsupported v2 effort is refused^.rules[0].use[0].effort = "max"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 invalid effort: codex:max
-native pi ultra is accepted^.rules[0].use[0].harness = "pi" | .rules[0].use[0].model = "codex-native/gpt-6-astra" | .rules[0].use[0].effort = "ultra"^empty^
-astra outside triage is refused^.rules[0].use[0].model_class = "astra" | .rules[0].use[0].model = "gpt-6-astra"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 top-tier model class astra requires a rule match.project allowed by constraints
-fable outside triage is refused^.rules[0].use[0].model_class = "fable" | .rules[0].use[0].model = "fable-test"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 top-tier model class fable requires a rule match.project allowed by constraints
+native astra cannot claim ordinary class^.rules[0].use[0].harness = "pi" | .rules[0].use[0].model = "codex-native/gpt-6-astra" | .rules[0].use[0].effort = "ultra"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 profile.model_class does not match model: codex-native/gpt-6-astra
+astra cannot claim ordinary class^.rules[0].use[0].model = "gpt-6-astra"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 profile.model_class does not match model: gpt-6-astra
+fable cannot claim ordinary class^.rules[0].use[0].harness = "claude" | .rules[0].use[0].model = "fable"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 profile.model_class does not match model: fable
+qualified fable cannot claim ordinary class^.rules[0].use[0].harness = "pi-signed" | .rules[0].use[0].model = "anthropic/fable"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 profile.model_class does not match model: anthropic/fable
+astra default cannot claim ordinary class^.default[0].model = "gpt-6-astra"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 profile.model_class does not match model: gpt-6-astra
+fable default cannot claim ordinary class^.default[0].harness = "claude" | .default[0].model = "fable"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 profile.model_class does not match model: fable
+astra default is refused^.default[0].model_class = "astra" | .default[0].model = "gpt-6-astra"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 top-tier model class astra cannot appear in default
+fable default is refused^.default[0].harness = "claude" | .default[0].model_class = "fable" | .default[0].model = "fable"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 top-tier model class fable cannot appear in default
+astra outside triage is refused^.rules[0].use[0].model_class = "astra" | .rules[0].use[0].model = "gpt-6-astra"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 top-tier model class astra requires rule match.project Utilicast-LLC/utilicast-triage
+fable outside triage is refused^.rules[0].use[0].harness = "claude" | .rules[0].use[0].model_class = "fable" | .rules[0].use[0].model = "fable"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 top-tier model class fable requires rule match.project Utilicast-LLC/utilicast-triage
+native astra outside triage is refused^.rules[0].use[0] = {"id":"native-astra","harness":"pi","model":"codex-native/gpt-6-astra","effort":"ultra","model_class":"astra"}^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 top-tier model class astra requires rule match.project Utilicast-LLC/utilicast-triage
+astra cannot permit another project^.constraints[0].allowed_projects = ["Utilicast-LLC/utilicast-management-portal"] | .rules[0].match.project = "Utilicast-LLC/utilicast-management-portal" | .rules[0].use[0].model_class = "astra" | .rules[0].use[0].model = "gpt-6-astra"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 constraint.allowed_projects must contain only Utilicast-LLC/utilicast-triage
+fable cannot permit another project^.constraints[0].allowed_projects += ["Utilicast-LLC/utilicast-management-portal"] | .rules[0].match.project = "Utilicast-LLC/utilicast-management-portal" | .rules[0].use[0].harness = "claude" | .rules[0].use[0].model_class = "fable" | .rules[0].use[0].model = "fable"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 constraint.allowed_projects must contain only Utilicast-LLC/utilicast-triage
 astra in triage is accepted^.rules[0].match.project = "Utilicast-LLC/utilicast-triage" | .rules[0].use[0].model_class = "astra" | .rules[0].use[0].model = "gpt-6-astra"^empty^
+fable in triage is accepted^.rules[0].match.project = "Utilicast-LLC/utilicast-triage" | .rules[0].use[0].harness = "claude" | .rules[0].use[0].model_class = "fable" | .rules[0].use[0].model = "fable"^empty^
+native pi ultra in triage is accepted^.rules[0].match.project = "Utilicast-LLC/utilicast-triage" | .rules[0].use[0] = {"id":"native-astra","harness":"pi","model":"codex-native/gpt-6-astra","effort":"ultra","model_class":"astra"}^empty^
+qualified ordinary model is accepted^.rules[0].use[0].harness = "pi" | .rules[0].use[0].model = "anthropic/claude-sonnet-5"^empty^
+array reasoning mode is refused^.rules[0].reasoning = {"mode":["fixed"]}^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 rule reasoning.mode must be one of generic, fixed
+empty array reasoning mode is refused^.rules[0].reasoning = {"mode":[]}^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 rule reasoning.mode must be one of generic, fixed
+array reasoning target is refused^.rules[0].reasoning = {"mode":"fixed","target":["high"],"dispatch_reason_required":true}^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 rule reasoning.target must be one of low, medium, high, xhigh, max
+fixed reasoning cannot waive its reason^.rules[0].reasoning = {"mode":"fixed","target":"high","dispatch_reason_required":false}^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 rule reasoning.dispatch_reason_required must be true
+fixed reasoning reason must be literal true^.rules[0].reasoning = {"mode":"fixed","target":"high","dispatch_reason_required":"true"}^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 rule reasoning.dispatch_reason_required must be true
+fixed reasoning with required reason is accepted^.rules[0].reasoning = {"mode":"fixed","target":"high","dispatch_reason_required":true}^empty^
+array placement target kind is refused^.placement.rules[0].target.kind = ["secondmate"]^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 placement target.kind must be one of main-home, secondmate
+nonempty exceptions are refused^.exceptions = [{"id":"quota-override","profiles":["codex-terra"],"requires":{"included_usage":"unknown","auto_usage":"unknown","api_usage":"unknown","only_unmeasurable":"quota"},"effect":{"runway":"through_reset","spend_priority":"preferred"},"decision_ref":"decision/test"}]^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 exceptions must be empty
+malformed exceptions are refused^.exceptions = {}^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 exceptions must be empty
+redundant precedence is refused^.precedence = {"placement":["main"],"runtime":["ordinary","default"]}^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 top-level has unknown field: precedence
+redundant default profile list is refused^.dispatch.ordinary_default_profiles = ["codex-terra"]^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 dispatch has unknown field: ordinary_default_profiles
 placement remains advisory^.placement.enforcement.current = "mechanical"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 placement enforcement.current must be advisory until intake and backlog handoff read it
 ROWS
-  pass "bootstrap strictly validates V2 dispatch policy, including the Astra/Fable ceiling"
+  pass "bootstrap strictly validates $n V2 policy cases, including the Astra/Fable ceiling"
 }
 
 test_bootstrap_reporting
