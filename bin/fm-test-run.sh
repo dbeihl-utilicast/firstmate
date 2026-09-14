@@ -366,7 +366,8 @@ family_for_basename() {
       printf '%s\n' afk
       ;;
     fm-bearings-board-render.test.sh|fm-bearings-snapshot.test.sh|\
-    fm-fleet-snapshot-view.test.sh|fm-home-summary-refresh.test.sh)
+    fm-fleet-snapshot-view.test.sh|fm-home-summary-refresh.test.sh|\
+    fm-running-list.test.sh)
       printf '%s\n' snapshot-bearings
       ;;
     fm-backend-cmux.test.sh|fm-backend-cmux-smoke.test.sh)
@@ -495,6 +496,7 @@ tests/fm-lint.test.sh 164262
 tests/fm-pi-primary-types.test.sh 8624
 tests/fm-pr-merge.test.sh 111145
 tests/fm-review-diff.test.sh 2747
+tests/fm-running-list.test.sh 2258
 tests/fm-send-popup-settle.test.sh 4939
 tests/fm-send-settle.test.sh 2051
 tests/fm-send-strict.test.sh 3861
@@ -1471,7 +1473,7 @@ families_for_changed_path() {
       printf '%s\n' live-harness-optin
       ;;
     bin/fm-bearings-snapshot.sh|bin/fm-fleet-snapshot.sh|bin/fm-fleet-view.sh|\
-    bin/fm-home-summary-refresh.sh)
+    bin/fm-home-summary-refresh.sh|bin/fm-running-list.sh)
       printf '%s\n' snapshot-bearings
       ;;
     bin/fm-install-herdr.sh|bin/fm-install-treehouse.sh|bin/fm-herdr-ci-cleanup.sh)
