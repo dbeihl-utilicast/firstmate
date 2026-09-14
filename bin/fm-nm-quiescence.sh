@@ -21,13 +21,16 @@ RUN_LIMIT=2147483647
 
 RUN_COUNT=0
 GAP_COUNT=0
+HOME_RUN_COUNT=0
+HOME_GAP_COUNT=0
+HOME_REPOSITORIES=$'\n'
 REMOTE_ERROR=
 IDS=()
 HOSTS=()
 ROOTS=()
 HOMES=()
 REMOTES=()
-SEEN_REPOSITORIES=$'\n'
+REPOSITORY_RESULTS=$'\n'
 REMOTE_SCAN=0
 
 usage() {
@@ -60,27 +63,24 @@ emit_gap() {
   [ -z "$detail" ] || printf '\tdetail=%s' "$detail"
   printf '\n'
   GAP_COUNT=$((GAP_COUNT + 1))
+  HOME_GAP_COUNT=$((HOME_GAP_COUNT + 1))
 }
 
 emit_home() {
-  local host home path clones before_runs before_gaps run_delta gap_delta status
+  local host home path clones status
   host=$(sanitize_value "$1")
   home=$(sanitize_value "$2")
   path=$(sanitize_value "$3")
   clones=$4
-  before_runs=$5
-  before_gaps=$6
-  run_delta=$((RUN_COUNT - before_runs))
-  gap_delta=$((GAP_COUNT - before_gaps))
-  if [ "$gap_delta" -gt 0 ]; then
+  if [ "$HOME_GAP_COUNT" -gt 0 ]; then
     status=incomplete
-  elif [ "$run_delta" -gt 0 ]; then
+  elif [ "$HOME_RUN_COUNT" -gt 0 ]; then
     status=busy
   else
     status=clear
   fi
   printf 'HOME\thost=%s\thome=%s\tpath=%s\tclones=%s\truns=%s\tgaps=%s\tstatus=%s\n' \
-    "$host" "$home" "$path" "$clones" "$run_delta" "$gap_delta" "$status"
+    "$host" "$home" "$path" "$clones" "$HOME_RUN_COUNT" "$HOME_GAP_COUNT" "$status"
 }
 
 timestamp_epoch() {
@@ -137,6 +137,7 @@ emit_run() {
     "$(sanitize_value "$branch")" "$(sanitize_value "$head")" "$(sanitize_value "$state")" \
     "$age" "$day" "$clock"
   RUN_COUNT=$((RUN_COUNT + 1))
+  HOME_RUN_COUNT=$((HOME_RUN_COUNT + 1))
   case "$age" in
     future) emit_gap "$host" "$home" "$clone" run-started-in-future "$day $clock" ;;
     unknown) emit_gap "$host" "$home" "$clone" run-age-unavailable "$day $clock" ;;
@@ -144,8 +145,8 @@ emit_run() {
 }
 
 scan_repository() {
-  local host=$1 home=$2 clone=$3 repo=$4 ledger rc row state branch head day clock pr extra
-  local metadata identity key
+  local host=$1 home=$2 clone=$3 repo=$4 rc metadata identity key cached runs gaps extra result
+  local before_runs=$RUN_COUNT before_gaps=$GAP_COUNT
   rc=0
   metadata=$(fm_nm_run_bounded "$repo" "$QUERY_TIMEOUT" axi 2>&1) || rc=$?
   if [ "$rc" -ne 0 ]; then
@@ -162,9 +163,30 @@ scan_repository() {
     *) emit_gap "$host" "$home" "$clone" invalid-repository-identity; return ;;
   esac
   key=$host$'\t'$identity
-  list_has "$key" "$SEEN_REPOSITORIES" && return
-  SEEN_REPOSITORIES+="$key"$'\n'
-  [ "$REMOTE_SCAN" -eq 0 ] || printf 'REPO\t%s\n' "$key"
+  list_has "$key" "$HOME_REPOSITORIES" && return
+  HOME_REPOSITORIES+="$key"$'\n'
+  case "$REPOSITORY_RESULTS" in
+    *$'\n'"$key"$'\t'*)
+      cached=${REPOSITORY_RESULTS#*$'\n'"$key"$'\t'}
+      cached=${cached%%$'\n'*}
+      IFS=$'\t' read -r runs gaps extra <<< "$cached"
+      if [[ ! "$runs" =~ ^[0-9]+$ ]] || [[ ! "$gaps" =~ ^[0-9]+$ ]] || [ -n "$extra" ]; then
+        emit_gap "$host" "$home" "$clone" invalid-repository-result
+        return
+      fi
+      HOME_RUN_COUNT=$((HOME_RUN_COUNT + 10#$runs))
+      HOME_GAP_COUNT=$((HOME_GAP_COUNT + 10#$gaps))
+      return
+      ;;
+  esac
+  scan_ledger "$host" "$home" "$clone" "$repo"
+  result=$key$'\t'$((RUN_COUNT - before_runs))$'\t'$((GAP_COUNT - before_gaps))
+  REPOSITORY_RESULTS+="$result"$'\n'
+  [ "$REMOTE_SCAN" -eq 0 ] || printf 'REPO\t%s\n' "$result"
+}
+
+scan_ledger() {
+  local host=$1 home=$2 clone=$3 repo=$4 ledger rc row state branch head day clock pr extra
   rc=0
   ledger=$(fm_nm_run_bounded "$repo" "$QUERY_TIMEOUT" runs --limit "$RUN_LIMIT" 2>&1) || rc=$?
   if [ "$rc" -ne 0 ]; then
@@ -218,37 +240,43 @@ can_inspect_directory() {
 }
 
 scan_root() {
-  local host=$1 home=$2 root=$3 before_runs=$RUN_COUNT before_gaps=$GAP_COUNT root_real git_root
+  local host=$1 home=$2 root=$3 root_real git_root
+  HOME_RUN_COUNT=0
+  HOME_GAP_COUNT=0
+  HOME_REPOSITORIES=$'\n'
   if [ ! -d "$root" ] || [ -L "$root" ]; then
     emit_gap "$host" "$home" - root-unreachable
-    emit_home "$host" "$home" "$root" 0 "$before_runs" "$before_gaps"
+    emit_home "$host" "$home" "$root" 0
     return
   fi
   root_real=$(canonical_dir "$root") || {
     emit_gap "$host" "$home" - root-unreachable
-    emit_home "$host" "$home" "$root" 0 "$before_runs" "$before_gaps"
+    emit_home "$host" "$home" "$root" 0
     return
   }
   git_root=$(git -C "$root_real" rev-parse --show-toplevel 2>/dev/null) || {
     emit_gap "$host" "$home" - root-not-git
-    emit_home "$host" "$home" "$root_real" 1 "$before_runs" "$before_gaps"
+    emit_home "$host" "$home" "$root_real" 1
     return
   }
   if [ "$(canonical_dir "$git_root")" != "$root_real" ]; then
     emit_gap "$host" "$home" - root-not-primary-git-directory
-    emit_home "$host" "$home" "$root_real" 1 "$before_runs" "$before_gaps"
+    emit_home "$host" "$home" "$root_real" 1
     return
   fi
   scan_repository "$host" "$home" "$(basename "$root_real")" "$root_real"
-  emit_home "$host" "$home" "$root_real" 1 "$before_runs" "$before_gaps"
+  emit_home "$host" "$home" "$root_real" 1
 }
 
 scan_home() {
-  local host=$1 home_id=$2 home_path=$3 before_runs=$RUN_COUNT before_gaps=$GAP_COUNT
+  local host=$1 home_id=$2 home_path=$3
   local projects project_path clone_count=0 project_real git_root
+  HOME_RUN_COUNT=0
+  HOME_GAP_COUNT=0
+  HOME_REPOSITORIES=$'\n'
   if [ ! -d "$home_path" ] || [ -L "$home_path" ] || ! can_inspect_directory "$home_path"; then
     emit_gap "$host" "$home_id" - home-unreachable
-    emit_home "$host" "$home_id" "$home_path" 0 "$before_runs" "$before_gaps"
+    emit_home "$host" "$home_id" "$home_path" 0
     return
   fi
   if git_root=$(git -C "$home_path" rev-parse --show-toplevel 2>/dev/null); then
@@ -264,21 +292,21 @@ scan_home() {
   projects=${4:-"$home_path/projects"}
   if ! can_inspect_directory "$projects"; then
     emit_gap "$host" "$home_id" - projects-unreachable
-    emit_home "$host" "$home_id" "$home_path" "$clone_count" "$before_runs" "$before_gaps"
+    emit_home "$host" "$home_id" "$home_path" "$clone_count"
     return
   fi
   if [ ! -e "$projects" ] && [ ! -L "$projects" ]; then
-    emit_home "$host" "$home_id" "$home_path" "$clone_count" "$before_runs" "$before_gaps"
+    emit_home "$host" "$home_id" "$home_path" "$clone_count"
     return
   fi
   if [ ! -d "$projects" ] || [ -L "$projects" ]; then
     emit_gap "$host" "$home_id" - projects-unreachable
-    emit_home "$host" "$home_id" "$home_path" "$clone_count" "$before_runs" "$before_gaps"
+    emit_home "$host" "$home_id" "$home_path" "$clone_count"
     return
   fi
   if ! find -P "$projects" -mindepth 1 -maxdepth 1 -print >/dev/null 2>&1; then
     emit_gap "$host" "$home_id" - projects-unreachable
-    emit_home "$host" "$home_id" "$home_path" "$clone_count" "$before_runs" "$before_gaps"
+    emit_home "$host" "$home_id" "$home_path" "$clone_count"
     return
   fi
   for project_path in "$projects"/* "$projects"/.[!.]* "$projects"/..?*; do
@@ -302,7 +330,7 @@ scan_home() {
     fi
     scan_repository "$host" "$home_id" "$(basename "$project_real")" "$project_real"
   done
-  emit_home "$host" "$home_id" "$home_path" "$clone_count" "$before_runs" "$before_gaps"
+  emit_home "$host" "$home_id" "$home_path" "$clone_count"
 }
 
 safe_absolute_path() {
@@ -358,7 +386,7 @@ remote_output_records() {
   local output=$1 line saw_home=0 bad=
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in
-      REPO$'\t'*) SEEN_REPOSITORIES+="${line#*$'\t'}"$'\n' ;;
+      REPO$'\t'*) REPOSITORY_RESULTS+="${line#*$'\t'}"$'\n' ;;
       RUN$'\t'*) printf '%s\n' "$line"; RUN_COUNT=$((RUN_COUNT + 1)) ;;
       GAP$'\t'*) printf '%s\n' "$line"; GAP_COUNT=$((GAP_COUNT + 1)) ;;
       HOME$'\t'*) printf '%s\n' "$line"; saw_home=1 ;;
@@ -373,7 +401,7 @@ remote_output_records() {
 run_remote() {
   local route=$1 mode=$2 label=$3 host=$4 output rc=0
   REMOTE_ERROR=
-  output=$("$ON_BIN" "$route" fm-nm-quiescence.sh "$mode" "$label" "$host" "$SEEN_REPOSITORIES" 2>&1) || rc=$?
+  output=$("$ON_BIN" "$route" fm-nm-quiescence.sh "$mode" "$label" "$host" "$REPOSITORY_RESULTS" 2>&1) || rc=$?
   case "$rc" in
     0|1|2|3)
       if ! remote_output_records "$output"; then
@@ -425,23 +453,23 @@ case "${1:-}" in
   --home-only)
     [ "$#" -ge 3 ] && [ "$#" -le 4 ] || usage
     REMOTE_SCAN=1
-    SEEN_REPOSITORIES=${4:-$'\n'}
+    REPOSITORY_RESULTS=${4:-$'\n'}
     NOW_EPOCH="${FM_NM_QUIESCENCE_NOW_EPOCH:-$(date +%s)}"
     scan_home "$3" "$2" "$FM_HOME" "$PROJECTS"
-    if [ "$RUN_COUNT" -gt 0 ] && [ "$GAP_COUNT" -gt 0 ]; then exit 3; fi
-    if [ "$RUN_COUNT" -gt 0 ]; then exit 1; fi
-    if [ "$GAP_COUNT" -gt 0 ]; then exit 2; fi
+    if [ "$HOME_RUN_COUNT" -gt 0 ] && [ "$HOME_GAP_COUNT" -gt 0 ]; then exit 3; fi
+    if [ "$HOME_RUN_COUNT" -gt 0 ]; then exit 1; fi
+    if [ "$HOME_GAP_COUNT" -gt 0 ]; then exit 2; fi
     exit 0
     ;;
   --root-only)
     [ "$#" -ge 3 ] && [ "$#" -le 4 ] || usage
     REMOTE_SCAN=1
-    SEEN_REPOSITORIES=${4:-$'\n'}
+    REPOSITORY_RESULTS=${4:-$'\n'}
     NOW_EPOCH="${FM_NM_QUIESCENCE_NOW_EPOCH:-$(date +%s)}"
     scan_root "$3" "$2" "$FM_ROOT"
-    if [ "$RUN_COUNT" -gt 0 ] && [ "$GAP_COUNT" -gt 0 ]; then exit 3; fi
-    if [ "$RUN_COUNT" -gt 0 ]; then exit 1; fi
-    if [ "$GAP_COUNT" -gt 0 ]; then exit 2; fi
+    if [ "$HOME_RUN_COUNT" -gt 0 ] && [ "$HOME_GAP_COUNT" -gt 0 ]; then exit 3; fi
+    if [ "$HOME_RUN_COUNT" -gt 0 ]; then exit 1; fi
+    if [ "$HOME_GAP_COUNT" -gt 0 ]; then exit 2; fi
     exit 0
     ;;
   *)
