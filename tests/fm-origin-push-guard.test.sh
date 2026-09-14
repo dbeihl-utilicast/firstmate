@@ -108,6 +108,23 @@ test_env_override_skips_only_this_refusal() {
   pass "FM_ALLOW_UNGUARDED_PUSH=1 allows origin and is a deliberate escape"
 }
 
+test_other_boolean_override_values_are_refused() {
+  local repo value rc out
+  for value in yes YES true TRUE; do
+    repo=$(make_repo "$TMP_ROOT/override-$value")
+    add_no_mistakes "$repo"
+    rc=0
+    out=$(FM_ALLOW_UNGUARDED_PUSH="$value" push_out "$repo" origin \
+      "HEAD:refs/heads/blocked-$value") || rc=$?
+    expect_code 1 "$rc" "FM_ALLOW_UNGUARDED_PUSH=$value must not allow an origin push"
+    assert_contains "$out" "git push no-mistakes" \
+      "FM_ALLOW_UNGUARDED_PUSH=$value did not produce the refusal"
+    git -C "$repo.origin.git" rev-parse --verify --quiet "refs/heads/blocked-$value" >/dev/null \
+      && fail "FM_ALLOW_UNGUARDED_PUSH=$value published an origin branch"
+  done
+  pass "only the exact FM_ALLOW_UNGUARDED_PUSH=1 value bypasses the refusal"
+}
+
 test_no_verify_skips_the_hook() {
   local repo rc=0
   repo=$(make_repo "$TMP_ROOT/no-verify")
@@ -189,6 +206,28 @@ SH
   pass "install chains an existing pre-push on allow and skips it on refuse"
 }
 
+test_install_preserves_disabled_pre_push() {
+  local repo log rc=0
+  repo=$(make_repo "$TMP_ROOT/disabled-chain")
+  add_no_mistakes "$repo"
+  rm -rf "$repo.hooks"
+  log="$TMP_ROOT/disabled-chain.log"
+  : > "$log"
+  cat > "$repo/.git/hooks/pre-push" <<SH
+#!/usr/bin/env bash
+printf 'chained\\n' >> "$log"
+exit 1
+SH
+  chmod 644 "$repo/.git/hooks/pre-push"
+  "$HOOK" install "$repo" || fail "install refused a disabled existing pre-push"
+  [ ! -x "$repo/.git/hooks/pre-push.fm-prev" ] \
+    || fail "install made the disabled preserved pre-push executable"
+  git -C "$repo" push --quiet no-mistakes HEAD:refs/heads/disabled-chain || rc=$?
+  expect_code 0 "$rc" "disabled chained pre-push must stay skipped"
+  [ ! -s "$log" ] || fail "disabled chained pre-push ran after installation"
+  pass "install preserves the executable mode of an existing pre-push"
+}
+
 test_env_override_still_runs_chained_hook() {
   local repo log rc=0
   repo=$(make_repo "$TMP_ROOT/override-chain")
@@ -223,6 +262,43 @@ test_install_skips_hooks_path_outside_clone() {
   assert_contains "$(cat "$TMP_ROOT/outside-hooks.err")" "outside this clone" \
     "outside hooksPath skip did not explain why it did not install"
   pass "install does not write outside the clone when core.hooksPath is external"
+}
+
+test_install_resolves_symlinked_hooks_directory() {
+  local repo outside rc=0 out
+  repo=$(make_repo "$TMP_ROOT/symlink-hooks")
+  add_no_mistakes "$repo"
+  rm -rf "$repo.hooks" "$repo/.git/hooks"
+  outside="$TMP_ROOT/symlink-hooks-outside"
+  mkdir -p "$outside"
+  ln -s "$outside" "$repo/.git/hooks"
+  out=$("$HOOK" install "$repo" 2>&1) || rc=$?
+  expect_code 0 "$rc" "external symlinked hooks directory must be skipped safely"
+  assert_absent "$outside/pre-push" "install followed a symlinked hooks directory outside the clone"
+  assert_contains "$out" "outside this clone" \
+    "symlinked hooks directory skip did not explain the refusal"
+  pass "install resolves the hooks directory before its containment check"
+}
+
+test_install_rejects_symlinked_pre_push() {
+  local repo external before after rc=0 out
+  repo=$(make_repo "$TMP_ROOT/symlink-pre-push")
+  add_no_mistakes "$repo"
+  rm -rf "$repo.hooks"
+  external="$TMP_ROOT/external-pre-push"
+  printf '#!/usr/bin/env bash\n# FIRSTMATE_ORIGIN_PUSH_GUARD_V1\nprintf external\\n' > "$external"
+  chmod 755 "$external"
+  before=$(cksum "$external")
+  ln -s "$external" "$repo/.git/hooks/pre-push"
+  out=$("$HOOK" install "$repo" 2>&1) || rc=$?
+  expect_code 1 "$rc" "symlinked pre-push must be rejected"
+  after=$(cksum "$external")
+  [ "$before" = "$after" ] || fail "install rewrote the external pre-push target"
+  [ -L "$repo/.git/hooks/pre-push" ] || fail "install replaced the rejected pre-push symlink"
+  assert_absent "$repo/.git/hooks/pre-push.fm-prev" \
+    "install moved the rejected pre-push symlink before failing"
+  assert_contains "$out" "symbolic link" "symlinked pre-push rejection did not explain the conflict"
+  pass "install rejects a pre-push symlink without mutating its target"
 }
 
 test_repo_relative_hooks_path_is_installed() {
@@ -280,19 +356,44 @@ test_bootstrap_installs_the_hook() {
   pass "session-start bootstrap installs the hook and origin then refuses"
 }
 
+test_bootstrap_reports_hook_install_failure_as_actionable() {
+  local repo out rc=0
+  repo=$(make_repo "$TMP_ROOT/bootstrap-conflict")
+  add_no_mistakes "$repo"
+  rm -rf "$repo.hooks"
+  mkdir -p "$repo/data" "$repo/state" "$repo/config"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$repo/.git/hooks/pre-push"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$repo/.git/hooks/pre-push.fm-prev"
+  chmod 755 "$repo/.git/hooks/pre-push" "$repo/.git/hooks/pre-push.fm-prev"
+  out=$(FM_ROOT_OVERRIDE="$repo" FM_HOME="$repo" FM_BOOTSTRAP_NETWORK=skip \
+    "$ROOT/bin/fm-bootstrap.sh" 2>&1) || rc=$?
+  expect_code 0 "$rc" "bootstrap diagnostics must keep the documented zero exit status"
+  assert_contains "$out" "ORIGIN_PUSH_GUARD:" \
+    "bootstrap did not surface hook installation failure as actionable"
+  assert_contains "$out" "both exist" "bootstrap dropped the hook conflict reason"
+  assert_not_contains "$out" "BOOTSTRAP_INFO: origin-push-guard install failed" \
+    "bootstrap still typed hook installation failure as harmless"
+  pass "bootstrap surfaces hook installation failure as an actionable diagnostic"
+}
+
 test_without_no_mistakes_origin_still_pushes
 test_origin_refused_when_no_mistakes_exists
 test_no_mistakes_push_still_goes_through
 test_url_push_matches_named_remote
 test_env_override_skips_only_this_refusal
+test_other_boolean_override_values_are_refused
 test_no_verify_skips_the_hook
 test_protocol_refuse_without_git_push
 test_install_writes_pre_push_and_is_idempotent
 test_installed_hook_refuses_origin
 test_install_chains_existing_pre_push
+test_install_preserves_disabled_pre_push
 test_env_override_still_runs_chained_hook
 test_install_skips_hooks_path_outside_clone
+test_install_resolves_symlinked_hooks_directory
+test_install_rejects_symlinked_pre_push
 test_repo_relative_hooks_path_is_installed
 test_worktree_shares_the_installed_hook
 test_detect_only_bootstrap_does_not_install
 test_bootstrap_installs_the_hook
+test_bootstrap_reports_hook_install_failure_as_actionable

@@ -40,9 +40,13 @@ abs_parent() {
 path_is_inside() {
   local path=$1 root=$2 abs_path abs_root base
   abs_root=$(cd "$root" && pwd -P) || return 1
-  abs_path=$(abs_parent "$path") || return 1
-  base=$(basename -- "$path")
-  abs_path="$abs_path/$base"
+  if [ -d "$path" ]; then
+    abs_path=$(cd "$path" && pwd -P) || return 1
+  else
+    abs_path=$(abs_parent "$path") || return 1
+    base=$(basename -- "$path")
+    abs_path="$abs_path/$base"
+  fi
   case "$abs_path" in
     "$abs_root"|"$abs_root"/*) return 0 ;;
     *) return 1 ;;
@@ -69,7 +73,7 @@ git_abs_common_dir() {
 
 is_our_hook() {
   local path=$1
-  [ -f "$path" ] && grep -F -q -- "$MARKER" "$path"
+  [ ! -L "$path" ] && [ -f "$path" ] && grep -F -q -- "$MARKER" "$path"
 }
 
 normalize_url() {
@@ -104,10 +108,7 @@ destination_is_no_mistakes() {
 }
 
 allow_unguarded_override() {
-  case "${FM_ALLOW_UNGUARDED_PUSH:-}" in
-    1|yes|YES|true|TRUE) return 0 ;;
-    *) return 1 ;;
-  esac
+  [ "${FM_ALLOW_UNGUARDED_PUSH:-}" = 1 ]
 }
 
 run_chained_hook() {
@@ -147,9 +148,20 @@ run_hook() {
 }
 
 write_hook() {
-  local dest=$1
-  cp -- "$SELF" "$dest" || die "cannot write $dest"
-  chmod 755 "$dest" || die "cannot chmod $dest"
+  local dest=$1 temp
+  temp=$(mktemp "$dest.XXXXXX") || die "cannot create hook beside $dest"
+  if ! cp -- "$SELF" "$temp"; then
+    rm -f -- "$temp"
+    die "cannot write $dest"
+  fi
+  if ! chmod 755 "$temp"; then
+    rm -f -- "$temp"
+    die "cannot chmod $dest"
+  fi
+  if ! mv -f -- "$temp" "$dest"; then
+    rm -f -- "$temp"
+    die "cannot replace $dest"
+  fi
 }
 
 install_into() {
@@ -168,6 +180,7 @@ install_into() {
   mkdir -p "$hooks_dir" || die "cannot create $hooks_dir"
   pre_push="$hooks_dir/pre-push"
   prev="$hooks_dir/$PREV_NAME"
+  [ ! -L "$pre_push" ] || die "cannot install: $pre_push is a symbolic link"
   if [ -e "$pre_push" ] || [ -L "$pre_push" ]; then
     if is_our_hook "$pre_push"; then
       write_hook "$pre_push"
@@ -177,7 +190,6 @@ install_into() {
       die "cannot install: $pre_push and $prev both exist"
     fi
     mv -- "$pre_push" "$prev" || die "cannot preserve existing pre-push"
-    chmod +x "$prev" 2>/dev/null || true
   fi
   write_hook "$pre_push"
 }

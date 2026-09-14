@@ -14,6 +14,7 @@
 #                 "HOME_SUMMARY: <ledger never published|not republished since
 #                 <stamp>>; <n> failed attempt(s) ... last: <recorded failure>",
 #                 "BACKLOG_RECONCILE: <id>: <what this home could not reconcile>",
+#                 "ORIGIN_PUSH_GUARD: <hook installation skip or failure>",
 #                 "TANGLE: <remediation>",
 #                 "SECONDMATE_SYNC: secondmate <id>: skipped: <reason>",
 #                 "NUDGE_SECONDMATES: secondmate <id>: send failed: <reason>",
@@ -1588,8 +1589,14 @@ if [ "${FM_BOOTSTRAP_DETECT_ONLY:-0}" != 1 ]; then
   # writes only inside this clone's hooks directory. The script header owns
   # refusal, chaining, outside-hooksPath skip, and the deliberate overrides.
   if local_phase && [ -x "$SCRIPT_DIR/fm-origin-push-guard.sh" ]; then
-    "$SCRIPT_DIR/fm-origin-push-guard.sh" install "$FM_ROOT" >/dev/null || \
-      echo "BOOTSTRAP_INFO: origin-push-guard install failed"
+    origin_push_guard_error='' origin_push_guard_rc=0
+    origin_push_guard_error=$("$SCRIPT_DIR/fm-origin-push-guard.sh" install "$FM_ROOT" 2>&1) \
+      || origin_push_guard_rc=$?
+    if [ "$origin_push_guard_rc" -ne 0 ] || [ -n "$origin_push_guard_error" ]; then
+      [ -n "$origin_push_guard_error" ] || origin_push_guard_error='install failed without a diagnostic'
+      printf 'ORIGIN_PUSH_GUARD: %s; resolve the hook path and rerun bin/fm-bootstrap.sh\n' \
+        "$origin_push_guard_error"
+    fi
   fi
   if [ -n "$fleet_sync_pid" ]; then
     wait "$fleet_sync_pid" || true
