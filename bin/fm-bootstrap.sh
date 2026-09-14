@@ -1160,7 +1160,7 @@ crew_dispatch_validate() {
       | split("/")[-1] as $model
       | if ($model | test("astra"; "i")) then "astra"
         elif ($model | test("fable"; "i")) then "fable"
-        elif (["gpt-5.6-terra", "sonnet", "claude-sonnet-5"] | index($model)) != null then "ordinary"
+        elif (["gpt-5.6-terra", "sonnet", "claude-sonnet-5", "gpt-5.6-sol-xhigh", "grok-4.6", "cursor-grok-4.6-high-fast", "composer-2.5"] | index($model)) != null then "ordinary"
         else v2_fail("unclassified model: " + $selector)
         end;
     def v2_profile:
