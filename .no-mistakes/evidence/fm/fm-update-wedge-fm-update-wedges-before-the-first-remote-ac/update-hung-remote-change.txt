@@ -1,0 +1,10 @@
+## CHANGE 86a95f5
+$ fm-update.sh  (repo=/home/dbeihl/.no-mistakes/worktrees/4962ffbf57ea/01M2JZC1KR8ZYMF986CKY4FKKN, ssh=ssh-plain, FM_ON_TIMEOUT=3, wall cap 25s)
+firstmate: updated b124e4b..0b21331 (instructions changed: AGENTS.md)
+remote secondmate sm1: skipped on remote-mac: error: remote command did not complete within 3s talking to remote-mac: fm-remote-secondmate-control.sh
+reread-firstmate: yes
+restart-secondmates: none
+nudge-secondmates: none
+--- exit=0 elapsed=3.1s
+remote hung command still alive after run: yes
+local ssh client processes left: 0

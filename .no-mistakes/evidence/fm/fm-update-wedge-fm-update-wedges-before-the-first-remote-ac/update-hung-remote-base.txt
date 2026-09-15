@@ -1,0 +1,5 @@
+### Remote live-but-unresponsive (real OpenSSH -> private sshd; remote command never returns)
+## BASE 44f2cf3
+$ fm-update.sh  (repo=/tmp/fm-base.K47Eoh, ssh=ssh-plain, FM_ON_TIMEOUT=3, wall cap 25s)
+firstmate: updated d64c746..2de26c9 (instructions changed: AGENTS.md)
+--- exit=124 elapsed=25.0s  (KILLED BY WALL CAP: wedged)

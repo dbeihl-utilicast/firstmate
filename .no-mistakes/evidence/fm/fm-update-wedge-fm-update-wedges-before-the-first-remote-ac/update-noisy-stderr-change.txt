@@ -1,0 +1,8 @@
+### Remote prints login-shell stderr noise before the result line (real sshd)
+$ fm-update.sh  (repo=/home/dbeihl/.no-mistakes/worktrees/4962ffbf57ea/01M2JZC1KR8ZYMF986CKY4FKKN, ssh=ssh-plain, FM_ON_TIMEOUT=60, wall cap 25s)
+firstmate: updated 44c2293..13e0338 (instructions changed: AGENTS.md)
+remote secondmate sm1: updated on remote-mac (bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb, instructions changed: AGENTS.md)
+reread-firstmate: yes
+restart-secondmates: fm-sm1
+nudge-secondmates: none
+--- exit=0 elapsed=1.1s

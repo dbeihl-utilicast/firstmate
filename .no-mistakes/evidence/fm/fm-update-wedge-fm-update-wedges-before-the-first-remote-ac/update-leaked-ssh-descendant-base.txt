@@ -1,0 +1,5 @@
+### A process left behind by the ssh launch holds the caller's capture pipe (real sshd; remote returns immediately)
+## BASE 44f2cf3
+$ fm-update.sh  (repo=/tmp/fm-base.K47Eoh, ssh=ssh-leaky, FM_ON_TIMEOUT=120, wall cap 25s)
+firstmate: updated 3f68064..449f3a6 (instructions changed: AGENTS.md)
+--- exit=124 elapsed=25.0s  (KILLED BY WALL CAP: wedged)

@@ -1,0 +1,7 @@
+### fm-on --stdin forwards a payload over real ssh (fm-remote-inherit-push / fm-config-push path)
+$ printf "config-snapshot-bytes" | fm-on.sh --stdin sm1 fm-remote-secondmate-control.sh update sm1
+stdin-received: config-snapshot-bytes
+--- exit=0
+$ fm-on.sh sm1 ... (no --stdin, caller stdin is an open pipe)
+stdin-received: 
+--- exit=0 (remote saw empty stdin, did not block)

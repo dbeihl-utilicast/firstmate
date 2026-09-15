@@ -1,0 +1,7 @@
+### Caller cancels fm-on (SIGTERM) while the remote hangs (real OpenSSH -> private sshd)
+fm-on pid=57439 running; its ssh client:   57482   57481 ssh
+capture dirs in private TMPDIR while running: 1
+fm-on exit after SIGTERM: 143 (143 = 128+TERM)
+ssh client 57482 after TERM: gone (within 100ms)
+capture dirs left in private TMPDIR: 0
+fm-on output: 
