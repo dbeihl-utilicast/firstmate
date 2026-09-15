@@ -677,10 +677,11 @@ spawn_remote_secondmate() {
   fi
   # Gate the host before anything is published or transferred, so a host that
   # cannot hold a durable Herdr endpoint refuses here rather than half-way
-  # through a launch. This is also the readiness gate every liveness relaunch
-  # passes through, because recovery respawns through this same route.
+  # through a launch. Plugin catalogue work waits until inherited config
+  # lands: this pass skips host-plugins so a stale remote catalogue cannot
+  # install or block before the primary's current file is copied.
   rc=0
-  fm_remote_readiness_ensure "$SCRIPT_DIR" "$id" || rc=$?
+  fm_remote_readiness_ensure "$SCRIPT_DIR" "$id" --skip-check host-plugins || rc=$?
   if [ "$rc" -ne 0 ]; then
     fm_lock_release "$registry_lock" || true
     fm_lock_release "$SPAWN_TASK_LOCK" || true
@@ -739,6 +740,23 @@ spawn_remote_secondmate() {
       echo "error: remote secondmate $id inheritance failed; launch refused" >&2
     fi
     return "$rc"
+  fi
+  # One post-inheritance readiness gate: every fresh remote-agent launch
+  # converges plugins against the catalogue that just landed (or its absence).
+  rc=0
+  fm_remote_readiness_ensure "$SCRIPT_DIR" "$id" || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    fm_lock_release "$remote_lock" || true
+    fm_lock_release "$registry_lock" || true
+    fm_lock_release "$SPAWN_TASK_LOCK" || true
+    if [ "$rc" -eq 255 ]; then
+      echo "error: remote secondmate $id readiness could not be confirmed; preserved route $host:$home" >&2
+    else
+      echo "error: remote secondmate $id host $host is not ready for a remote second mate; launch refused" >&2
+    fi
+    [ -z "$FM_REMOTE_READINESS_OUT" ] || printf '%s\n' "$FM_REMOTE_READINESS_OUT" >&2
+    [ "$rc" -ne 255 ] || return 255
+    return 1
   fi
   # This parent home owns the remote secondmate's task identity because it holds
   # the task metadata an observer reads, exactly as for a local spawn: the

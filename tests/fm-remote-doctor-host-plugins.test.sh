@@ -1,0 +1,757 @@
+#!/usr/bin/env bash
+# Portable regression for the remote doctor's optional Claude Code plugin catalogue.
+#
+# Drives bin/fm-remote-doctor.sh through its public check/--fix interface with a
+# stub claude on PATH. Other host gaps still print; this file asserts only the
+# host-plugins check, its repair commands, and that removing either goes red.
+set -u
+
+# shellcheck source=tests/lib.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+command -v python3 >/dev/null 2>&1 || { echo "skip: python3 not found (catalogue JSON parsing)"; exit 0; }
+
+TMP_ROOT=$(fm_test_tmproot fm-remote-doctor-host-plugins)
+mkdir -p "$TMP_ROOT"
+TMP_ROOT=$(cd "$TMP_ROOT" && pwd -P)
+
+TOOLS="$TMP_ROOT/tools"
+mkdir -p "$TOOLS"
+ln -sf "$(command -v git)" "$TOOLS/git"
+[ -n "$(command -v jq 2>/dev/null)" ] && ln -sf "$(command -v jq)" "$TOOLS/jq"
+ln -sf "$(command -v python3)" "$TOOLS/python3"
+BASE_PATH="$TOOLS:/usr/bin:/bin:/usr/sbin:/sbin"
+
+# shellcheck source=bin/fm-config-inherit-lib.sh
+. "$ROOT/bin/fm-config-inherit-lib.sh"
+case "$(fm_config_inherit_items)" in
+  *config/host-plugins.json*) ;;
+  *) fail "config/host-plugins.json must be inherited so a remote home can see the catalogue" ;;
+esac
+pass "the plugin catalogue is on the inherited local-material allowlist"
+
+write_catalogue() { # <fm-home>
+  mkdir -p "$1/config"
+  cat > "$1/config/host-plugins.json" <<'JSON'
+{
+  "marketplaces": [
+    {
+      "name": "example-plugins",
+      "source": "https://github.com/example/example-plugins.git"
+    }
+  ],
+  "plugins": [
+    "example-core@example-plugins"
+  ]
+}
+JSON
+}
+
+write_stub_claude() { # <state-dir>
+  local state=$1 real_git
+  real_git=$(command -v git)
+  mkdir -p "$state/bin" "$state/details" "$state/marketplace/.claude-plugin" \
+    "$state/marketplace/plugins/example-core/.claude-plugin"
+  : > "$state/commands.log"
+  printf '[]\n' > "$state/marketplaces.json"
+  printf '[]\n' > "$state/plugins.json"
+  printf 'ok\n' > "$state/add.mode"
+  printf 'ok\n' > "$state/install.mode"
+  cat > "$state/details/example-core@example-plugins" <<'TXT'
+example-core 1.0.0
+  Source: example-core@example-plugins
+
+Component inventory
+  Skills (2)  example-skill, other-skill
+TXT
+  cat > "$state/marketplace/.claude-plugin/marketplace.json" <<'JSON'
+{
+  "name": "example-plugins",
+  "plugins": [
+    {
+      "name": "example-core",
+      "source": "./plugins/example-core"
+    }
+  ]
+}
+JSON
+  cat > "$state/marketplace/plugins/example-core/.claude-plugin/plugin.json" <<'JSON'
+{
+  "name": "example-core",
+  "version": "1.0.0",
+  "dependencies": []
+}
+JSON
+  cat > "$state/bin/git" <<SH
+#!/usr/bin/env bash
+if [ "\${1:-}" = clone ]; then
+  destination=\${!#}
+  mkdir -p "\$destination"
+  cp -R "$state/marketplace/." "\$destination/"
+  exit 0
+fi
+exec "$real_git" "\$@"
+SH
+  {
+    printf '%s\n' '#!/usr/bin/env bash' 'set -u' "state='$state'"
+    cat <<'SH'
+printf '%s\n' "claude_config=${CLAUDE_CONFIG_DIR:-} $*" >> "$state/commands.log"
+json_flag=0
+scope=user
+args=()
+for arg in "$@"; do
+  case "$arg" in
+    --json) json_flag=1 ;;
+    --scope) ;;
+    user|project|local) scope=$arg ;;
+    --) ;;
+    *) args+=("$arg") ;;
+  esac
+done
+set -- ${args[@]+"${args[@]}"}
+case "${1:-} ${2:-} ${3:-}" in
+  "plugin marketplace list"*)
+    [ "$json_flag" -eq 1 ] || exit 1
+    cat "$state/marketplaces.json"
+    exit 0
+    ;;
+  "plugin marketplace add"*)
+    source=${4:-${3:-}}
+    case "$(cat "$state/add.mode")" in
+      auth)
+        printf 'fatal: Authentication failed for %s\n' "$source" >&2
+        exit 1
+        ;;
+      fail)
+        printf 'error: marketplace add refused; diagnostic=stub-sensitive-detail\n' >&2
+        exit 1
+        ;;
+    esac
+    python3 - "$state/marketplaces.json" "$source" "$state/marketplace" <<'PY'
+import json, os, sys
+path, source, install_location = sys.argv[1], sys.argv[2], sys.argv[3]
+with open(os.path.join(install_location, ".claude-plugin", "marketplace.json"), encoding="utf-8") as handle:
+    name = json.load(handle)["name"]
+data = []
+if os.path.exists(path):
+    with open(path, encoding="utf-8") as handle:
+        data = json.load(handle)
+if not any(item.get("name") == name for item in data):
+    data.append({"name": name, "source": "git", "url": source, "installLocation": install_location})
+with open(path, "w", encoding="utf-8") as handle:
+    json.dump(data, handle)
+PY
+    exit 0
+    ;;
+  "plugin list"*)
+    [ "$json_flag" -eq 1 ] || exit 1
+    cat "$state/plugins.json"
+    exit 0
+    ;;
+  "plugin install"*)
+    plugin=${4:-${3:-}}
+    case "$(cat "$state/install.mode")" in
+      auth)
+        printf 'fatal: Authentication failed while installing %s\n' "$plugin" >&2
+        exit 1
+        ;;
+      fail)
+        printf 'error: plugin install refused; diagnostic=stub-sensitive-detail\n' >&2
+        exit 1
+        ;;
+    esac
+    python3 - "$state/plugins.json" "$plugin" "$state/marketplace" <<'PY'
+import json, os, sys
+path, plugin, marketplace = sys.argv[1], sys.argv[2], sys.argv[3]
+install_path = os.path.join(marketplace, "plugins", plugin.rsplit("@", 1)[0])
+data = []
+if os.path.exists(path):
+    with open(path, encoding="utf-8") as handle:
+        data = json.load(handle)
+if not any(item.get("id") == plugin for item in data):
+    data.append({"id": plugin, "scope": "user", "enabled": True, "installPath": install_path})
+with open(path, "w", encoding="utf-8") as handle:
+    json.dump(data, handle)
+PY
+    exit 0
+    ;;
+  "plugin enable"*)
+    plugin=${4:-${3:-}}
+    python3 - "$state/plugins.json" "$plugin" <<'PY'
+import json, os, sys
+path, plugin = sys.argv[1], sys.argv[2]
+data = []
+if os.path.exists(path):
+    with open(path, encoding="utf-8") as handle:
+        data = json.load(handle)
+for item in data:
+    if item.get("id") == plugin:
+        item["enabled"] = True
+with open(path, "w", encoding="utf-8") as handle:
+    json.dump(data, handle)
+PY
+    exit 0
+    ;;
+  "plugin details"*)
+    plugin=${3:-}
+    if [ -f "$state/details/$plugin" ]; then
+      cat "$state/details/$plugin"
+      exit 0
+    fi
+    printf 'error: plugin not found\n' >&2
+    exit 1
+    ;;
+esac
+printf 'unexpected claude invocation: %s\n' "$*" >&2
+exit 64
+SH
+  } > "$state/bin/claude"
+  chmod +x "$state/bin/claude" "$state/bin/git"
+}
+
+run_doctor_with_shell() { # <shell> [--fix]
+  local shell=$1
+  shift
+  set +e
+  DOCTOR_OUT=$(
+    HOME="$CASE_HOME" \
+    FM_HOME="$CASE_FM_HOME" \
+    FM_REMOTE_JOB_ACTIVE=1 \
+    CLAUDE_CONFIG_DIR="${CLAUDE_CONFIG_DIR:-}" \
+    PATH="$CASE_CLAUDE_BIN:$BASE_PATH" \
+    "$shell" "$ROOT/bin/fm-remote-doctor.sh" "$@" 2>&1
+  )
+  set -e
+}
+
+run_doctor() { # [--fix]
+  run_doctor_with_shell "${BASH:-/bin/bash}" "$@"
+}
+
+new_host() {
+  CASE_N=${CASE_N:-0}
+  CASE_N=$((CASE_N + 1))
+  CASE_DIR="$TMP_ROOT/case$CASE_N"
+  CASE_HOME="$CASE_DIR/home"
+  CASE_FM_HOME="$CASE_DIR/fm-home"
+  CASE_STATE="$CASE_DIR/claude-state"
+  mkdir -p "$CASE_HOME" "$CASE_FM_HOME"
+  write_stub_claude "$CASE_STATE"
+  CASE_CLAUDE_BIN="$CASE_STATE/bin"
+}
+
+# --- absent config: skip, never talk to claude, --fix is a no-op ------------
+
+new_host
+run_doctor
+assert_contains "$DOCTOR_OUT" 'check host-plugins=skip: no host plugin catalogue is configured' \
+  "absent config did not skip the plugin check"
+[ ! -s "$CASE_STATE/commands.log" ] || fail "absent config invoked claude"
+: > "$CASE_STATE/commands.log"
+run_doctor --fix
+assert_contains "$DOCTOR_OUT" 'check host-plugins=skip: no host plugin catalogue is configured' \
+  "--fix with absent config did not keep skipping"
+assert_not_contains "$DOCTOR_OUT" 'fix host-plugins=' "--fix with absent config printed a plugin repair"
+[ ! -s "$CASE_STATE/commands.log" ] || fail "--fix with absent config invoked claude"
+pass "absent config is not applicable and changes nothing"
+
+# --- present empty config denies installed plugins -------------------------
+
+new_host
+mkdir -p "$CASE_FM_HOME/config"
+printf '{"marketplaces":[],"plugins":[]}\n' > "$CASE_FM_HOME/config/host-plugins.json"
+cat > "$CASE_STATE/plugins.json" <<'JSON'
+[
+  {
+    "id": "example-ops@example-plugins",
+    "scope": "user",
+    "enabled": true
+  }
+]
+JSON
+run_doctor
+assert_contains "$DOCTOR_OUT" 'check host-plugins=human: installed or enabled plugin is not named' \
+  "an explicit empty catalogue accepted an installed plugin"
+assert_contains "$DOCTOR_OUT" 'example-ops@example-plugins' \
+  "the empty-catalogue gap did not name the installed plugin"
+assert_contains "$DOCTOR_OUT" 'add each named plugin to config/host-plugins.json if it is authorized, or remove it' \
+  "the empty-catalogue gap did not tell the operator to add or remove the plugin"
+pass "an explicit empty catalogue denies every installed plugin"
+
+# --- claude missing is a named operator gap, and Claude Code is not installed
+
+new_host
+write_catalogue "$CASE_FM_HOME"
+CASE_CLAUDE_BIN="$CASE_DIR/empty-bin"
+mkdir -p "$CASE_CLAUDE_BIN"
+run_doctor
+assert_contains "$DOCTOR_OUT" 'check host-plugins=human:' "missing claude CLI was not a human gap"
+assert_contains "$DOCTOR_OUT" 'install Claude Code' "missing claude CLI did not name the operator action"
+assert_not_contains "$DOCTOR_OUT" 'fix host-plugins=applied' "the doctor claimed to install Claude Code"
+pass "a missing claude CLI is reported and Claude Code is not installed"
+
+# --- only remote Git repository sources are valid catalogue input ----------
+
+for rejected_source in 'https://example.com/.claude-plugin/marketplace.json' 'https://example.com/example/repository' './local-marketplace'; do
+  new_host
+  write_catalogue "$CASE_FM_HOME"
+  python3 - "$CASE_FM_HOME/config/host-plugins.json" "$rejected_source" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as handle:
+    data = json.load(handle)
+data["marketplaces"][0]["source"] = sys.argv[2]
+with open(sys.argv[1], "w", encoding="utf-8") as handle:
+    json.dump(data, handle)
+PY
+  run_doctor --fix
+  assert_contains "$DOCTOR_OUT" 'source must be a canonical HTTPS Git URL ending in .git' \
+    "a non-repository marketplace source was not invalid config"
+  [ ! -s "$CASE_STATE/commands.log" ] || fail "invalid marketplace source invoked claude"
+done
+pass "noncanonical marketplace source spellings are rejected before host mutation"
+
+new_host
+write_catalogue "$CASE_FM_HOME"
+python3 - "$CASE_FM_HOME/config/host-plugins.json" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as handle:
+    data = json.load(handle)
+data["marketplaces"][0]["source"] = "https://user:source-secret@example.com/example/repository.git"
+with open(sys.argv[1], "w", encoding="utf-8") as handle:
+    json.dump(data, handle)
+PY
+run_doctor --fix
+assert_contains "$DOCTOR_OUT" 'source must not contain credentials' \
+  "a credential-bearing marketplace source was accepted"
+assert_not_contains "$DOCTOR_OUT" 'source-secret' \
+  "invalid catalogue output disclosed a source credential"
+[ ! -s "$CASE_STATE/commands.log" ] || fail "credential-bearing marketplace source invoked claude"
+pass "credential-bearing marketplace sources are rejected without disclosure"
+
+# --- marketplace identity is bound before any repair mutates the store -----
+
+new_host
+write_catalogue "$CASE_FM_HOME"
+python3 - "$CASE_STATE/marketplace/.claude-plugin/marketplace.json" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as handle:
+    data = json.load(handle)
+data["name"] = "other-plugins"
+with open(sys.argv[1], "w", encoding="utf-8") as handle:
+    json.dump(data, handle)
+PY
+run_doctor --fix
+assert_contains "$DOCTOR_OUT" 'marketplace example-plugins manifest name does not match its configured name' \
+  "a marketplace manifest with another name passed preflight"
+[ "$(cat "$CASE_STATE/marketplaces.json")" = '[]' ] \
+  || fail "marketplace identity mismatch registered an unconfigured marketplace"
+[ "$(cat "$CASE_STATE/plugins.json")" = '[]' ] \
+  || fail "marketplace identity mismatch installed a plugin"
+assert_not_contains "$(cat "$CASE_STATE/commands.log")" 'plugin marketplace add' \
+  "marketplace identity mismatch reached marketplace add"
+assert_not_contains "$(cat "$CASE_STATE/commands.log")" 'plugin install' \
+  "marketplace identity mismatch reached plugin install"
+pass "marketplace manifest identity is verified before mutation"
+
+# --- missing marketplace: --fix adds only the configured source -------------
+
+new_host
+write_catalogue "$CASE_FM_HOME"
+run_doctor_with_shell /bin/bash
+assert_contains "$DOCTOR_OUT" 'check host-plugins=fixable: configured marketplace is not registered' \
+  "a missing marketplace was not fixable"
+assert_contains "$DOCTOR_OUT" 'example-plugins' "the missing marketplace was not named"
+: > "$CASE_STATE/commands.log"
+run_doctor_with_shell /bin/bash --fix
+assert_contains "$DOCTOR_OUT" 'fix host-plugins=applied: registered marketplace example-plugins' \
+  "--fix did not register the configured marketplace"
+assert_contains "$DOCTOR_OUT" 'fix host-plugins=applied: installed example-core@example-plugins' \
+  "--fix did not install the configured plugin after registering its marketplace"
+assert_contains "$DOCTOR_OUT" 'check host-plugins=ok: configured Claude Code plugins resolve on this host' \
+  "--fix did not prove a skill resolves after install"
+assert_contains "$(cat "$CASE_STATE/commands.log")" 'plugin marketplace add -- https://github.com/example/example-plugins.git' \
+  "--fix did not add the configured marketplace source"
+assert_contains "$(cat "$CASE_STATE/commands.log")" 'plugin install --scope user -- example-core@example-plugins' \
+  "--fix did not install the configured plugin id"
+assert_not_contains "$(cat "$CASE_STATE/commands.log")" '--yes' \
+  "--fix pre-approved a marketplace-declared command"
+assert_not_contains "$(cat "$CASE_STATE/commands.log")" 'other-plugins' \
+  "--fix added a marketplace that is not in config"
+pass "a fresh store is classified under the supported system Bash, then converged"
+
+# --- missing plugin only ----------------------------------------------------
+
+new_host
+write_catalogue "$CASE_FM_HOME"
+python3 - "$CASE_STATE/marketplaces.json" "$CASE_STATE/marketplace" <<'PY'
+import json, sys
+json.dump([{"name": "example-plugins", "source": "git", "url": "https://github.com/example/example-plugins.git", "installLocation": sys.argv[2]}], open(sys.argv[1], "w"))
+PY
+run_doctor
+assert_contains "$DOCTOR_OUT" 'check host-plugins=fixable: configured plugin is not installed (example-core@example-plugins)' \
+  "a missing plugin was not fixable"
+: > "$CASE_STATE/commands.log"
+run_doctor --fix
+assert_contains "$DOCTOR_OUT" 'fix host-plugins=applied: installed example-core@example-plugins' \
+  "--fix did not install the missing plugin"
+assert_contains "$DOCTOR_OUT" 'check host-plugins=ok:' "--fix did not re-check plugin resolution"
+assert_not_contains "$(cat "$CASE_STATE/commands.log")" 'plugin marketplace add' \
+  "--fix re-added a marketplace that was already registered"
+pass "a missing plugin is installed without touching an already-registered marketplace"
+
+# --- auth failure leaves the gap open and does not invent credentials -------
+
+new_host
+write_catalogue "$CASE_FM_HOME"
+printf 'auth\n' > "$CASE_STATE/add.mode"
+run_doctor --fix
+assert_contains "$DOCTOR_OUT" 'fix host-plugins=failed:' "--fix did not report the authentication failure"
+assert_contains "$DOCTOR_OUT" 'authentication' "--fix did not name authentication as the operator action"
+assert_contains "$DOCTOR_OUT" 'check host-plugins=human:' "an auth failure was left as a silent or fixable loop"
+assert_not_contains "$DOCTOR_OUT" 'fix host-plugins=applied' "--fix claimed success after authentication failed"
+assert_not_contains "$DOCTOR_OUT" 'https://github.com/example/example-plugins.git' \
+  "authentication diagnostics disclosed the configured marketplace source"
+assert_contains "$(cat "$CASE_STATE/commands.log")" 'plugin marketplace add -- https://github.com/example/example-plugins.git' \
+  "auth failure did not attempt the configured marketplace add"
+assert_not_contains "$(cat "$CASE_STATE/commands.log")" 'plugin install' \
+  "auth failure still installed a plugin"
+pass "authentication failure reports the operator action and leaves the gap open"
+
+new_host
+write_catalogue "$CASE_FM_HOME"
+printf 'fail\n' > "$CASE_STATE/add.mode"
+run_doctor --fix
+assert_contains "$DOCTOR_OUT" 'fix host-plugins=failed: registering marketplace example-plugins failed' \
+  "a marketplace-add failure was not reported"
+assert_not_contains "$DOCTOR_OUT" 'stub-sensitive-detail' \
+  "marketplace-add output was copied into the readiness report"
+assert_not_contains "$DOCTOR_OUT" 'https://github.com/example/example-plugins.git' \
+  "marketplace-add failure disclosed the configured source"
+pass "marketplace-add failures redact sources and subprocess output"
+
+new_host
+write_catalogue "$CASE_FM_HOME"
+python3 - "$CASE_STATE/marketplaces.json" "$CASE_STATE/marketplace" <<'PY'
+import json, sys
+json.dump([{"name": "example-plugins", "source": "git", "url": "https://github.com/example/example-plugins.git", "installLocation": sys.argv[2]}], open(sys.argv[1], "w"))
+PY
+printf 'fail\n' > "$CASE_STATE/install.mode"
+run_doctor --fix
+assert_contains "$DOCTOR_OUT" 'fix host-plugins=failed: installing example-core@example-plugins failed' \
+  "a plugin-install failure was not reported"
+assert_not_contains "$DOCTOR_OUT" 'stub-sensitive-detail' \
+  "plugin-install output was copied into the readiness report"
+pass "plugin-install failures redact subprocess output"
+
+# --- installed but no resolving skill is the same as absent -----------------
+
+new_host
+write_catalogue "$CASE_FM_HOME"
+python3 - "$CASE_STATE/marketplaces.json" "$CASE_STATE/plugins.json" "$CASE_STATE/marketplace" <<'PY'
+import json, sys
+json.dump([{"name": "example-plugins", "source": "git", "url": "https://github.com/example/example-plugins.git", "installLocation": sys.argv[3]}], open(sys.argv[1], "w"))
+json.dump([{"id": "example-core@example-plugins", "scope": "user", "enabled": True, "installPath": sys.argv[3] + "/plugins/example-core"}], open(sys.argv[2], "w"))
+PY
+printf 'example-core 1.0.0\n  Skills (0)\n' > "$CASE_STATE/details/example-core@example-plugins"
+run_doctor
+assert_contains "$DOCTOR_OUT" 'check host-plugins=human:' "a plugin with no resolving skill was not a gap"
+assert_contains "$DOCTOR_OUT" 'no skill resolves' "install-without-skills was treated as success"
+: > "$CASE_STATE/commands.log"
+run_doctor --fix
+assert_not_contains "$DOCTOR_OUT" 'fix host-plugins=applied' "--fix tried to repair an unresolving installed plugin"
+pass "a plugin present but not resolving is the same as absent"
+
+new_host
+write_catalogue "$CASE_FM_HOME"
+python3 - "$CASE_STATE/marketplaces.json" "$CASE_STATE/plugins.json" "$CASE_STATE/marketplace" <<'PY'
+import json, sys
+json.dump([{"name": "example-plugins", "source": "git", "url": "https://github.com/example/example-plugins.git", "installLocation": sys.argv[3]}], open(sys.argv[1], "w"))
+json.dump([{
+    "id": "example-core@example-plugins",
+    "scope": "user",
+    "enabled": True,
+    "installPath": sys.argv[3] + "/plugins/example-core",
+    "errors": [{"type": "dependency-not-found", "message": "example-domain is missing"}],
+}], open(sys.argv[2], "w"))
+PY
+run_doctor
+assert_contains "$DOCTOR_OUT" 'check host-plugins=human: configured plugin failed to load' \
+  "an enabled plugin load error was not a human gap"
+assert_contains "$DOCTOR_OUT" 'example-core@example-plugins' \
+  "the load-error gap did not name the configured plugin"
+assert_contains "$DOCTOR_OUT" 'dependency-not-found' \
+  "the load-error gap discarded the Claude diagnostic"
+assert_not_contains "$DOCTOR_OUT" 'check host-plugins=ok:' \
+  "a plugin load error passed because its details inventory named a skill"
+assert_contains "$DOCTOR_OUT" 'error: this host is not ready for a remote second mate' \
+  "a configured plugin load error did not refuse launch"
+pass "a configured plugin load error refuses launch"
+
+new_host
+python3 - "$CASE_FM_HOME" "$CASE_STATE/marketplaces.json" "$CASE_STATE/plugins.json" "$CASE_STATE/marketplace" <<'PY'
+import json, pathlib, sys
+fm_home = pathlib.Path(sys.argv[1])
+marketplaces_path = pathlib.Path(sys.argv[2])
+plugins_path = pathlib.Path(sys.argv[3])
+marketplace = pathlib.Path(sys.argv[4])
+fm_home.joinpath("config").mkdir()
+json.dump({
+    "marketplaces": [{"name": "example-plugins", "source": "https://github.com/example/example-plugins.git"}],
+    "plugins": [
+        "example-core@example-plugins",
+        "example-domain@example-plugins",
+        "example-testing@example-plugins",
+    ],
+}, open(fm_home / "config/host-plugins.json", "w"))
+json.dump([{
+    "name": "example-plugins",
+    "source": "git",
+    "url": "https://github.com/example/example-plugins.git",
+    "installLocation": str(marketplace),
+}], open(marketplaces_path, "w"))
+json.dump([
+    {
+        "id": "example-core@example-plugins",
+        "scope": "user",
+        "enabled": True,
+        "installPath": str(marketplace / "plugins/example-core"),
+        "errors": [{"type": "dependency-not-found", "message": "configured dependencies are missing"}],
+    },
+    {
+        "id": "example-testing@example-plugins",
+        "scope": "user",
+        "enabled": False,
+        "installPath": str(marketplace / "plugins/example-testing"),
+    },
+], open(plugins_path, "w"))
+entries = [
+    {"name": "example-core", "source": "./plugins/example-core"},
+    {"name": "example-domain", "source": "./plugins/example-domain"},
+    {"name": "example-testing", "source": "./plugins/example-testing"},
+]
+json.dump({"name": "example-plugins", "plugins": entries}, open(marketplace / ".claude-plugin/marketplace.json", "w"))
+for name in ("example-core", "example-domain", "example-testing"):
+    manifest = marketplace / "plugins" / name / ".claude-plugin"
+    manifest.mkdir(parents=True, exist_ok=True)
+    dependencies = ["example-domain", "example-testing"] if name == "example-core" else []
+    json.dump({"name": name, "version": "1.0.0", "dependencies": dependencies}, open(manifest / "plugin.json", "w"))
+PY
+run_doctor --fix
+assert_contains "$DOCTOR_OUT" 'fix host-plugins=applied: installed example-domain@example-plugins' \
+  "the missing configured plugin was not installed before reporting the load error"
+assert_contains "$DOCTOR_OUT" 'fix host-plugins=applied: enabled example-testing@example-plugins' \
+  "the disabled configured plugin was not enabled before reporting the load error"
+assert_contains "$DOCTOR_OUT" 'check host-plugins=human: configured plugin failed to load' \
+  "the remaining load error was not reported after configured plugins converged"
+python3 - "$CASE_STATE/plugins.json" <<'PY'
+import json, sys
+plugins = {item["id"]: item for item in json.load(open(sys.argv[1]))}
+assert plugins["example-domain@example-plugins"]["enabled"] is True
+assert plugins["example-testing@example-plugins"]["enabled"] is True
+PY
+pass "configured plugin gaps converge before load errors refuse launch"
+
+# --- converged host: --fix changes nothing and prints no new repair ---------
+
+new_host
+write_catalogue "$CASE_FM_HOME"
+python3 - "$CASE_STATE/marketplaces.json" "$CASE_STATE/plugins.json" "$CASE_STATE/marketplace" <<'PY'
+import json, sys
+json.dump([{"name": "example-plugins", "source": "git", "url": "https://github.com/example/example-plugins.git", "installLocation": sys.argv[3]}], open(sys.argv[1], "w"))
+json.dump([{"id": "example-core@example-plugins", "scope": "user", "enabled": True, "installPath": sys.argv[3] + "/plugins/example-core"}], open(sys.argv[2], "w"))
+PY
+run_doctor
+assert_contains "$DOCTOR_OUT" 'check host-plugins=ok: configured Claude Code plugins resolve on this host' \
+  "a converged catalogue was not ok"
+: > "$CASE_STATE/commands.log"
+run_doctor --fix
+assert_contains "$DOCTOR_OUT" 'check host-plugins=ok: configured Claude Code plugins resolve on this host' \
+  "--fix on a converged host lost the ok verdict"
+assert_not_contains "$DOCTOR_OUT" 'fix host-plugins=' "--fix on a converged host printed a plugin repair"
+assert_not_contains "$(cat "$CASE_STATE/commands.log")" 'plugin marketplace add' \
+  "--fix on a converged host added a marketplace"
+assert_not_contains "$(cat "$CASE_STATE/commands.log")" 'plugin install' \
+  "--fix on a converged host installed a plugin"
+assert_not_contains "$(cat "$CASE_STATE/commands.log")" 'plugin enable' \
+  "--fix on a converged host enabled a plugin"
+pass "a converged host changes nothing and prints no plugin repair"
+
+# --- same name from a different source is not the configured marketplace ----
+
+new_host
+write_catalogue "$CASE_FM_HOME"
+python3 - "$CASE_STATE/marketplaces.json" "$CASE_STATE/plugins.json" "$CASE_STATE/marketplace" <<'PY'
+import json, sys
+json.dump([{"name": "example-plugins", "source": "git", "url": "https://github.com/other/other-plugins.git", "installLocation": sys.argv[3]}], open(sys.argv[1], "w"))
+json.dump([{"id": "example-core@example-plugins", "scope": "user", "enabled": True, "installPath": sys.argv[3] + "/plugins/example-core"}], open(sys.argv[2], "w"))
+PY
+: > "$CASE_STATE/commands.log"
+run_doctor
+assert_contains "$DOCTOR_OUT" 'check host-plugins=human: configured marketplace is registered from a different source' \
+  "a same-name marketplace from another source was accepted"
+assert_not_contains "$DOCTOR_OUT" 'check host-plugins=ok:' "a substituted marketplace source was treated as ready"
+: > "$CASE_STATE/commands.log"
+run_doctor --fix
+assert_not_contains "$(cat "$CASE_STATE/commands.log")" 'plugin install' \
+  "--fix installed a plugin from a marketplace bound to the wrong source"
+assert_not_contains "$DOCTOR_OUT" 'fix host-plugins=applied: installed' \
+  "--fix claimed to install from a mismatched marketplace"
+pass "a marketplace is bound to its configured source"
+
+new_host
+write_catalogue "$CASE_FM_HOME"
+python3 - "$CASE_STATE/marketplaces.json" "$CASE_STATE/plugins.json" "$CASE_STATE/marketplace" <<'PY'
+import json, sys
+json.dump([{"name": "example-plugins", "source": "git", "url": "https://github.com/example/example-plugins", "installLocation": sys.argv[3]}], open(sys.argv[1], "w"))
+json.dump([{"id": "example-core@example-plugins", "scope": "user", "enabled": True, "installPath": sys.argv[3] + "/plugins/example-core"}], open(sys.argv[2], "w"))
+PY
+run_doctor
+assert_contains "$DOCTOR_OUT" 'check host-plugins=human: configured marketplace is registered from a different source' \
+  "a registered source without the configured .git suffix was treated as identical"
+assert_not_contains "$DOCTOR_OUT" 'check host-plugins=ok:' \
+  "source alias normalization bypassed exact marketplace identity"
+pass "marketplace source identity requires an exact match"
+
+# --- --skip-check host-plugins is the pre-inheritance pass ------------------
+
+new_host
+write_catalogue "$CASE_FM_HOME"
+: > "$CASE_STATE/commands.log"
+run_doctor --skip-check host-plugins
+assert_contains "$DOCTOR_OUT" 'check host-plugins=skip: plugin catalogue is checked after inherited config lands' \
+  "--skip-check host-plugins did not skip the catalogue"
+[ ! -s "$CASE_STATE/commands.log" ] || fail "--skip-check host-plugins still invoked claude"
+pass "the pre-inheritance doctor pass does not touch plugins"
+
+# --- CLAUDE_CONFIG_DIR is the store the doctor talks to ---------------------
+
+new_host
+write_catalogue "$CASE_FM_HOME"
+python3 - "$CASE_STATE/marketplaces.json" "$CASE_STATE/plugins.json" "$CASE_STATE/marketplace" <<'PY'
+import json, sys
+json.dump([{"name": "example-plugins", "source": "git", "url": "https://github.com/example/example-plugins.git", "installLocation": sys.argv[3]}], open(sys.argv[1], "w"))
+json.dump([{"id": "example-core@example-plugins", "scope": "user", "enabled": True, "installPath": sys.argv[3] + "/plugins/example-core"}], open(sys.argv[2], "w"))
+PY
+: > "$CASE_STATE/commands.log"
+CLAUDE_CONFIG_DIR="$CASE_DIR/claude-store" run_doctor
+assert_contains "$(cat "$CASE_STATE/commands.log")" "claude_config=$CASE_DIR/claude-store" \
+  "the doctor did not run claude against CLAUDE_CONFIG_DIR"
+assert_contains "$DOCTOR_OUT" 'check host-plugins=ok:' "an isolated CLAUDE_CONFIG_DIR store was not accepted"
+pass "the doctor uses CLAUDE_CONFIG_DIR as the effective Claude store"
+
+new_host
+write_catalogue "$CASE_FM_HOME"
+python3 - "$CASE_FM_HOME/config/host-plugins.json" "$CASE_STATE/marketplace/.claude-plugin/marketplace.json" \
+  "$CASE_STATE/marketplace/plugins/example-core/.claude-plugin/plugin.json" \
+  "$CASE_STATE/marketplace/plugins/example-domain/.claude-plugin/plugin.json" <<'PY'
+import json, pathlib, sys
+domain_manifest = pathlib.Path(sys.argv[4])
+domain_manifest.parent.mkdir(parents=True)
+json.dump({
+    "marketplaces": [{"name": "example-plugins", "source": "https://github.com/example/example-plugins.git"}],
+    "plugins": ["example-core@example-plugins", "example-domain@example-plugins"],
+}, open(sys.argv[1], "w"))
+json.dump({
+    "name": "example-plugins",
+    "plugins": [
+        {"name": "example-core", "source": "./plugins/example-core"},
+        {"name": "example-domain", "source": "./plugins/example-domain"},
+    ],
+}, open(sys.argv[2], "w"))
+json.dump({"name": "example-core", "version": "1.0.0", "dependencies": ["example-domain"]}, open(sys.argv[3], "w"))
+json.dump({"name": "example-domain", "version": "1.0.0", "dependencies": ["example-ops"]}, open(domain_manifest, "w"))
+PY
+run_doctor --fix
+assert_contains "$DOCTOR_OUT" 'check host-plugins=human: configured plugin dependency is not named' \
+  "an uncatalogued dependency was not a named host-plugin gap"
+assert_contains "$DOCTOR_OUT" 'example-domain@example-plugins requires example-ops@example-plugins' \
+  "the transitive dependency gap did not name both plugins"
+[ "$(cat "$CASE_STATE/marketplaces.json")" = '[]' ] \
+  || fail "dependency preflight mutated the effective marketplace store"
+[ "$(cat "$CASE_STATE/plugins.json")" = '[]' ] \
+  || fail "dependency preflight installed a plugin"
+assert_not_contains "$(cat "$CASE_STATE/commands.log")" 'plugin install' \
+  "an uncatalogued dependency still reached plugin install"
+pass "uncatalogued dependencies refuse every effective-store mutation"
+
+new_host
+write_catalogue "$CASE_FM_HOME"
+python3 - "$CASE_STATE/marketplaces.json" "$CASE_STATE/plugins.json" \
+  "$CASE_STATE/marketplace" "$CASE_STATE/marketplace/plugins/example-core/.claude-plugin/plugin.json" <<'PY'
+import json, sys
+json.dump([{"name": "example-plugins", "source": "git", "url": "https://github.com/example/example-plugins.git", "installLocation": sys.argv[3]}], open(sys.argv[1], "w"))
+json.dump([{"id": "example-core@example-plugins", "scope": "user", "enabled": False, "installPath": sys.argv[3] + "/plugins/example-core"}], open(sys.argv[2], "w"))
+json.dump({"name": "example-core", "version": "1.0.0", "dependencies": ["example-ops"]}, open(sys.argv[4], "w"))
+PY
+run_doctor --fix
+assert_contains "$DOCTOR_OUT" 'example-core@example-plugins requires example-ops@example-plugins' \
+  "the disabled plugin dependency gap was not reported"
+assert_not_contains "$(cat "$CASE_STATE/commands.log")" 'plugin enable' \
+  "an uncatalogued dependency still enabled its configured plugin"
+python3 - "$CASE_STATE/plugins.json" "$CASE_STATE/marketplace/plugins/example-core" <<'PY'
+import json, sys
+data = json.load(open(sys.argv[1]))
+assert data == [{"id": "example-core@example-plugins", "scope": "user", "enabled": False, "installPath": sys.argv[2]}]
+PY
+pass "uncatalogued dependencies block plugin enable"
+
+new_host
+write_catalogue "$CASE_FM_HOME"
+python3 - "$CASE_STATE/marketplaces.json" "$CASE_STATE/plugins.json" "$CASE_STATE/marketplace" <<'PY'
+import json, sys
+json.dump([{"name": "example-plugins", "source": "git", "url": "https://github.com/example/example-plugins.git", "installLocation": sys.argv[3]}], open(sys.argv[1], "w"))
+json.dump([
+    {"id": "example-core@example-plugins", "scope": "user", "enabled": True, "installPath": sys.argv[3] + "/plugins/example-core"},
+    {"id": "example-ops@example-plugins", "scope": "user", "enabled": True},
+    {"id": "example-disabled@example-plugins", "scope": "project", "enabled": False},
+    {"id": "foreign@other-plugins", "scope": "user", "enabled": True},
+], open(sys.argv[2], "w"))
+PY
+run_doctor
+assert_contains "$DOCTOR_OUT" 'check host-plugins=human: installed or enabled plugin is not named' \
+  "uncatalogued installed plugins were not reported"
+assert_contains "$DOCTOR_OUT" 'example-ops@example-plugins' \
+  "the uncatalogued enabled plugin was not named"
+assert_contains "$DOCTOR_OUT" 'example-disabled@example-plugins' \
+  "the uncatalogued disabled plugin was not named"
+assert_contains "$DOCTOR_OUT" 'foreign@other-plugins' \
+  "the plugin from an unconfigured marketplace was not reported"
+pass "installed plugins outside the configured catalogue are reported"
+
+new_host
+python3 - "$CASE_FM_HOME" "$CASE_STATE/marketplace" "$CASE_STATE/plugins.json" \
+  "$CASE_STATE/marketplaces.json" "$CASE_STATE/details/example-domain@example-plugins" <<'PY'
+import json, pathlib, sys
+fm_home = pathlib.Path(sys.argv[1])
+marketplace = pathlib.Path(sys.argv[2])
+domain = marketplace / "plugins/example-domain/.claude-plugin"
+domain.mkdir(parents=True)
+fm_home.joinpath("config").mkdir()
+json.dump({
+    "marketplaces": [{"name": "example-plugins", "source": "https://github.com/example/example-plugins.git"}],
+    "plugins": ["example-core@example-plugins", "example-domain@example-plugins"],
+}, open(fm_home / "config/host-plugins.json", "w"))
+json.dump({
+    "name": "example-plugins",
+    "plugins": [
+        {"name": "example-core", "source": "./plugins/example-core"},
+        {"name": "example-domain", "source": "./plugins/example-domain"},
+    ],
+}, open(marketplace / ".claude-plugin/marketplace.json", "w"))
+json.dump({"name": "example-core", "dependencies": ["example-domain"]}, open(marketplace / "plugins/example-core/.claude-plugin/plugin.json", "w"))
+json.dump({"name": "example-domain", "dependencies": []}, open(domain / "plugin.json", "w"))
+json.dump([
+    {"id": "example-core@example-plugins", "scope": "user", "enabled": True, "installPath": str(marketplace / "plugins/example-core")},
+    {"id": "example-domain@example-plugins", "scope": "user", "enabled": True, "installPath": str(marketplace / "plugins/example-domain")},
+], open(sys.argv[3], "w"))
+json.dump([{
+    "name": "example-plugins",
+    "source": "git",
+    "url": "https://github.com/example/example-plugins.git",
+    "installLocation": str(marketplace),
+}], open(sys.argv[4], "w"))
+pathlib.Path(sys.argv[5]).write_text("example-domain 1.0.0\n  Skills (1)  example-domain-skill\n")
+PY
+run_doctor
+assert_contains "$DOCTOR_OUT" 'check host-plugins=ok: configured Claude Code plugins resolve on this host' \
+  "a fully catalogued plugin dependency was rejected"
+pass "catalogued dependency closure remains launch-ready"

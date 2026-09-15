@@ -726,7 +726,7 @@ secondmate_liveness_one() {  # <meta> <id>
   remote_host=$(fm_meta_get "$meta" remote_host)
   if [ -n "$remote_host" ]; then
     remote_rc=0
-    fm_remote_readiness_ensure "$SCRIPT_DIR" "$id" || remote_rc=$?
+    fm_remote_readiness_ensure "$SCRIPT_DIR" "$id" --skip-check host-plugins || remote_rc=$?
     if [ "$remote_rc" -eq 255 ]; then
       echo "SECONDMATE_LIVENESS: secondmate $id: skipped: remote host unavailable or endpoint state unknown; route preserved on $remote_host"
       return 0

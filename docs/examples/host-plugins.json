@@ -1,0 +1,12 @@
+{
+  "marketplaces": [
+    {
+      "name": "example-plugins",
+      "source": "https://github.com/example/example-plugins.git"
+    }
+  ],
+  "plugins": [
+    "example-core@example-plugins",
+    "example-docs@example-plugins"
+  ]
+}

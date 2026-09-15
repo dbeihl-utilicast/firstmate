@@ -36,17 +36,17 @@
 #      open loop owned by the ordinary pending-reply recovery ladder, not state
 #      this restart pass may close.
 #
-# A mate whose persist answer did not arrive or whose runtime cannot prove a
-# restart gets the ordinary re-read nudge and is reported as a nudge, never as a
-# clean reload. Once a relaunch is attempted, any failed or ambiguous result is
-# reported as unknown rather than attributing it to either incarnation.
+# A mate that cannot enter the restart phase gets the ordinary re-read nudge and
+# is reported as a nudge, never as a clean reload. A failed remote prelaunch
+# convergence is reported as unreached; after a relaunch attempt, a failed or
+# ambiguous result is reported as unknown rather than attributed to an incarnation.
 #
-# Placement changes the transport and nothing else. A local mate is restarted
-# with bin/fm-control.sh <id> relaunch; a remote mate is restarted by running THAT
-# SAME command on its host over bin/fm-on.sh, through the host-local
-# fm-remote-secondmate-control.sh relaunch verb. The restart decision, the
-# profile, the request text, the bound, the failure vocabulary, and this report
-# are all computed here in the primary and are identical for both.
+# Placement changes the prelaunch path as well as the transport. A local mate is
+# restarted with bin/fm-control.sh <id> relaunch. A remote mate first holds the
+# inheritance lock, pushes current config, and passes host readiness. It then
+# runs that same control plane on its host over bin/fm-on.sh, through the
+# host-local fm-remote-secondmate-control.sh relaunch verb. The profile and
+# outcome report remain computed here in the primary for both placements.
 #
 # Nothing here forces, stashes, or discards anything. bin/fm-control.sh owns the
 # restart transaction, its checkpoint, its journal, and its rollback; a refusal
@@ -91,6 +91,10 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 . "$SCRIPT_DIR/fm-secondmate-nudge-lib.sh"
 # shellcheck source=bin/fm-pending-reply-lib.sh
 . "$SCRIPT_DIR/fm-pending-reply-lib.sh"
+# shellcheck source=bin/fm-wake-lib.sh
+. "$SCRIPT_DIR/fm-wake-lib.sh"
+# shellcheck source=bin/fm-remote-readiness-lib.sh
+. "$SCRIPT_DIR/fm-remote-readiness-lib.sh"
 
 PERSIST_WAIT=${FM_SECONDMATE_PERSIST_WAIT:-900}
 PERSIST_POLL=${FM_SECONDMATE_PERSIST_POLL:-5}
@@ -161,12 +165,43 @@ report_unreached() {  # <id> <reason>
 
 restart_mate() {  # <array-index>
   local i=$1 id restart_out restart_rc restart_reason ran_on
+  local remote_lock remote_generation remote_rc
   id=${IDS[$i]}
   if [ "${PLACEMENT[i]}" = remote ]; then
+    remote_lock=$(fm_remote_inherit_transaction_lock_path "$STATE" "$id") || {
+      report_unreached "$id" "the restart could not lock inherited config before relaunch"
+      return
+    }
+    if ! fm_lock_acquire_wait "$remote_lock"; then
+      report_unreached "$id" "the restart could not lock inherited config before relaunch"
+      return
+    fi
+    remote_generation=$(fm_remote_inherit_generation_next "$STATE" "$id" 2>/dev/null || true)
+    if [ -z "$remote_generation" ]; then
+      fm_lock_release "$remote_lock" || true
+      report_unreached "$id" "the restart could not publish an inheritance generation before relaunch"
+      return
+    fi
+    if ! "$SCRIPT_DIR/fm-remote-inherit-push.sh" "$id" "$remote_generation" >/dev/null; then
+      fm_lock_release "$remote_lock" || true
+      report_unreached "$id" "inherited config did not land, so the host was not relaunched"
+      return
+    fi
+    remote_rc=0
+    fm_remote_readiness_ensure "$SCRIPT_DIR" "$id" || remote_rc=$?
+    if [ "$remote_rc" -ne 0 ]; then
+      fm_lock_release "$remote_lock" || true
+      report_unreached "$id" "plugin readiness failed after inherited config landed, so the host was not relaunched"
+      if [ "$remote_rc" -ne 255 ] && [ -n "$FM_REMOTE_READINESS_OUT" ]; then
+        printf '%s\n' "$FM_REMOTE_READINESS_OUT"
+      fi
+      return
+    fi
     restart_out=$(FM_HOME="$FM_HOME" "$SCRIPT_DIR/fm-on.sh" "$id" \
       fm-remote-secondmate-control.sh relaunch \
       "$id" "${HARNESS[i]}" "${MODEL[i]:-default}" "${EFFORT[i]:-default}" < /dev/null 2>&1)
     restart_rc=$?
+    fm_lock_release "$remote_lock" || true
   else
     restart_out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
       "$SCRIPT_DIR/fm-control.sh" "$id" relaunch 2>&1)
