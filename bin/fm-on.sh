@@ -15,7 +15,8 @@
 # because remote staging captures stdin to EOF and an open caller stream would
 # block staging indefinitely; a payload caller passes --stdin to forward its
 # own stream as the job's bounded input. stdout and stderr remain separate, and
-# ssh's exit status is returned unchanged. OpenSSH never receives an auto-retry
+# ssh's exit status is returned unchanged except when the FM_ON_TIMEOUT bound
+# below ends the call. OpenSSH never receives an auto-retry
 # instruction here. Exit 255 therefore means unavailable transport or unknown
 # remote completion and must be reconciled by the semantic caller, never
 # blindly repeated by this layer.
@@ -29,9 +30,10 @@
 # peer (a reboot, a dropped link) becomes a bounded ssh failure (exit 255)
 # instead of an indefinite hang on a half-open TCP connection. The remote
 # sshd answers keepalive probes independently of whatever the remote command
-# is doing, so a legitimately long-but-alive remote command is never falsely
-# killed. FM_SSH_ALIVE_INTERVAL and FM_SSH_ALIVE_COUNT_MAX override the
-# defaults; the worst-case detection window is roughly interval * count.
+# is doing, so keepalive never kills a legitimately long-but-alive remote
+# command; only FM_ON_TIMEOUT bounds its duration. FM_SSH_ALIVE_INTERVAL and
+# FM_SSH_ALIVE_COUNT_MAX override the defaults; the worst-case detection window
+# is roughly interval * count.
 #
 # ssh output goes to private files relayed after ssh exits, so nothing ssh
 # leaves behind can hold a caller's capture pipe open.
