@@ -1155,6 +1155,7 @@ crew_dispatch_validate() {
       then v2_fail($label + " must be a non-empty array")
       else .
       end;
+    def v2_model_class_names: ["ordinary", "astra", "fable"];
     def v2_model_class:
       . as $selector
       | split("/")[-1] as $model
@@ -1168,7 +1169,7 @@ crew_dispatch_validate() {
       | v2_string("profile"; "id")
       | v2_string("profile"; "harness")
       | v2_string("profile"; "model")
-      | v2_enum("profile"; "model_class"; ["ordinary", "astra", "fable"])
+      | v2_enum("profile"; "model_class"; v2_model_class_names)
       | if has("effort") then v2_string("profile"; "effort") else . end
       | if has("reasoning_target") then v2_string("profile"; "reasoning_target") else . end
       | if has("reasoning_source") then v2_string("profile"; "reasoning_source") else . end
@@ -1214,18 +1215,20 @@ crew_dispatch_validate() {
         then .
         else v2_fail("rule independence.minimum_distinct_harnesses must be a number of at least 1")
         end;
+    def v2_shapes_permit_blocked($match; $allowed):
+      ($match != null)
+      and ($match | has("task_shape"))
+      and ($match.task_shape | length) > 0
+      and (any($match.task_shape[]; . as $shape | ($allowed | index($shape)) == null) | not);
     def v2_constraint:
-      v2_fields("constraint"; ["id", "allowed_projects", "blocked_model_classes", "unknown_model_class", "on_no_eligible_candidate", "decision_ref"]; ["id", "allowed_projects", "blocked_model_classes", "unknown_model_class", "on_no_eligible_candidate", "decision_ref"])
+      v2_fields("constraint"; ["id", "allowed_task_shapes", "blocked_model_classes", "unknown_model_class", "on_no_eligible_candidate", "decision_ref"]; ["id", "allowed_task_shapes", "blocked_model_classes", "unknown_model_class", "on_no_eligible_candidate", "decision_ref"])
       | v2_string("constraint"; "id")
-      | v2_string_array("constraint"; "allowed_projects")
+      | v2_string_array("constraint"; "allowed_task_shapes")
       | v2_string_array("constraint"; "blocked_model_classes")
       | v2_string("constraint"; "decision_ref")
       | . as $constraint
-      | if $constraint.allowed_projects != ["Utilicast-LLC/utilicast-triage"]
-        then v2_fail("constraint.allowed_projects must contain only Utilicast-LLC/utilicast-triage")
-        elif (($constraint.blocked_model_classes | index("astra")) == null or ($constraint.blocked_model_classes | index("fable")) == null
-          or any($constraint.blocked_model_classes[]; . as $class | (["astra", "fable"] | index($class)) == null))
-        then v2_fail("constraint.blocked_model_classes must contain only astra and fable")
+      | if any($constraint.blocked_model_classes[]; . as $class | (v2_model_class_names | index($class)) == null)
+        then v2_fail("constraint.blocked_model_classes must contain only ordinary, astra, fable")
         elif $constraint.unknown_model_class != "treat_as_blocked"
         then v2_fail("constraint.unknown_model_class must be treat_as_blocked")
         elif $constraint.on_no_eligible_candidate != "report"
@@ -1288,7 +1291,7 @@ crew_dispatch_validate() {
         then v2_fail("dispatch.history_ref must be data/crew-dispatch-history.md")
         else $dispatch
         end;
-    def v2_rule:
+    def v2_rule($constraints):
       v2_fields("rule"; ["id", "when", "match", "independence", "reasoning", "use", "decision_refs"]; ["id", "when", "reasoning", "use"])
       | v2_string("rule"; "id")
       | v2_string("rule"; "when")
@@ -1299,19 +1302,30 @@ crew_dispatch_validate() {
       | (if ($rule | has("decision_refs")) then ($rule | v2_string_array("rule"; "decision_refs")) else $rule end) as $decision_refs
       | ($rule.use | v2_array("rule use") | map(v2_profile)) as $profiles
       | ($profiles | map(.id)) as $ids
-      | ($profiles | map(select(.model_class != "ordinary" and $match.project != "Utilicast-LLC/utilicast-triage"))) as $blocked
+      | [
+          $profiles[] as $profile
+          | select(
+              any(
+                $constraints[];
+                ((.blocked_model_classes | index($profile.model_class)) != null)
+                and (v2_shapes_permit_blocked($match; .allowed_task_shapes) | not)
+              )
+            )
+          | $profile
+        ] as $blocked
       | if ($ids | unique | length) != ($ids | length)
         then v2_fail("rule use profile ids must be unique")
         elif ($blocked | length) > 0
-        then v2_fail("top-tier model class " + $blocked[0].model_class + " requires rule match.project Utilicast-LLC/utilicast-triage")
+        then v2_fail("top-tier model class " + $blocked[0].model_class + " requires rule match.task_shape to be a non-empty subset of constraint allowed_task_shapes")
         else $rule
         end;
-    def v2_default:
+    def v2_default($constraints):
       v2_array("default")
       | map(v2_profile)
       | . as $profiles
       | ($profiles | map(.id)) as $ids
-      | ($profiles | map(select(.model_class != "ordinary"))) as $blocked
+      | ($constraints | map(.blocked_model_classes[]) | unique) as $blocked_classes
+      | ($profiles | map(select(.model_class as $class | ($blocked_classes | index($class)) != null))) as $blocked
       | if ($ids | unique | length) != ($ids | length)
         then v2_fail("default profile ids must be unique")
         elif ($blocked | length) > 0
@@ -1326,8 +1340,8 @@ crew_dispatch_validate() {
       | ($config.dispatch | v2_dispatch) as $dispatch
       | ($config.constraints | v2_array("constraints") | map(v2_constraint)) as $constraints
       | if $config.exceptions != [] then v2_fail("exceptions must be empty") else . end
-      | ($config.rules | v2_array("rules") | map(v2_rule)) as $rules
-      | ($config.default | v2_default) as $defaults
+      | ($config.rules | v2_array("rules") | map(v2_rule($constraints))) as $rules
+      | ($config.default | v2_default($constraints)) as $defaults
       | empty;
     try (
       if type != "object" then "top-level value must be an object"

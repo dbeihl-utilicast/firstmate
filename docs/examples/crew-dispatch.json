@@ -7,7 +7,7 @@
     "enforcement": {"current": "advisory", "mechanical_owner": "intake-and-backlog-handoff", "not_read_by": ["fm-bootstrap", "fm-spawn"]}
   },
   "dispatch": {"selector": "quota-array-dispatch", "target_host_checks": ["model_catalog", "quota", "authentication"], "higher_reasoning_requires_reason": true, "history_ref": "data/crew-dispatch-history.md"},
-  "constraints": [{"id": "top-tier-triage-only", "allowed_projects": ["Utilicast-LLC/utilicast-triage"], "blocked_model_classes": ["astra", "fable"], "unknown_model_class": "treat_as_blocked", "on_no_eligible_candidate": "report", "decision_ref": "decision/example/top-tier-ceiling"}],
+  "constraints": [{"id": "top-tier-task-shape", "allowed_task_shapes": ["large", "architecturally-hard", "multi-subsystem", "open-ended-design", "gnarly-diagnosis"], "blocked_model_classes": ["astra", "fable"], "unknown_model_class": "treat_as_blocked", "on_no_eligible_candidate": "report", "decision_ref": "decision/example/top-tier-task-shape"}],
   "exceptions": [],
   "rules": [
     {
