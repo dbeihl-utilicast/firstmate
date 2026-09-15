@@ -15,13 +15,9 @@
 #       except 124, which means the bound was hit (GNU timeout's convention,
 #       reproduced by the perl and bash fallbacks).
 #
-#       Sets FM_RUN_TIMED_KILL_TARGET (reset on every call) to a `kill` target a
-#       caller's own signal trap can forward to, so the bounded command never
-#       silently outlives a killed caller.
-#
-#       Sets FM_RUN_TIMED_EXPIRED (reset on every call) to 1 only when the bound
-#       itself fired, so a caller can tell that apart from a command that exited
-#       124 on its own.
+#       Except under non-foreground timeout/gtimeout, sets FM_RUN_TIMED_KILL_TARGET
+#       to a `kill` target a caller's signal trap can forward to, and sets
+#       FM_RUN_TIMED_EXPIRED=1 only when the bound itself fired (both reset per call).
 #
 #       With FM_RUN_TIMED_FOREGROUND set, timeout/gtimeout run the command in the
 #       caller's process group and signal only its own pid, never its descendants;
@@ -182,8 +178,6 @@ fm_run_external_timeout() {
   # A shell wrapper can exit promptly on TERM while one of its descendants
   # ignores TERM; timeout then considers the command finished and does not send
   # its configured KILL. Explicitly reap that leftover group on a real timeout.
-  # The explicit <&0 keeps the caller's stdin: without job control bash would
-  # otherwise give this asynchronous command /dev/null.
   # shellcheck disable=SC2016  # Expansion is deliberately deferred to the child shell.
   "$runner" -k 1 "$seconds" bash -c '
     status_file=$1
@@ -192,10 +186,8 @@ fm_run_external_timeout() {
     command_rc=$?
     printf "%s\n" "$command_rc" > "$status_file"
     exit "$command_rc"
-  ' _ "$status_file" "$@" <&0 &
+  ' _ "$status_file" "$@" &
   runner_pid=$!
-  # timeout forwards a signal it receives to its command before exiting.
-  FM_RUN_TIMED_KILL_TARGET="$runner_pid"
   if wait "$runner_pid"; then
     runner_rc=0
   else
@@ -210,7 +202,6 @@ fm_run_external_timeout() {
   case "$runner_rc" in
     124|137)
       kill -KILL -- "-$runner_pid" 2>/dev/null || true
-      FM_RUN_TIMED_EXPIRED=1
       return 124
       ;;
     *) return "$runner_rc" ;;
