@@ -1,0 +1,23 @@
+CASE: configured Luna and Opus are accepted as ordinary profiles
+BOOTSTRAP_INFO: crew dispatch active config/crew-dispatch.json
+BOOTSTRAP_INFO: crew dispatch rule: Review, verification, or second reading of work another runtime produced. -> quota-balanced[codex/gpt-5.6-luna, claude/claude-opus-5]
+BOOTSTRAP_INFO: crew dispatch rule: Large, architecturally hard, multi-subsystem, open-ended design, or gnarly diagnostic work. -> quota-balanced[codex/gpt-5.6-terra/xhigh]
+BOOTSTRAP_INFO: crew dispatch default: quota-balanced[codex/gpt-5.6-luna, claude/claude-opus-5]
+
+CASE: an unlisted model remains blocked
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 unclassified model: gpt-5.6-mystery
+
+CASE: a top-tier model cannot be declared ordinary
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 ordinary_models cannot include a top-tier model: gpt-6-astra
+
+CASE: no-eligible-candidate policy cannot be weakened to fallback
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 constraint.on_no_eligible_candidate must be report
+
+CASE: an existing V2 file may omit ordinary_models
+BOOTSTRAP_INFO: crew dispatch active config/crew-dispatch.json
+BOOTSTRAP_INFO: crew dispatch rule: Review, verification, or second reading of work another runtime produced. -> quota-balanced[codex/gpt-5.6-terra, claude/sonnet]
+BOOTSTRAP_INFO: crew dispatch rule: Large, architecturally hard, multi-subsystem, open-ended design, or gnarly diagnostic work. -> quota-balanced[codex/gpt-5.6-terra/xhigh]
+BOOTSTRAP_INFO: crew dispatch default: quota-balanced[codex/gpt-5.6-terra, claude/sonnet]
+
+CASE: an unrecognised model class remains blocked
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 profile.model_class must be one of ordinary, astra, fable

@@ -1,0 +1,137 @@
+{
+  "schema_version": 2,
+  "placement": {
+    "capabilities": {
+      "mac-vault": {
+        "home": "main-home",
+        "path": "/Users/example/Documents/Utilicast"
+      }
+    },
+    "rules": [
+      {
+        "id": "main-vault",
+        "match": {
+          "repository": "dbeihl-utilicast/firstmate",
+          "requires_capability": "mac-vault"
+        },
+        "target": {
+          "kind": "main-home",
+          "id": "main-home"
+        }
+      }
+    ],
+    "unmatched": "retain-intake-home",
+    "enforcement": {
+      "current": "advisory",
+      "mechanical_owner": "intake-and-backlog-handoff",
+      "not_read_by": [
+        "fm-bootstrap",
+        "fm-spawn"
+      ]
+    }
+  },
+  "dispatch": {
+    "selector": "quota-array-dispatch",
+    "target_host_checks": [
+      "model_catalog",
+      "quota",
+      "authentication"
+    ],
+    "higher_reasoning_requires_reason": true,
+    "history_ref": "data/crew-dispatch-history.md"
+  },
+  "constraints": [
+    {
+      "id": "top-tier-task-shape",
+      "allowed_task_shapes": [
+        "large",
+        "architecturally-hard",
+        "multi-subsystem",
+        "open-ended-design",
+        "gnarly-diagnosis"
+      ],
+      "blocked_model_classes": [
+        "astra",
+        "fable"
+      ],
+      "unknown_model_class": "treat_as_blocked",
+      "on_no_eligible_candidate": "report",
+      "decision_ref": "decision/example/top-tier-task-shape"
+    }
+  ],
+  "ordinary_models": [
+    "gpt-5.6-luna",
+    "claude-opus-5"
+  ],
+  "exceptions": [],
+  "rules": [
+    {
+      "id": "independent-review",
+      "when": "Review, verification, or second reading of work another runtime produced.",
+      "match": {
+        "task_kind": [
+          "review",
+          "verification",
+          "second-reading"
+        ]
+      },
+      "independence": {
+        "exclude_author_harness": true,
+        "minimum_distinct_harnesses": 1,
+        "explicit_task_instruction_may_raise_minimum": true
+      },
+      "reasoning": {
+        "mode": "generic"
+      },
+      "use": [
+        {
+          "id": "unknown",
+          "harness": "codex",
+          "model": "gpt-5.6-mystery",
+          "model_class": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "hard-work",
+      "when": "Large, architecturally hard, multi-subsystem, open-ended design, or gnarly diagnostic work.",
+      "match": {
+        "task_shape": [
+          "large",
+          "architecturally-hard",
+          "multi-subsystem",
+          "open-ended-design",
+          "gnarly-diagnosis"
+        ]
+      },
+      "reasoning": {
+        "mode": "fixed",
+        "target": "xhigh",
+        "dispatch_reason_required": true
+      },
+      "use": [
+        {
+          "id": "codex-terra-xhigh",
+          "harness": "codex",
+          "model": "gpt-5.6-terra",
+          "effort": "xhigh",
+          "model_class": "ordinary"
+        }
+      ]
+    }
+  ],
+  "default": [
+    {
+      "id": "codex-terra",
+      "harness": "codex",
+      "model": "gpt-5.6-terra",
+      "model_class": "ordinary"
+    },
+    {
+      "id": "claude-sonnet",
+      "harness": "claude",
+      "model": "sonnet",
+      "model_class": "ordinary"
+    }
+  ]
+}
