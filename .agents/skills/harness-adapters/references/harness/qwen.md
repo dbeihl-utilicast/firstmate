@@ -3,11 +3,13 @@
 Verified 2026-09-15 on Qwen Code 0.23.0 (hooks, detection) and re-verified the same day on 0.23.4 (supervised TUI dispatch) for crewmate/scout work only.
 Not verified as a secondmate or primary: `../../../../../docs/supervision-protocols/` carries no qwen wake protocol, and this adapter verified only the crewmate-side launch, busy state, interrupt key, composer-clear, and exit command.
 The router owns that task-kind boundary.
+The adapter is Linux-only: `../../../../../bin/fm-qwen-lib.sh` refuses a canonical spawn or relaunch on any other host as `qwen-platform-unsupported` before anything is provisioned or stopped, because Node-bundle liveness reads argv boundaries from `/proc` and a flattened `ps` string cannot keep a script path containing whitespace intact.
 
 ## Operating facts
 
 | Fact | Value |
 |---|---|
+| Platform | Linux only. Non-Linux spawn and relaunch refuse as `qwen-platform-unsupported`. |
 | Binary | `qwen` on `PATH`; the installed launcher is a node bundle (`~/.local/bin/qwen` -> `@qwen-code/qwen-code/cli-entry.js`). |
 | Launch | `--prompt-interactive <brief>` plus `-y` / `--yolo`. A positional prompt is one-shot headless and exits. |
 | Models | `--model <model>`; discover from the in-session `/model` dialog or the host's model provider. There is no `qwen models` subcommand. |

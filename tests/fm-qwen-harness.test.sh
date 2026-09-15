@@ -178,6 +178,8 @@ test_qwen_process_identity_reads_the_script_argument() {
 
 test_qwen_process_identity_preserves_whitespace_in_script_path() {
   command -v node >/dev/null 2>&1 || return 0
+  # Skipping without /proc is correct: the qwen adapter is Linux-only and
+  # fm-spawn refuses it elsewhere, so no supported host lacks argv boundaries.
   [ -r /proc/self/cmdline ] || return 0
   local dir="$TMP_ROOT/path with spaces" node_bin pid attempts=0
   mkdir -p "$dir"

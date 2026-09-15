@@ -558,6 +558,35 @@ SH
   pass "qwen spawn resolves its executable before provisioning"
 }
 
+test_qwen_spawn_refuses_off_linux() {
+  local rec id=busy-qw-darwin out tmux_log treehouse_log
+  rec=$(make_spawn_case qwen-darwin qwen "$id")
+  read_case_record "$rec"
+  tmux_log="$CASE_DIR/tmux.log"
+  treehouse_log="$CASE_DIR/treehouse.log"
+  cat > "$FAKEBIN_DIR/treehouse" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$FM_FAKE_TREEHOUSE_LOG"
+SH
+  cat > "$FAKEBIN_DIR/uname" <<'SH'
+#!/usr/bin/env bash
+[ "$*" = -s ] && { echo Darwin; exit 0; }
+exec /usr/bin/env -u PATH PATH=/usr/bin:/bin uname "$@"
+SH
+  chmod +x "$FAKEBIN_DIR/treehouse" "$FAKEBIN_DIR/uname"
+  out=$(FM_FAKE_TMUX_COMMAND_LOG="$tmux_log" FM_FAKE_TREEHOUSE_LOG="$treehouse_log" \
+    run_qwen_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" "$PROJ_DIR") && {
+    fail "qwen spawn off Linux must refuse, got: $out"
+  }
+  assert_contains "$out" 'qwen-platform-unsupported' \
+    "qwen spawn off Linux must name the platform refusal: $out"
+  assert_absent "$tmux_log" "qwen platform refusal created or wrote to an endpoint"
+  assert_absent "$treehouse_log" "qwen platform refusal provisioned a worktree"
+  assert_absent "$HOME_DIR/state/$id.meta" "qwen platform refusal published metadata"
+  assert_absent "$HOME_DIR/state/$id.qwen-settings.json" "qwen platform refusal wrote settings"
+  pass "qwen spawn refuses a non-Linux host before provisioning"
+}
+
 test_qwen_failed_delivery_removes_private_settings() {
   local rec id=busy-qw-abort out settings observed
   rec=$(make_spawn_case qwen-abort qwen "$id")
@@ -645,6 +674,7 @@ test_qwen_hooks_stale_incarnation_harmless
 test_raw_qwen_launch_has_no_semantic_wiring
 test_qwen_spawn_refuses_without_auth
 test_qwen_spawn_refuses_without_executable
+test_qwen_spawn_refuses_off_linux
 test_qwen_failed_delivery_removes_private_settings
 test_qwen_launch_stays_interactive
 test_qwen_is_refused_as_a_secondmate

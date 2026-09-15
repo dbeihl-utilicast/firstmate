@@ -605,6 +605,7 @@ FM_QWEN_SIGNALS_LIVE=1 bin/fm-test-run.sh tests/fm-qwen-signals-live-e2e.test.sh
 ```
 
 Qwen as a primary or secondmate runtime is unverified and is refused by `bin/fm-spawn.sh`.
+The adapter is Linux-only; a non-Linux spawn or relaunch refuses as `qwen-platform-unsupported`.
 
 ## Herdr
 

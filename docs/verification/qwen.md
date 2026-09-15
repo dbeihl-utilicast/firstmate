@@ -10,7 +10,7 @@ The skill tree rooted at [`.agents/skills/harness-adapters/references/harness/qw
 | Version | Qwen Code `0.23.4` (supervised TUI). Hook and detection evidence also includes `0.23.0` the same day. |
 | Verified | 2026-09-15 |
 | Binary | `qwen` -> `@qwen-code/qwen-code/cli-entry.js` |
-| Platform | Linux aarch64, Node v26.7.0 |
+| Platform | Linux aarch64, Node v26.7.0. The adapter is scoped to Linux only. |
 | Model host | Ollama 0.32.14 |
 
 Every command in the evidence sections below ran in throwaway scratch directories against the real CLI; the final refresh section lists future rerun commands separately.
@@ -67,6 +67,7 @@ Passing `QWEN_DEFAULT_AUTH_TYPE` / `OPENAI_*` directly into Qwen's launch enviro
 The recorded launch command contains the settings path and no credential.
 The named `qwen-auth-unavailable` refusal occurs before a fresh spawn provisions a worktree or endpoint and before a relaunch stops its running worker.
 The named `qwen-executable-unavailable` refusal also occurs before provisioning, and the resolved executable path is pinned into the launch command.
+The named `qwen-platform-unsupported` refusal runs first, on any non-Linux host, before provisioning and before a relaunch stops its running worker; `tests/fm-busy-adapter-wiring.test.sh` and `tests/fm-control-relaunch.test.sh` pin it with a `uname -s` that reports Darwin.
 If delivery fails after private settings are created, fresh-spawn abort cleanup removes them through the same wiring owner used by relaunch and teardown.
 
 `QWEN_CODE_SYSTEM_SETTINGS_PATH` pointing at a firstmate-owned settings file caused these command hooks to fire on a one-turn headless session with no tools:
@@ -286,6 +287,8 @@ That is the adapter's acceptance rule: free local compute on well-specified work
 
 Qwen as a primary or secondmate runtime is unverified.
 `bin/fm-spawn.sh` refuses `--secondmate` on it.
+Qwen on macOS or any other non-Linux host is unsupported and refused: without `/proc`, Node-bundle liveness would fall back to a flattened `ps` string that misreads a Qwen script path containing whitespace, so exit and relaunch could not classify the pane.
+The whitespace-path regression in `tests/fm-qwen-harness.test.sh` skips where `/proc` is absent, which matches that Linux-only scope.
 A Herdr-lab spawn from this host's live session is refused by Herdr parent identity, so that path is unverified; isolated tmux is the proven supervised path.
 Firstmate control has no `resume` verb; native `qwen --resume <session-id>` exists after `/quit` and is not a firstmate control path.
 Composer classification (luminance / placeholders) was not measured beyond the doorbell landing in the real composer and the post-interrupt placeholder.

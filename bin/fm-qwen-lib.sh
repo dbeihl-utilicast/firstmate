@@ -51,7 +51,17 @@ fm_qwen_resolve_executable() {
   esac
 }
 
+fm_qwen_platform_preflight() {
+  local os
+  os=$(uname -s 2>/dev/null) || os=
+  if [ "$os" != Linux ]; then
+    echo "error: qwen-platform-unsupported: the qwen adapter is verified on Linux only (this host reports '${os:-unknown}'); its process-identity liveness needs /proc argv boundaries, so select a different verified harness" >&2
+    return 1
+  fi
+}
+
 fm_qwen_launch_preflight() {
+  fm_qwen_platform_preflight || return 1
   fm_qwen_auth_preflight || return 1
   if ! fm_qwen_resolve_executable; then
     echo "error: qwen-executable-unavailable: qwen executable not found on PATH; install Qwen Code or select a different verified harness" >&2
