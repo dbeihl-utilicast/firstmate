@@ -1321,11 +1321,6 @@ EOF
       load_errors+=("$id: $load_error")
     fi
   done
-  if [ "${#load_errors[@]}" -gt 0 ]; then
-    record host-plugins "human: configured plugin failed to load (${load_errors[*]})" \
-      "repair each named Claude plugin load error on that account, then rerun this command"
-    return 0
-  fi
   dependency_audit=$(host_plugins_dependency_audit "$path" "$mp_json" "$plugin_json" 0) \
     || dependency_audit="ERROR dependency audit could not run"
   if [ "$dependency_audit" != OK ]; then
@@ -1407,6 +1402,11 @@ EOF
   if [ "${#disabled_plugin[@]}" -gt 0 ]; then
     record host-plugins "fixable: configured plugin is installed but disabled (${disabled_plugin[*]})" \
       "rerun this command with --fix to enable the configured plugin"
+    return 0
+  fi
+  if [ "${#load_errors[@]}" -gt 0 ]; then
+    record host-plugins "human: configured plugin failed to load (${load_errors[*]})" \
+      "repair each named Claude plugin load error on that account, then rerun this command"
     return 0
   fi
   if [ "${#unresolved[@]}" -gt 0 ]; then

@@ -159,9 +159,10 @@ PY
         exit 1
         ;;
     esac
-    python3 - "$state/plugins.json" "$plugin" "$state/marketplace/plugins/example-core" <<'PY'
+    python3 - "$state/plugins.json" "$plugin" "$state/marketplace" <<'PY'
 import json, os, sys
-path, plugin, install_path = sys.argv[1], sys.argv[2], sys.argv[3]
+path, plugin, marketplace = sys.argv[1], sys.argv[2], sys.argv[3]
+install_path = os.path.join(marketplace, "plugins", plugin.rsplit("@", 1)[0])
 data = []
 if os.path.exists(path):
     with open(path, encoding="utf-8") as handle:
@@ -478,6 +479,70 @@ assert_not_contains "$DOCTOR_OUT" 'check host-plugins=ok:' \
 assert_contains "$DOCTOR_OUT" 'error: this host is not ready for a remote second mate' \
   "a configured plugin load error did not refuse launch"
 pass "a configured plugin load error refuses launch"
+
+new_host
+python3 - "$CASE_FM_HOME" "$CASE_STATE/marketplaces.json" "$CASE_STATE/plugins.json" "$CASE_STATE/marketplace" <<'PY'
+import json, pathlib, sys
+fm_home = pathlib.Path(sys.argv[1])
+marketplaces_path = pathlib.Path(sys.argv[2])
+plugins_path = pathlib.Path(sys.argv[3])
+marketplace = pathlib.Path(sys.argv[4])
+fm_home.joinpath("config").mkdir()
+json.dump({
+    "marketplaces": [{"name": "example-plugins", "source": "https://github.com/example/example-plugins.git"}],
+    "plugins": [
+        "example-core@example-plugins",
+        "example-domain@example-plugins",
+        "example-testing@example-plugins",
+    ],
+}, open(fm_home / "config/host-plugins.json", "w"))
+json.dump([{
+    "name": "example-plugins",
+    "source": "git",
+    "url": "https://github.com/example/example-plugins.git",
+    "installLocation": str(marketplace),
+}], open(marketplaces_path, "w"))
+json.dump([
+    {
+        "id": "example-core@example-plugins",
+        "scope": "user",
+        "enabled": True,
+        "installPath": str(marketplace / "plugins/example-core"),
+        "errors": [{"type": "dependency-not-found", "message": "configured dependencies are missing"}],
+    },
+    {
+        "id": "example-testing@example-plugins",
+        "scope": "user",
+        "enabled": False,
+        "installPath": str(marketplace / "plugins/example-testing"),
+    },
+], open(plugins_path, "w"))
+entries = [
+    {"name": "example-core", "source": "./plugins/example-core"},
+    {"name": "example-domain", "source": "./plugins/example-domain"},
+    {"name": "example-testing", "source": "./plugins/example-testing"},
+]
+json.dump({"name": "example-plugins", "plugins": entries}, open(marketplace / ".claude-plugin/marketplace.json", "w"))
+for name in ("example-core", "example-domain", "example-testing"):
+    manifest = marketplace / "plugins" / name / ".claude-plugin"
+    manifest.mkdir(parents=True, exist_ok=True)
+    dependencies = ["example-domain", "example-testing"] if name == "example-core" else []
+    json.dump({"name": name, "version": "1.0.0", "dependencies": dependencies}, open(manifest / "plugin.json", "w"))
+PY
+run_doctor --fix
+assert_contains "$DOCTOR_OUT" 'fix host-plugins=applied: installed example-domain@example-plugins' \
+  "the missing configured plugin was not installed before reporting the load error"
+assert_contains "$DOCTOR_OUT" 'fix host-plugins=applied: enabled example-testing@example-plugins' \
+  "the disabled configured plugin was not enabled before reporting the load error"
+assert_contains "$DOCTOR_OUT" 'check host-plugins=human: configured plugin failed to load' \
+  "the remaining load error was not reported after configured plugins converged"
+python3 - "$CASE_STATE/plugins.json" <<'PY'
+import json, sys
+plugins = {item["id"]: item for item in json.load(open(sys.argv[1]))}
+assert plugins["example-domain@example-plugins"]["enabled"] is True
+assert plugins["example-testing@example-plugins"]["enabled"] is True
+PY
+pass "configured plugin gaps converge before load errors refuse launch"
 
 # --- converged host: --fix changes nothing and prints no new repair ---------
 
