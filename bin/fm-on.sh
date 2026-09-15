@@ -33,12 +33,12 @@
 # killed. FM_SSH_ALIVE_INTERVAL and FM_SSH_ALIVE_COUNT_MAX override the
 # defaults; the worst-case detection window is roughly interval * count.
 #
-# ssh output goes to private files relayed after ssh exits, and multiplexing is
-# off, so nothing ssh leaves behind can hold a caller's capture pipe open.
+# ssh output goes to private files relayed after ssh exits, so nothing ssh
+# leaves behind can hold a caller's capture pipe open.
 #
-# The call is bounded by FM_ON_TIMEOUT (default 900s, above the remote job
-# system's 750s worst case) and exits 255 naming the host when the bound fires
-# or when ssh stops for a terminal prompt its process group cannot reach.
+# The call is bounded by FM_ON_TIMEOUT (default 900s) and exits 255 naming the
+# host when the bound fires. Only the perl and bash fallbacks also exit early when
+# ssh stops for a terminal prompt; under timeout/gtimeout it waits out the bound.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -127,9 +127,6 @@ SSH_ARGS=(
   -o ForwardAgent=no
   -o ClearAllForwardings=yes
   -o 'SendEnv=-*'
-  -o ControlMaster=no
-  -o ControlPersist=no
-  -o ControlPath=none
   -o "ServerAliveInterval=$ALIVE_INTERVAL"
   -o "ServerAliveCountMax=$ALIVE_COUNT_MAX"
   -- "$HOST" fm-remote-entrypoint.sh "$PROTOCOL" "$ROOT_B64" "$HOME_B64" "$ARGV_B64"
