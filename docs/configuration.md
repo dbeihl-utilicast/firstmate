@@ -413,7 +413,8 @@ Firstmate retains basic home, executable search, terminal, locale, temporary-dir
 [`fm-spawn.sh --help`](../bin/fm-spawn.sh) owns the exact retained names and parsing mechanics.
 Other ambient names must be listed explicitly, including custom credential-store locations, proxy settings, and certificate overrides when required by the selected tools.
 The command shell and worker may still create their own variables.
-Allowed values come from the destination pane at execution time; they are neither copied from the invoking Firstmate process nor written into the launch command.
+Allowed values come from the destination pane at execution time; credential values are neither copied into Firstmate nor written into the launch command.
+Grok's launch captures only the destination's effective home paths, including raw-command home overrides, so Firstmate can register folder trust synchronously and bind the same resolved `GROK_HOME` to the worker.
 Listing a name does not provision it in a daemon's environment or transfer credentials to another machine.
 
 Choose the minimum additions for the authentication method actually in use:

@@ -885,6 +885,7 @@ SPAWN_CONTROL_LOCK=
 SPAWN_CONTROL_LOCK_HELD=0
 SPAWN_CONTROL_PARENT=0
 SPAWN_META_TMP=
+GROK_PROBE_DIR=
 SPAWN_META_LOCK=
 SPAWN_META_LOCK_HELD=0
 SPAWN_META_PUBLISH_STARTED=0
@@ -1037,6 +1038,7 @@ spawn_abort_cleanup() {
     fm_lock_release "$SPAWN_CONTROL_LOCK" || true
   fi
   [ -z "$SPAWN_META_TMP" ] || rm -f "$SPAWN_META_TMP" 2>/dev/null || true
+  [ -z "$GROK_PROBE_DIR" ] || rm -rf -- "$GROK_PROBE_DIR"
   if [ "$CONFIG_INHERIT_LOCK_HELD" = 1 ]; then
     CONFIG_INHERIT_LOCK_HELD=0
     fm_lock_release "$CONFIG_INHERIT_LOCK" || true
@@ -1260,6 +1262,9 @@ PROJ=
 ARG3=
 FIRSTMATE_HOME=
 RAW_LAUNCH=0
+GROK_RAW_ENV=
+GROK_RAW_PREFIX=
+GROK_RAW_COMMAND=
 
 # --relaunch adoption: every identity axis comes from the task's own validated
 # durable record, never from the command line, so a relaunch can only ever
@@ -1610,10 +1615,42 @@ case "$ARG3" in
   *' '*)  # raw launch command (unverified-adapter escape hatch)
     RAW_LAUNCH=1
     LAUNCH=$ARG3
-    HARNESS=""
-    for word in $LAUNCH; do
-      case "$word" in [A-Za-z_]*=*) continue ;; *) HARNESS=$(basename "$word"); break ;; esac
-    done
+    RAW_PARTS=$(node --input-type=module - "$SCRIPT_DIR/fm-arm-command-policy.mjs" "$LAUNCH" <<'JS'
+import { pathToFileURL } from "node:url";
+const { Lexer } = await import(pathToFileURL(process.argv[2]));
+const source = process.argv[3];
+const lexer = new Lexer(source);
+const assignments = [];
+let result = { harness: source.split(/\s/)[0], prefix: "", command: source, env: "" };
+while (lexer.index < source.length) {
+  while (/\s/.test(source[lexer.index] || "")) lexer.index++;
+  const start = lexer.index;
+  const word = lexer.readWord();
+  if (!word || lexer.error) break;
+  const name = word.value.match(/^([A-Za-z_][A-Za-z0-9_]*)=/)?.[1];
+  if (name) {
+    assignments.push({ name, word, raw: source.slice(start, lexer.index) });
+    continue;
+  }
+  result.harness = word.value.split("/").at(-1);
+  if (result.harness.startsWith("grok")) {
+    const homes = assignments.filter(({ name }) => name === "HOME" || name === "GROK_HOME");
+    if (homes.some(({ word }) => word.subs.length > 0)) {
+      throw new Error("Grok home overrides must not run command substitutions");
+    }
+    result.env = homes.map(({ raw }) => raw).join(" ");
+    result.prefix = assignments.filter(({ name }) => name !== "GROK_HOME").map(({ raw }) => raw).join(" ");
+    result.command = source.slice(start);
+  }
+  break;
+}
+process.stdout.write(JSON.stringify(result));
+JS
+    ) || exit 1
+    HARNESS=$(printf '%s' "$RAW_PARTS" | jq -r .harness)
+    GROK_RAW_ENV=$(printf '%s' "$RAW_PARTS" | jq -r .env)
+    GROK_RAW_PREFIX=$(printf '%s' "$RAW_PARTS" | jq -r .prefix)
+    GROK_RAW_COMMAND=$(printf '%s' "$RAW_PARTS" | jq -r .command)
     ;;
   '')
     # No explicit harness: resolve from config. A secondmate AGENT launches on the
@@ -2878,6 +2915,28 @@ spawn_send_text_line() {  # <target> <text>
     cmux) fm_backend_cmux_send_text_line "$1" "$2" "$W" ;;
   esac
 }
+spawn_launch_environment() {
+  local command=$1 prefix='/usr/bin/env -i' env_name env_arg
+  if [ "$LAUNCH_ENV_ENABLED" != 1 ]; then
+    printf '%s' "$command"
+    return
+  fi
+  for env_name in HOME PATH USER LOGNAME SHELL TERM COLORTERM LANG LC_ALL LC_CTYPE \
+    TMPDIR TMP TEMP GOTMPDIR TMUX TMUX_PANE HERDR_ENV HERDR_SESSION HERDR_SOCKET_PATH \
+    HERDR_PANE_ID CMUX_WORKSPACE_ID CMUX_SURFACE_ID CMUX_TAB_ID CMUX_PANEL_ID \
+    CMUX_SOCKET_PATH ZELLIJ ZELLIJ_SESSION_NAME ZELLIJ_PANE_ID FM_ZELLIJ_SESSION \
+    FM_TASK_ID \
+    $LAUNCH_ENV_NAMES; do
+    # shellcheck disable=SC2016
+    printf -v env_arg '${%s+"%s=$%s"}' "$env_name" "$env_name" "$env_name"
+    prefix="$prefix $env_arg"
+  done
+  if [ -n "${SPAWN_TRACEPARENT:-}" ]; then
+    # shellcheck disable=SC2016
+    prefix="$prefix "'${TRACEPARENT+"TRACEPARENT=$TRACEPARENT"}'
+  fi
+  printf '%s /bin/sh -c %s' "$prefix" "$(shell_quote "$command")"
+}
 spawn_current_path() {  # <target>
   case "$BACKEND" in
     tmux) fm_backend_tmux_current_path "$1" ;;
@@ -3165,6 +3224,44 @@ if [ "$KIND" != secondmate ]; then
       ;;
   esac
 fi
+
+case "$HARNESS" in
+  grok*)
+    GROK_PROBE_DIR=$(mktemp -d "$STATE/.grok-home-$ID.XXXXXXXX") || exit 1
+    # shellcheck disable=SC2016
+    GROK_PROBE_SCRIPT='set -eu; umask 077; store=${GROK_HOME:-${HOME:?}/.grok}; case $store in /*) ;; *) store=$PWD/$store ;; esac; printf "%s\000%s\000" "${HOME:-}" "$store" > "$1/value"; mv "$1/value" "$1/ready"'
+    GROK_PROBE_COMMAND="env $GROK_RAW_ENV /bin/sh -c $(shell_quote "$GROK_PROBE_SCRIPT") fm-grok-home $(shell_quote "$GROK_PROBE_DIR")"
+    GROK_PROBE_COMMAND=$(spawn_launch_environment "$GROK_PROBE_COMMAND") || exit 1
+    if ! spawn_send_text_line "$T" "$GROK_PROBE_COMMAND"; then
+      echo "error: could not query the Grok home in window $T; refusing to launch" >&2
+      exit 1
+    fi
+    for ((grok_probe_attempt = 0; grok_probe_attempt < 100; grok_probe_attempt++)); do
+      [ -f "$GROK_PROBE_DIR/ready" ] && break
+      sleep 0.1
+    done
+    if [ ! -f "$GROK_PROBE_DIR/ready" ] || ! {
+      IFS= read -r -d '' GROK_PANE_HOME && IFS= read -r -d '' GROK_TRUST_HOME
+    } < "$GROK_PROBE_DIR/ready"; then
+      echo "error: could not resolve the Grok home in window $T; refusing to launch" >&2
+      exit 1
+    fi
+    rm -rf -- "$GROK_PROBE_DIR"
+    GROK_PROBE_DIR=
+    GROK_TRUST_HOME=$(resolve_directory_input GROK_HOME "$GROK_TRUST_HOME") || exit 1
+    if ! HOME="$GROK_PANE_HOME" GROK_HOME="$GROK_TRUST_HOME" \
+      "$FM_ROOT/bin/fm-grok-trust.sh" "$PROJ_ABS" >/dev/null; then
+      echo "error: could not pre-register Grok folder trust for $PROJ_ABS; refusing to launch; inspect window $T" >&2
+      exit 1
+    fi
+    GROK_TRUST_HOME=$(CDPATH='' cd -P -- "$GROK_TRUST_HOME" && pwd -P) || exit 1
+    if [ "$RAW_LAUNCH" = 1 ]; then
+      LAUNCH="env $GROK_RAW_PREFIX GROK_HOME=$(shell_quote "$GROK_TRUST_HOME") $GROK_RAW_COMMAND"
+    else
+      LAUNCH="GROK_HOME=$(shell_quote "$GROK_TRUST_HOME") $LAUNCH"
+    fi
+    ;;
+esac
 
 # Per-task temp root: /tmp/fm-<id>/ with Go's build temp nested at gotmp/. Go won't
 # create GOTMPDIR, so mkdir before it is used; fm-teardown removes the whole root.
@@ -3815,9 +3912,6 @@ esac
 if [ "$HARNESS" = claude ] && [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then
   LAUNCH="CLAUDE_CONFIG_DIR=$(shell_quote "$CLAUDE_CONFIG_DIR") $LAUNCH"
 fi
-case "$HARNESS" in
-  grok*) LAUNCH="$(shell_quote "$FM_ROOT/bin/fm-grok-trust.sh") $(shell_quote "$PROJ_ABS") -- $LAUNCH" ;;
-esac
 if [ "$KIND" = secondmate ]; then
   sq_home=$(shell_quote "$PROJ_ABS")
   sq_primary_home=$(shell_quote "$FM_HOME")
@@ -3900,26 +3994,7 @@ if [ -n "$SPAWN_TRACEPARENT" ]; then
     LAUNCH="unset TRACEPARENT; $LAUNCH"
   fi
 fi
-if [ "$LAUNCH_ENV_ENABLED" = 1 ]; then
-  LAUNCH_ENV_PREFIX='/usr/bin/env -i'
-  for env_name in HOME PATH USER LOGNAME SHELL TERM COLORTERM LANG LC_ALL LC_CTYPE \
-    TMPDIR TMP TEMP GOTMPDIR TMUX TMUX_PANE HERDR_ENV HERDR_SESSION HERDR_SOCKET_PATH \
-    HERDR_PANE_ID CMUX_WORKSPACE_ID CMUX_SURFACE_ID CMUX_TAB_ID CMUX_PANEL_ID \
-    CMUX_SOCKET_PATH ZELLIJ ZELLIJ_SESSION_NAME ZELLIJ_PANE_ID FM_ZELLIJ_SESSION \
-    FM_TASK_ID \
-    $LAUNCH_ENV_NAMES; do
-    # Only validated names enter shell syntax. Values expand once, quoted, in
-    # the pane shell and never become source text or spawn-process snapshots.
-    # shellcheck disable=SC2016
-    printf -v env_arg '${%s+"%s=$%s"}' "$env_name" "$env_name" "$env_name"
-    LAUNCH_ENV_PREFIX="$LAUNCH_ENV_PREFIX $env_arg"
-  done
-  if [ -n "$SPAWN_TRACEPARENT" ]; then
-    # shellcheck disable=SC2016
-    LAUNCH_ENV_PREFIX="$LAUNCH_ENV_PREFIX "'${TRACEPARENT+"TRACEPARENT=$TRACEPARENT"}'
-  fi
-  LAUNCH="$LAUNCH_ENV_PREFIX /bin/sh -c $(shell_quote "$LAUNCH")"
-fi
+LAUNCH=$(spawn_launch_environment "$LAUNCH") || exit 1
 sleep 0.3
 spawn_send_literal "$T" "$LAUNCH"
 sleep 0.3

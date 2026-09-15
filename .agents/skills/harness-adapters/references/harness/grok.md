@@ -41,8 +41,10 @@ The gate only fires for a directory carrying project-level automation content su
 Trust lives in `${GROK_HOME:-$HOME/.grok}/trusted_folders.toml` and is a property of a git repository's identity rather than a filesystem path: an entry for a repository's PRIMARY checkout (the worktree whose own git directory is not a pointer file) is inherited by every linked worktree of that same repository, but the reverse does not hold and neither does plain directory containment.
 A ship or scout spawn therefore pre-registers the project's primary checkout, never the ephemeral task worktree, and the dialog does not appear for that worktree or any future one of the same project.
 `../../../bin/fm-grok-trust.sh` resolves and validates the primary checkout for both plain and linked spawning roots, including leased secondmate homes.
-`../../../bin/fm-spawn.sh` wraps the Grok command with registration inside the destination environment, after any launch-environment filtering; a registration failure prevents the worker process from starting.
-The helper binds the successfully registered, resolved Grok home to the worker command and serializes Firstmate registrations per store through read, replace, and readback.
+`../../../bin/fm-spawn.sh` reads the destination's effective home paths after launch-environment filtering and raw-command home overrides, registers trust synchronously, and binds that resolved Grok home to the worker command.
+A registration failure refuses dispatch before publishing a task record or moving its backlog item In flight.
+Raw-command home overrides may use shell variables and quoting, but command substitutions are refused so resolving a path never runs another command.
+The helper serializes Firstmate registrations per store through read, replace, and readback.
 Only the regular `trusted_folders.toml` in that Grok home is supported; a symlinked trust file is refused.
 `../../../docs/verification/runtime-backends.md` "Grok folder trust" owns the dated evidence for the inheritance rule.
 

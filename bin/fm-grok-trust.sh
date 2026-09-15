@@ -4,31 +4,23 @@
 # See docs/verification/runtime-backends.md "Grok folder trust" for why.
 set -u
 
-git() (
-  unset \
-    GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_INDEX_FILE \
-    GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_CEILING_DIRECTORIES GIT_NAMESPACE \
-    GIT_DISCOVERY_ACROSS_FILESYSTEM GIT_CONFIG GIT_CONFIG_GLOBAL \
-    GIT_CONFIG_SYSTEM GIT_CONFIG_NOSYSTEM GIT_CONFIG_COUNT
-  command git "$@"
-)
+unset CDPATH \
+  GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_INDEX_FILE \
+  GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_CEILING_DIRECTORIES GIT_NAMESPACE \
+  GIT_DISCOVERY_ACROSS_FILESYSTEM GIT_CONFIG GIT_CONFIG_GLOBAL \
+  GIT_CONFIG_SYSTEM GIT_CONFIG_NOSYSTEM GIT_CONFIG_COUNT
 
-[ "$#" -ge 1 ] || { echo "usage: fm-grok-trust.sh <project> [-- <command> ...]" >&2; exit 2; }
+[ "$#" -eq 1 ] || { echo "usage: fm-grok-trust.sh <project>" >&2; exit 2; }
 PROJ_ARG=$1
-shift
-if [ "$#" -gt 0 ]; then
-  [ "$1" = -- ] && [ "$#" -ge 2 ] || { echo "usage: fm-grok-trust.sh <project> [-- <command> ...]" >&2; exit 2; }
-  shift
-fi
 
 refuse() { echo "error: refusing to pre-register Grok trust: $1" >&2; exit 1; }
 
-real_dir() { (unset CDPATH; cd -P -- "$1" 2>/dev/null && pwd -P); }
+real_dir() { (cd -P -- "$1" 2>/dev/null && pwd -P); }
 
 common_dir_of() {
   local dir=$1 common
   common=$(git -C "$dir" rev-parse --git-common-dir 2>/dev/null) || return 1
-  (unset CDPATH; cd -P -- "$dir" && real_dir "$common")
+  (cd -P -- "$dir" && real_dir "$common")
 }
 
 PROJ_REAL=$(real_dir "$PROJ_ARG") || true
@@ -189,9 +181,4 @@ NODE
 )
 then
   refuse "could not record trust for '$PROJ_REAL' in '$STORE'"
-fi
-
-if [ "$#" -gt 0 ]; then
-  export GROK_HOME=$GROK_HOME_REAL
-  exec "$@"
 fi
