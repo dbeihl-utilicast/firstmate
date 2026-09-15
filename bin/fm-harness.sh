@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Detect the agent harness this process tree runs on.
-# Usage: fm-harness.sh                  print own harness: claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|unknown
+# Usage: fm-harness.sh                  print own harness: claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|qwen|unknown
 #        fm-harness.sh crew             print the effective CREWMATE harness
 #                                        (config/crew-harness; "default" resolves to own)
 #        fm-harness.sh secondmate       print the harness the PRIMARY uses to launch
@@ -37,6 +37,8 @@ CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 . "$SCRIPT_DIR/fm-cursor-lib.sh"
 # shellcheck source=bin/fm-gemini-lib.sh
 . "$SCRIPT_DIR/fm-gemini-lib.sh"
+# shellcheck source=bin/fm-qwen-lib.sh
+. "$SCRIPT_DIR/fm-qwen-lib.sh"
 
 detect_own() {
   # Layer 1: environment markers for verified harnesses.
@@ -71,6 +73,17 @@ detect_own() {
   # carrying the claude primary's value (claude-code_2-1-260_agent), so it is
   # an inherited launcher marker, not a Gemini identity.
   [ "${GEMINI_CLI:-}" = "1" ] && { echo gemini; return; }
+  # qwen (Qwen Code) sets QWEN_CODE=1 on its tool subprocesses (verified,
+  # qwen 0.23.0). It does NOT scrub an inherited GROK_AGENT or CLAUDECODE, so a
+  # qwen worker launched from this grok primary carried GROK_AGENT=1 AND
+  # QWEN_CODE=1 together. QWEN_CODE is qwen's own and is unset in the launching
+  # environment, so ordering it before GROK_AGENT and CLAUDECODE is what makes
+  # the verdict correct; bin/fm-spawn.sh additionally clears the foreign
+  # markers at the launch boundary. GEMINI_CLI is deliberately NOT used: qwen
+  # is a Gemini-CLI fork but does not set GEMINI_CLI=1. QWEN_CODE_CLI is a
+  # path, not an identity flag, and is also present on hook processes that
+  # lack QWEN_CODE=1; do not promote it to a marker without a path-shape check.
+  [ "${QWEN_CODE:-}" = "1" ] && { echo qwen; return; }
   # rovo (Atlassian Rovo CLI) sets ATLASSIAN_AGENT_TYPE=rovo, ROVODEV_CLI=1, and
   # AGENT=rovodev_cli on its tool subprocesses (verified, rovo 202609.1.2). It does
   # NOT scrub an inherited CLAUDECODE, so a rovo worker launched from a claude
@@ -130,6 +143,10 @@ detect_own() {
       echo gemini
       return
     fi
+    if fm_qwen_path_is_qwen "$comm"; then
+      echo qwen
+      return
+    fi
     case "$(basename -- "$comm")" in
       # gemini precedes claude here for the same precedence reason as the
       # marker layer above, so a gemini worker under a claude primary is never
@@ -167,11 +184,16 @@ detect_own() {
       # named `claude` with its own node child, and that fallback's *claude*
       # args glob would otherwise claim it if that subtree were ever walked.
       omp) echo omp; return ;;
+      qwen) echo qwen; return ;;
       node*|python*)
         # Bare interpreter: match the harness name in its script path.
         args=$(ps -o args= -p "$pid" 2>/dev/null)
         if fm_gemini_args_are_gemini "$args"; then
           echo gemini
+          return
+        fi
+        if fm_qwen_args_are_qwen "$args"; then
+          echo qwen
           return
         fi
         case "$args" in
