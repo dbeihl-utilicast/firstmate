@@ -5,6 +5,47 @@ set -u
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
+sha256_file() {
+  if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | awk '{print $1}'; else sha256sum "$1" | awk '{print $1}'; fi
+}
+
+# Itemless remote outbox: remote_handoff seeds the scaffold before the move, so
+# --resume-pending can deliver a Queued-only file with no keys. Receipt must
+# not abort on KEYS[@] under bash 3.2 nounset.
+test_itemless_outbox_receive_succeeds_under_bash32() {
+  local home outbox gen bytes hash out err rc
+  home=$(fm_test_tmproot fm-itemless-outbox)
+  mkdir -p "$home/bin" "$home/data" "$home/state/handoff"
+  printf 'ios\n' > "$home/.fm-secondmate-home"
+  printf 'fixture\n' > "$home/AGENTS.md"
+  : > "$home/bin/.keep"
+  outbox="$home/state/handoff/ios.outbox.md"
+  printf '## In flight\n\n## Queued\n\n## Done\n' > "$outbox"
+  bytes=$(LC_ALL=C wc -c < "$outbox" | tr -d ' ')
+  hash=$(sha256_file "$outbox") || fail "itemless outbox: could not hash the scaffold"
+  gen="$home/state/handoff/.ios.upload-generation"
+  printf '%s\n%s\n%s\n' 1 "$bytes" "$hash" > "$gen"
+  chmod 600 "$outbox" "$gen"
+  err=$(mktemp "$home/receive.err.XXXXXX")
+  set +e
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
+    "$ROOT/bin/fm-backlog-receive.sh" state/handoff/ios.outbox.md "$bytes" "$hash" 1 2>"$err")
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || fail "itemless outbox receive failed (exit $rc): $(cat "$err")${out:+; $out}"
+  grep -q 'unbound variable' "$err" \
+    && fail "itemless outbox receive hit an unbound-variable crash: $(cat "$err")"
+  [ "$out" = "received: ios moved=0 already=0" ] \
+    || fail "itemless outbox receive printed '$out'"
+  [ ! -e "$outbox" ] || fail "itemless outbox receive left the delivered scratch"
+  pass "itemless outbox receive succeeds when KEYS is empty"
+}
+
+if [ -n "${FM_TEST_ONLY:-}" ]; then
+  "$FM_TEST_ONLY"
+  exit 0
+fi
+
 command -v tasks-axi >/dev/null 2>&1 || { echo "skip: tasks-axi not found"; exit 0; }
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 TMP_ROOT=$(fm_test_tmproot fm-remote-handoff)
@@ -140,10 +181,6 @@ handoff_env() {
   FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux \
   FM_REMOTE_JOB_STATE_ROOT="$TMP_ROOT/remote-jobs" \
   "$@"
-}
-
-sha256_file() {
-  if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | awk '{print $1}'; else sha256sum "$1" | awk '{print $1}'; fi
 }
 
 printf 'complete handoff payload\n' > "$TMP_ROOT/complete-payload"
