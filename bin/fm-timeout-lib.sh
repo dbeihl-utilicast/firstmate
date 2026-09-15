@@ -15,15 +15,17 @@
 #       except 124, which means the bound was hit (GNU timeout's convention,
 #       reproduced by the perl and bash fallbacks).
 #
-#       Sets FM_RUN_TIMED_KILL_TARGET (global, reset on every call) to a `kill`
-#       argument that tears down the bounded command's whole tree on demand -
-#       a caller that is itself killed before fm_run_timed returns can forward
-#       that same signal to this target from its own trap so the bounded
-#       command does not silently outlive it.
+#       Sets FM_RUN_TIMED_KILL_TARGET (reset on every call) to a `kill` target a
+#       caller's own signal trap can forward to, so the bounded command never
+#       silently outlives a killed caller.
 #
-#       Sets FM_RUN_TIMED_EXPIRED (global, reset on every call) to 1 only when
-#       the bound itself fired, so a caller can tell that apart from a command
-#       that exited 124 on its own.
+#       Sets FM_RUN_TIMED_EXPIRED (reset on every call) to 1 only when the bound
+#       itself fired, so a caller can tell that apart from a command that exited
+#       124 on its own.
+#
+#       With FM_RUN_TIMED_FOREGROUND set, timeout/gtimeout keep the command in the
+#       caller's process group so it can prompt on the terminal; perl and bash
+#       cannot, so they end the call once it stops for input (FM_RUN_TIMED_STOPPED=1).
 #
 # A non-positive bound is not a bound: `timeout 0` and the perl fallback's
 # `alarm 0` both disable the deadline, so callers must reject 0 before calling.
@@ -52,8 +54,18 @@ fm_timeout_mechanism() {
   fi
 }
 
+fm_record_fallback_outcome() {  # <outcome-file>
+  case "$(cat "$1" 2>/dev/null)" in
+    expired) FM_RUN_TIMED_EXPIRED=1 ;;
+    stopped) FM_RUN_TIMED_STOPPED=1 ;;
+    *) rm -f "$1" 2>/dev/null || true; return 1 ;;
+  esac
+  rm -f "$1" 2>/dev/null || true
+}
+
 fm_run_bash_timeout() {
   local seconds=$1 deadline_status coordinator_pid coordinator_rc monitor_was_on=0
+  local foreground=${FM_RUN_TIMED_FOREGROUND:-}
   shift
   deadline_status=$(mktemp "${TMPDIR:-/tmp}/fm-bash-timeout-deadline.XXXXXX" 2>/dev/null) || return 124
   case $- in *m*) monitor_was_on=1 ;; esac
@@ -66,8 +78,21 @@ fm_run_bash_timeout() {
     timer_pid=$!
     ( command_rc=0; "$@" || command_rc=$?; kill -TERM "$timer_pid" 2>/dev/null || true; exit "$command_rc" ) <&0 &
     command_pid=$!
-    if wait "$timer_pid"; then
-      printf 'expired\n' > "$deadline_status"
+    outcome=
+    if [ -n "$foreground" ]; then
+      while kill -0 "$timer_pid" 2>/dev/null; do
+        if ps -A -o pgid=,stat= | awk -v g="$coordinator_pid" '$1 == g && $2 ~ /^[Tt]/ { f = 1 } END { exit !f }'; then
+          outcome=stopped
+          break
+        fi
+        sleep 0.2
+      done
+    fi
+    if [ -z "$outcome" ] && wait "$timer_pid"; then
+      outcome=expired
+    fi
+    if [ -n "$outcome" ]; then
+      printf '%s\n' "$outcome" > "$deadline_status"
       trap '' HUP INT TERM
       kill -TERM -- "-$coordinator_pid" 2>/dev/null || true
       sleep 0.2
@@ -86,11 +111,7 @@ fm_run_bash_timeout() {
   else
     coordinator_rc=$?
   fi
-  if [ -s "$deadline_status" ]; then
-    coordinator_rc=124
-    FM_RUN_TIMED_EXPIRED=1
-  fi
-  rm -f "$deadline_status" 2>/dev/null || true
+  fm_record_fallback_outcome "$deadline_status" && coordinator_rc=124
   return "$coordinator_rc"
 }
 
@@ -101,27 +122,31 @@ fm_run_perl_timeout() {
   case $- in *m*) monitor_was_on=1 ;; esac
   set -m
   perl -e '
-    my $t = shift;
-    my $deadline = shift;
+    use POSIX ":sys_wait_h";
+    my ($t, $deadline, $foreground) = splice @ARGV, 0, 3;
     setpgrp(0, 0);
     my $group = getpgrp(0);
+    my $mark = sub { open my $fh, ">", $deadline or return; print {$fh} "$_[0]\n"; close $fh };
     my $stop = sub {
       $SIG{HUP} = $SIG{INT} = $SIG{TERM} = $SIG{ALRM} = "IGNORE";
+      kill "TERM", -$group;
+      select undef, undef, undef, 0.2;
       kill "KILL", -$group;
     };
     local $SIG{HUP} = $stop;
     local $SIG{INT} = $stop;
     local $SIG{TERM} = $stop;
-    local $SIG{ALRM} = sub { open my $fh, ">", $deadline or exit 124; print {$fh} "expired\n"; close $fh; $stop->() };
+    local $SIG{ALRM} = sub { $mark->("expired"); $stop->() };
     my $pid = fork;
     die "fork failed" unless defined $pid;
     if (!$pid) { exec @ARGV }
     alarm $t;
-    waitpid $pid, 0;
+    waitpid $pid, ($foreground ? WUNTRACED : 0);
+    if ($foreground && WIFSTOPPED(${^CHILD_ERROR_NATIVE})) { $mark->("stopped"); $stop->() }
     alarm 0;
     my $status = $?;
     exit(($status & 127) ? 128 + ($status & 127) : $status >> 8);
-  ' "$seconds" "$deadline_status" "$@" <&0 &
+  ' "$seconds" "$deadline_status" "${FM_RUN_TIMED_FOREGROUND:-}" "$@" <&0 &
   coordinator_pid=$!
   FM_RUN_TIMED_KILL_TARGET="$coordinator_pid"
   [ "$monitor_was_on" -eq 1 ] || set +m
@@ -130,11 +155,7 @@ fm_run_perl_timeout() {
   else
     coordinator_rc=$?
   fi
-  if [ -s "$deadline_status" ]; then
-    coordinator_rc=124
-    FM_RUN_TIMED_EXPIRED=1
-  fi
-  rm -f "$deadline_status" 2>/dev/null || true
+  fm_record_fallback_outcome "$deadline_status" && coordinator_rc=124
   return "$coordinator_rc"
 }
 
@@ -147,17 +168,10 @@ fm_run_external_timeout() {
   # A shell wrapper can exit promptly on TERM while one of its descendants
   # ignores TERM; timeout then considers the command finished and does not send
   # its configured KILL. Explicitly reap that leftover group on a real timeout.
-  #
-  # Without job control active (the ordinary case for a sourced, non-interactive
-  # caller), bash silently substitutes /dev/null for an asynchronous command's
-  # stdin unless that exact command carries its own redirection - so a caller
-  # that redirected fm_run_timed's own stdin (a file, a payload pipe) would
-  # otherwise lose it here even though nothing about this call looks wrong.
-  # The explicit <&0 duplicates whatever stdin this function actually has,
-  # which both suppresses that substitution and is a no-op when the caller
-  # left stdin alone.
+  # The explicit <&0 keeps the caller's stdin: without job control bash would
+  # otherwise give this asynchronous command /dev/null.
   # shellcheck disable=SC2016  # Expansion is deliberately deferred to the child shell.
-  "$runner" -k 1 "$seconds" bash -c '
+  "$runner" ${FM_RUN_TIMED_FOREGROUND:+--foreground} -k 1 "$seconds" bash -c '
     status_file=$1
     shift
     "$@"
@@ -166,11 +180,7 @@ fm_run_external_timeout() {
     exit "$command_rc"
   ' _ "$status_file" "$@" <&0 &
   runner_pid=$!
-  # GNU/BSD timeout's own pid doubles as the process-group id of the command
-  # it launched (confirmed by this library's own kill -KILL -- "-$runner_pid"
-  # cleanup below), and timeout forwards a signal it receives itself to that
-  # group before exiting - so a plain kill of runner_pid is enough for a
-  # caller's trap to tear down everything underneath it.
+  # timeout forwards a signal it receives to its command before exiting.
   FM_RUN_TIMED_KILL_TARGET="$runner_pid"
   if wait "$runner_pid"; then
     runner_rc=0
@@ -200,6 +210,8 @@ fm_run_timed() {  # <seconds> <command...>
   FM_RUN_TIMED_KILL_TARGET=
   # shellcheck disable=SC2034 # Sourceable API consumed by callers, not this function.
   FM_RUN_TIMED_EXPIRED=0
+  # shellcheck disable=SC2034 # Sourceable API consumed by callers, not this function.
+  FM_RUN_TIMED_STOPPED=0
   case "$(fm_timeout_mechanism)" in
     timeout) fm_run_external_timeout timeout "$seconds" "$@" ;;
     gtimeout) fm_run_external_timeout gtimeout "$seconds" "$@" ;;

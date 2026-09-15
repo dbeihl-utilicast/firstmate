@@ -33,18 +33,12 @@
 # killed. FM_SSH_ALIVE_INTERVAL and FM_SSH_ALIVE_COUNT_MAX override the
 # defaults; the worst-case detection window is roughly interval * count.
 #
-# ssh's stdout and stderr go to private files relayed only after ssh exits,
-# and connection multiplexing is disabled, so no process ssh leaves behind (a
-# ControlPersist master, a ProxyCommand) can hold a caller's command-
-# substitution pipe open after this call has returned.
+# ssh output goes to private files relayed after ssh exits, and multiplexing is
+# off, so nothing ssh leaves behind can hold a caller's capture pipe open.
 #
-# ServerAlive only catches a dead peer, never a live one whose remote command
-# stopped making progress, so the whole ssh call is also wrapped in
-# fm_run_timed (bin/fm-timeout-lib.sh). FM_ON_TIMEOUT overrides the 900s
-# default, which leaves room for the remote job system's own worst-case wait
-# (capped at 750s by default). When this bound fires the call exits 255, the
-# same unknown-completion status callers already reconcile, with a diagnostic
-# on stderr naming the host and the bound.
+# The call is bounded by FM_ON_TIMEOUT (default 900s, above the remote job
+# system's 750s worst case) and exits 255 naming the host when the bound fires
+# or when ssh stops for a terminal prompt its process group cannot reach.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -142,13 +136,8 @@ SSH_ARGS=(
 )
 CAPTURE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/fm-on.XXXXXX") || die "could not create a private output capture directory"
 trap 'rm -rf -- "$CAPTURE_DIR"' EXIT
-# fm_run_timed no longer lets this process exec into ssh in place, so this
-# process's own pid no longer IS the ssh connection the way it did before the
-# bound was added. A caller that kills this process (the remote job system's
-# own disconnect handling does exactly that when its staging caller goes away)
-# must still bring the ssh call down with it, not leave it running unnoticed:
-# forward the same signal to FM_RUN_TIMED_KILL_TARGET, then re-deliver it to
-# this process so the caller still observes the conventional 128+signal exit.
+# ssh is not exec'd, so forward a caller's signal to the bounded call, then
+# re-deliver it here so the caller still observes 128+signal.
 # shellcheck disable=SC2329 # Invoked through the trap registrations below.
 fm_on_forward_signal() {
   sig=$1
@@ -163,15 +152,19 @@ trap 'fm_on_forward_signal HUP' HUP
 
 rc=0
 if [ "$STDIN_MODE" = caller ]; then
-  fm_run_timed "$ON_TIMEOUT" "$SSH_BIN" "${SSH_ARGS[@]}" \
+  FM_RUN_TIMED_FOREGROUND=1 fm_run_timed "$ON_TIMEOUT" "$SSH_BIN" "${SSH_ARGS[@]}" \
     > "$CAPTURE_DIR/stdout" 2> "$CAPTURE_DIR/stderr" || rc=$?
 else
-  fm_run_timed "$ON_TIMEOUT" "$SSH_BIN" "${SSH_ARGS[@]}" \
+  FM_RUN_TIMED_FOREGROUND=1 fm_run_timed "$ON_TIMEOUT" "$SSH_BIN" "${SSH_ARGS[@]}" \
     < /dev/null > "$CAPTURE_DIR/stdout" 2> "$CAPTURE_DIR/stderr" || rc=$?
 fi
 cat -- "$CAPTURE_DIR/stdout"
 cat -- "$CAPTURE_DIR/stderr" >&2
-if [ "$FM_RUN_TIMED_EXPIRED" -eq 1 ]; then
+if [ "$FM_RUN_TIMED_STOPPED" -eq 1 ]; then
+  printf 'error: ssh stopped for a terminal prompt it could not reach talking to %s: %s\n' \
+    "$HOST" "$COMMAND" >&2
+  rc=255
+elif [ "$FM_RUN_TIMED_EXPIRED" -eq 1 ]; then
   printf 'error: remote command did not complete within %ss talking to %s: %s\n' \
     "$ON_TIMEOUT" "$HOST" "$COMMAND" >&2
   rc=255

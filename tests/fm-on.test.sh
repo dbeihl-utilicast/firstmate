@@ -111,6 +111,8 @@ case "${FM_FAKE_SSH_MODE:-normal}" in
   # and it produces no output before being killed - indistinguishable from a
   # remote that is simply still working, except that it never finishes.
   hang) exec sleep 999999 ;;
+  stop) kill -STOP "$$"; exit 0 ;;
+  pgrp) ps -o pgid= -p "$$" | tr -d '[:space:]'; exit 0 ;;
   leak)
     sleep "$FM_TEST_LEAK_SECONDS" &
     printf '%s\n' "$!" > "$FM_TEST_LEAK_PID"
@@ -638,5 +640,60 @@ test_fallback_success_releases_capture() {
 
 test_fallback_success_releases_capture bash
 test_fallback_success_releases_capture perl
+
+# ssh prompts need the terminal: timeout keeps ssh in the caller's process group,
+# and the fallbacks, which cannot, must fail fast naming the host.
+if command -v timeout >/dev/null 2>&1; then
+  CALLER_PGID=$(ps -o pgid= -p $$ | tr -d '[:space:]')
+  PGRP_OUT=$(FM_FAKE_SSH_MODE=pgrp fm_on ios fm-mutate.sh "$REMOTE_HOME/pgrp-mutation" 2>/dev/null)
+  [ "$PGRP_OUT" = "$CALLER_PGID" ] \
+    || fail "timeout ran ssh outside the caller's process group (ssh $PGRP_OUT, caller $CALLER_PGID)"
+  pass "timeout keeps ssh in the caller's foreground process group so prompts reach the terminal"
+fi
+
+test_fallback_terminal_and_bound() {
+  local mechanism=$1 start elapsed out rc=0
+  start=$SECONDS
+  out=$(FM_TIMEOUT_MECHANISM_OVERRIDE="$mechanism" FM_FAKE_SSH_MODE=stop FM_ON_TIMEOUT=60 \
+    fm_on ios fm-mutate.sh "$REMOTE_HOME/stop-mutation" 2>&1) || rc=$?
+  elapsed=$((SECONDS - start))
+  [ "$rc" -eq 255 ] || fail "$mechanism fallback did not fail a terminal-stopped ssh with 255 (got $rc): $out"
+  [ "$elapsed" -lt 15 ] || fail "$mechanism fallback silently waited ${elapsed}s on a terminal-stopped ssh"
+  assert_contains "$out" 'terminal prompt' "$mechanism fallback did not say ssh needed the terminal"
+  assert_contains "$out" 'talking to remote-mac' "$mechanism fallback did not name the host for a stopped ssh"
+
+  rc=0
+  start=$SECONDS
+  out=$(FM_TIMEOUT_MECHANISM_OVERRIDE="$mechanism" FM_FAKE_SSH_MODE=hang FM_ON_TIMEOUT=2 \
+    fm_on ios fm-mutate.sh "$REMOTE_HOME/hang-mutation" 2>&1) || rc=$?
+  elapsed=$((SECONDS - start))
+  [ "$rc" -eq 255 ] || fail "$mechanism fallback did not bound a hung ssh with 255 (got $rc): $out"
+  [ "$elapsed" -le 15 ] || fail "$mechanism fallback took ${elapsed}s against a 2s bound"
+  assert_contains "$out" 'did not complete within 2s talking to remote-mac' "$mechanism fallback bound was not loud"
+  pass "$mechanism fallback fails fast on a terminal-stopped ssh and still bounds a hung one, naming the host"
+}
+
+test_fallback_terminal_and_bound bash
+test_fallback_terminal_and_bound perl
+
+# A caller's own perl bound must TERM before KILL so fm-on can tear down its
+# inner bounded ssh instead of orphaning it and its capture directory.
+NESTED_TMP="$TMP_ROOT/nested-tmp"
+mkdir -p "$NESTED_TMP"
+NESTED_RC=0
+TMPDIR="$NESTED_TMP" FM_TIMEOUT_MECHANISM_OVERRIDE=perl \
+  FM_HOME="$LOCAL_HOME" FM_ROOT_OVERRIDE="$REMOTE_ROOT" FM_SSH_BIN="$FAKEBIN/fake-ssh" \
+  FM_FAKE_SSH_COUNT="$SSH_COUNT" FM_FAKE_SSH_LOG="$SSH_LOG" \
+  FM_FAKE_REMOTE_ENTRYPOINT="$REMOTE_ROOT/bin/fm-remote-entrypoint.sh" \
+  FM_FAKE_SSH_MODE=cancel FM_TEST_CANCEL_SSH_PID="$TMP_ROOT/nested-ssh.pid" \
+  FM_TEST_CANCEL_CHILD_PID="$TMP_ROOT/nested-child.pid" FM_ON_TIMEOUT=60 \
+  bash -c '. "$1"; shift; fm_run_timed 3 "$@"' _ "$ROOT/bin/fm-timeout-lib.sh" \
+  "$ROOT/bin/fm-on.sh" ios fm-mutate.sh "$REMOTE_HOME/nested-mutation" > /dev/null 2>&1 || NESTED_RC=$?
+[ "$NESTED_RC" -eq 124 ] || fail "the outer perl bound did not fire around fm-on (got $NESTED_RC)"
+[ -s "$TMP_ROOT/nested-ssh.pid" ] || fail "the nested fm-on never started its ssh"
+assert_cancelled_pid_gone "$TMP_ROOT/nested-ssh.pid" "ssh under a caller's perl bound"
+assert_cancelled_pid_gone "$TMP_ROOT/nested-child.pid" "ssh descendant under a caller's perl bound"
+[ -z "$(find "$NESTED_TMP" -name 'fm-on.*' -print -quit)" ] || fail "fm-on leaked its capture directory under a caller's perl bound"
+pass "a caller's perl bound lets fm-on tear down its inner ssh and capture directory"
 
 echo "ALL TESTS PASSED"
