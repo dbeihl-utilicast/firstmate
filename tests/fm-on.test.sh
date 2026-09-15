@@ -111,6 +111,12 @@ case "${FM_FAKE_SSH_MODE:-normal}" in
   # and it produces no output before being killed - indistinguishable from a
   # remote that is simply still working, except that it never finishes.
   hang) exec sleep 999999 ;;
+  leak)
+    sleep "$FM_TEST_LEAK_SECONDS" &
+    printf '%s\n' "$!" > "$FM_TEST_LEAK_PID"
+    printf 'relayed before exit\n'
+    exit 0
+    ;;
   cancel)
     [ "${FM_TEST_NO_BASHPID:-0}" != 1 ] || unset BASHPID
     printf '%s\n' "$$" > "$FM_TEST_CANCEL_SSH_PID"
@@ -184,6 +190,23 @@ if grep -q 'stdin:' "$TMP_ROOT/stdout-default"; then
   fail "caller stdin crossed the transport without --stdin: $(cat "$TMP_ROOT/stdout-default")"
 fi
 pass "fm-on defaults the remote command's stdin to /dev/null"
+
+# The 2026-09-15 wedge: ssh exits, but a process it left behind still holds
+# the caller's command-substitution pipe, so the caller blocks in read with no
+# children. The bound is far above the leak, so it cannot be what passes this.
+LEAK_START=$SECONDS
+set +e
+LEAK_OUT=$(FM_FAKE_SSH_MODE=leak FM_TEST_LEAK_SECONDS=30 FM_TEST_LEAK_PID="$TMP_ROOT/leak.pid" \
+  FM_ON_TIMEOUT=120 fm_on ios fm-mutate.sh "$REMOTE_HOME/leak-mutation" 2>&1)
+LEAK_RC=$?
+set -e
+LEAK_ELAPSED=$((SECONDS - LEAK_START))
+kill "$(cat "$TMP_ROOT/leak.pid" 2>/dev/null)" 2>/dev/null || true
+[ "$LEAK_RC" -eq 0 ] || fail "a leaked ssh descendant changed the exit status (got $LEAK_RC): $LEAK_OUT"
+[ "$LEAK_ELAPSED" -lt 10 ] \
+  || fail "a process left behind by ssh held the caller's capture pipe open for ${LEAK_ELAPSED}s"
+assert_contains "$LEAK_OUT" 'relayed before exit' "ssh output was not relayed after ssh exited"
+pass "a process left behind by ssh cannot hold a caller's capture pipe open (${LEAK_ELAPSED}s elapsed)"
 
 # A vanished remote peer must become a bounded ssh failure instead of an
 # indefinite hang on a half-open TCP connection, so the existing no-result ->
@@ -548,7 +571,7 @@ HANG_OUT=$(FM_FAKE_SSH_MODE=hang FM_ON_TIMEOUT=2 fm_on ios fm-mutate.sh "$REMOTE
 HANG_RC=$?
 set -e
 HANG_ELAPSED=$((SECONDS - HANG_START))
-[ "$HANG_RC" -eq 124 ] || fail "a hung remote did not fail with the bounded-timeout exit status (got $HANG_RC): $HANG_OUT"
+[ "$HANG_RC" -eq 255 ] || fail "a hung remote did not fail with the unknown-completion exit status (got $HANG_RC): $HANG_OUT"
 [ "$HANG_ELAPSED" -le 15 ] \
   || fail "a hung remote was not bounded: took ${HANG_ELAPSED}s against a 2s FM_ON_TIMEOUT"
 assert_contains "$HANG_OUT" 'did not complete within 2s' "the timeout diagnostic did not name its bound"

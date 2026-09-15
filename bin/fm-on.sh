@@ -33,19 +33,18 @@
 # killed. FM_SSH_ALIVE_INTERVAL and FM_SSH_ALIVE_COUNT_MAX override the
 # defaults; the worst-case detection window is roughly interval * count.
 #
+# ssh's stdout and stderr go to private files relayed only after ssh exits,
+# and connection multiplexing is disabled, so no process ssh leaves behind (a
+# ControlPersist master, a ProxyCommand) can hold a caller's command-
+# substitution pipe open after this call has returned.
+#
 # ServerAlive only catches a dead peer, never a live one whose remote command
-# stopped making progress - a wedge that cannot be distinguished from slow
-# work is exactly what a hung remote job, a stale worker, or a pre-migration
-# host with no bounded job queue at all looks like from here. So the whole
-# ssh call is itself wrapped in fm_run_timed (bin/fm-timeout-lib.sh), the
-# repo's one hard-bound runner, rather than trusting every remote to return.
-# FM_ON_TIMEOUT overrides the default; a bound this wide only fires after the
-# remote job system's own worst-case wait (queue + execution + grace, capped
-# at 750s by default) has already had room to finish on its own. A caller
-# sees this as exit 124, distinct from ssh's own exit codes (0-255, never
-# 124), with a diagnostic on stderr naming the host and the bound - never a
-# silent hang. Exit 255 keeps meaning what it always has: unavailable
-# transport or unknown remote completion, reconciled by the semantic caller.
+# stopped making progress, so the whole ssh call is also wrapped in
+# fm_run_timed (bin/fm-timeout-lib.sh). FM_ON_TIMEOUT overrides the 900s
+# default, which leaves room for the remote job system's own worst-case wait
+# (capped at 750s by default). When this bound fires the call exits 255, the
+# same unknown-completion status callers already reconcile, with a diagnostic
+# on stderr naming the host and the bound.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -134,10 +133,15 @@ SSH_ARGS=(
   -o ForwardAgent=no
   -o ClearAllForwardings=yes
   -o 'SendEnv=-*'
+  -o ControlMaster=no
+  -o ControlPersist=no
+  -o ControlPath=none
   -o "ServerAliveInterval=$ALIVE_INTERVAL"
   -o "ServerAliveCountMax=$ALIVE_COUNT_MAX"
   -- "$HOST" fm-remote-entrypoint.sh "$PROTOCOL" "$ROOT_B64" "$HOME_B64" "$ARGV_B64"
 )
+CAPTURE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/fm-on.XXXXXX") || die "could not create a private output capture directory"
+trap 'rm -rf -- "$CAPTURE_DIR"' EXIT
 # fm_run_timed no longer lets this process exec into ssh in place, so this
 # process's own pid no longer IS the ssh connection the way it did before the
 # bound was added. A caller that kills this process (the remote job system's
@@ -149,6 +153,7 @@ SSH_ARGS=(
 fm_on_forward_signal() {
   sig=$1
   [ -z "${FM_RUN_TIMED_KILL_TARGET:-}" ] || kill -s "$sig" "$FM_RUN_TIMED_KILL_TARGET" 2>/dev/null || true
+  rm -rf -- "$CAPTURE_DIR"
   trap - "$sig"
   kill -s "$sig" "$$" 2>/dev/null || exit 1
 }
@@ -156,47 +161,19 @@ trap 'fm_on_forward_signal TERM' TERM
 trap 'fm_on_forward_signal INT' INT
 trap 'fm_on_forward_signal HUP' HUP
 
-# A caller that goes away without ever signaling this process directly (the
-# common shape: this ran as a backgrounded shell function, so the process a
-# caller actually tracks and kills is that function's own subshell, one layer
-# above this script) still needs the ssh call brought down. Mirror the same
-# parent-liveness self-check bin/fm-remote-entrypoint.sh already uses on the
-# far end of this same call: watch this process's own ppid, and if it changes
-# - the recorded parent is gone and this process has been reparented - signal
-# itself so the trap above tears the call down instead of leaving it running
-# unnoticed. Explicitly closed off from the caller's own stdio so this poller
-# can never hold a captured pipe open past this call's own completion.
-ORIGINAL_PPID=$(ps -o ppid= -p $$ 2>/dev/null | tr -d '[:space:]')
-PPID_WATCH_PID=
-case "$ORIGINAL_PPID" in
-  ''|*[!0-9]*) ;;
-  *)
-    (
-      while :; do
-        sleep 1
-        current=$(ps -o ppid= -p $$ 2>/dev/null | tr -d '[:space:]')
-        [ "$current" = "$ORIGINAL_PPID" ] || { kill -TERM "$$" 2>/dev/null || true; break; }
-      done
-    ) < /dev/null > /dev/null 2>&1 &
-    PPID_WATCH_PID=$!
-    ;;
-esac
-
 rc=0
 if [ "$STDIN_MODE" = caller ]; then
-  fm_run_timed "$ON_TIMEOUT" "$SSH_BIN" "${SSH_ARGS[@]}" || rc=$?
+  fm_run_timed "$ON_TIMEOUT" "$SSH_BIN" "${SSH_ARGS[@]}" \
+    > "$CAPTURE_DIR/stdout" 2> "$CAPTURE_DIR/stderr" || rc=$?
 else
-  fm_run_timed "$ON_TIMEOUT" "$SSH_BIN" "${SSH_ARGS[@]}" < /dev/null || rc=$?
+  fm_run_timed "$ON_TIMEOUT" "$SSH_BIN" "${SSH_ARGS[@]}" \
+    < /dev/null > "$CAPTURE_DIR/stdout" 2> "$CAPTURE_DIR/stderr" || rc=$?
 fi
-if [ -n "$PPID_WATCH_PID" ]; then
-  kill -TERM "$PPID_WATCH_PID" 2>/dev/null || true
-  wait "$PPID_WATCH_PID" 2>/dev/null || true
-fi
-if [ "$rc" -eq 124 ]; then
-  # 124 also covers a remote job system reporting its own bounded timeout
-  # verbatim through ssh's exit status; either way the call did not complete
-  # productively within this bound, so the host is named either way.
+cat -- "$CAPTURE_DIR/stdout"
+cat -- "$CAPTURE_DIR/stderr" >&2
+if [ "$FM_RUN_TIMED_EXPIRED" -eq 1 ]; then
   printf 'error: remote command did not complete within %ss talking to %s: %s\n' \
     "$ON_TIMEOUT" "$HOST" "$COMMAND" >&2
+  rc=255
 fi
 exit "$rc"

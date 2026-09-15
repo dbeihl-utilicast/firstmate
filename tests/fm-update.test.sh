@@ -519,6 +519,29 @@ EOF
   assert_contains "$out" "talking to remote-mac" "the skip reason did not name the host it was talking to"
   assert_contains "$out" "reread-firstmate:" "the run did not reach its summary after the hung remote entry"
   pass "T3f a hung remote entry fails loudly, naming the host, instead of wedging the whole update (${elapsed}s elapsed)"
+
+  cat > "$fake_ssh" <<'SH'
+#!/usr/bin/env bash
+sleep 30 &
+printf '%s\n' "$!" > "$FM_TEST_LEAK_PID"
+printf 'Connection to remote-mac closed by remote host.\n' >&2
+exit 255
+SH
+  elapsed=$SECONDS
+  set +e
+  out=$(PATH="$w/fakebin:$PATH" FM_FAKE_DIR="$w/fake" \
+    FM_SSH_BIN="$fake_ssh" FM_ON_TIMEOUT=120 FM_TEST_LEAK_PID="$w/leak.pid" \
+    FM_ROOT_OVERRIDE="$w/main" FM_HOME="$w/home" "$UPDATE" 2>&1)
+  rc=$?
+  set -e
+  elapsed=$((SECONDS - elapsed))
+  kill "$(cat "$w/leak.pid" 2>/dev/null)" 2>/dev/null || true
+  [ "$rc" -eq 0 ] || fail "a leaked ssh descendant made the whole update run fail (rc=$rc): $out"
+  [ "$elapsed" -lt 15 ] \
+    || fail "a process left behind by ssh wedged fm-update.sh's remote step for ${elapsed}s"
+  assert_contains "$out" "remote secondmate sm1: skipped on remote-mac: Connection to remote-mac closed" \
+    "the leaked-descendant remote entry was not reported as skipped with its reason"
+  pass "T3g a process left behind by ssh cannot wedge the update's remote step (${elapsed}s elapsed)"
 }
 
 test_updates_main_and_secondmate

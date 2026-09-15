@@ -21,6 +21,10 @@
 #       that same signal to this target from its own trap so the bounded
 #       command does not silently outlive it.
 #
+#       Sets FM_RUN_TIMED_EXPIRED (global, reset on every call) to 1 only when
+#       the bound itself fired, so a caller can tell that apart from a command
+#       that exited 124 on its own.
+#
 # A non-positive bound is not a bound: `timeout 0` and the perl fallback's
 # `alarm 0` both disable the deadline, so callers must reject 0 before calling.
 #
@@ -82,7 +86,10 @@ fm_run_bash_timeout() {
   else
     coordinator_rc=$?
   fi
-  [ ! -s "$deadline_status" ] || coordinator_rc=124
+  if [ -s "$deadline_status" ]; then
+    coordinator_rc=124
+    FM_RUN_TIMED_EXPIRED=1
+  fi
   rm -f "$deadline_status" 2>/dev/null || true
   return "$coordinator_rc"
 }
@@ -123,7 +130,10 @@ fm_run_perl_timeout() {
   else
     coordinator_rc=$?
   fi
-  [ ! -s "$deadline_status" ] || coordinator_rc=124
+  if [ -s "$deadline_status" ]; then
+    coordinator_rc=124
+    FM_RUN_TIMED_EXPIRED=1
+  fi
   rm -f "$deadline_status" 2>/dev/null || true
   return "$coordinator_rc"
 }
@@ -176,6 +186,7 @@ fm_run_external_timeout() {
   case "$runner_rc" in
     124|137)
       kill -KILL -- "-$runner_pid" 2>/dev/null || true
+      FM_RUN_TIMED_EXPIRED=1
       return 124
       ;;
     *) return "$runner_rc" ;;
@@ -187,6 +198,8 @@ fm_run_timed() {  # <seconds> <command...>
   shift
   # shellcheck disable=SC2034 # Sourceable API consumed by callers, not this function.
   FM_RUN_TIMED_KILL_TARGET=
+  # shellcheck disable=SC2034 # Sourceable API consumed by callers, not this function.
+  FM_RUN_TIMED_EXPIRED=0
   case "$(fm_timeout_mechanism)" in
     timeout) fm_run_external_timeout timeout "$seconds" "$@" ;;
     gtimeout) fm_run_external_timeout gtimeout "$seconds" "$@" ;;
