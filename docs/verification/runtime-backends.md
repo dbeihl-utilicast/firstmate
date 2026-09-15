@@ -109,8 +109,12 @@ The real-harness drift guard spends no model tokens, so under the policy in `.ag
 Run the live guard after any harness upgrade and before trusting or refreshing the table above:
 
 ```sh
+bin/fm-test-run.sh tests/fm-tmux-agent-liveness.test.sh
 FM_HARNESS_LIVENESS_DRIFT=1 bin/fm-test-run.sh tests/fm-harness-liveness-drift-live-e2e.test.sh
 ```
+
+The portable guard runs a real Node process whose script argument is named `qwen` and asserts through `fm_backend_tmux_agent_state` that it is alive even though the pane title, foreground `comm`, and `argv[0]` are all interpreter identities.
+The installed-harness guard includes Qwen so a vendor change to that Node-bundle shape is checked without model traffic.
 
 ### 2026-09-06 default-on drift refresh, and the Cursor editor CLI collision
 

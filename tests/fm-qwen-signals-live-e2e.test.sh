@@ -22,25 +22,9 @@ echo "BOOTSTRAP_INFO: live qwen version: $VERSION_OUT"
 
 MODEL=${QWEN_LIVE_MODEL:-qwen3-coder:30b}
 BASE_URL=${OPENAI_BASE_URL:-http://127.0.0.1:11434/v1}
-LOCAL_OLLAMA=0
-OLLAMA_MODEL_WAS_RUNNING=0
-case "$BASE_URL" in
-  http://127.0.0.1:11434/*|http://localhost:11434/*|http://\[::1\]:11434/*) LOCAL_OLLAMA=1 ;;
-esac
-ollama_model_running() {
-  ollama ps 2>/dev/null | awk -v model="$MODEL" 'NR > 1 && $1 == model { found=1 } END { exit !found }'
-}
-if [ "$LOCAL_OLLAMA" -eq 1 ] && command -v ollama >/dev/null 2>&1 \
-   && ollama_model_running; then
-  OLLAMA_MODEL_WAS_RUNNING=1
-fi
 
 LAB=$(mktemp -d "${TMPDIR:-/tmp}/fm-qwen-signals.XXXXXX") || fail "could not create the isolated Qwen lab"
 cleanup() {
-  if [ "$LOCAL_OLLAMA" -eq 1 ] && [ "$OLLAMA_MODEL_WAS_RUNNING" -eq 0 ] \
-     && command -v ollama >/dev/null 2>&1 && ollama_model_running; then
-    ollama stop "$MODEL" >/dev/null 2>&1 || true
-  fi
   rm -rf -- "$LAB"
 }
 trap cleanup EXIT

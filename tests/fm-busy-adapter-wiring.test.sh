@@ -524,6 +524,52 @@ SH
   pass "qwen spawn refuses before provisioning when no secure auth shape exists"
 }
 
+test_qwen_spawn_refuses_without_executable() {
+  local rec id=busy-qw-nobin out tmux_log treehouse_log path_without_qwen
+  rec=$(make_spawn_case qwen-nobin qwen "$id")
+  read_case_record "$rec"
+  tmux_log="$CASE_DIR/tmux.log"
+  treehouse_log="$CASE_DIR/treehouse.log"
+  rm -f "$FAKEBIN_DIR/qwen"
+  cat > "$FAKEBIN_DIR/treehouse" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$FM_FAKE_TREEHOUSE_LOG"
+SH
+  chmod +x "$FAKEBIN_DIR/treehouse"
+  path_without_qwen=$(fm_test_base_path_sans "$PATH" qwen)
+  out=$(PATH="$path_without_qwen" FM_FAKE_TMUX_COMMAND_LOG="$tmux_log" \
+    FM_FAKE_TREEHOUSE_LOG="$treehouse_log" \
+    run_qwen_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" "$PROJ_DIR") && {
+    fail "qwen spawn without its executable must refuse, got: $out"
+  }
+  assert_contains "$out" 'qwen-executable-unavailable' \
+    "qwen spawn without its executable must name the refusal: $out"
+  assert_absent "$tmux_log" "qwen executable refusal created or wrote to an endpoint"
+  assert_absent "$treehouse_log" "qwen executable refusal provisioned a worktree"
+  assert_absent "$HOME_DIR/state/$id.meta" "qwen executable refusal published metadata"
+  assert_absent "$HOME_DIR/state/$id.qwen-settings.json" "qwen executable refusal wrote settings"
+  pass "qwen spawn resolves its executable before provisioning"
+}
+
+test_qwen_failed_delivery_removes_private_settings() {
+  local rec id=busy-qw-abort out settings observed
+  rec=$(make_spawn_case qwen-abort qwen "$id")
+  read_case_record "$rec"
+  settings="$HOME_DIR/state/$id.qwen-settings.json"
+  observed="$CASE_DIR/settings-observed"
+  out=$(FM_FAKE_TMUX_LITERAL_FAIL=1 FM_FAKE_EXPECT_PATH="$settings" \
+    FM_FAKE_OBSERVED_PATH="$observed" \
+    run_qwen_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" "$PROJ_DIR") && {
+    fail "qwen spawn must fail when launch delivery fails, got: $out"
+  }
+  assert_present "$observed" "launch delivery did not observe Qwen settings, so the cleanup case was vacuous"
+  assert_absent "$settings" "aborted qwen spawn retained credential-bearing settings"
+  assert_absent "$HOME_DIR/state/$id.meta" "aborted qwen spawn retained metadata"
+  assert_absent "$HOME_DIR/state/$id.busy-state" "aborted qwen spawn retained busy state"
+  assert_absent "$HOME_DIR/state/$id.busy-gen" "aborted qwen spawn retained busy generation"
+  pass "qwen spawn abort removes its credential-bearing settings"
+}
+
 test_qwen_launch_stays_interactive() {
   local rec id=busy-qw-i out log launch settings mode
   rec=$(make_spawn_case qwen-interactive qwen "$id")
@@ -537,7 +583,8 @@ test_qwen_launch_stays_interactive() {
   launch=$(cat "$log")
   assert_contains "$launch" '--prompt-interactive' \
     "qwen launch must use --prompt-interactive so a positional brief is not one-shot headless"
-  assert_contains "$launch" 'qwen -y' "qwen launch must keep -y"
+  assert_contains "$launch" "'$FAKEBIN_DIR/qwen' -y" \
+    "qwen launch must pin the resolved executable and keep -y"
   assert_not_contains "$launch" 'OPENAI_API_KEY' "qwen launch recorded a credential name"
   assert_not_contains "$launch" 'ollama' "qwen launch recorded a credential value"
   jq -e '.security.auth.selectedType == "openai" and .env.OPENAI_API_KEY == "ollama" and .env.OPENAI_BASE_URL == "http://127.0.0.1:11434/v1"' "$settings" >/dev/null \
@@ -590,6 +637,8 @@ test_qwen_hooks_semantic_lifecycle
 test_qwen_hooks_stale_incarnation_harmless
 test_raw_qwen_launch_has_no_semantic_wiring
 test_qwen_spawn_refuses_without_auth
+test_qwen_spawn_refuses_without_executable
+test_qwen_failed_delivery_removes_private_settings
 test_qwen_launch_stays_interactive
 test_qwen_is_refused_as_a_secondmate
 test_codex_unverified_until_a_semantic_source_exists

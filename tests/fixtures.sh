@@ -121,14 +121,22 @@ case "${1:-}" in
     ;;
   has-session|new-session|new-window|kill-window|set-window-option) exit 0 ;;
   send-keys)
-    if [ -n "${FM_FAKE_LAUNCH_LOG:-}" ]; then
-      prev=
-      for a in "$@"; do
-        if [ "$prev" = "-l" ]; then
+    prev=
+    literal=0
+    for a in "$@"; do
+      if [ "$prev" = "-l" ]; then
+        literal=1
+        if [ -n "${FM_FAKE_LAUNCH_LOG:-}" ]; then
           printf '%s\n' "$a" >> "$FM_FAKE_LAUNCH_LOG"
         fi
-        prev=$a
-      done
+      fi
+      prev=$a
+    done
+    if [ "$literal" -eq 1 ] && [ "${FM_FAKE_TMUX_LITERAL_FAIL:-0}" = 1 ]; then
+      if [ -n "${FM_FAKE_EXPECT_PATH:-}" ] && [ -f "$FM_FAKE_EXPECT_PATH" ]; then
+        : > "${FM_FAKE_OBSERVED_PATH:?}"
+      fi
+      exit 1
     fi
     exit 0
     ;;

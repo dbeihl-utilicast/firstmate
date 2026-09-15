@@ -149,6 +149,25 @@ assert_sources_disagree() {  # <target> <label>
     "$2: the two name sources were expected to disagree, but title=$t comms=$c (title='$(fm_backend_tmux_current_command "$1")' comms='$(fm_backend_tmux_foreground_comms "$1" | tr '\n' ' ')')"
 }
 
+NODE_BIN=$(command -v node 2>/dev/null || true)
+if [ -n "$NODE_BIN" ]; then
+  cat > "$LAB/bin/qwen" <<'JS'
+setInterval(() => {}, 30000);
+JS
+  new_window qwen-node "$NODE_BIN" "$LAB/bin/qwen"
+  wait_for_state "$SESSION:qwen-node" alive \
+    || fail "a running Qwen Node bundle must classify alive through its script argument"
+  ! title_classifies_agent "$SESSION:qwen-node" \
+    || fail "the Qwen Node-bundle case must not be attributed by the pane title"
+  ! comms_classify_agent "$SESSION:qwen-node" \
+    || fail "the Qwen Node-bundle case must not be attributed by comm or argv0"
+  [ "$(fm_backend_tmux_agent_state "$SESSION:qwen-node")" = alive ] \
+    || fail "fm_backend_tmux_agent_state did not integrate Qwen's script-argument identity"
+  pass "tmux liveness: Qwen's Node bundle classifies alive from its script argument"
+else
+  echo "skip: node not found, so the Qwen Node-bundle liveness case cannot run"
+fi
+
 # --- a harness-named foreground process -------------------------------------
 # Invoking the symlink by its harness name proves the ordinary positive path
 # with a real process. macOS exposes different names for the symlink through

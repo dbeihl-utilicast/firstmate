@@ -260,6 +260,7 @@
 #     __WORKTREE__  absolute path to the task worktree
 #     __CURSORBIN__ resolved, cursor-verified executable for a cursor launch
 #     __GEMINISETTINGS__ firstmate-owned per-task gemini settings file (busy-state hooks)
+#     __QWENBIN__   quoted concrete Qwen executable path resolved from PATH
 #     __QWENSETTINGS__ firstmate-owned per-task qwen settings file (busy-state hooks)
 #     __ROVOBIN__   resolved, rovo-verified executable for a rovo launch
 # Verified per-harness turn-end hooks are installed automatically where enabled; some live outside the worktree.
@@ -898,6 +899,8 @@ SPAWN_META_LOCK=
 SPAWN_META_LOCK_HELD=0
 SPAWN_META_PUBLISH_STARTED=0
 SPAWN_FRESH_COMMIT_PENDING=0
+SPAWN_FRESH_QWEN_WIRING_PENDING=0
+SPAWN_FRESH_QWEN_SETTINGS_TMP=
 SPAWN_TASK_SET_LOCK=
 SPAWN_TASK_SET_LOCK_HELD=0
 SPAWN_TREEHOUSE_PROJECT_LOCK=
@@ -961,6 +964,14 @@ spawn_abort_cleanup() {
           --gen "$RELAUNCH_REPLACEMENT_BUSY_GEN"; then
         echo "warning: could not retire replacement busy generation after aborted relaunch of $ID" >&2
       fi
+    fi
+  fi
+  if [ "$SPAWN_FRESH_QWEN_WIRING_PENDING" = 1 ]; then
+    SPAWN_FRESH_QWEN_WIRING_PENDING=0
+    [ -z "$SPAWN_FRESH_QWEN_SETTINGS_TMP" ] \
+      || rm -f -- "$SPAWN_FRESH_QWEN_SETTINGS_TMP" 2>/dev/null || true
+    if ! clear_relaunch_harness_wiring qwen "$WT" "$STATE_REAL" "$ID"; then
+      echo "warning: could not remove Qwen wiring after aborted spawn of $ID" >&2
     fi
   fi
   if [ "$HERDR_PROJECTION_ABORT_CLEANUP" = 1 ] \
@@ -1381,7 +1392,7 @@ shell_quote() {
   printf "'"
 }
 
-resolve_pi_executable() {
+resolve_path_executable() {
   local candidate dir
   candidate=$(type -P -- "$1" 2>/dev/null) || return 1
   [ -x "$candidate" ] || return 1
@@ -1576,7 +1587,7 @@ launch_template() {
     # qwen exposes no CLI effort flag (checked against 0.23.0 --help; /effort
     # exists only as an in-session slash command), so the shared effort axis
     # is omitted here and stays in task metadata only.
-    qwen) printf '%s' 'env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS -u GEMINI_CLI -u CURSOR_AGENT -u CURSOR_INVOKED_AS QWEN_CODE_SYSTEM_SETTINGS_PATH=__QWENSETTINGS__ qwen -y __MODELFLAG__--prompt-interactive "$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
+    qwen) printf '%s' 'env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS -u GEMINI_CLI -u CURSOR_AGENT -u CURSOR_INVOKED_AS QWEN_CODE_SYSTEM_SETTINGS_PATH=__QWENSETTINGS__ __QWENBIN__ -y __MODELFLAG__--prompt-interactive "$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
     # Kimi Code rejects a positional prompt, so it launches bare and receives
     # only an absolute brief pointer after the TUI readiness gate below.
     # Its turn-end signal is a globally configured Stop hook plus a guarded
@@ -1703,7 +1714,7 @@ fi
 
 case "$HARNESS" in
   pi|pi-signed)
-    PI_BIN=$(resolve_pi_executable "$HARNESS") || {
+    PI_BIN=$(resolve_path_executable "$HARNESS") || {
       echo "error: $HARNESS executable not found on PATH; install it or select a different verified harness" >&2
       exit 1
     }
@@ -1713,6 +1724,12 @@ case "$HARNESS" in
     fi
     LAUNCH=${LAUNCH//__PITUIMODE__/$PI_TUI_MODE}
     LAUNCH="FM_PI_HARNESS=$HARNESS $LAUNCH"
+    ;;
+  qwen)
+    QWEN_BIN=$(resolve_path_executable qwen) || {
+      echo "error: qwen-executable-unavailable: qwen executable not found on PATH; install Qwen Code or select a different verified harness" >&2
+      exit 1
+    }
     ;;
   cursor)
     # `cursor` is not the CLI name, and the legacy alias `agent` is far too
@@ -1731,7 +1748,7 @@ case "$HARNESS" in
     fi
     ;;
   omp)
-    OMP_BIN=$(resolve_pi_executable omp) || {
+    OMP_BIN=$(resolve_path_executable omp) || {
       echo "error: omp executable not found on PATH; install Oh My Pi or select a different verified harness" >&2
       exit 1
     }
@@ -3374,6 +3391,10 @@ EOF
       q_sessionend="$busy_cmd_prefix idle $busy_suffix --event session-end >/dev/null 2>&1 || true; printf '{}'"
       qwen_settings="$STATE_REAL/$ID.qwen-settings.json"
       qwen_settings_tmp="$qwen_settings.tmp.${BASHPID:-$$}"
+      if [ "$RELAUNCH" -eq 0 ]; then
+        SPAWN_FRESH_QWEN_WIRING_PENDING=1
+        SPAWN_FRESH_QWEN_SETTINGS_TMP=$qwen_settings_tmp
+      fi
       (
         umask 077
         jq -n \
@@ -3904,7 +3925,10 @@ case "$HARNESS" in
   pi|pi-signed) LAUNCH=${LAUNCH//__PIBIN__/"$(shell_quote "$PI_BIN")"} ;;
   cursor) LAUNCH=${LAUNCH//__CURSORBIN__/"$(shell_quote "$CURSOR_BIN")"} ;;
   gemini) LAUNCH=${LAUNCH//__GEMINISETTINGS__/"$(shell_quote "$STATE_REAL/$ID.gemini-settings.json")"} ;;
-  qwen) LAUNCH=${LAUNCH//__QWENSETTINGS__/"$(shell_quote "$STATE_REAL/$ID.qwen-settings.json")"} ;;
+  qwen)
+    LAUNCH=${LAUNCH//__QWENBIN__/"$(shell_quote "$QWEN_BIN")"}
+    LAUNCH=${LAUNCH//__QWENSETTINGS__/"$(shell_quote "$STATE_REAL/$ID.qwen-settings.json")"}
+    ;;
   omp) LAUNCH=${LAUNCH//__OMPBIN__/"$(shell_quote "$OMP_BIN")"} ;;
 esac
 LAUNCH=${LAUNCH//__WORKTREE__/$sq_worktree}
@@ -4116,11 +4140,13 @@ SPAWN_BACKLOG_COMMIT_STATUS=0
 FM_TASKS_AXI_TIMEOUT=${FM_TASKS_AXI_TIMEOUT:-30}
 if spawn_commit_backlog_transition; then
   SPAWN_FRESH_COMMIT_PENDING=0
+  SPAWN_FRESH_QWEN_WIRING_PENDING=0
 else
   SPAWN_BACKLOG_COMMIT_STATUS=$?
   if spawn_commit_backlog_transition; then
     SPAWN_BACKLOG_COMMIT_STATUS=0
     SPAWN_FRESH_COMMIT_PENDING=0
+    SPAWN_FRESH_QWEN_WIRING_PENDING=0
   fi
 fi
 if [ "$SPAWN_BACKLOG_COMMIT_STATUS" -ne 0 ]; then

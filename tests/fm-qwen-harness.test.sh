@@ -23,6 +23,8 @@ set -u
 
 # shellcheck source=/dev/null
 . "$ROOT/bin/fm-control-lib.sh"
+# shellcheck source=/dev/null
+. "$ROOT/bin/fm-busy-lib.sh"
 # shellcheck source=bin/fm-qwen-lib.sh
 . "$ROOT/bin/fm-qwen-lib.sh"
 
@@ -203,8 +205,16 @@ JS
 test_qwen_control_mechanics_are_the_verified_ones() {
   local out
   fm_control_harness_supported qwen || fail "qwen must be a supported control harness"
-  out=$(fm_control_harness_family qwen-0.23.0)
-  [ "$out" = qwen ] || fail "a recorded qwen* harness must resolve to qwen, got '$out'"
+  out=$(fm_control_harness_family qwen)
+  [ "$out" = qwen ] || fail "the recorded qwen harness must resolve to qwen, got '$out'"
+  ! fm_control_harness_family qwen-helper >/dev/null \
+    || fail "qwen-helper must not inherit Qwen control mechanics"
+  ! fm_control_harness_family qwen-0.23.0 >/dev/null \
+    || fail "a version-like qwen prefix must not inherit Qwen control mechanics"
+  [ "$(fm_busy_sources_for_harness qwen)" = "qwen-hook fm-spawn fm-interrupt fm-recovery" ] \
+    || fail "the exact qwen adapter must trust its semantic busy sources"
+  [ -z "$(fm_busy_sources_for_harness qwen-helper)" ] \
+    || fail "qwen-helper must not inherit Qwen's semantic busy source"
   out=$(fm_control_interrupt_key qwen)
   [ "$out" = Escape ] || fail "qwen interrupts on Escape, got '$out'"
   out=$(fm_control_interrupt_repeat qwen)

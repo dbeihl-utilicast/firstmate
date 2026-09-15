@@ -74,8 +74,9 @@ fm_control_harness_supported() {  # <harness>
 # harness= that way), which is why the spawn adapters match `claude*`, `muse*`,
 # and friends. This is the one place that prefix rule is stated. `pi` and
 # `pi-signed` are exact because a `pi*` prefix would swallow the signed adapter,
-# `omp` is exact because an `omp*` prefix would claim unrelated commands, and an
-# unrecognized value returns nonzero rather than being guessed into a family.
+# `omp` and `qwen` are exact because their prefixes would claim unrelated
+# commands, and an unrecognized value returns nonzero rather than being guessed
+# into a family.
 fm_control_harness_family() {  # <recorded-harness>
   case "${1-}" in
     pi) printf 'pi' ;;
@@ -90,7 +91,7 @@ fm_control_harness_family() {  # <recorded-harness>
     gemini*) printf 'gemini' ;;
     muse*) printf 'muse' ;;
     rovo*) printf 'rovo' ;;
-    qwen*) printf 'qwen' ;;
+    qwen) printf 'qwen' ;;
     *) return 1 ;;
   esac
 }
