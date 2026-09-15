@@ -613,15 +613,15 @@ json.dump([
 ], open(sys.argv[2], "w"))
 PY
 run_doctor
-assert_contains "$DOCTOR_OUT" 'check host-plugins=human: installed plugin from a configured marketplace is not named' \
+assert_contains "$DOCTOR_OUT" 'check host-plugins=human: installed or enabled plugin is not named' \
   "uncatalogued installed plugins were not reported"
 assert_contains "$DOCTOR_OUT" 'example-ops@example-plugins' \
   "the uncatalogued enabled plugin was not named"
 assert_contains "$DOCTOR_OUT" 'example-disabled@example-plugins' \
   "the uncatalogued disabled plugin was not named"
-assert_not_contains "$DOCTOR_OUT" 'foreign@other-plugins' \
-  "a plugin from an unconfigured marketplace was reported"
-pass "installed plugins outside the configured marketplace allowlist are reported"
+assert_contains "$DOCTOR_OUT" 'foreign@other-plugins' \
+  "the plugin from an unconfigured marketplace was not reported"
+pass "installed plugins outside the configured catalogue are reported"
 
 new_host
 python3 - "$CASE_FM_HOME" "$CASE_STATE/marketplace" "$CASE_STATE/plugins.json" \

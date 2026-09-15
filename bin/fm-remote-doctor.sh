@@ -1198,7 +1198,7 @@ EOF
 check_host_plugins() {
   local path parsed line name source plugin marketplace claude_bin rest id
   local mp_json mp_rows plugin_json plugin_rows state details i bound host_plugins_dir_rc dependency_audit
-  local row_pid row_marketplace configured seen candidate load_error
+  local row_pid configured seen candidate load_error
   local missing_mp=() mismatched_mp=() missing_plugin=() disabled_plugin=() unresolved=() auth_human=() unexpected_plugin=() load_errors=()
   local -a marketplaces_n=() marketplaces_s=() plugins_n=() plugins_m=()
   local ready_mp=()
@@ -1301,16 +1301,11 @@ EOF
     [ -n "$line" ] || continue
     row_pid=${line%%$'\t'*}
     case "$row_pid" in *@*) ;; *) continue ;; esac
-    row_marketplace=${row_pid##*@}
     configured=0
-    for candidate in "${marketplaces_n[@]}"; do
-      [ "$candidate" = "$row_marketplace" ] && configured=1
-    done
-    [ "$configured" -eq 1 ] || continue
     for i in "${!plugins_n[@]}"; do
-      [ "$row_pid" = "${plugins_n[$i]}@${plugins_m[$i]}" ] && configured=2
+      [ "$row_pid" = "${plugins_n[$i]}@${plugins_m[$i]}" ] && configured=1
     done
-    [ "$configured" -eq 1 ] || continue
+    [ "$configured" -eq 0 ] || continue
     seen=0
     for candidate in "${unexpected_plugin[@]}"; do
       [ "$candidate" = "$row_pid" ] && seen=1
@@ -1320,8 +1315,8 @@ EOF
 $plugin_rows
 EOF
   if [ "${#unexpected_plugin[@]}" -gt 0 ]; then
-    record host-plugins "human: installed plugin from a configured marketplace is not named in the host plugin catalogue (${unexpected_plugin[*]})" \
-      "uninstall each named plugin or add it to config/host-plugins.json if it is authorized, then rerun this command"
+    record host-plugins "human: installed or enabled plugin is not named in the host plugin catalogue (${unexpected_plugin[*]})" \
+      "add each named plugin to config/host-plugins.json if it is authorized, or remove it from the Claude plugin store, then rerun this command"
     return 0
   fi
   for i in "${!plugins_n[@]}"; do
