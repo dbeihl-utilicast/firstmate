@@ -69,7 +69,7 @@ open(os.path.join(lab, "home", "settings.json"), "w").write(
 PY
 
 : > "$LAB/hooks.jsonl"
-PROMPT='Run this exact bash command and nothing else, then reply with the single word PONG: printf "%s\n" "$QWEN_CODE"'
+PROMPT='Use the run_shell_command tool to run exactly this command, then reply with only its output: printf "%s\n" "$QWEN_CODE"'
 
 set +e
 (
