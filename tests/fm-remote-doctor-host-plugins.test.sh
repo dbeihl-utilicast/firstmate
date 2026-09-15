@@ -122,7 +122,7 @@ case "${1:-} ${2:-} ${3:-}" in
         exit 1
         ;;
       fail)
-        printf 'error: marketplace add refused\n' >&2
+        printf 'error: marketplace add refused; diagnostic=stub-sensitive-detail\n' >&2
         exit 1
         ;;
     esac
@@ -155,7 +155,7 @@ PY
         exit 1
         ;;
       fail)
-        printf 'error: plugin install refused\n' >&2
+        printf 'error: plugin install refused; diagnostic=stub-sensitive-detail\n' >&2
         exit 1
         ;;
     esac
@@ -212,6 +212,7 @@ run_doctor() { # [--fix]
   DOCTOR_OUT=$(
     HOME="$CASE_HOME" \
     FM_HOME="$CASE_FM_HOME" \
+    FM_REMOTE_JOB_ACTIVE=1 \
     CLAUDE_CONFIG_DIR="${CLAUDE_CONFIG_DIR:-}" \
     PATH="$CASE_CLAUDE_BIN:$BASE_PATH" \
     "$ROOT/bin/fm-remote-doctor.sh" "$@" 2>&1
@@ -260,7 +261,7 @@ pass "a missing claude CLI is reported and Claude Code is not installed"
 
 # --- only remote Git repository sources are valid catalogue input ----------
 
-for rejected_source in 'https://example.com/.claude-plugin/marketplace.json' './local-marketplace'; do
+for rejected_source in 'https://example.com/.claude-plugin/marketplace.json' 'https://example.com/example/repository' './local-marketplace'; do
   new_host
   write_catalogue "$CASE_FM_HOME"
   python3 - "$CASE_FM_HOME/config/host-plugins.json" "$rejected_source" <<'PY'
@@ -272,11 +273,29 @@ with open(sys.argv[1], "w", encoding="utf-8") as handle:
     json.dump(data, handle)
 PY
   run_doctor --fix
-  assert_contains "$DOCTOR_OUT" 'source must be a remote Git repository URL' \
+  assert_contains "$DOCTOR_OUT" 'source must be a canonical HTTPS Git URL ending in .git' \
     "a non-repository marketplace source was not invalid config"
   [ ! -s "$CASE_STATE/commands.log" ] || fail "invalid marketplace source invoked claude"
 done
-pass "direct manifests and local paths are rejected before host mutation"
+pass "noncanonical marketplace source spellings are rejected before host mutation"
+
+new_host
+write_catalogue "$CASE_FM_HOME"
+python3 - "$CASE_FM_HOME/config/host-plugins.json" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as handle:
+    data = json.load(handle)
+data["marketplaces"][0]["source"] = "https://user:source-secret@example.com/example/repository.git"
+with open(sys.argv[1], "w", encoding="utf-8") as handle:
+    json.dump(data, handle)
+PY
+run_doctor --fix
+assert_contains "$DOCTOR_OUT" 'source must not contain credentials' \
+  "a credential-bearing marketplace source was accepted"
+assert_not_contains "$DOCTOR_OUT" 'source-secret' \
+  "invalid catalogue output disclosed a source credential"
+[ ! -s "$CASE_STATE/commands.log" ] || fail "credential-bearing marketplace source invoked claude"
+pass "credential-bearing marketplace sources are rejected without disclosure"
 
 # --- marketplace identity is bound before any repair mutates the store -----
 
@@ -359,11 +378,39 @@ assert_contains "$DOCTOR_OUT" 'fix host-plugins=failed:' "--fix did not report t
 assert_contains "$DOCTOR_OUT" 'authentication' "--fix did not name authentication as the operator action"
 assert_contains "$DOCTOR_OUT" 'check host-plugins=human:' "an auth failure was left as a silent or fixable loop"
 assert_not_contains "$DOCTOR_OUT" 'fix host-plugins=applied' "--fix claimed success after authentication failed"
+assert_not_contains "$DOCTOR_OUT" 'https://github.com/example/example-plugins.git' \
+  "authentication diagnostics disclosed the configured marketplace source"
 assert_contains "$(cat "$CASE_STATE/commands.log")" 'plugin marketplace add -- https://github.com/example/example-plugins.git' \
   "auth failure did not attempt the configured marketplace add"
 assert_not_contains "$(cat "$CASE_STATE/commands.log")" 'plugin install' \
   "auth failure still installed a plugin"
 pass "authentication failure reports the operator action and leaves the gap open"
+
+new_host
+write_catalogue "$CASE_FM_HOME"
+printf 'fail\n' > "$CASE_STATE/add.mode"
+run_doctor --fix
+assert_contains "$DOCTOR_OUT" 'fix host-plugins=failed: registering marketplace example-plugins failed' \
+  "a marketplace-add failure was not reported"
+assert_not_contains "$DOCTOR_OUT" 'stub-sensitive-detail' \
+  "marketplace-add output was copied into the readiness report"
+assert_not_contains "$DOCTOR_OUT" 'https://github.com/example/example-plugins.git' \
+  "marketplace-add failure disclosed the configured source"
+pass "marketplace-add failures redact sources and subprocess output"
+
+new_host
+write_catalogue "$CASE_FM_HOME"
+python3 - "$CASE_STATE/marketplaces.json" "$CASE_STATE/marketplace" <<'PY'
+import json, sys
+json.dump([{"name": "example-plugins", "source": "git", "url": "https://github.com/example/example-plugins.git", "installLocation": sys.argv[2]}], open(sys.argv[1], "w"))
+PY
+printf 'fail\n' > "$CASE_STATE/install.mode"
+run_doctor --fix
+assert_contains "$DOCTOR_OUT" 'fix host-plugins=failed: installing example-core@example-plugins failed' \
+  "a plugin-install failure was not reported"
+assert_not_contains "$DOCTOR_OUT" 'stub-sensitive-detail' \
+  "plugin-install output was copied into the readiness report"
+pass "plugin-install failures redact subprocess output"
 
 # --- installed but no resolving skill is the same as absent -----------------
 
@@ -455,6 +502,20 @@ assert_not_contains "$(cat "$CASE_STATE/commands.log")" 'plugin install' \
 assert_not_contains "$DOCTOR_OUT" 'fix host-plugins=applied: installed' \
   "--fix claimed to install from a mismatched marketplace"
 pass "a marketplace is bound to its configured source"
+
+new_host
+write_catalogue "$CASE_FM_HOME"
+python3 - "$CASE_STATE/marketplaces.json" "$CASE_STATE/plugins.json" "$CASE_STATE/marketplace" <<'PY'
+import json, sys
+json.dump([{"name": "example-plugins", "source": "git", "url": "https://github.com/example/example-plugins", "installLocation": sys.argv[3]}], open(sys.argv[1], "w"))
+json.dump([{"id": "example-core@example-plugins", "scope": "user", "enabled": True, "installPath": sys.argv[3] + "/plugins/example-core"}], open(sys.argv[2], "w"))
+PY
+run_doctor
+assert_contains "$DOCTOR_OUT" 'check host-plugins=human: configured marketplace is registered from a different source' \
+  "a registered source without the configured .git suffix was treated as identical"
+assert_not_contains "$DOCTOR_OUT" 'check host-plugins=ok:' \
+  "source alias normalization bypassed exact marketplace identity"
+pass "marketplace source identity requires an exact match"
 
 # --- --skip-check host-plugins is the pre-inheritance pass ------------------
 

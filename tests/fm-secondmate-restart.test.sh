@@ -471,6 +471,25 @@ case "${FM_FAKE_SSH_MODE:-ok}" in
       fm-remote-doctor.sh) exit 1 ;;
     esac
     ;;
+  doctor-repair-fail)
+    case "${rargs[0]:-}" in
+      fm-remote-doctor.sh)
+        if [ "${rargs[1]:-}" = --fix ]; then
+          printf '%s\n' \
+            'mode=fix' \
+            'fix host-plugins=failed: registering marketplace example-plugins failed on authentication' \
+            'check host-plugins=human: configured marketplace could not be registered' \
+            'action: host-plugins: authenticate git access'
+        else
+          printf '%s\n' \
+            'mode=check' \
+            'check host-plugins=fixable: configured marketplace is not registered (example-plugins)' \
+            'action: host-plugins: rerun with --fix'
+        fi
+        exit 1
+        ;;
+    esac
+    ;;
   slow-relaunch)
     : > "$FM_FAKE_DIR/remote-relaunch-start"
     ;;
@@ -560,6 +579,27 @@ test_remote_restart_refuses_when_post_inherit_readiness_fails() {
   assert_no_grep '^fm-remote-secondmate-control.sh relaunch' "$dir/ssh.log" \
     "a readiness failure still reached the host-local relaunch"
   pass "T6b a remote restart does not relaunch when post-inheritance readiness fails"
+}
+
+test_remote_restart_preserves_repair_failure_diagnostics() {
+  local dir out rc
+  dir=$(new_case remote-repair-fail)
+  setup_remote_case "$dir" sm2 doctor-repair-fail
+  export FM_FAKE_ANSWER_STATUS="$dir/home/state/sm2.status"
+
+  out=$(run_restart "$dir" fm-sm2); rc=$?
+  unset FM_FAKE_ANSWER_STATUS
+
+  expect_code 3 "$rc" "a failed repair must refuse the remote restart"$'\n'"$out"
+  assert_contains "$out" 'fix host-plugins=failed: registering marketplace example-plugins failed on authentication' \
+    "the final readiness report discarded the repair failure diagnosis"
+  assert_contains "$out" 'check host-plugins=fixable: configured marketplace is not registered (example-plugins)' \
+    "the preserved repair diagnosis replaced the final read-only verification"
+  [ "$(grep -c '^fm-remote-doctor.sh' "$dir/ssh.log")" -eq 3 ] \
+    || fail "readiness did not run check, repair, and final verification"$'\n'"$(cat "$dir/ssh.log")"
+  assert_no_grep '^fm-remote-secondmate-control.sh relaunch' "$dir/ssh.log" \
+    "a failed plugin repair still reached the host-local relaunch"
+  pass "T6d a remote restart preserves repair and final readiness diagnostics"
 }
 
 test_remote_restart_serializes_config_push_through_relaunch() {
@@ -923,6 +963,7 @@ test_local_restart_uses_the_home_pin_and_reports_what_ran
 test_native_ultra_restart_keeps_local_and_remote_profiles
 test_remote_mate_restarts_over_the_transport_hop
 test_remote_restart_refuses_when_post_inherit_readiness_fails
+test_remote_restart_preserves_repair_failure_diagnostics
 test_remote_restart_serializes_config_push_through_relaunch
 test_unreachable_host_is_reported_unknown
 test_concurrent_reply_cannot_release_persist_gate

@@ -192,6 +192,9 @@ restart_mate() {  # <array-index>
     if [ "$remote_rc" -ne 0 ]; then
       fm_lock_release "$remote_lock" || true
       report_unreached "$id" "plugin readiness failed after inherited config landed, so the host was not relaunched"
+      if [ "$remote_rc" -ne 255 ] && [ -n "$FM_REMOTE_READINESS_OUT" ]; then
+        printf '%s\n' "$FM_REMOTE_READINESS_OUT"
+      fi
       return
     fi
     restart_out=$(FM_HOME="$FM_HOME" "$SCRIPT_DIR/fm-on.sh" "$id" \

@@ -15,15 +15,15 @@
 # Returns 0 when the host is ready, 1 when a gap remains, and 255 when SSH could
 # not complete. 255 means unknown remote completion, so a caller preserves its
 # route and reconciles on the same host instead of treating it as a refusal.
-# FM_REMOTE_READINESS_OUT always holds the output of the last run, which carries
-# the check lines, the remaining human: gaps, and their exact operator actions.
+# FM_REMOTE_READINESS_OUT holds the final read-only result and, when that result
+# still fails, the preceding failed repair result with its operator action.
 
 # Consumed by the sourcing caller, so every assignment reads as unused here.
 # shellcheck disable=SC2034
 FM_REMOTE_READINESS_OUT=
 
 fm_remote_readiness_ensure() { # <bin-dir> <secondmate-id> [doctor-args...]
-  local bin_dir=$1 id=$2 out rc
+  local bin_dir=$1 id=$2 out rc repair_out repair_rc
   shift 2
 
   out=$("$bin_dir/fm-on.sh" "$id" fm-remote-doctor.sh "$@" < /dev/null 2>&1)
@@ -32,14 +32,17 @@ fm_remote_readiness_ensure() { # <bin-dir> <secondmate-id> [doctor-args...]
   [ "$rc" -ne 0 ] || return 0
   [ "$rc" -ne 255 ] || return 255
 
-  out=$("$bin_dir/fm-on.sh" "$id" fm-remote-doctor.sh --fix "$@" < /dev/null 2>&1)
-  rc=$?
-  FM_REMOTE_READINESS_OUT=$out
-  [ "$rc" -ne 255 ] || return 255
+  repair_out=$("$bin_dir/fm-on.sh" "$id" fm-remote-doctor.sh --fix "$@" < /dev/null 2>&1)
+  repair_rc=$?
+  FM_REMOTE_READINESS_OUT=$repair_out
+  [ "$repair_rc" -ne 255 ] || return 255
 
   out=$("$bin_dir/fm-on.sh" "$id" fm-remote-doctor.sh "$@" < /dev/null 2>&1)
   rc=$?
   FM_REMOTE_READINESS_OUT=$out
+  if [ "$rc" -ne 0 ] && [ "$repair_rc" -ne 0 ] && [ -n "$repair_out" ]; then
+    FM_REMOTE_READINESS_OUT="$repair_out"$'\n'"$out"
+  fi
   [ "$rc" -ne 255 ] || return 255
   [ "$rc" -eq 0 ] || return 1
   return 0

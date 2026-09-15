@@ -764,7 +764,8 @@ host_plugins_note_auth() { # <id>
 
 host_plugins_parse_catalogue() { # <path>
   python3 - "$1" <<'PY'
-import json, re, sys
+import json, sys
+from urllib.parse import urlsplit
 path = sys.argv[1]
 try:
     with open(path, "r", encoding="utf-8") as handle:
@@ -796,11 +797,18 @@ for index, marketplace in enumerate(data["marketplaces"]):
     if any(char in name or char in source for char in "\n\r\t"):
         print("ERROR marketplaces[%d] name or source contains a control character" % index)
         sys.exit(0)
-    remote_git = re.fullmatch(r"(?:https|ssh|git)://[^/\s]+/[^\s]+", source) \
-        or re.fullmatch(r"[^@/:\s]+@[^/:\s]+:[^\s]+", source)
-    direct_manifest = re.search(r"(?:^|/)marketplace\.json(?:[?#].*)?$", source, re.IGNORECASE)
-    if not remote_git or direct_manifest:
-        print("ERROR marketplaces[%d] source must be a remote Git repository URL" % index)
+    try:
+        source_url = urlsplit(source)
+        has_credentials = source_url.username is not None or source_url.password is not None
+    except ValueError:
+        source_url = None
+        has_credentials = False
+    if has_credentials:
+        print("ERROR marketplaces[%d] source must not contain credentials" % index)
+        sys.exit(0)
+    if source_url is None or source_url.scheme != "https" or not source_url.hostname \
+            or not source_url.path.endswith(".git") or source_url.query or source_url.fragment:
+        print("ERROR marketplaces[%d] source must be a canonical HTTPS Git URL ending in .git" % index)
         sys.exit(0)
     if name in seen_mp:
         print("ERROR duplicate marketplace name: %s" % name)
@@ -832,8 +840,7 @@ print("OK")
 PY
 }
 
-# Same effective store as fm-claude-trust.sh and a launched Claude pane:
-# CLAUDE_CONFIG_DIR when set (absolute only), otherwise HOME.
+# CLAUDE_CONFIG_DIR must be absolute when set; otherwise HOME is used.
 host_plugins_config_dir() {
   case ${CLAUDE_CONFIG_DIR:-} in
     '')
@@ -889,9 +896,7 @@ for item in data:
 
 host_plugins_source_matches() { # <configured> <bound>
   local configured=$1 bound=$2
-  [ -n "$bound" ] || return 1
-  [ "$configured" = "$bound" ] && return 0
-  [ "${configured%.git}" = "${bound%.git}" ]
+  [ -n "$bound" ] && [ "$configured" = "$bound" ]
 }
 
 host_plugins_registered_source() { # <name> <rows> -> bound source or empty
@@ -938,9 +943,7 @@ def source_bound(item):
 
 
 def source_matches(configured, bound):
-    configured_normalized = configured[:-4] if configured.endswith(".git") else configured
-    bound_normalized = bound[:-4] if bound.endswith(".git") else bound
-    return bool(bound) and (configured == bound or configured_normalized == bound_normalized)
+    return bool(bound) and configured == bound
 
 
 def load_json(path, label):
@@ -1030,8 +1033,7 @@ try:
                 check=False,
             )
             if cloned.returncode != 0:
-                detail = (cloned.stderr or cloned.stdout or "no diagnostic").strip().splitlines()[0]
-                raise AuditError("marketplace %s could not be staged: %s" % (name, detail))
+                raise AuditError("marketplace %s could not be staged with git" % name)
             roots[name] = destination.resolve()
 
         marketplace_entries = {}
@@ -1267,8 +1269,8 @@ EOF
   host_plugins_dir_rc=0
   host_plugins_config_dir >/dev/null || host_plugins_dir_rc=$?
   if [ "$host_plugins_dir_rc" -eq 2 ]; then
-    record host-plugins "human: CLAUDE_CONFIG_DIR is a relative path, so the store a launched pane would use cannot be guaranteed" \
-      "set CLAUDE_CONFIG_DIR to an absolute path, matching bin/fm-claude-trust.sh, then rerun this command"
+    record host-plugins "human: CLAUDE_CONFIG_DIR is a relative path, so the Claude config store cannot be located consistently" \
+      "set CLAUDE_CONFIG_DIR to an absolute path, then rerun this command"
     return 0
   fi
   if ! mp_json=$(host_plugins_claude plugin marketplace list --json 2>/dev/null); then
@@ -1502,10 +1504,10 @@ EOF
     fi
     if host_plugins_auth_failure "$out"; then
       host_plugins_note_auth "$name"
-      fix_report host-plugins failed "registering marketplace $name failed on authentication; authenticate git access to $source on that account without supplying credentials to Firstmate, then rerun this command with --fix"
+      fix_report host-plugins failed "registering marketplace $name failed on authentication; authenticate git access to the configured source on that account without supplying credentials to Firstmate, then rerun this command with --fix"
       continue
     fi
-    fix_report host-plugins failed "registering marketplace $name from $source failed: ${out:-no diagnostic}"
+    fix_report host-plugins failed "registering marketplace $name failed; inspect the named marketplace with the claude CLI, then rerun this command with --fix"
   done
   if ! plugin_json=$(host_plugins_claude plugin list --json 2>/dev/null); then
     fix_report host-plugins failed "claude plugin list --json failed"
@@ -1533,7 +1535,7 @@ EOF
         if [ "$rc" -eq 0 ]; then
           fix_report host-plugins applied "enabled $id"
         else
-          fix_report host-plugins failed "enabling $id failed: ${out:-no diagnostic}"
+          fix_report host-plugins failed "enabling $id failed; inspect the named plugin with the claude CLI, then rerun this command with --fix"
         fi
         continue
         ;;
@@ -1552,7 +1554,7 @@ EOF
       fix_report host-plugins failed "installing $id failed on authentication; authenticate git access for that marketplace on that account without supplying credentials to Firstmate, then rerun this command with --fix"
       continue
     fi
-    fix_report host-plugins failed "installing $id failed: ${out:-no diagnostic}"
+    fix_report host-plugins failed "installing $id failed; inspect the named plugin with the claude CLI, then rerun this command with --fix"
   done
 }
 
