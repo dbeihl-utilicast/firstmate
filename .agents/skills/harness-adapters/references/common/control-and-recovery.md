@@ -22,10 +22,11 @@ Cursor suppresses its dialog with launch-time `--trust`, and Muse suppresses its
 Grok pre-registers repository trust before launch; `references/harness/grok.md` owns its store and inheritance contract.
 Pi gates the fresh-worktree case too, but unlike Claude its dialog is answered with Enter, and `references/harness/pi.md` owns that recipe and where the decision persists.
 Codex shows a directory-trust dialog on the first run for a repository root.
-A Claude secondmate is deliberately not pre-registered, because `../../../bin/fm-spawn.sh` runs its per-harness pre-launch setup only for non-secondmate kinds, so the registration is never invoked for one.
+A Claude secondmate is deliberately not pre-registered, because `../../../bin/fm-spawn.sh` runs the Claude registration only for non-secondmate kinds, so it is never invoked for one.
 That kind guard is the whole exclusion, because a treehouse-leased secondmate home is itself a linked worktree that the scope test would accept, and only a plain-clone home would be refused as a primary checkout.
 The consequence is that a claude secondmate whose home Claude has never trusted meets the workspace-trust dialog itself, and firstmate cannot answer it any more than it can for a crewmate.
 This is rarely seen because a secondmate home is persistent and reused, so its trust decision is made once and survives, unlike a per-task worktree that is new every time.
+Grok's registration carries no such kind guard, so a grok secondmate is pre-registered like any other kind.
 
 Use the tool's exact skill form, or natural language only when no separate command is verified or the form remains uncertain.
 A successful send or key return is not proof of submission; require the tool-specific postcondition.
