@@ -23,20 +23,16 @@
 #       itself fired, so a caller can tell that apart from a command that exited
 #       124 on its own.
 #
-#       With FM_RUN_TIMED_FOREGROUND set, timeout/gtimeout keep the command in the
-#       caller's process group so it can prompt on the terminal; perl and bash
-#       cannot, so they end the call once it stops for input (FM_RUN_TIMED_STOPPED=1).
+#       With FM_RUN_TIMED_FOREGROUND set, timeout/gtimeout run the command in the
+#       caller's process group and signal only its own pid, never its descendants;
+#       perl and bash keep their group and end the call once it stops for input.
 #
 # A non-positive bound is not a bound: `timeout 0` and the perl fallback's
 # `alarm 0` both disable the deadline, so callers must reject 0 before calling.
 #
-# All four mechanisms terminate the whole process GROUP, not just the direct
-# child, so a hung grandchild (a vendor CLI spawned by a wrapper script, a git
-# fetch spawned by a sweep) cannot outlive the bound. GNU/BSD `timeout` does
-# this by default because it does not run the command in the foreground process
-# group; the perl fallback does it explicitly with setpgrp plus a negative pid,
-# and the bash fallback uses monitor mode to give the bounded child its own
-# process group before signaling its negative pid.
+# Except foreground timeout/gtimeout, every mechanism terminates the whole process
+# GROUP so a hung grandchild cannot outlive the bound: timeout without --foreground,
+# perl via setpgrp, and bash via monitor mode.
 set -u
 
 fm_timeout_mechanism() {

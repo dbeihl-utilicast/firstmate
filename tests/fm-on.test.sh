@@ -115,6 +115,11 @@ case "${FM_FAKE_SSH_MODE:-normal}" in
     exec sleep 999999
     ;;
   stop) kill -STOP "$$"; exit 0 ;;
+  noisy)
+    printf 'Warning: Permanently added remote-mac to the list of known hosts.\n' >&2
+    printf 'result-line\n'
+    exit 0
+    ;;
   pgrp) ps -o pgid= -p "$$" | tr -d '[:space:]'; exit 0 ;;
   leak)
     sleep "$FM_TEST_LEAK_SECONDS" &
@@ -212,6 +217,14 @@ kill "$(cat "$TMP_ROOT/leak.pid" 2>/dev/null)" 2>/dev/null || true
   || fail "a process left behind by ssh held the caller's capture pipe open for ${LEAK_ELAPSED}s"
 assert_contains "$LEAK_OUT" 'relayed before exit' "ssh output was not relayed after ssh exited"
 pass "a process left behind by ssh cannot hold a caller's capture pipe open (${LEAK_ELAPSED}s elapsed)"
+
+NOISY_MERGED=$(FM_FAKE_SSH_MODE=noisy fm_on ios fm-mutate.sh "$REMOTE_HOME/noisy-mutation" 2>&1)
+[ "${NOISY_MERGED%%$'\n'*}" = 'Warning: Permanently added remote-mac to the list of known hosts.' ] \
+  || fail "merged ssh stderr lost its place ahead of stdout: $NOISY_MERGED"
+[ "${NOISY_MERGED##*$'\n'}" = result-line ] || fail "the result was not the last merged line: $NOISY_MERGED"
+NOISY_SPLIT=$(FM_FAKE_SSH_MODE=noisy fm_on ios fm-mutate.sh "$REMOTE_HOME/noisy-mutation" 2>/dev/null)
+[ "$NOISY_SPLIT" = result-line ] || fail "separately captured stdout picked up ssh stderr: $NOISY_SPLIT"
+pass "fm-on relays merged ssh output in write order and keeps separate streams separate"
 
 # A vanished remote peer must become a bounded ssh failure instead of an
 # indefinite hang on a half-open TCP connection, so the existing no-result ->

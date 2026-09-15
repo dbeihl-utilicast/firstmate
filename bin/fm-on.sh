@@ -150,16 +150,23 @@ trap 'fm_on_forward_signal TERM' TERM
 trap 'fm_on_forward_signal INT' INT
 trap 'fm_on_forward_signal HUP' HUP
 
-rc=0
 if [ "$STDIN_MODE" = caller ]; then
-  FM_RUN_TIMED_FOREGROUND=1 fm_run_timed "$ON_TIMEOUT" "$SSH_BIN" "${SSH_ARGS[@]}" \
-    > "$CAPTURE_DIR/stdout" 2> "$CAPTURE_DIR/stderr" || rc=$?
+  exec 3<&0
 else
-  FM_RUN_TIMED_FOREGROUND=1 fm_run_timed "$ON_TIMEOUT" "$SSH_BIN" "${SSH_ARGS[@]}" \
-    < /dev/null > "$CAPTURE_DIR/stdout" 2> "$CAPTURE_DIR/stderr" || rc=$?
+  exec 3< /dev/null
 fi
+exec 4> "$CAPTURE_DIR/stdout"
+if [ /dev/fd/1 -ef /dev/fd/2 ]; then
+  exec 5>&4
+else
+  exec 5> "$CAPTURE_DIR/stderr"
+fi
+rc=0
+FM_RUN_TIMED_FOREGROUND=1 fm_run_timed "$ON_TIMEOUT" "$SSH_BIN" "${SSH_ARGS[@]}" \
+  <&3 >&4 2>&5 3<&- 4>&- 5>&- || rc=$?
+exec 3<&- 4>&- 5>&-
 cat -- "$CAPTURE_DIR/stdout"
-cat -- "$CAPTURE_DIR/stderr" >&2
+[ ! -f "$CAPTURE_DIR/stderr" ] || cat -- "$CAPTURE_DIR/stderr" >&2
 if [ "$FM_RUN_TIMED_STOPPED" -eq 1 ]; then
   printf 'error: ssh stopped for a terminal prompt it could not reach talking to %s: %s\n' \
     "$HOST" "$COMMAND" >&2

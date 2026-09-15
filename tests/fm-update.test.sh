@@ -263,7 +263,10 @@ decode() { printf '%s' "$1" | base64 --decode 2>/dev/null || printf '%s' "$1" | 
 rargs=()
 while IFS= read -r -d '' a; do rargs+=("$a"); done < <(decode "$argv_b64")
 case "${rargs[1]:-}" in
-  update) printf 'synced: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n' ;;
+  update)
+    printf 'Warning: Permanently added remote-mac to the list of known hosts.\n' >&2
+    printf 'synced: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n'
+    ;;
   state) printf 'alive\n' ;;
   *) exit 91 ;;
 esac
