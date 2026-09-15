@@ -15,6 +15,15 @@
 #       except 124, which means the bound was hit (GNU timeout's convention,
 #       reproduced by the perl and bash fallbacks).
 #
+#       Sets FM_RUN_TIMED_KILL_TARGET (global, reset on every call) to a `kill`
+#       argument that tears down the bounded command's whole tree on demand -
+#       a caller that is itself killed before fm_run_timed returns can forward
+#       that same signal to this target from its own trap so the bounded
+#       command does not silently outlive it. Populated for the timeout,
+#       gtimeout, and bash mechanisms; left empty for the perl fallback, which
+#       has no equivalent safe target to expose - a caller must treat an empty
+#       target as "nothing more to do here", never retry with a guess.
+#
 # A non-positive bound is not a bound: `timeout 0` and the perl fallback's
 # `alarm 0` both disable the deadline, so callers must reject 0 before calling.
 #
@@ -56,6 +65,9 @@ fm_run_bash_timeout() {
     exit "$command_rc"
   ) &
   child_pid=$!
+  # Monitor mode gave this job its own process group headed by child_pid, so
+  # the group form is what a caller's trap must signal to reach it.
+  FM_RUN_TIMED_KILL_TARGET="-$child_pid"
   (
     set +m
     sleep "$seconds"
@@ -95,6 +107,15 @@ fm_run_external_timeout() {
   # A shell wrapper can exit promptly on TERM while one of its descendants
   # ignores TERM; timeout then considers the command finished and does not send
   # its configured KILL. Explicitly reap that leftover group on a real timeout.
+  #
+  # Without job control active (the ordinary case for a sourced, non-interactive
+  # caller), bash silently substitutes /dev/null for an asynchronous command's
+  # stdin unless that exact command carries its own redirection - so a caller
+  # that redirected fm_run_timed's own stdin (a file, a payload pipe) would
+  # otherwise lose it here even though nothing about this call looks wrong.
+  # The explicit <&0 duplicates whatever stdin this function actually has,
+  # which both suppresses that substitution and is a no-op when the caller
+  # left stdin alone.
   # shellcheck disable=SC2016  # Expansion is deliberately deferred to the child shell.
   "$runner" -k 1 "$seconds" bash -c '
     status_file=$1
@@ -103,8 +124,14 @@ fm_run_external_timeout() {
     command_rc=$?
     printf "%s\n" "$command_rc" > "$status_file"
     exit "$command_rc"
-  ' _ "$status_file" "$@" &
+  ' _ "$status_file" "$@" <&0 &
   runner_pid=$!
+  # GNU/BSD timeout's own pid doubles as the process-group id of the command
+  # it launched (confirmed by this library's own kill -KILL -- "-$runner_pid"
+  # cleanup below), and timeout forwards a signal it receives itself to that
+  # group before exiting - so a plain kill of runner_pid is enough for a
+  # caller's trap to tear down everything underneath it.
+  FM_RUN_TIMED_KILL_TARGET="$runner_pid"
   if wait "$runner_pid"; then
     runner_rc=0
   else
@@ -128,6 +155,8 @@ fm_run_external_timeout() {
 fm_run_timed() {  # <seconds> <command...>
   local seconds=$1
   shift
+  # shellcheck disable=SC2034 # Sourceable API consumed by callers, not this function.
+  FM_RUN_TIMED_KILL_TARGET=
   case "$(fm_timeout_mechanism)" in
     timeout) fm_run_external_timeout timeout "$seconds" "$@" ;;
     gtimeout) fm_run_external_timeout gtimeout "$seconds" "$@" ;;

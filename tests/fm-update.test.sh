@@ -471,12 +471,63 @@ test_unsafe_secondmate_home_skipped_before_git_update() {
   pass "T11 unsafe secondmate home is not fast-forwarded"
 }
 
+test_hung_remote_fails_loudly_instead_of_wedging() {
+  local w out fake_ssh elapsed rc
+  w=$(new_world t3f)
+  bump_origin "$w" instr
+  fake_ssh="$w/fakebin/fake-ssh"
+  # A live but unresponsive remote: this process never exits or produces
+  # output on its own, so ServerAlive dead-peer detection cannot fire and the
+  # caller cannot tell it apart from a remote that is simply still working.
+  # Recreates the 2026-09-15 captain-reported wedge, where fm-update.sh ran
+  # local homes to completion and then hung indefinitely on the first remote
+  # entry instead of ever reaching this point.
+  cat > "$fake_ssh" <<'SH'
+#!/usr/bin/env bash
+exec sleep 999999
+SH
+  chmod +x "$fake_ssh"
+  cat > "$w/home/state/sm1.meta" <<EOF
+window=remote:sm1
+endpoint_task_id=sm1
+worktree=/srv/sm1
+project=/srv/sm1
+harness=claude
+kind=secondmate
+home=/srv/sm1
+remote_host=remote-mac
+remote_backend=herdr
+EOF
+  printf -- '- sm1 - remote domain (host: remote-mac; root: /srv/fm; home: /srv/sm1; scope: things; projects: p; added 2026-09-03)\n' \
+    > "$w/home/data/secondmates.md"
+
+  elapsed=$SECONDS
+  set +e
+  out=$(PATH="$w/fakebin:$PATH" FM_FAKE_DIR="$w/fake" \
+    FM_SSH_BIN="$fake_ssh" FM_ON_TIMEOUT=2 \
+    FM_ROOT_OVERRIDE="$w/main" FM_HOME="$w/home" "$UPDATE" 2>&1)
+  rc=$?
+  set -e
+  elapsed=$((SECONDS - elapsed))
+  [ "$rc" -eq 0 ] || fail "a hung remote entry made the whole update run fail (rc=$rc): $out"
+  [ "$elapsed" -le 20 ] \
+    || fail "fm-update.sh did not bound a hung remote entry: took ${elapsed}s against a 2s FM_ON_TIMEOUT"
+  assert_contains "$out" "firstmate: updated " "local firstmate fast-forward still ran ahead of the hung remote entry"
+  assert_contains "$out" "remote secondmate sm1: skipped on remote-mac" \
+    "the hung remote entry was not reported as skipped"
+  assert_contains "$out" "did not complete within 2s" "the skip reason did not name its bound"
+  assert_contains "$out" "talking to remote-mac" "the skip reason did not name the host it was talking to"
+  assert_contains "$out" "reread-firstmate:" "the run did not reach its summary after the hung remote entry"
+  pass "T3f a hung remote entry fails loudly, naming the host, instead of wedging the whole update (${elapsed}s elapsed)"
+}
+
 test_updates_main_and_secondmate
 test_reread_gate_is_instruction_only
 test_bin_only_advance_restarts
 test_unprovable_runtime_gets_fallback_nudge
 test_dead_secondmate_gets_no_action
 test_legacy_remote_advance_restarts
+test_hung_remote_fails_loudly_instead_of_wedging
 test_dirty_secondmate_skipped
 test_diverged_secondmate_skipped
 test_already_current_secondmate_still_restarts

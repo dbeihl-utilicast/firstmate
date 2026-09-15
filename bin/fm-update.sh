@@ -196,7 +196,10 @@ if [ -f "$SECONDMATES_MD" ]; then
           *) echo "remote secondmate $id: skipped on $SECONDMATE_REGISTRY_HOST: malformed update result" >&2 ;;
         esac
       else
-        echo "remote secondmate $id: skipped on $SECONDMATE_REGISTRY_HOST: ${remote_out%%$'\n'*}" >&2
+        # The last line, not the first: a failure (including fm-on.sh's own
+        # bounded-timeout diagnostic naming the host) is always printed last,
+        # after any banner or partial progress the remote side already flushed.
+        echo "remote secondmate $id: skipped on $SECONDMATE_REGISTRY_HOST: ${remote_out##*$'\n'}" >&2
       fi
     else
       process_secondmate "$id" "$home" "" origin yes

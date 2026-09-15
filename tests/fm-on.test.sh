@@ -106,6 +106,11 @@ case "${FM_FAKE_SSH_MODE:-normal}" in
     "$FM_FAKE_REMOTE_ENTRYPOINT" "$@"
     exit 255
     ;;
+  # A live but unresponsive remote: the peer answered (this process exists and
+  # never exits on its own), so ServerAlive dead-peer detection cannot fire,
+  # and it produces no output before being killed - indistinguishable from a
+  # remote that is simply still working, except that it never finishes.
+  hang) exec sleep 999999 ;;
   *) exec "$FM_FAKE_REMOTE_ENTRYPOINT" "$@" ;;
 esac
 SH
@@ -516,5 +521,28 @@ set -e
 [ "$(cat "$SSH_COUNT")" -eq 1 ] || fail "ambiguous completion was retried"
 [ "$(grep -c mutation "$REMOTE_HOME/mutations")" -eq 1 ] || fail "ambiguous mutation did not execute exactly once"
 pass "unreachable and ambiguous transport failures are surfaced without retry"
+
+# A wedge indistinguishable from slow work is the real defect this transport
+# must never reproduce: ServerAlive only detects a dead peer, never a live one
+# whose remote command stopped making progress (a hung remote job, a stale
+# worker, a pre-migration host with no bounded job queue at all). The whole
+# ssh call must fail loudly, naming the host, within a hard bound instead of
+# blocking its caller forever. FM_ON_TIMEOUT is overridden small here so the
+# assertion is fast and deterministic; fm-on.sh's own default (900s) is
+# documented in its header.
+: > "$SSH_COUNT"
+HANG_START=$SECONDS
+set +e
+HANG_OUT=$(FM_FAKE_SSH_MODE=hang FM_ON_TIMEOUT=2 fm_on ios fm-mutate.sh "$REMOTE_HOME/hang-mutation" 2>&1)
+HANG_RC=$?
+set -e
+HANG_ELAPSED=$((SECONDS - HANG_START))
+[ "$HANG_RC" -eq 124 ] || fail "a hung remote did not fail with the bounded-timeout exit status (got $HANG_RC): $HANG_OUT"
+[ "$HANG_ELAPSED" -le 15 ] \
+  || fail "a hung remote was not bounded: took ${HANG_ELAPSED}s against a 2s FM_ON_TIMEOUT"
+assert_contains "$HANG_OUT" 'did not complete within 2s' "the timeout diagnostic did not name its bound"
+assert_contains "$HANG_OUT" 'talking to remote-mac' "the timeout diagnostic did not name the host it was talking to"
+assert_absent "$REMOTE_HOME/hang-mutation" "a bounded-out hung remote still ran the mutation"
+pass "a live but unresponsive remote fails loudly, naming the host, within FM_ON_TIMEOUT instead of hanging (${HANG_ELAPSED}s elapsed)"
 
 echo "ALL TESTS PASSED"
