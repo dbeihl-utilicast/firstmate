@@ -69,6 +69,7 @@ open(os.path.join(lab, "home", "settings.json"), "w").write(
 PY
 
 : > "$LAB/hooks.jsonl"
+# shellcheck disable=SC2016 # $QWEN_CODE is literal prompt text for the model's shell tool
 PROMPT='Use the run_shell_command tool to run exactly this command, then reply with only its output: printf "%s\n" "$QWEN_CODE"'
 
 set +e
