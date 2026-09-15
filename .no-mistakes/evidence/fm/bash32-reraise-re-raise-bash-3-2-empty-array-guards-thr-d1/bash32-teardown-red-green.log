@@ -1,0 +1,7 @@
+runtime(/usr/bin/env bash): 3.2.57(2)-release
+=== RED: base db7da78 bin/ + target test, Bash 3.2 ===
+not ok - empty-descendant-pool-locks: forced teardown hit an unbound-variable crash: /tmp/nm-bash32-red/bin/fm-teardown.sh: line 2632: DESCENDANT_TREEHOUSE_LOCK_PATHS[@]: unbound variable
+exit=1
+=== GREEN: target ce1f544, Bash 3.2 ===
+ok - forced secondmate teardown succeeds when no descendant holds a pool lock
+exit=0

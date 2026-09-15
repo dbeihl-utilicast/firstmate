@@ -1,0 +1,5 @@
+runtime: 5.2.21(1)-release  (base db7da78 bin/, target tests)
+ok - forced secondmate teardown succeeds when no descendant holds a pool lock
+teardown exit=0
+ok - itemless outbox receive succeeds when KEYS is empty
+receive exit=0

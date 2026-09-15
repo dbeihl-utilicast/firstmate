@@ -1,0 +1,13 @@
+runtime: 3.2.57(2)-release
+=== RED base: fm_procevent_path_normalize / and /a/../ ===
+/tmp/nm-bash32-red/bin/fm-procevent-lib.sh: line 853: normalized[*]: unbound variable
+/
+/tmp/nm-bash32-red/bin/fm-procevent-lib.sh: line 853: normalized[*]: unbound variable
+/
+/x/y
+exit=0
+=== GREEN target: fm_procevent_path_normalize / and /a/../ ===
+/
+/
+/x/y
+exit=0

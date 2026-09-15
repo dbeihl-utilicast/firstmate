@@ -1,0 +1,8 @@
+=== GREEN target ce1f544: tree=/home/dbeihl/.no-mistakes/worktrees/4962ffbf57ea/01M2KM2CXVFAM0AK566S718FXZ (ce1f544 + 0 base-reverted bin files) ===
+teardown interpreter: 3.2.57(2)-release  treehouse: v2.3.0  tmux 3.4
+before: parent_meta=present retired_home=present windows=[fm-task-x1 fm-child-pool ] leases=1
+--- fm-teardown.sh task-x1 --force: exit=0 ---
+$T/stdout:🌳 Worktree returned to pool.
+$T/stdout:teardown task-x1 complete (window firstmate:fm-task-x1, worktree $T/wt)
+after:  parent_meta=absent retired_home=absent windows=[] leases=0
+RESULT: no unbound-variable abort

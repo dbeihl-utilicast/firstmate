@@ -1,0 +1,7 @@
+runtime(/usr/bin/env bash): 3.2.57(2)-release
+=== RED: base db7da78 bin/ + target test, Bash 3.2 ===
+not ok - itemless outbox receive hit an unbound-variable crash: /tmp/nm-bash32-red/bin/fm-backlog-receive.sh: line 147: KEYS[@]: unbound variable
+exit=1
+=== GREEN: target ce1f544, Bash 3.2 ===
+ok - itemless outbox receive succeeds when KEYS is empty
+exit=0

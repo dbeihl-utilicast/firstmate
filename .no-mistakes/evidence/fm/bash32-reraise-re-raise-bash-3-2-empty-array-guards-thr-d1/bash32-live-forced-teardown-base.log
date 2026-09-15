@@ -1,0 +1,7 @@
+=== RED base db7da78 bin/: tree=/tmp/nm-bash32-red (ce1f544 + 6 base-reverted bin files) ===
+teardown interpreter: 3.2.57(2)-release  treehouse: v2.3.0  tmux 3.4
+before: parent_meta=present retired_home=present windows=[fm-task-x1 fm-child-pool ] leases=1
+--- fm-teardown.sh task-x1 --force: exit=0 ---
+$T/stderr:/tmp/nm-bash32-red/bin/fm-teardown.sh: line 2632: DESCENDANT_TREEHOUSE_LOCK_PATHS[@]: unbound variable
+after:  parent_meta=present retired_home=present windows=[fm-task-x1 fm-child-pool ] leases=1
+RESULT: unbound-variable abort
