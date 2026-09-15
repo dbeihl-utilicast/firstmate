@@ -1,0 +1,40 @@
+
+   master /private/tmp/fm-grok-live/proj
+
+
+
+
+                                                                    ⠀⠀⠀⠀⠀⠀⣀⣀⡀⠀⠀⠀⢀⠄
+                                                                    ⠀⠀⠀⣠⣾⠿⠛⠛⠛⠛⢀⡴⠁⠀
+                                                                    ⠀⠀⣼⡟⠁⠀⠀⠀⢀⡴⠻⣿⡀⠀
+                                                                    ⠀⠀⣿⡇⠀⠀⠀⠔⠁⠀⠀⣿⡇⠀
+                                                                    ⠀⠀⢹⣷⠀⠀⠀⠀⠀⢀⣴⡿⠀⠀
+                                                                    ⠀⢀⠞⠁⠠⢶⣶⣶⣶⠿⠋⠀⠀⠀
+                                                                    ⠐⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+
+
+                                                     Do you trust the contents of this directory?
+                                                            /private/tmp/fm-grok-live/proj
+
+                                               Grok Build may run or modify contents in this directory,
+                                                                posing security risks.
+
+                                                            Yes, proceed                 y
+                                                            No, quit                     n
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                         Grok Build  1.0.30 [stable]
+

@@ -1,0 +1,6 @@
+# Files changed in the Grok home by one fm-grok-trust.sh registration
+
+546c546
+< 1789496241 143 /tmp/fm-grok-live/grokhome/trusted_folders.toml 
+---
+> 1789496260 227 /tmp/fm-grok-live/grokhome/trusted_folders.toml 

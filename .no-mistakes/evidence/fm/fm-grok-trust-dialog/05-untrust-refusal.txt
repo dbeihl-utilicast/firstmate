@@ -1,0 +1,3 @@
+error: /private/tmp/fm-grok-live/other already has an explicit untrust decision in /private/tmp/fm-grok-live/grokhome/trusted_folders.toml; refusing to override it
+error: refusing to pre-register Grok trust: could not record trust for '/private/tmp/fm-grok-live/other' in '/private/tmp/fm-grok-live/grokhome/trusted_folders.toml'
+helper exit=1
