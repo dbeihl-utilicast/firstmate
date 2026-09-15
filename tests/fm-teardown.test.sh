@@ -2327,6 +2327,64 @@ configure_secondmate_with_tmux_children() {  # <case-dir>
   done
 }
 
+# A secondmate whose only child occupies a Treehouse pool slot, with no
+# descendant holding the shared project lock yet. Forced teardown walks that
+# empty lock list on the first slot child. The retired home is a sibling of
+# the parent home so removal is not refused as a path inside FM_HOME.
+configure_secondmate_with_uncontested_pool_slot_child() {  # <case-dir>
+  local case_dir=$1 home="$1-sm" child=child-pool
+  local child_wt="$1-pool/1/project"
+  mkdir -p "$home/state" "$home/data" "$home/config" "$home/projects" "$(dirname "$child_wt")"
+  printf '%s\n' task-x1 > "$home/.fm-secondmate-home"
+  printf '%s\n' "home=$home" >> "$case_dir/state/task-x1.meta"
+  git -C "$case_dir/project" worktree add -q -b "fm/$child" "$child_wt" main
+  printf '{"worktrees":[{"name":"1","path":"%s"}]}\n' "$child_wt" \
+    > "$1-pool/treehouse-state.json"
+  fm_write_meta "$home/state/$child.meta" \
+    "window=firstmate:fm-$child" \
+    "endpoint_task_id=$child" \
+    "worktree=$child_wt" \
+    "project=$case_dir/project" \
+    "kind=ship" \
+    "mode=local-only"
+  : > "$home/state/$child.status"
+}
+
+test_forced_secondmate_teardown_succeeds_when_no_descendant_holds_a_pool_lock() {
+  local case_dir home rc
+  case_dir=$(make_case empty-descendant-pool-locks)
+  write_meta "$case_dir" local-only secondmate
+  configure_secondmate_with_uncontested_pool_slot_child "$case_dir"
+  home="$case_dir-sm"
+  : > "$case_dir/kill.log"
+  : > "$case_dir/treehouse.log"
+  cat > "$case_dir/fakebin/tmux" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$case_dir/kill.log"
+exit 0
+SH
+  cat > "$case_dir/fakebin/treehouse" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$case_dir/treehouse.log"
+exit 0
+SH
+  chmod +x "$case_dir/fakebin/tmux" "$case_dir/fakebin/treehouse"
+
+  rc=0
+  FM_HOME="$case_dir" \
+    run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  [ "$rc" -eq 0 ] || fail "empty-descendant-pool-locks: forced teardown failed (exit $rc): $(cat "$case_dir/stderr" "$case_dir/stdout")"
+  grep -q 'unbound variable' "$case_dir/stderr" \
+    && fail "empty-descendant-pool-locks: forced teardown hit an unbound-variable crash: $(cat "$case_dir/stderr")"
+  [ ! -e "$case_dir/state/task-x1.meta" ] && [ ! -d "$home" ] \
+    || fail "empty-descendant-pool-locks: forced teardown retained retired task state"
+  [ ! -e "$home/state/child-pool.meta" ] \
+    || fail "empty-descendant-pool-locks: forced teardown retained the child record"
+  [ -s "$case_dir/kill.log" ] && [ -s "$case_dir/treehouse.log" ] \
+    || fail "empty-descendant-pool-locks: forced teardown did not perform endpoint and worktree cleanup"
+  pass "forced secondmate teardown succeeds when no descendant holds a pool lock"
+}
+
 test_forced_secondmate_teardown_holds_descendant_lifecycle_locks() {
   local case_dir home lock ready release holder_pid rc waited=0 child
   case_dir=$(make_case descendant-locks)
@@ -3666,6 +3724,14 @@ EOF
   pass "the run abort and the leaked-process reap both complete before the destructive worktree return"
 }
 
+# CI's stock macOS Bash lane sets FM_TEST_ONLY to run just the bash-3.2 empty
+# descendant-pool-lock teardown regression. The rest of this file is not a 3.2
+# snapshot suite.
+if [ -n "${FM_TEST_ONLY:-}" ]; then
+  "$FM_TEST_ONLY"
+  exit 0
+fi
+
 test_local_only_fork_remote_allows
 test_teardown_closes_the_backlog_item_itself
 test_teardown_manual_backend_leaves_the_backlog_to_the_operator
@@ -3682,6 +3748,7 @@ test_herdr_flat_teardown_refuses_orphaning_records_then_retry_completes
 test_herdr_flat_teardown_refuses_records_on_unparseable_presence
 test_herdr_flat_teardown_preflight_refuses_before_changes
 test_forced_secondmate_herdr_child_preflight_refuses_before_changes
+test_forced_secondmate_teardown_succeeds_when_no_descendant_holds_a_pool_lock
 test_forced_secondmate_teardown_holds_descendant_lifecycle_locks
 test_forced_secondmate_herdr_child_retains_records_when_close_unconfirmed
 test_forced_teardown_retains_nested_secondmate_home_when_grandchild_close_unconfirmed
