@@ -31,7 +31,7 @@ Qwen does not clear those inherited markers, so a qwen worker under a grok or cl
 
 Ancestry cannot cover the installed bundle on modern Node/Linux.
 The live process reports `comm=node-MainThread` and `argv0=node`, so neither the command-name arm nor a naive interpreter arm matches without reading the script argument.
-`../../../../../bin/fm-qwen-lib.sh` owns the narrow structural rule: identity comes from argv[1], accepted only when it is named `qwen` or lives under `@qwen-code/qwen-code/`.
+`../../../../../bin/fm-qwen-lib.sh` owns the narrow structural rule: identity comes from the interpreter's first non-flag argument, accepted only when it is named `qwen` or lives under `@qwen-code/qwen-code/`.
 A natively-named `qwen` binary is still detected by the comm-name arm.
 
 Do not promote `QWEN_CODE_CLI` to a marker.

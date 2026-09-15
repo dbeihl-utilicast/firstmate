@@ -596,13 +596,7 @@ No reasoning-effort axis was found; `gemini --help` on 0.58.0 exposes no effort,
 ## Qwen Code
 
 The Qwen Code crewmate/scout adapter was verified on 2026-09-15 with qwen 0.23.0 (hooks, detection) and re-verified the same day on 0.23.4 (supervised TUI dispatch) on Linux, Node v26.7.0, Ollama 0.32.14.
-[`qwen.md`](qwen.md) owns the dated commands, hook evidence, supervised-dispatch proof, model context measurements, and the false-success negative (the model did not claim; the independent gate stayed red).
-Refresh with:
-
-```
-bin/fm-test-run.sh tests/fm-qwen-harness.test.sh tests/fm-busy-adapter-wiring.test.sh
-FM_QWEN_SIGNALS_LIVE=1 bin/fm-test-run.sh tests/fm-qwen-signals-live-e2e.test.sh
-```
+[`qwen.md`](qwen.md) owns the dated commands, hook evidence, supervised-dispatch proof, model context measurements, and the false-success negative (the model did not claim; the independent gate stayed red), and [its refresh section](qwen.md#refreshing-this-record) owns the rerun commands.
 
 Qwen as a primary or secondmate runtime is unverified and is refused by `bin/fm-spawn.sh`.
 The adapter is Linux-only; a non-Linux spawn or relaunch refuses as `qwen-platform-unsupported`.
