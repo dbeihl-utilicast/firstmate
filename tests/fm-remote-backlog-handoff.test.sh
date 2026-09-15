@@ -13,7 +13,7 @@ sha256_file() {
 # --resume-pending can deliver a Queued-only file with no keys. Receipt must
 # not abort on KEYS[@] under bash 3.2 nounset.
 test_itemless_outbox_receive_succeeds_under_bash32() {
-  local home handoff outbox gen bytes hash out err rc
+  local home outbox gen bytes hash out err rc
   home=$(fm_test_tmproot fm-itemless-outbox)
   mkdir -p "$home/bin" "$home/data" "$home/state/handoff"
   printf 'ios\n' > "$home/.fm-secondmate-home"
