@@ -112,11 +112,12 @@ case "${FM_FAKE_SSH_MODE:-normal}" in
   # remote that is simply still working, except that it never finishes.
   hang) exec sleep 999999 ;;
   cancel)
+    [ "${FM_TEST_NO_BASHPID:-0}" != 1 ] || unset BASHPID
     printf '%s\n' "$$" > "$FM_TEST_CANCEL_SSH_PID"
     trap '' HUP INT TERM
     (
       trap '' HUP INT TERM
-      printf '%s\n' "${BASHPID:-$$}" > "$FM_TEST_CANCEL_CHILD_PID"
+      printf '%s\n' "${BASHPID:-$(exec sh -c 'printf "%s\n" "$PPID"')}" > "$FM_TEST_CANCEL_CHILD_PID"
       while :; do sleep 1; done
     ) &
     wait
@@ -567,15 +568,18 @@ assert_cancelled_pid_gone() {
 }
 
 test_fallback_cancellation() {
-  local mechanism=$1 fm_pid rc=0 i=0 ssh_pid child_pid
+  local mechanism=$1 fm_pid rc=0 i=0 ssh_pid child_pid no_bashpid=0
   ssh_pid="$TMP_ROOT/$mechanism-ssh.pid"
   child_pid="$TMP_ROOT/$mechanism-child.pid"
+  [ "$mechanism" != bash ] || no_bashpid=1
   FM_HOME="$LOCAL_HOME" FM_ROOT_OVERRIDE="$REMOTE_ROOT" FM_SSH_BIN="$FAKEBIN/fake-ssh" \
     FM_FAKE_SSH_COUNT="$SSH_COUNT" FM_FAKE_SSH_LOG="$SSH_LOG" \
     FM_FAKE_REMOTE_ENTRYPOINT="$REMOTE_ROOT/bin/fm-remote-entrypoint.sh" \
     FM_FAKE_SSH_MODE=cancel FM_TEST_CANCEL_SSH_PID="$ssh_pid" \
     FM_TEST_CANCEL_CHILD_PID="$child_pid" FM_TIMEOUT_MECHANISM_OVERRIDE="$mechanism" \
-    FM_ON_TIMEOUT=60 "$ROOT/bin/fm-on.sh" ios fm-mutate.sh "$REMOTE_HOME/cancel-mutation" \
+    FM_TEST_NO_BASHPID="$no_bashpid" FM_ON_TIMEOUT=60 \
+    bash -c 'script=$1; shift; [ "${FM_TEST_NO_BASHPID:-0}" != 1 ] || unset BASHPID; . "$script"' \
+    _ "$ROOT/bin/fm-on.sh" ios fm-mutate.sh "$REMOTE_HOME/cancel-mutation" \
     > "$TMP_ROOT/$mechanism-cancel.out" 2> "$TMP_ROOT/$mechanism-cancel.err" &
   fm_pid=$!
   while [ "$i" -lt 100 ] && { [ ! -s "$ssh_pid" ] || [ ! -s "$child_pid" ]; }; do

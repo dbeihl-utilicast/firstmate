@@ -56,7 +56,7 @@ fm_run_bash_timeout() {
   set -m
   (
     set +m
-    coordinator_pid=${BASHPID:-$$}
+    coordinator_pid=${BASHPID:-$(exec sh -c 'printf "%s\n" "$PPID"')}
     trap 'trap "" HUP INT TERM USR1; kill -TERM -- "-$coordinator_pid" 2>/dev/null || true; sleep 0.2; kill -KILL -- "-$coordinator_pid" 2>/dev/null || true' HUP INT TERM
     trap 'printf "expired\n" > "$deadline_status"; trap "" HUP INT TERM USR1; kill -TERM -- "-$coordinator_pid" 2>/dev/null || true; sleep 0.2; kill -KILL -- "-$coordinator_pid" 2>/dev/null || true' USR1
     "$@" <&0 &
