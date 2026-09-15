@@ -490,6 +490,7 @@ This section is the single owner of the canonical V2 schema and its per-field se
 | `placement` | Non-empty capability map and ordered target rules, `unmatched: "retain-intake-home"`, and an `enforcement` object. `enforcement.current` must be `"advisory"` and `not_read_by` must name `fm-bootstrap` and `fm-spawn`: bootstrap validates this data, but neither path uses it to route work. `mechanical_owner` records the intended future routing owner; the example names `intake-and-backlog-handoff`. |
 | `dispatch` | `selector: "quota-array-dispatch"`, non-empty `target_host_checks` naming checks for firstmate to perform on the target host, `higher_reasoning_requires_reason: true`, and `history_ref: "data/crew-dispatch-history.md"`. These declarations do not run checks or write history. |
 | `constraints` | At least one constraint. Each names `allowed_task_shapes` (the task shapes that may use the blocked classes), `blocked_model_classes` (each value must be a known `model_class`), `unknown_model_class: "treat_as_blocked"`, and `on_no_eligible_candidate: "report"`. The last two values are fixed on purpose. |
+| `ordinary_models` | Optional non-empty array of bare model names classified `ordinary`. When omitted, bootstrap uses the built-in default: `gpt-5.6-terra`, `sonnet`, `claude-sonnet-5`, `gpt-5.6-sol-xhigh`, `grok-4.6`, `cursor-grok-4.6-high-fast`, `composer-2.5`, `gpt-5.6-luna`, and `claude-opus-5`. An existing V2 file without this field keeps validating. A present list replaces that default rather than merging with it. Names matching the structural astra or fable patterns, and names that contain `/`, are refused. |
 | `exceptions` | Exactly `[]`. Quota eligibility, runway, and ranking follow `quota-array-dispatch`. |
 | `rules` | A non-empty ordered array of `id`, natural-language `when`, `reasoning`, and non-empty `use` profiles. `match`, `independence`, and `decision_refs` are optional; an absent `match` matches whatever no earlier rule already claimed, so rule order carries a fallback rule's precedence. A fixed reasoning rule must name an effort target and require a dispatch reason. |
 | `default` | A non-empty quota-aware array of profiles used only when no task-shaped rule matches. A profile whose `model_class` is listed in `blocked_model_classes` is rejected here. |
@@ -502,7 +503,9 @@ Matching, including applying host scope, remains firstmate's judgment; bootstrap
 
 Every V2 profile has `id`, `harness`, `model`, and `model_class`; `effort`, `reasoning_target`, `reasoning_source`, `eligible_when`, and `preferred_when` are optional non-empty strings.
 Profile IDs must be unique within each `use` array and within `default`.
-`model_class` must agree with the static classification owned by `crew_dispatch_validate` in [`bin/fm-bootstrap.sh`](../bin/fm-bootstrap.sh).
+`model_class` must agree with the classification owned by `crew_dispatch_validate` in [`bin/fm-bootstrap.sh`](../bin/fm-bootstrap.sh).
+Astra and fable are detected by name pattern and stay structural: `ordinary_models` cannot include a matching name, and a matching model cannot claim `ordinary`.
+Ordinary names come from `ordinary_models` when that field is present, otherwise from the built-in default above.
 Models outside that classification, including automatic aliases, are rejected even if a target-host catalogue lists them; changing `model_class` cannot make them eligible.
 This classification establishes policy eligibility; target-host catalogue and authentication checks still establish model availability.
 A profile whose `model_class` appears in a constraint's `blocked_model_classes` is valid only in a rule whose `match.task_shape` is a non-empty subset of that constraint's `allowed_task_shapes`; those classes are rejected in `default`.

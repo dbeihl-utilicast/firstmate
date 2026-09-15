@@ -8,6 +8,7 @@
   },
   "dispatch": {"selector": "quota-array-dispatch", "target_host_checks": ["model_catalog", "quota", "authentication"], "higher_reasoning_requires_reason": true, "history_ref": "data/crew-dispatch-history.md"},
   "constraints": [{"id": "top-tier-task-shape", "allowed_task_shapes": ["large", "architecturally-hard", "multi-subsystem", "open-ended-design", "gnarly-diagnosis"], "blocked_model_classes": ["astra", "fable"], "unknown_model_class": "treat_as_blocked", "on_no_eligible_candidate": "report", "decision_ref": "decision/example/top-tier-task-shape"}],
+  "ordinary_models": ["gpt-5.6-terra", "sonnet", "claude-sonnet-5", "gpt-5.6-sol-xhigh", "grok-4.6", "cursor-grok-4.6-high-fast", "composer-2.5", "gpt-5.6-luna", "claude-opus-5"],
   "exceptions": [],
   "rules": [
     {

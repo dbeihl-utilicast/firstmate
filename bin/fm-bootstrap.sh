@@ -1156,15 +1156,34 @@ crew_dispatch_validate() {
       else .
       end;
     def v2_model_class_names: ["ordinary", "astra", "fable"];
-    def v2_model_class:
-      . as $selector
-      | split("/")[-1] as $model
+    def v2_builtin_ordinary_models: ["gpt-5.6-terra", "sonnet", "claude-sonnet-5", "gpt-5.6-sol-xhigh", "grok-4.6", "cursor-grok-4.6-high-fast", "composer-2.5", "gpt-5.6-luna", "claude-opus-5"];
+    def v2_top_tier_class:
+      split("/")[-1] as $model
       | if ($model | test("astra"; "i")) then "astra"
         elif ($model | test("fable"; "i")) then "fable"
-        elif (["gpt-5.6-terra", "sonnet", "claude-sonnet-5", "gpt-5.6-sol-xhigh", "grok-4.6", "cursor-grok-4.6-high-fast", "composer-2.5"] | index($model)) != null then "ordinary"
+        else null
+        end;
+    def v2_ordinary_models:
+      if has("ordinary_models") then
+        v2_string_array("top-level"; "ordinary_models")
+        | .ordinary_models as $listed
+        | ([$listed[] | select(test("/"))]) as $qualified
+        | ([$listed[] | select(v2_top_tier_class != null)]) as $top
+        | if ($qualified | length) > 0 then v2_fail("ordinary_models must be bare model names: " + $qualified[0])
+          elif ($top | length) > 0 then v2_fail("ordinary_models cannot include a top-tier model: " + $top[0])
+          else $listed
+          end
+      else v2_builtin_ordinary_models
+      end;
+    def v2_model_class($ordinary):
+      . as $selector
+      | split("/")[-1] as $model
+      | ($selector | v2_top_tier_class) as $top
+      | if $top != null then $top
+        elif ($ordinary | index($model)) != null then "ordinary"
         else v2_fail("unclassified model: " + $selector)
         end;
-    def v2_profile:
+    def v2_profile($ordinary):
       v2_fields("profile"; ["id", "harness", "model", "effort", "model_class", "reasoning_target", "reasoning_source", "eligible_when", "preferred_when"]; ["id", "harness", "model", "model_class"])
       | v2_string("profile"; "id")
       | v2_string("profile"; "harness")
@@ -1177,7 +1196,7 @@ crew_dispatch_validate() {
       | if has("preferred_when") then v2_string("profile"; "preferred_when") else . end
       | . as $profile
       | if (verified($profile.harness) | not) then v2_fail("unverified harness: " + $profile.harness)
-        elif $profile.model_class != ($profile.model | v2_model_class)
+        elif $profile.model_class != ($profile.model | v2_model_class($ordinary))
         then v2_fail("profile.model_class does not match model: " + $profile.model)
         elif (($profile | has("effort")) and (effort_ok($profile.harness; $profile.model; $profile.effort) | not))
         then v2_fail("invalid effort: " + $profile.harness + ":" + $profile.effort)
@@ -1291,7 +1310,7 @@ crew_dispatch_validate() {
         then v2_fail("dispatch.history_ref must be data/crew-dispatch-history.md")
         else $dispatch
         end;
-    def v2_rule($constraints):
+    def v2_rule($constraints; $ordinary):
       v2_fields("rule"; ["id", "when", "match", "independence", "reasoning", "use", "decision_refs"]; ["id", "when", "reasoning", "use"])
       | v2_string("rule"; "id")
       | v2_string("rule"; "when")
@@ -1300,7 +1319,7 @@ crew_dispatch_validate() {
       | ($rule.reasoning | v2_reasoning) as $reasoning
       | (if ($rule | has("independence")) then ($rule.independence | v2_independence) else null end) as $independence
       | (if ($rule | has("decision_refs")) then ($rule | v2_string_array("rule"; "decision_refs")) else $rule end) as $decision_refs
-      | ($rule.use | v2_array("rule use") | map(v2_profile)) as $profiles
+      | ($rule.use | v2_array("rule use") | map(v2_profile($ordinary))) as $profiles
       | ($profiles | map(.id)) as $ids
       | [
           $profiles[] as $profile
@@ -1319,9 +1338,9 @@ crew_dispatch_validate() {
         then v2_fail("top-tier model class " + $blocked[0].model_class + " requires rule match.task_shape to be a non-empty subset of constraint allowed_task_shapes")
         else $rule
         end;
-    def v2_default($constraints):
+    def v2_default($constraints; $ordinary):
       v2_array("default")
-      | map(v2_profile)
+      | map(v2_profile($ordinary))
       | . as $profiles
       | ($profiles | map(.id)) as $ids
       | ($constraints | map(.blocked_model_classes[]) | unique) as $blocked_classes
@@ -1333,15 +1352,16 @@ crew_dispatch_validate() {
         else $profiles
         end;
     def v2_validate:
-      v2_fields("top-level"; ["schema_version", "placement", "dispatch", "constraints", "exceptions", "rules", "default"]; ["schema_version", "placement", "dispatch", "constraints", "exceptions", "rules", "default"])
+      v2_fields("top-level"; ["schema_version", "placement", "dispatch", "constraints", "exceptions", "rules", "default", "ordinary_models"]; ["schema_version", "placement", "dispatch", "constraints", "exceptions", "rules", "default"])
       | if .schema_version != 2 then v2_fail("schema_version must be 2") else . end
       | . as $config
+      | ($config | v2_ordinary_models) as $ordinary
       | ($config.placement | v2_placement) as $placement
       | ($config.dispatch | v2_dispatch) as $dispatch
       | ($config.constraints | v2_array("constraints") | map(v2_constraint)) as $constraints
       | if $config.exceptions != [] then v2_fail("exceptions must be empty") else . end
-      | ($config.rules | v2_array("rules") | map(v2_rule($constraints))) as $rules
-      | ($config.default | v2_default($constraints)) as $defaults
+      | ($config.rules | v2_array("rules") | map(v2_rule($constraints; $ordinary))) as $rules
+      | ($config.default | v2_default($constraints; $ordinary)) as $defaults
       | empty;
     try (
       if type != "object" then "top-level value must be an object"
