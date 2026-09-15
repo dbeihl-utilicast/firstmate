@@ -1,0 +1,26 @@
+runtime: GNU bash, version 3.2.57(1)-release (aarch64-unknown-linux-musl)
+
+BASE dfd60de2: re-enter with an existing churn deadline
+bin/fm-watch.sh: line 532: missing_keys[@]: unbound variable
+base_exit=127
+
+HEAD 5e3087a: re-enter with an existing churn deadline
+watcher_reentry_exit=0 churn_marker=present stale=absent wedge=absent
+head_exit=0
+
+BASE dfd60de2: deadline creation fails before any marker was created
+bin/fm-watch.sh: line 657: created_keys[@]: unbound variable
+base_exit=127
+
+HEAD 5e3087a: deadline creation fails before any marker was created
+watcher_write_rollback_exit=1 churn_marker=absent
+head_exit=0
+
+BASE dfd60de2: stale cleanup fails with no newly-created deadline
+bin/fm-watch.sh: line 532: missing_keys[@]: unbound variable
+base_exit=127
+
+HEAD 5e3087a: stale cleanup fails with no newly-created deadline
+rm: cannot remove '/tmp/fmhome/state/.stale-live_worker': Is a directory
+watcher_cleanup_rollback_exit=1 churn_marker=present stale_directory=present
+head_exit=0

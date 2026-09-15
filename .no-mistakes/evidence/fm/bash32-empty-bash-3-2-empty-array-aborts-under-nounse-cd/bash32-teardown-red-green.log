@@ -1,0 +1,30 @@
+runtime: GNU bash, version 3.2.57(1)-release (aarch64-unknown-linux-musl)
+treehouse: v2.3.0
+tmux: tmux 3.4
+
+BASE dfd60de2: force-teardown a secondmate whose real Treehouse child holds no shared project lock
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+bin/fm-teardown.sh: line 2632: DESCENDANT_TREEHOUSE_LOCK_PATHS[@]: unbound variable
+not in a git or jj repository: git rev-parse --show-toplevel: fatal: not a git repository (or any parent up to mount point /tmp)
+Stopping at filesystem boundary (GIT_DISCOVERY_ACROSS_FILESYSTEM not set).
+teardown_command_exit=0 parent_meta=present retired_home=present child_window=present active_leases=
+scenario_exit=1
+
+HEAD 5e3087a: same forced teardown with real Treehouse and tmux
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 0s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🌳 Worktree returned to pool.
+teardown task-x1 complete (window firstmate:fm-task-x1, worktree /tmp/pool/.treehouse/project-3d5561/1/project)
+teardown_command_exit=0 parent_meta=absent retired_home=absent child_window=absent active_leases=0
+scenario_exit=0

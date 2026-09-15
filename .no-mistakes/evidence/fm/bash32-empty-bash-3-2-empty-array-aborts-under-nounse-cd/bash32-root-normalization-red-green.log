@@ -1,0 +1,10 @@
+runtime: GNU bash, version 3.2.57(1)-release (aarch64-unknown-linux-musl)
+
+BASE dfd60de2: normalize the root path
+bin/fm-procevent-lib.sh: line 853: normalized[*]: unbound variable
+normalize_exit=0 normalized_root=/
+base_exit=0
+
+HEAD 5e3087a: normalize the root path
+normalize_exit=0 normalized_root=/
+head_exit=0

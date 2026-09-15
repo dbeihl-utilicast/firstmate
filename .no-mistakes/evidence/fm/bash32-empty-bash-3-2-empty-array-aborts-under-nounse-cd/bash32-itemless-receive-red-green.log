@@ -1,0 +1,13 @@
+GNU bash, version 3.2.57(1)-release (aarch64-unknown-linux-musl)
+image_manifest_digest=sha256:a2195393d6ded0e17deaed229cd2e71a38908c406697faa0ea8aac32f6fa755c
+scenario=public fm-backlog-receive itemless outbox
+
+[base]
+/tmp/base/bin/fm-backlog-receive.sh: line 147: KEYS[@]: unbound variable
+command_exit=0 outbox=present destination_backlog=absent
+
+[head]
+received: ios moved=0 already=0
+command_exit=0 outbox=absent destination_backlog=present
+
+result=red-before-green demonstrated

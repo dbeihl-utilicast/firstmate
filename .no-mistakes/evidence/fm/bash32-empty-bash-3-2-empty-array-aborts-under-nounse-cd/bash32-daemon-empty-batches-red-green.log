@@ -1,0 +1,17 @@
+runtime: GNU bash, version 3.2.57(1)-release (aarch64-unknown-linux-musl)
+
+BASE dfd60de2: handle an empty signal batch
+bin/fm-supervise-daemon.sh: line 557: files[@]: unbound variable
+base_exit=127
+
+HEAD 5e3087a: handle an empty signal batch
+empty_signal_batch_exit=0
+head_exit=0
+
+BASE dfd60de2: handle an empty alert-channel batch
+bin/fm-supervise-daemon.sh: line 926: channels[@]: unbound variable
+base_exit=127
+
+HEAD 5e3087a: handle an empty alert-channel batch
+empty_channel_batch_exit=0
+head_exit=0

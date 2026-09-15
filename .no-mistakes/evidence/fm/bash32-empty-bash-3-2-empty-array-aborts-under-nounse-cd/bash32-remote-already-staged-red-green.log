@@ -1,0 +1,19 @@
+runtime: GNU bash, version 3.2.57(1)-release (aarch64-unknown-linux-musl)
+
+BASE dfd60de2: hand off a key already staged in the remote outbox
+remote_runtime=GNU bash, version 3.2.57(1)-release (aarch64-unknown-linux-musl)
+bin/fm-backlog-handoff.sh: line 699: to_move[@]: unbound variable
+handoff_command_exit=0 remote_item_count=0 local_outbox=present
+scenario_exit=1
+
+HEAD 5e3087a: hand off the same already-staged key over real SSH
+remote_runtime=GNU bash, version 3.2.57(1)-release (aarch64-unknown-linux-musl)
+stored: state/handoff/ios.outbox.md bytes=89
+error: no-mistakes gate agent must not drive the fleet (NO_MISTAKES_GATE set)
+error: backlog delivery to secondmate ios succeeded, but its receiver wake failed; retry a tracked remote wake with --resume-pending or a later new handoff, and retry a local wake by rerunning its handoff
+warning: remote backlog is durable at ios and its outbox was released; the best-effort receiver wake remains pending for a later resume or handoff
+received: ios moved=1 already=0
+handed off 1 item(s) to remote secondmate ios: ios-a
+  already staged (recovered): ios-a
+handoff_command_exit=0 remote_item_count=1 local_outbox=absent
+scenario_exit=0
