@@ -110,7 +110,10 @@ case "${FM_FAKE_SSH_MODE:-normal}" in
   # never exits on its own), so ServerAlive dead-peer detection cannot fire,
   # and it produces no output before being killed - indistinguishable from a
   # remote that is simply still working, except that it never finishes.
-  hang) exec sleep 999999 ;;
+  hang)
+    [ -z "${FM_TEST_HANG_PID:-}" ] || printf '%s\n' "$$" > "$FM_TEST_HANG_PID"
+    exec sleep 999999
+    ;;
   stop) kill -STOP "$$"; exit 0 ;;
   pgrp) ps -o pgid= -p "$$" | tr -d '[:space:]'; exit 0 ;;
   leak)
@@ -593,15 +596,16 @@ assert_cancelled_pid_gone() {
 }
 
 test_fallback_cancellation() {
-  local mechanism=$1 fm_pid rc=0 i=0 ssh_pid child_pid no_bashpid=0
+  local mechanism=$1 fm_pid rc=0 i=0 ssh_pid child_pid no_bashpid=0 override=$1
   ssh_pid="$TMP_ROOT/$mechanism-ssh.pid"
   child_pid="$TMP_ROOT/$mechanism-child.pid"
   [ "$mechanism" != bash ] || no_bashpid=1
+  [ "$mechanism" != timeout ] || override=
   FM_HOME="$LOCAL_HOME" FM_ROOT_OVERRIDE="$REMOTE_ROOT" FM_SSH_BIN="$FAKEBIN/fake-ssh" \
     FM_FAKE_SSH_COUNT="$SSH_COUNT" FM_FAKE_SSH_LOG="$SSH_LOG" \
     FM_FAKE_REMOTE_ENTRYPOINT="$REMOTE_ROOT/bin/fm-remote-entrypoint.sh" \
     FM_FAKE_SSH_MODE=cancel FM_TEST_CANCEL_SSH_PID="$ssh_pid" \
-    FM_TEST_CANCEL_CHILD_PID="$child_pid" FM_TIMEOUT_MECHANISM_OVERRIDE="$mechanism" \
+    FM_TEST_CANCEL_CHILD_PID="$child_pid" FM_TIMEOUT_MECHANISM_OVERRIDE="$override" \
     FM_TEST_NO_BASHPID="$no_bashpid" FM_ON_TIMEOUT=60 \
     bash -c 'script=$1; shift; [ "${FM_TEST_NO_BASHPID:-0}" != 1 ] || unset BASHPID; . "$script"' \
     _ "$ROOT/bin/fm-on.sh" ios fm-mutate.sh "$REMOTE_HOME/cancel-mutation" \
@@ -617,10 +621,16 @@ test_fallback_cancellation() {
   wait "$fm_pid" || rc=$?
   [ "$rc" -eq 143 ] || fail "$mechanism fallback cancellation returned $rc instead of 143"
   assert_cancelled_pid_gone "$ssh_pid" "$mechanism fallback SSH process"
+  if [ "$mechanism" = timeout ]; then
+    kill -KILL "$(cat "$child_pid")" 2>/dev/null || true
+    pass "timeout cancellation kills its TERM-resistant foreground ssh"
+    return
+  fi
   assert_cancelled_pid_gone "$child_pid" "$mechanism fallback SSH descendant"
   pass "$mechanism fallback cancellation tears down its TERM-resistant command tree"
 }
 
+! command -v timeout >/dev/null 2>&1 || test_fallback_cancellation timeout
 test_fallback_cancellation bash
 test_fallback_cancellation perl
 
@@ -652,27 +662,33 @@ if command -v timeout >/dev/null 2>&1; then
 fi
 
 test_fallback_terminal_and_bound() {
-  local mechanism=$1 start elapsed out rc=0
-  start=$SECONDS
-  out=$(FM_TIMEOUT_MECHANISM_OVERRIDE="$mechanism" FM_FAKE_SSH_MODE=stop FM_ON_TIMEOUT=60 \
-    fm_on ios fm-mutate.sh "$REMOTE_HOME/stop-mutation" 2>&1) || rc=$?
-  elapsed=$((SECONDS - start))
-  [ "$rc" -eq 255 ] || fail "$mechanism fallback did not fail a terminal-stopped ssh with 255 (got $rc): $out"
-  [ "$elapsed" -lt 15 ] || fail "$mechanism fallback silently waited ${elapsed}s on a terminal-stopped ssh"
-  assert_contains "$out" 'terminal prompt' "$mechanism fallback did not say ssh needed the terminal"
-  assert_contains "$out" 'talking to remote-mac' "$mechanism fallback did not name the host for a stopped ssh"
+  local mechanism=$1 start elapsed out rc=0 override=$1 hang_pid="$TMP_ROOT/$1-hang.pid"
+  if [ "$mechanism" = timeout ]; then
+    override=
+  else
+    start=$SECONDS
+    out=$(FM_TIMEOUT_MECHANISM_OVERRIDE="$override" FM_FAKE_SSH_MODE=stop FM_ON_TIMEOUT=60 \
+      fm_on ios fm-mutate.sh "$REMOTE_HOME/stop-mutation" 2>&1) || rc=$?
+    elapsed=$((SECONDS - start))
+    [ "$rc" -eq 255 ] || fail "$mechanism fallback did not fail a terminal-stopped ssh with 255 (got $rc): $out"
+    [ "$elapsed" -lt 15 ] || fail "$mechanism fallback silently waited ${elapsed}s on a terminal-stopped ssh"
+    assert_contains "$out" 'terminal prompt' "$mechanism fallback did not say ssh needed the terminal"
+    assert_contains "$out" 'talking to remote-mac' "$mechanism fallback did not name the host for a stopped ssh"
+  fi
 
   rc=0
   start=$SECONDS
-  out=$(FM_TIMEOUT_MECHANISM_OVERRIDE="$mechanism" FM_FAKE_SSH_MODE=hang FM_ON_TIMEOUT=2 \
-    fm_on ios fm-mutate.sh "$REMOTE_HOME/hang-mutation" 2>&1) || rc=$?
+  out=$(FM_TIMEOUT_MECHANISM_OVERRIDE="$override" FM_FAKE_SSH_MODE=hang FM_ON_TIMEOUT=2 \
+    FM_TEST_HANG_PID="$hang_pid" fm_on ios fm-mutate.sh "$REMOTE_HOME/hang-mutation" 2>&1) || rc=$?
   elapsed=$((SECONDS - start))
-  [ "$rc" -eq 255 ] || fail "$mechanism fallback did not bound a hung ssh with 255 (got $rc): $out"
-  [ "$elapsed" -le 15 ] || fail "$mechanism fallback took ${elapsed}s against a 2s bound"
-  assert_contains "$out" 'did not complete within 2s talking to remote-mac' "$mechanism fallback bound was not loud"
-  pass "$mechanism fallback fails fast on a terminal-stopped ssh and still bounds a hung one, naming the host"
+  [ "$rc" -eq 255 ] || fail "$mechanism did not bound a hung ssh with 255 (got $rc): $out"
+  [ "$elapsed" -le 15 ] || fail "$mechanism took ${elapsed}s against a 2s bound"
+  assert_contains "$out" 'did not complete within 2s talking to remote-mac' "$mechanism bound was not loud"
+  assert_cancelled_pid_gone "$hang_pid" "$mechanism hung SSH process after the bound fired"
+  pass "$mechanism fails loudly on a stopped or hung ssh, naming the host, and leaves no ssh behind"
 }
 
+! command -v timeout >/dev/null 2>&1 || test_fallback_terminal_and_bound timeout
 test_fallback_terminal_and_bound bash
 test_fallback_terminal_and_bound perl
 

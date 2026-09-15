@@ -160,8 +160,26 @@ fm_run_perl_timeout() {
 }
 
 fm_run_external_timeout() {
-  local runner=$1 seconds=$2 status_file runner_pid runner_rc command_rc
+  local runner=$1 seconds=$2 status_file runner_pid runner_rc command_rc start=$SECONDS
   shift 2
+  if [ -n "${FM_RUN_TIMED_FOREGROUND:-}" ]; then
+    # No process group here, so the command runs as timeout's own child: timeout
+    # then signals its pid directly, with -k escalation, on expiry or a forwarded signal.
+    "$runner" --foreground -k 1 "$seconds" "$@" <&0 &
+    runner_pid=$!
+    FM_RUN_TIMED_KILL_TARGET="$runner_pid"
+    runner_rc=0
+    wait "$runner_pid" || runner_rc=$?
+    case "$runner_rc" in
+      124|137)
+        if [ "$((SECONDS - start))" -ge "${seconds%%.*}" ] 2>/dev/null; then
+          FM_RUN_TIMED_EXPIRED=1
+          return 124
+        fi
+        ;;
+    esac
+    return "$runner_rc"
+  fi
   status_file=$(mktemp "${TMPDIR:-/tmp}/fm-timeout-status.XXXXXX" 2>/dev/null) || return 124
   # Run timeout asynchronously so its pid - also the process-group id created
   # by GNU/BSD timeout without --foreground - remains available for cleanup.
@@ -171,7 +189,7 @@ fm_run_external_timeout() {
   # The explicit <&0 keeps the caller's stdin: without job control bash would
   # otherwise give this asynchronous command /dev/null.
   # shellcheck disable=SC2016  # Expansion is deliberately deferred to the child shell.
-  "$runner" ${FM_RUN_TIMED_FOREGROUND:+--foreground} -k 1 "$seconds" bash -c '
+  "$runner" -k 1 "$seconds" bash -c '
     status_file=$1
     shift
     "$@"
