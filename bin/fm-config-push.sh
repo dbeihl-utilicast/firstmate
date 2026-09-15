@@ -78,14 +78,6 @@ SECONDMATES_MD="$DATA/secondmates.md"
 . "$SCRIPT_DIR/fm-config-inherit-lib.sh"
 # shellcheck source=bin/fm-secondmate-nudge-lib.sh
 . "$SCRIPT_DIR/fm-secondmate-nudge-lib.sh"
-# shellcheck source=bin/fm-timeout-lib.sh
-. "$SCRIPT_DIR/fm-timeout-lib.sh"
-# fm-remote-inherit-push.sh can call fm-on.sh once per changed inheritable
-# item, each already bounded on its own (bin/fm-on.sh's FM_ON_TIMEOUT); this
-# is the outer cap on the whole per-secondmate push so a run over several
-# changed items still terminates and names the host instead of running long
-# enough to look indistinguishable from progress.
-REMOTE_PUSH_TIMEOUT=${FM_CONFIG_PUSH_REMOTE_TIMEOUT:-1800}
 
 print_item_report() {
   local report=$1 item status reason
@@ -153,10 +145,8 @@ while IFS='|' read -r id home _window meta; do
       fm_lock_release "$remote_lock" || true
       continue
     fi
-    remote_rc=0
-    remote_out=$(fm_run_timed "$REMOTE_PUSH_TIMEOUT" env FM_CONFIG_INHERIT_LIVE=1 \
-      "$SCRIPT_DIR/fm-remote-inherit-push.sh" "$id" "$remote_generation" < /dev/null 2>&1) || remote_rc=$?
-    if [ "$remote_rc" -eq 0 ]; then
+    if remote_out=$(FM_CONFIG_INHERIT_LIVE=1 \
+      "$SCRIPT_DIR/fm-remote-inherit-push.sh" "$id" "$remote_generation" 2>&1); then
       printf '%s\n' "$remote_out" | sed 's/^/  /'
       remote_nudge=0
       if printf '%s\n' "$remote_out" | grep -Eq '^(pushed|removed):'; then remote_nudge=1; fi
@@ -174,10 +164,6 @@ while IFS='|' read -r id home _window meta; do
         rm -f -- "$remote_marker"
       fi
     else
-      if [ "$remote_rc" -eq 124 ]; then
-        printf '  config-reread: error - did not complete within %ss pushing to %s (%s)\n' \
-          "$REMOTE_PUSH_TIMEOUT" "$remote_host" "$id"
-      fi
       [ -z "$remote_out" ] || printf '%s\n' "$remote_out" | sed 's/^/  /'
       errors=1
     fi

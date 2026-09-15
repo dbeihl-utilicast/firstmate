@@ -599,4 +599,21 @@ test_fallback_cancellation() {
 test_fallback_cancellation bash
 test_fallback_cancellation perl
 
+test_fallback_success_releases_capture() {
+  local mechanism=$1 start elapsed out rc=0
+  start=$SECONDS
+  out=$(FM_TIMEOUT_MECHANISM_OVERRIDE="$mechanism" FM_ON_TIMEOUT=30 \
+    fm_on --stdin ios fm-probe-one.sh "$REMOTE_HOME/argv-$mechanism-success.bin" 0 'captured' \
+    < "$TMP_ROOT/stdin" 2>&1) || rc=$?
+  elapsed=$((SECONDS - start))
+  [ "$rc" -eq 0 ] || fail "$mechanism fallback success returned $rc: $out"
+  assert_contains "$out" 'stdin: payload one' "$mechanism fallback lost caller stdin under --stdin"
+  [ "$elapsed" -lt 15 ] \
+    || fail "$mechanism fallback held the captured output open for ${elapsed}s after the command succeeded"
+  pass "$mechanism fallback success releases a captured pipe without waiting out FM_ON_TIMEOUT (${elapsed}s)"
+}
+
+test_fallback_success_releases_capture bash
+test_fallback_success_releases_capture perl
+
 echo "ALL TESTS PASSED"

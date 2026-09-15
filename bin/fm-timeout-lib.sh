@@ -57,16 +57,20 @@ fm_run_bash_timeout() {
   (
     set +m
     coordinator_pid=${BASHPID:-$(exec sh -c 'printf "%s\n" "$PPID"')}
-    trap 'trap "" HUP INT TERM USR1; kill -TERM -- "-$coordinator_pid" 2>/dev/null || true; sleep 0.2; kill -KILL -- "-$coordinator_pid" 2>/dev/null || true' HUP INT TERM
-    trap 'printf "expired\n" > "$deadline_status"; trap "" HUP INT TERM USR1; kill -TERM -- "-$coordinator_pid" 2>/dev/null || true; sleep 0.2; kill -KILL -- "-$coordinator_pid" 2>/dev/null || true' USR1
-    "$@" <&0 &
+    trap 'trap "" HUP INT TERM; kill -TERM -- "-$coordinator_pid" 2>/dev/null || true; sleep 0.2; kill -KILL -- "-$coordinator_pid" 2>/dev/null || true' HUP INT TERM
+    sleep "$seconds" &
+    timer_pid=$!
+    ( command_rc=0; "$@" || command_rc=$?; kill -TERM "$timer_pid" 2>/dev/null || true; exit "$command_rc" ) <&0 &
     command_pid=$!
-    ( sleep "$seconds"; kill -USR1 "$coordinator_pid" 2>/dev/null || true ) < /dev/null &
-    watchdog_pid=$!
+    if wait "$timer_pid"; then
+      printf 'expired\n' > "$deadline_status"
+      trap '' HUP INT TERM
+      kill -TERM -- "-$coordinator_pid" 2>/dev/null || true
+      sleep 0.2
+      kill -KILL -- "-$coordinator_pid" 2>/dev/null || true
+    fi
     command_rc=0
     wait "$command_pid" || command_rc=$?
-    kill -TERM "$watchdog_pid" 2>/dev/null || true
-    wait "$watchdog_pid" 2>/dev/null || true
     exit "$command_rc"
   ) <&0 &
   coordinator_pid=$!
