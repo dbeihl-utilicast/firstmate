@@ -4,32 +4,41 @@
 # See docs/verification/runtime-backends.md "Grok folder trust" for why.
 set -u
 
-unset CDPATH \
-  GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_INDEX_FILE \
-  GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_CEILING_DIRECTORIES GIT_NAMESPACE \
-  GIT_DISCOVERY_ACROSS_FILESYSTEM GIT_CONFIG GIT_CONFIG_GLOBAL \
-  GIT_CONFIG_SYSTEM GIT_CONFIG_NOSYSTEM GIT_CONFIG_COUNT
+git() (
+  unset \
+    GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_INDEX_FILE \
+    GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_CEILING_DIRECTORIES GIT_NAMESPACE \
+    GIT_DISCOVERY_ACROSS_FILESYSTEM GIT_CONFIG GIT_CONFIG_GLOBAL \
+    GIT_CONFIG_SYSTEM GIT_CONFIG_NOSYSTEM GIT_CONFIG_COUNT
+  command git "$@"
+)
 
-[ "$#" -eq 1 ] || { echo "usage: fm-grok-trust.sh <project>" >&2; exit 2; }
+[ "$#" -ge 1 ] || { echo "usage: fm-grok-trust.sh <project> [-- <command> ...]" >&2; exit 2; }
 PROJ_ARG=$1
+shift
+if [ "$#" -gt 0 ]; then
+  [ "$1" = -- ] && [ "$#" -ge 2 ] || { echo "usage: fm-grok-trust.sh <project> [-- <command> ...]" >&2; exit 2; }
+  shift
+fi
 
 refuse() { echo "error: refusing to pre-register Grok trust: $1" >&2; exit 1; }
 
-real_dir() { (cd -P -- "$1" 2>/dev/null && pwd -P); }
-
-real_file() { node -e 'process.stdout.write(require("node:fs").realpathSync(process.argv[1]))' "$1" 2>/dev/null; }
+real_dir() { (unset CDPATH; cd -P -- "$1" 2>/dev/null && pwd -P); }
 
 common_dir_of() {
   local dir=$1 common
   common=$(git -C "$dir" rev-parse --git-common-dir 2>/dev/null) || return 1
-  (cd -P -- "$dir" && real_dir "$common")
+  (unset CDPATH; cd -P -- "$dir" && real_dir "$common")
 }
 
 PROJ_REAL=$(real_dir "$PROJ_ARG") || true
 [ -n "$PROJ_REAL" ] || refuse "project '$PROJ_ARG' is not an accessible directory"
 
-GROK_HOME_ARG=${GROK_HOME:-${HOME:-}/.grok}
-[ -n "$GROK_HOME_ARG" ] || refuse "neither GROK_HOME nor HOME is set, so the trust store cannot be located"
+GROK_HOME_ARG=${GROK_HOME:-}
+if [ -z "$GROK_HOME_ARG" ]; then
+  [ -n "${HOME:-}" ] || refuse "neither GROK_HOME nor HOME is set, so the trust store cannot be located"
+  GROK_HOME_ARG=$HOME/.grok
+fi
 GROK_HOME_REAL=$(real_dir "$GROK_HOME_ARG") || true
 if [ -z "$GROK_HOME_REAL" ]; then
   mkdir -p "$GROK_HOME_ARG" 2>/dev/null || true
@@ -37,16 +46,20 @@ if [ -z "$GROK_HOME_REAL" ]; then
 fi
 [ -n "$GROK_HOME_REAL" ] || refuse "Grok home '$GROK_HOME_ARG' does not exist and could not be created"
 
-[ "$PROJ_REAL" != "$GROK_HOME_REAL" ] || refuse "'$PROJ_REAL' is the Grok home directory, not a project checkout"
-if [ -n "${HOME:-}" ]; then
-  HOME_REAL=$(real_dir "$HOME") || true
-  [ "$PROJ_REAL" != "${HOME_REAL:-}" ] || refuse "'$PROJ_REAL' is the home directory, not a project checkout"
-fi
+validate_root() {
+  local root=$1 top home_real
+  [ "$root" != "$GROK_HOME_REAL" ] || refuse "'$root' is the Grok home directory, not a project checkout"
+  if [ -n "${HOME:-}" ]; then
+    home_real=$(real_dir "$HOME") || true
+    [ "$root" != "${home_real:-}" ] || refuse "'$root' is the home directory, not a project checkout"
+  fi
+  top=$(git -C "$root" rev-parse --show-toplevel 2>/dev/null) || true
+  [ -n "$top" ] || refuse "'$root' is not inside a git repository"
+  top=$(real_dir "$top") || true
+  [ "$top" = "$root" ] || refuse "'$root' is not a repository root (its root is '${top:-unresolvable}')"
+}
 
-PROJ_TOP=$(git -C "$PROJ_REAL" rev-parse --show-toplevel 2>/dev/null) || true
-[ -n "$PROJ_TOP" ] || refuse "'$PROJ_REAL' is not inside a git repository"
-PROJ_TOP_REAL=$(real_dir "$PROJ_TOP") || true
-[ "$PROJ_TOP_REAL" = "$PROJ_REAL" ] || refuse "'$PROJ_REAL' is not a repository root (its root is '${PROJ_TOP_REAL:-unresolvable}')"
+validate_root "$PROJ_REAL"
 
 PROJ_GIT_DIR=$(git -C "$PROJ_REAL" rev-parse --absolute-git-dir 2>/dev/null) || true
 [ -n "$PROJ_GIT_DIR" ] || refuse "'$PROJ_REAL' has no resolvable git directory"
@@ -54,25 +67,41 @@ PROJ_GIT_DIR=$(real_dir "$PROJ_GIT_DIR") || true
 [ -n "$PROJ_GIT_DIR" ] || refuse "'$PROJ_REAL' has an unresolvable git directory"
 PROJ_COMMON=$(common_dir_of "$PROJ_REAL") || true
 [ -n "$PROJ_COMMON" ] || refuse "'$PROJ_REAL' has no resolvable git common directory"
-[ "$PROJ_GIT_DIR" = "$PROJ_COMMON" ] || refuse "'$PROJ_REAL' is a linked worktree, not the primary checkout that grants trust to it"
+if [ "$PROJ_GIT_DIR" != "$PROJ_COMMON" ]; then
+  IFS= read -r -d '' PRIMARY_RECORD < <(git -C "$PROJ_REAL" worktree list --porcelain -z 2>/dev/null) \
+    || refuse "'$PROJ_REAL' has no resolvable primary checkout"
+  case "$PRIMARY_RECORD" in
+    'worktree '*) PRIMARY_REAL=$(real_dir "${PRIMARY_RECORD#worktree }") || true ;;
+    *) refuse "'$PROJ_REAL' has no resolvable primary checkout" ;;
+  esac
+  [ -n "$PRIMARY_REAL" ] || refuse "'$PROJ_REAL' has no accessible primary checkout"
+  validate_root "$PRIMARY_REAL"
+  PRIMARY_GIT=$(git -C "$PRIMARY_REAL" rev-parse --absolute-git-dir 2>/dev/null) || true
+  [ -n "$PRIMARY_GIT" ] && [ "$(real_dir "$PRIMARY_GIT")" = "$PROJ_COMMON" ] \
+    || refuse "'$PRIMARY_REAL' is not the primary checkout of '$PROJ_REAL'"
+  PROJ_REAL=$PRIMARY_REAL
+fi
 
 command -v node >/dev/null 2>&1 || refuse "node is required to record folder trust and was not found on PATH"
 
 STORE="$GROK_HOME_REAL/trusted_folders.toml"
-if [ -L "$STORE" ]; then
-  STORE_REAL=$(real_file "$STORE") || true
-  [ -n "$STORE_REAL" ] || refuse "'$STORE' is a symlink whose target cannot be resolved"
-  STORE=$STORE_REAL
-fi
-if [ -e "$STORE" ]; then
-  [ -f "$STORE" ] || refuse "'$STORE' is not a regular file"
-  [ -O "$STORE" ] || refuse "'$STORE' is not owned by this user"
-  [ -w "$STORE" ] || refuse "'$STORE' is not writable"
-fi
+if ! (
+  FM_STATE_OVERRIDE=$GROK_HOME_REAL
+  # shellcheck source=bin/fm-wake-lib.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/fm-wake-lib.sh"
+  TRUST_LOCK="$STORE.fm-lock"
+  fm_lock_acquire_wait_bounded "$TRUST_LOCK" 10 || refuse "could not acquire the trust-store lock for '$STORE'"
+  trap 'fm_lock_release "$TRUST_LOCK"' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  [ ! -L "$STORE" ] || refuse "'$STORE' is a symlink; a regular trust file is required"
+  if [ -e "$STORE" ]; then
+    [ -f "$STORE" ] || refuse "'$STORE' is not a regular file"
+    [ -O "$STORE" ] || refuse "'$STORE' is not owned by this user"
+    [ -w "$STORE" ] || refuse "'$STORE' is not writable"
+  fi
 
-# Append-only; never rewrites a block this script did not add.
-# Fingerprint-and-retry, not a lock, the same tradeoff as fm-claude-trust.sh.
-if ! node - "$STORE" "$PROJ_REAL" <<'NODE'
+  node - "$STORE" "$PROJ_REAL" <<'NODE'
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
@@ -157,6 +186,12 @@ try {
 console.error(`error: ${store} did not retain trust for ${target} after 3 attempts`);
 process.exit(1);
 NODE
+)
 then
   refuse "could not record trust for '$PROJ_REAL' in '$STORE'"
+fi
+
+if [ "$#" -gt 0 ]; then
+  export GROK_HOME=$GROK_HOME_REAL
+  exec "$@"
 fi

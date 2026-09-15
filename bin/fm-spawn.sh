@@ -3166,17 +3166,6 @@ if [ "$KIND" != secondmate ]; then
   esac
 fi
 
-# Registers PROJ_ABS, not WT, and runs for a secondmate too: see
-# docs/verification/runtime-backends.md "Grok folder trust" for why.
-case "$HARNESS" in
-  grok*)
-    if ! "$FM_ROOT/bin/fm-grok-trust.sh" "$PROJ_ABS" >/dev/null; then
-      echo "error: could not pre-register Grok folder trust for $PROJ_ABS; refusing to launch a grok worker that would wedge on the trust dialog; inspect window $T" >&2
-      exit 1
-    fi
-    ;;
-esac
-
 # Per-task temp root: /tmp/fm-<id>/ with Go's build temp nested at gotmp/. Go won't
 # create GOTMPDIR, so mkdir before it is used; fm-teardown removes the whole root.
 # Nested (not a bare /tmp/fm-<id>/gotmp) so other per-task temp can live alongside
@@ -3826,6 +3815,9 @@ esac
 if [ "$HARNESS" = claude ] && [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then
   LAUNCH="CLAUDE_CONFIG_DIR=$(shell_quote "$CLAUDE_CONFIG_DIR") $LAUNCH"
 fi
+case "$HARNESS" in
+  grok*) LAUNCH="$(shell_quote "$FM_ROOT/bin/fm-grok-trust.sh") $(shell_quote "$PROJ_ABS") -- $LAUNCH" ;;
+esac
 if [ "$KIND" = secondmate ]; then
   sq_home=$(shell_quote "$PROJ_ABS")
   sq_primary_home=$(shell_quote "$FM_HOME")

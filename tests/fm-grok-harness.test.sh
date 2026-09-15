@@ -8,6 +8,14 @@ set -u
 TEARDOWN="$ROOT/bin/fm-teardown.sh"
 TMP_ROOT=$(fm_test_tmproot fm-grok-harness)
 
+make_grok_probe() {
+  cat > "$1/grok" <<'SH'
+#!/bin/sh
+printf '%s\n' "$GROK_HOME" > "$0.home"
+SH
+  chmod +x "$1/grok"
+}
+
 make_spawn_case() {
   local name=$1 case_dir home proj wt fakebin grok_home id
   case_dir="$TMP_ROOT/$name"
@@ -15,6 +23,7 @@ make_spawn_case() {
   proj="$case_dir/project"
   wt="$case_dir/wt"
   fakebin=$(make_spawn_fakebin "$case_dir/fake" gh-axi gh)
+  make_grok_probe "$fakebin"
   grok_home="$case_dir/grok"
   id="grok-$name-x1"
   mkdir -p "$grok_home"
@@ -26,9 +35,11 @@ make_spawn_case() {
 
 run_grok_spawn() {
   local home=$1 proj=$2 wt=$3 fakebin=$4 grok_home=$5 id=$6
-  GROK_HOME="$grok_home" \
+  GROK_HOME="$grok_home" FM_FAKE_LAUNCH_LOG="$home/launch.log" \
     fm_test_run_spawn "$home" "$wt" "$fakebin" \
-    "$id" "$proj" grok --mode no-mistakes --yolo off
+    "$id" "$proj" grok --mode no-mistakes --yolo off || return
+  (cd "$wt" && env -i HOME="$home/user-home" GROK_HOME="$grok_home" \
+    PATH="$fakebin:$PATH" /bin/sh "$home/launch.log")
 }
 
 test_grok_hook_requires_registered_token() {
@@ -100,42 +111,107 @@ assert_grok_trusted() {
 }
 
 test_grok_spawn_pretrusts_the_project_not_the_worktree() {
-  local rec case_dir home proj wt fakebin grok_home id out
-  rec=$(make_spawn_case trust-project)
-  IFS='|' read -r case_dir home proj wt fakebin grok_home id <<EOF
+  local kind rec case_dir home proj wt fakebin grok_home id out spawning
+  for kind in plain linked; do
+    rec=$(make_spawn_case "trust-project-$kind")
+    IFS='|' read -r case_dir home proj wt fakebin grok_home id <<EOF
 $rec
 EOF
-  out=$(run_grok_spawn "$home" "$proj" "$wt" "$fakebin" "$grok_home" "$id")
-  expect_code 0 $? "grok spawn should succeed: $out"
-  assert_grok_trusted "$grok_home" "$proj" \
-    "grok spawn did not pre-register trust for the project's primary checkout"
-  assert_no_grep "\"$wt\"" "$grok_home/trusted_folders.toml" \
-    "grok spawn registered the ephemeral worktree instead of relying on grok's own inheritance"
-  pass "grok spawn pre-trusts the project primary checkout, not the task worktree"
+    spawning=$proj
+    if [ "$kind" = linked ]; then
+      spawning="$case_dir/spawning-root"
+      git -C "$proj" worktree add --quiet -b spawning "$spawning"
+    fi
+    out=$(run_grok_spawn "$home" "$spawning" "$wt" "$fakebin" "$grok_home" "$id")
+    expect_code 0 $? "grok spawn from a $kind root should succeed: $out"
+    assert_grok_trusted "$grok_home" "$proj" \
+      "grok spawn did not pre-register trust for the project's primary checkout"
+    assert_no_grep "\"$wt\"" "$grok_home/trusted_folders.toml" \
+      "grok spawn registered the ephemeral worktree instead of relying on grok's own inheritance"
+    if [ "$kind" = linked ]; then
+      assert_no_grep "\"$spawning\"" "$grok_home/trusted_folders.toml" \
+        "grok spawn registered the linked spawning root directly"
+    fi
+    assert_present "$fakebin/grok.home" "the registered worker did not execute"
+    pass "grok spawn from a $kind root pre-trusts only the primary checkout"
+  done
 }
 
-test_grok_secondmate_spawn_pretrusts_its_own_home() {
-  local case_dir home mate fakebin grok_home id out
-  case_dir="$TMP_ROOT/secondmate-trust"
-  home="$case_dir/home"
-  mate="$case_dir/mate-home"
-  fakebin=$(make_spawn_fakebin "$case_dir/fake" gh-axi gh)
-  grok_home="$case_dir/grok"
-  id="grok-secondmate-x1"
-  mkdir -p "$grok_home" "$mate/bin" "$mate/data"
-  fm_test_spawn_home "$home" grok
-  fm_git_init_commit "$mate"
-  printf '# Firstmate\n' > "$mate/AGENTS.md"
-  git -C "$mate" add AGENTS.md
-  git -C "$mate" -c user.email=t@t -c user.name=t commit --quiet -m agents
-  printf '%s\n' "$id" > "$mate/.fm-secondmate-home"
-  printf 'charter for %s\n' "$id" > "$mate/data/charter.md"
-  out=$(GROK_HOME="$grok_home" fm_test_run_spawn "$home" "$mate" "$fakebin" \
-    "$id" "$mate" --secondmate)
-  expect_code 0 $? "grok secondmate spawn should succeed: $out"
-  assert_grok_trusted "$grok_home" "$mate" \
-    "grok secondmate spawn did not pre-register trust for its own home"
-  pass "grok secondmate spawn pre-trusts its own home the same way a crewmate spawn does"
+test_grok_secondmate_spawn_pretrusts_its_primary() {
+  local kind case_dir home mate primary fakebin grok_home id out
+  for kind in plain linked; do
+    case_dir="$TMP_ROOT/secondmate-trust-$kind"
+    home="$case_dir/home"
+    mate="$case_dir/mate-home"
+    primary=$mate
+    fakebin=$(make_spawn_fakebin "$case_dir/fake" gh-axi gh)
+    make_grok_probe "$fakebin"
+    grok_home="$case_dir/grok"
+    id="grok-secondmate-$kind-x1"
+    mkdir -p "$grok_home"
+    fm_test_spawn_home "$home" grok
+    if [ "$kind" = linked ]; then
+      primary="$case_dir/primary"
+      fm_git_worktree "$primary" "$mate" mate
+    else
+      fm_git_init_commit "$mate"
+    fi
+    mkdir -p "$mate/bin" "$mate/data"
+    printf '# Firstmate\n' > "$mate/AGENTS.md"
+    git -C "$mate" add AGENTS.md
+    git -C "$mate" -c user.email=t@t -c user.name=t commit --quiet -m agents
+    printf '%s\n' "$id" > "$mate/.fm-secondmate-home"
+    printf 'charter for %s\n' "$id" > "$mate/data/charter.md"
+    out=$(GROK_HOME="$grok_home" FM_FAKE_LAUNCH_LOG="$home/launch.log" \
+      fm_test_run_spawn "$home" "$mate" "$fakebin" "$id" "$mate" --secondmate)
+    expect_code 0 $? "grok secondmate spawn should succeed: $out"
+    out=$(cd "$mate" && env -i HOME="$home/user-home" GROK_HOME="$grok_home" \
+      PATH="$fakebin:$PATH" /bin/sh "$home/launch.log")
+    expect_code 0 $? "grok secondmate launch should succeed: $out"
+    assert_grok_trusted "$grok_home" "$primary" \
+      "grok secondmate launch did not pre-register trust for its primary checkout"
+    if [ "$kind" = linked ]; then
+      assert_no_grep "\"$mate\"" "$grok_home/trusted_folders.toml" "a linked secondmate was trusted directly"
+    fi
+    assert_present "$fakebin/grok.home" "the registered secondmate did not execute"
+    pass "grok secondmate with a $kind home pre-trusts its primary checkout"
+  done
+}
+
+test_grok_registration_uses_the_filtered_launch_environment() {
+  local policy rec case_dir home proj wt fakebin grok_home id pane_home selected out
+  for policy in absent allowed excluded; do
+    rec=$(make_spawn_case "launch-store-$policy")
+    IFS='|' read -r case_dir home proj wt fakebin grok_home id <<EOF
+$rec
+EOF
+    case "$policy" in
+      allowed) printf 'GROK_HOME\n' > "$home/config/launch-env-allowlist" ;;
+      excluded) : > "$home/config/launch-env-allowlist" ;;
+    esac
+    pane_home="$case_dir/pane-home"
+    mkdir -p "$pane_home" "$case_dir/pane grok"
+    ln -s "$case_dir/pane grok" "$case_dir/grok-alias"
+    selected="$case_dir/pane grok"
+    [ "$policy" != excluded ] || selected="$pane_home/.grok"
+    out=$(GROK_HOME="$grok_home" FM_FAKE_LAUNCH_LOG="$home/launch.log" \
+      fm_test_run_spawn "$home" "$wt" "$fakebin" "$id" "$proj" grok --mode no-mistakes --yolo off)
+    expect_code 0 $? "grok spawn with $policy launch policy should succeed: $out"
+    assert_absent "$grok_home/trusted_folders.toml" "spawn registered trust in the invoking process's store"
+    out=$(cd "$wt" && env -i HOME="$pane_home" GROK_HOME="$case_dir/grok-alias" \
+      PATH="$fakebin:$PATH" /bin/sh "$home/launch.log")
+    expect_code 0 $? "grok launch with $policy launch policy should succeed: $out"
+    [ "$(cat "$fakebin/grok.home")" = "$selected" ] || fail "grok did not receive the resolved launch store"
+    assert_grok_trusted "$selected" "$proj" "the worker's store was not registered before launch"
+    rm "$fakebin/grok.home"
+    printf '[folders."%s"]\ntrusted = false\n' "$proj" > "$selected/trusted_folders.toml"
+    out=$(cd "$wt" && env -i HOME="$pane_home" GROK_HOME="$case_dir/grok-alias" \
+      PATH="$fakebin:$PATH" /bin/sh "$home/launch.log")
+    expect_code 1 $? "an explicit untrust decision must block the worker: $out"
+    assert_absent "$fakebin/grok.home" "grok started despite a registration refusal"
+    assert_grep 'trusted = false' "$selected/trusted_folders.toml" "launch overwrote an explicit untrust decision"
+    pass "grok registration and launch share the destination store with policy=$policy"
+  done
 }
 
 test_fm_lock_recognizes_grok_holder() {
@@ -161,5 +237,6 @@ SH
 test_grok_hook_requires_registered_token
 test_grok_teardown_removes_pointer_and_token
 test_grok_spawn_pretrusts_the_project_not_the_worktree
-test_grok_secondmate_spawn_pretrusts_its_own_home
+test_grok_secondmate_spawn_pretrusts_its_primary
+test_grok_registration_uses_the_filtered_launch_environment
 test_fm_lock_recognizes_grok_holder

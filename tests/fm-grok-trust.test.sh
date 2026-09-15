@@ -101,15 +101,38 @@ test_registration_is_idempotent() {
   pass "fm-grok-trust.sh: repeat registration is idempotent"
 }
 
-test_linked_worktree_is_refused() {
+test_linked_worktree_registers_its_primary() {
   local rec out
   rec=$(make_case worktree)
   read_case "$rec"
   out=$(run_trust "$GROK_HOME_DIR" "$WT")
-  expect_code 1 $? "a linked worktree must be refused as the registration target: $out"
-  assert_contains "$out" "linked worktree" "the refusal did not name the linked worktree"
+  expect_code 0 $? "a linked spawning root must resolve its primary: $out"
+  assert_contains "$out" "trusted: $PROJ" "registration did not name the primary checkout"
+  assert_trusted "$GROK_HOME_DIR" "$PROJ" "the linked root's primary was not trusted"
   assert_not_trusted "$GROK_HOME_DIR" "$WT" "a linked worktree was trusted directly"
-  pass "fm-grok-trust.sh: refuses a linked worktree as the registration target"
+  out=$(run_trust "$GROK_HOME_DIR" "$WT")
+  expect_code 0 $? "an already trusted linked spawning root must succeed: $out"
+  assert_contains "$out" "already-trusted: $PROJ" "linked registration did not reuse the primary's trust"
+  pass "fm-grok-trust.sh: linked roots register only their primary checkout"
+}
+
+test_linked_root_cannot_trust_an_unsafe_primary() {
+  local rec out bare wt
+  rec=$(make_case unsafe-primary)
+  read_case "$rec"
+  out=$(run_trust "$GROK_HOME_DIR" "$WT" "$PROJ")
+  expect_code 1 $? "a linked root must not grant trust to HOME: $out"
+  assert_contains "$out" "home directory" "the resolved primary skipped the home-directory refusal"
+  assert_not_trusted "$GROK_HOME_DIR" "$PROJ" "the home directory was trusted through a linked root"
+  bare="$CASE_DIR/bare.git"
+  wt="$CASE_DIR/bare-wt"
+  git clone --quiet --bare "$PROJ" "$bare"
+  git -C "$bare" worktree add --quiet "$wt"
+  out=$(run_trust "$GROK_HOME_DIR" "$wt")
+  expect_code 1 $? "a bare repository must not become a trusted primary checkout: $out"
+  assert_not_trusted "$GROK_HOME_DIR" "$bare" "a bare repository was trusted"
+  assert_not_trusted "$GROK_HOME_DIR" "$wt" "a worktree without a primary checkout was trusted directly"
+  pass "fm-grok-trust.sh: validates the resolved primary before granting trust"
 }
 
 test_worktree_inherits_trust_from_primary_checkout() {
@@ -215,6 +238,87 @@ EOF
   pass "fm-grok-trust.sh: refuses to override an explicit untrust decision"
 }
 
+test_symlinked_store_is_refused() {
+  local kind rec out store target
+  for kind in existing missing; do
+    rec=$(make_case "symlink-$kind")
+    read_case "$rec"
+    store="$GROK_HOME_DIR/trusted_folders.toml"
+    target="$CASE_DIR/alternate.toml"
+    if [ "$kind" = existing ]; then
+      printf '[folders."/other/path"]\ntrusted = false\n' > "$target"
+      cp "$target" "$CASE_DIR/before.toml"
+    fi
+    ln -s "$target" "$store"
+    out=$(run_trust "$GROK_HOME_DIR" "$PROJ")
+    expect_code 1 $? "a $kind symlink target must be refused: $out"
+    assert_contains "$out" "symlink" "the refusal did not identify the unsupported store"
+    [ -L "$store" ] || fail "registration replaced the store symlink"
+    [ "$(readlink "$store")" = "$target" ] || fail "registration changed the symlink target"
+    if [ "$kind" = existing ]; then
+      cmp -s "$target" "$CASE_DIR/before.toml" || fail "registration changed the alternate target"
+    else
+      assert_absent "$target" "registration created the alternate target"
+    fi
+  done
+  pass "fm-grok-trust.sh: refuses existing and dangling trust-file symlinks"
+}
+
+test_concurrent_registrations_preserve_both_projects() {
+  local rec other first second i premature=0
+  rec=$(make_case concurrent)
+  read_case "$rec"
+  other="$CASE_DIR/other-project"
+  fm_git_init_commit "$other"
+  ln -s "$GROK_HOME_DIR" "$CASE_DIR/grok-alias"
+  cat > "$CASE_DIR/pause.cjs" <<'JS'
+const fs = require("node:fs");
+const dir = process.env.FM_TRUST_TEST_BARRIER;
+const rename = fs.renameSync;
+fs.renameSync = (from, to) => {
+  if (to === `${dir}/grok-home/trusted_folders.toml`) {
+    fs.writeFileSync(`${dir}/ready`, "");
+    const deadline = Date.now() + 15000;
+    while (!fs.existsSync(`${dir}/release`)) {
+      if (Date.now() >= deadline) throw new Error("trust write barrier timed out");
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
+    }
+  }
+  return rename(from, to);
+};
+JS
+  FM_HOME="$CASE_DIR/firstmate-a" FM_TRUST_TEST_BARRIER="$CASE_DIR" \
+    NODE_OPTIONS="--require=\"$CASE_DIR/pause.cjs\"" \
+    run_trust "$GROK_HOME_DIR" "$PROJ" > "$CASE_DIR/first.out" &
+  first=$!
+  for ((i = 0; i < 100; i++)); do
+    [ -f "$CASE_DIR/ready" ] && break
+    sleep 0.05
+  done
+  if [ ! -f "$CASE_DIR/ready" ]; then
+    touch "$CASE_DIR/release"
+    wait "$first" || true
+    fail "the first registration never reached the write barrier"
+  fi
+  (
+    FM_HOME="$CASE_DIR/firstmate-b" run_trust "$CASE_DIR/grok-alias" "$other" > "$CASE_DIR/second.out"
+    printf '%s\n' "$?" > "$CASE_DIR/second.status"
+  ) &
+  second=$!
+  for ((i = 0; i < 40; i++)); do
+    if [ -f "$CASE_DIR/second.status" ]; then premature=1; break; fi
+    sleep 0.05
+  done
+  touch "$CASE_DIR/release"
+  wait "$first" || fail "first registration failed: $(cat "$CASE_DIR/first.out")"
+  wait "$second" || fail "second registration did not finish"
+  [ "$premature" = 0 ] || fail "a second registration finished while the first still owned the write"
+  [ "$(cat "$CASE_DIR/second.status")" = 0 ] || fail "second registration failed: $(cat "$CASE_DIR/second.out")"
+  assert_trusted "$GROK_HOME_DIR" "$PROJ" "concurrent registration lost the first project's trust"
+  assert_trusted "$GROK_HOME_DIR" "$other" "concurrent registration lost the second project's trust"
+  pass "fm-grok-trust.sh: different Firstmate homes serialize against the resolved store"
+}
+
 test_missing_node_is_refused() {
   local rec out bindir
   rec=$(make_case no-node)
@@ -232,15 +336,17 @@ test_scope_refusal_stays_fail_closed_without_node() {
   rec=$(make_case no-node-refusal)
   read_case "$rec"
   bindir=$(node_free_path "$CASE_DIR")
-  out=$(PATH="$bindir" run_trust "$GROK_HOME_DIR" "$WT")
-  expect_code 1 $? "the linked worktree must still be refused without node: $out"
-  assert_contains "$out" "linked worktree" "the refusal did not name the linked worktree"
+  mkdir -p "$WT/sub"
+  out=$(PATH="$bindir" run_trust "$GROK_HOME_DIR" "$WT/sub")
+  expect_code 1 $? "a worktree subdirectory must still be refused without node: $out"
+  assert_contains "$out" "not a repository root" "the refusal did not name the invalid scope"
   pass "fm-grok-trust.sh: a scope refusal stays fail-closed without node"
 }
 
 test_fresh_primary_checkout_is_trusted
 test_registration_is_idempotent
-test_linked_worktree_is_refused
+test_linked_worktree_registers_its_primary
+test_linked_root_cannot_trust_an_unsafe_primary
 test_worktree_inherits_trust_from_primary_checkout
 test_home_directory_is_refused
 test_grok_home_directory_is_refused
@@ -249,5 +355,7 @@ test_missing_directory_is_refused
 test_repository_subdirectory_is_refused
 test_unrelated_store_content_is_preserved
 test_explicit_untrust_is_not_overridden
+test_symlinked_store_is_refused
+test_concurrent_registrations_preserve_both_projects
 test_missing_node_is_refused
 test_scope_refusal_stays_fail_closed_without_node

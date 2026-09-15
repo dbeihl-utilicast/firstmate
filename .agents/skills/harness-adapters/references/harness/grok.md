@@ -40,7 +40,10 @@ Grok gates a repository it has never seen behind an interactive "Do you trust th
 The gate only fires for a directory carrying project-level automation content such as `AGENTS.md` or a `.grok/hooks/*.json` file, which every task worktree carries, so every fresh project hits it.
 Trust lives in `${GROK_HOME:-$HOME/.grok}/trusted_folders.toml` and is a property of a git repository's identity rather than a filesystem path: an entry for a repository's PRIMARY checkout (the worktree whose own git directory is not a pointer file) is inherited by every linked worktree of that same repository, but the reverse does not hold and neither does plain directory containment.
 A ship or scout spawn therefore pre-registers the project's primary checkout, never the ephemeral task worktree, and the dialog does not appear for that worktree or any future one of the same project.
-`../../../bin/fm-grok-trust.sh` records that entry and `../../../bin/fm-spawn.sh` refuses the spawn when the write fails rather than launching a worker that would wedge; it runs for a secondmate too, whose home root is itself a primary checkout.
+`../../../bin/fm-grok-trust.sh` resolves and validates the primary checkout for both plain and linked spawning roots, including leased secondmate homes.
+`../../../bin/fm-spawn.sh` wraps the Grok command with registration inside the destination environment, after any launch-environment filtering; a registration failure prevents the worker process from starting.
+The helper binds the successfully registered, resolved Grok home to the worker command and serializes Firstmate registrations per store through read, replace, and readback.
+Only the regular `trusted_folders.toml` in that Grok home is supported; a symlinked trust file is refused.
 `../../../docs/verification/runtime-backends.md` "Grok folder trust" owns the dated evidence for the inheritance rule.
 
 ## Composer

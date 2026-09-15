@@ -19,7 +19,7 @@ No observed dialog proves only that launch.
 Each supported harness handles its folder-trust gate differently, and the tool reference owns the detail.
 Claude gates a fresh worktree and cannot be answered by key, so the spawn pre-registers the path in Claude's own store.
 Cursor suppresses its dialog with launch-time `--trust`, and Muse suppresses its own with `--yolo`.
-Grok dodges its gate instead of granting trust, because its project picker appears only outside a project and the spawn starts in the isolated git root.
+Grok pre-registers repository trust before launch; `references/harness/grok.md` owns its store and inheritance contract.
 Pi gates the fresh-worktree case too, but unlike Claude its dialog is answered with Enter, and `references/harness/pi.md` owns that recipe and where the decision persists.
 Codex shows a directory-trust dialog on the first run for a repository root.
 A Claude secondmate is deliberately not pre-registered, because `../../../bin/fm-spawn.sh` runs its per-harness pre-launch setup only for non-secondmate kinds, so the registration is never invoked for one.
