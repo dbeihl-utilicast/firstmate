@@ -430,6 +430,29 @@ jobs:
             exit 1
           }
 
+          # Forced teardown of a secondmate whose descendants hold no shared
+          # pool lock yet: the empty lock-path array must not abort under
+          # nounset on stock macOS Bash 3.2.
+          td_output=$(FM_TEST_ONLY=test_forced_secondmate_teardown_succeeds_when_no_descendant_holds_a_pool_lock \
+            /bin/bash tests/fm-teardown.test.sh)
+          printf '%s\n' "$td_output"
+          td_count=$(printf '%s\n' "$td_output" | grep -c '^ok - ')
+          [ "$td_count" -eq 1 ] || {
+            echo "::error::expected 1 teardown bash 3.2 empty-descendant-pool-lock regression, got $td_count"
+            exit 1
+          }
+
+          # Resume of an itemless remote outbox: KEYS stays empty after list_keys
+          # and must not abort under nounset on stock macOS Bash 3.2.
+          rec_output=$(FM_TEST_ONLY=test_itemless_outbox_receive_succeeds_under_bash32 \
+            /bin/bash tests/fm-remote-backlog-handoff.test.sh)
+          printf '%s\n' "$rec_output"
+          rec_count=$(printf '%s\n' "$rec_output" | grep -c '^ok - ')
+          [ "$rec_count" -eq 1 ] || {
+            echo "::error::expected 1 itemless-outbox bash 3.2 receive regression, got $rec_count"
+            exit 1
+          }
+
   invariants:
     name: Repo invariants
     runs-on: ubuntu-latest
