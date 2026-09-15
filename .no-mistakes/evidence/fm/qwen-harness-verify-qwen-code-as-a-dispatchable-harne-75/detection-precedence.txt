@@ -1,0 +1,27 @@
+$ QWEN_CODE=1 GROK_AGENT=1 CLAUDECODE=1 bin/fm-harness.sh
+qwen
+
+$ QWEN_CODE=1 CLAUDECODE=1 bin/fm-harness.sh
+qwen
+
+$ QWEN_CODE=1 bin/fm-harness.sh
+qwen
+
+$ QWEN_CODE=0 bin/fm-harness.sh
+claude
+
+$ QWEN_CODE=true bin/fm-harness.sh
+claude
+
+$ QWEN_CODE_CLI=/opt/node_modules/@qwen-code/qwen-code/cli-entry.js bin/fm-harness.sh
+claude
+
+$ GEMINI_CLI=1 bin/fm-harness.sh
+gemini
+
+$ CURSOR_AGENT=1 QWEN_CODE=1 bin/fm-harness.sh
+cursor
+
+$ GROK_AGENT=1 bin/fm-harness.sh
+grok
+

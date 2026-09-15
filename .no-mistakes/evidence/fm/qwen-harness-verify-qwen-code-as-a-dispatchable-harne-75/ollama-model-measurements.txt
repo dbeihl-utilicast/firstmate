@@ -1,0 +1,75 @@
+$ ollama show qwen3-coder:30b
+  Model
+    architecture        qwen3moe    
+    parameters          30.5B       
+    context length      262144      
+    embedding length    2048        
+    quantization        Q4_K_M      
+
+  Capabilities
+    completion    
+    tools         
+
+  Parameters
+    top_k             20                 
+    top_p             0.8                
+$ ollama show qwen3.8
+  Model
+    architecture        qwen35     
+    parameters          27.3B      
+    context length      262144     
+    embedding length    5120       
+    quantization        Q4_K_M     
+    requires            0.32.12    
+
+  Capabilities
+    completion    
+    vision        
+    tools         
+    thinking      
+
+$ ollama show qwen3.6
+  Model
+    architecture        qwen35moe    
+    parameters          36.0B        
+    context length      262144       
+    embedding length    2048         
+    quantization        Q4_K_M       
+
+  Capabilities
+    completion    
+    vision        
+    tools         
+    thinking      
+
+  Parameters
+$ ollama show qwen2.5vl:7b
+  Model
+    architecture        qwen25vl    
+    parameters          8.3B        
+    context length      128000      
+    embedding length    3584        
+    quantization        Q4_K_M      
+
+  Capabilities
+    completion    
+    vision        
+
+  Parameters
+    temperature    0.0001    
+
+$ ollama show qwen3-coder:30b --modelfile | FROM/num_ctx
+FROM <blobs>/sha256-1194192cf2a187eb02722edcc3f77b11d21f537048ce04b67ccf8ba78863006a
+$ ollama show qwen-probe-coder-64k --modelfile | FROM/num_ctx
+FROM <blobs>/sha256-1194192cf2a187eb02722edcc3f77b11d21f537048ce04b67ccf8ba78863006a
+PARAMETER num_ctx 65536
+$ ollama show qwen3.8 --modelfile | FROM/num_ctx
+FROM <blobs>/sha256-f5f1dd8920d417aac2718b0bda3403da274301efdd6760b4f0f4b864ff2ad57d
+FROM <blobs>/sha256-ac3714bfdddeca31351f2752bf1a63f266f4df87c0b68c895e44945ca704448e
+$ ollama show qwen-probe-38-64k --modelfile | FROM/num_ctx
+FROM <blobs>/sha256-f5f1dd8920d417aac2718b0bda3403da274301efdd6760b4f0f4b864ff2ad57d
+FROM <blobs>/sha256-ac3714bfdddeca31351f2752bf1a63f266f4df87c0b68c895e44945ca704448e
+PARAMETER num_ctx 65536
+$ ollama ps
+NAME               ID              SIZE     PROCESSOR    CONTEXT    UNTIL              
+qwen3-coder:30b    06c1097efce0    26 GB    100% GPU     131072     3 minutes from now    

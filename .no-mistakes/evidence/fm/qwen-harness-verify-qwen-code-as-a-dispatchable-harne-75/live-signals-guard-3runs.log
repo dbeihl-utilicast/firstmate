@@ -1,0 +1,33 @@
+=== run 1 17:43:46
+FM_TEST_BEGIN 2026-09-15T17:43:46Z tests/fm-qwen-signals-live-e2e.test.sh family=live-harness-optin expected_gate_skip=live-capability
+BOOTSTRAP_INFO: live qwen version: 0.23.4
+events ['SessionStart', 'UserPromptSubmit', 'PostToolUse', 'UserPromptSubmit', 'Stop']
+tool_env_ok
+ok - qwen 0.23.0 Stop hook fires and QWEN_CODE=1 reaches a tool child
+FM_TEST_END 2026-09-15T17:44:03Z tests/fm-qwen-signals-live-e2e.test.sh exit=0 duration_ms=16563 gate_skip=false
+FM_TEST_SUMMARY total=1 failed=0 skipped_gate=0 duration_ms=16614
+FM_TEST_SUMMARY_FAMILY family=live-harness-optin count=1 duration_ms=16563 failed=0
+FM_TEST_SLOWEST rank=1 script=tests/fm-qwen-signals-live-e2e.test.sh duration_ms=16563
+rc=0
+=== run 2 17:44:03
+FM_TEST_BEGIN 2026-09-15T17:44:03Z tests/fm-qwen-signals-live-e2e.test.sh family=live-harness-optin expected_gate_skip=live-capability
+BOOTSTRAP_INFO: live qwen version: 0.23.4
+events ['SessionStart', 'UserPromptSubmit', 'PostToolUse', 'UserPromptSubmit', 'Stop']
+tool_env_ok
+ok - qwen 0.23.0 Stop hook fires and QWEN_CODE=1 reaches a tool child
+FM_TEST_END 2026-09-15T17:44:20Z tests/fm-qwen-signals-live-e2e.test.sh exit=0 duration_ms=17000 gate_skip=false
+FM_TEST_SUMMARY total=1 failed=0 skipped_gate=0 duration_ms=17053
+FM_TEST_SUMMARY_FAMILY family=live-harness-optin count=1 duration_ms=17000 failed=0
+FM_TEST_SLOWEST rank=1 script=tests/fm-qwen-signals-live-e2e.test.sh duration_ms=17000
+rc=0
+=== run 3 17:44:20
+FM_TEST_BEGIN 2026-09-15T17:44:20Z tests/fm-qwen-signals-live-e2e.test.sh family=live-harness-optin expected_gate_skip=live-capability
+BOOTSTRAP_INFO: live qwen version: 0.23.4
+events ['SessionStart', 'UserPromptSubmit', 'PostToolUse', 'UserPromptSubmit', 'Stop']
+tool_env_ok
+ok - qwen 0.23.0 Stop hook fires and QWEN_CODE=1 reaches a tool child
+FM_TEST_END 2026-09-15T17:44:37Z tests/fm-qwen-signals-live-e2e.test.sh exit=0 duration_ms=16877 gate_skip=false
+FM_TEST_SUMMARY total=1 failed=0 skipped_gate=0 duration_ms=16926
+FM_TEST_SUMMARY_FAMILY family=live-harness-optin count=1 duration_ms=16877 failed=0
+FM_TEST_SLOWEST rank=1 script=tests/fm-qwen-signals-live-e2e.test.sh duration_ms=16877
+rc=0

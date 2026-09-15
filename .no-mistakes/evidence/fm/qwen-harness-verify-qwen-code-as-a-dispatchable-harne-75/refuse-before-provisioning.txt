@@ -1,0 +1,27 @@
+
+## Refusal: missing OpenAI credential
+$ QWEN_DEFAULT_AUTH_TYPE=openai OPENAI_BASE_URL=... bin/fm-spawn.sh qwen-scout <project> --scout --harness qwen --model qwen3-coder:30b --backend tmux
+error: qwen-auth-unavailable: OPENAI_API_KEY is required for the verified non-interactive credential path
+[exit 1]
+treehouse_calls=0 windows=bash, meta=absent settings=absent
+
+## Refusal: auth type is not openai
+error: qwen-auth-unavailable: QWEN_DEFAULT_AUTH_TYPE must be openai for the verified non-interactive credential path
+[exit 1]
+treehouse_calls=0 windows=bash, meta=absent settings=absent
+
+## Refusal: qwen executable absent from PATH
+qwen not on PATH
+error: qwen-executable-unavailable: qwen executable not found on PATH; install Qwen Code or select a different verified harness
+[exit 1]
+treehouse_calls=0 windows=bash, meta=absent settings=absent
+
+## Refusal: non-Linux host (uname -s reports Darwin)
+error: qwen-platform-unsupported: the qwen adapter is verified on Linux only (this host reports 'Darwin'); its process-identity liveness needs /proc argv boundaries, so select a different verified harness
+[exit 1]
+treehouse_calls=0 windows=bash, meta=absent settings=absent
+
+## Refusal: qwen as a secondmate
+error: qwen is a verified crewmate/scout adapter only and cannot run a secondmate; it has no primary supervision protocol. Select a harness verified for secondmates.
+[exit 1]
+treehouse_calls=0 windows=bash, meta=absent settings=absent

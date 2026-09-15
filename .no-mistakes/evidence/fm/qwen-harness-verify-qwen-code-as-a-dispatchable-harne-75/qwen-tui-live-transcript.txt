@@ -1,0 +1,75 @@
+settings mode: 600
+recorded launch (sanitized): env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS -u GEMINI_CLI -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u OPENAI_API_KEY -u OPENAI_BASE_URL QWEN_CODE_SYSTEM_SETTINGS_PATH='<lab>/fmhome/state/qwen-scout.qwen-settings.json' '<qwen-bin>' -y --model 'qwen3-coder:30b' --prompt-interactive 'Reply with the single word PONG and nothing else. Do not run any tools.'
+credential absent from launch command: yes
+liveness after launch: alive
+FAIL: credential in qwen argv or environ
+launch brief opened busy:
+~/.no-mistakes/evidence/01M2JVTGMQ5S6P9PF6NHTGG8W5/qwen-tui-lab.sh: line 18: <lab>/fmhome/state/qwen-scout.busy: No such file or directory
+busy-classify: busy fm-spawn | record: 
+after Stop:
+~/.no-mistakes/evidence/01M2JVTGMQ5S6P9PF6NHTGG8W5/qwen-tui-lab.sh: line 18: <lab>/fmhome/state/qwen-scout.busy: No such file or directory
+busy-classify: idle qwen-hook | record: 
+turn-ended marker present: yes
+--- pane: after launch brief turn (trust dialog / auth picker would appear here) ---
+   ▄▄▄▄▄▄  ▄▄     ▄▄ ▄▄▄▄▄▄▄ ▄▄▄    ▄▄   ┌──────────────────────────────────────────────────────────┐
+  ██╔═══██╗██║    ██║██╔════╝████╗  ██║  │ >_ Qwen Code (v0.23.0)                                   │
+  ██║   ██║██║ █╗ ██║█████╗  ██╔██╗ ██║  │                                                          │
+  ██║▄▄ ██║██║███╗██║██╔══╝  ██║╚██╗██║  │ API Key | qwen3-coder:30b (/model to change)             │
+  ╚██████╔╝╚███╔███╔╝███████╗██║ ╚████║  │ <lab>/wt                               │
+   ╚══▀▀═╝  ╚══╝╚══╝ ╚══════╝╚═╝  ╚═══╝  └──────────────────────────────────────────────────────────┘
+  Tips: Add a QWEN.md file to give Qwen Code persistent project context.
+  ●︎ Extensions changed on disk. Run /reload-plugins to apply updates.
+  ●︎ Read context files: ../qwen-home/output-language.md
+  > Reply with the single word PONG and nothing else. Do not run any tools.
+  ◆︎ PONG
+  ●︎ Update successful! The new version will be used on your next run.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+*   Type your message or @path/to/file
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ➜ wt · git:(wt-qwen-scout) · qwen3-coder:30b · 262.1k Context 11.6% used
+  YOLO mode (shift + tab to cycle)
+doorbell-style submitted line opened busy:
+~/.no-mistakes/evidence/01M2JVTGMQ5S6P9PF6NHTGG8W5/qwen-tui-lab.sh: line 18: <lab>/fmhome/state/qwen-scout.busy: No such file or directory
+busy-classify: busy qwen-hook | record: 
+--- pane: mid-turn (submitted line visible, turn in flight) ---
+  ●︎ Extensions changed on disk. Run /reload-plugins to apply updates.
+  ●︎ Read context files: ../qwen-home/output-language.md
+  > Reply with the single word PONG and nothing else. Do not run any tools.
+  ◆︎ PONG
+  ●︎ Update successful! The new version will be used on your next run.
+  > Write a 600 word essay about ocean tides. Do not run tools.
+  .  Looking for a misplaced semicolon... (4s · esc to cancel)
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+*   Type your message or @path/to/file
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ➜ wt · git:(wt-qwen-scout) · qwen3-coder:30b · 262.1k Context 11.6% used
+  Enter to steer · Ctrl+Q to queue · YOLO mode (shift + tab to cycle)
+control-lib mechanics: interrupt=Escape clear=C-u exit=/quit
+--- pane: after Escape (Qwen restores cancelled prompt into composer) ---
+  > Reply with the single word PONG and nothing else. Do not run any tools.
+  ◆︎ PONG
+  ●︎ Update successful! The new version will be used on your next run.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+* Write a 600 word essay about ocean tides. Do not run tools. ​
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ➜ wt · git:(wt-qwen-scout) · qwen3-coder:30b · 262.1k Context 11.6% used
+  YOLO mode (shift + tab to cycle)
+~/.no-mistakes/evidence/01M2JVTGMQ5S6P9PF6NHTGG8W5/qwen-tui-lab.sh: line 18: <lab>/fmhome/state/qwen-scout.busy: No such file or directory
+busy-classify: busy qwen-hook | record: 
+--- pane: after C-u ---
+  ●︎ Update successful! The new version will be used on your next run.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+*   Type your message or @path/to/file
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ➜ wt · git:(wt-qwen-scout) · qwen3-coder:30b · 262.1k Context 11.6% used
+  YOLO mode (shift + tab to cycle)
+liveness after /quit: dead
+~/.no-mistakes/evidence/01M2JVTGMQ5S6P9PF6NHTGG8W5/qwen-tui-lab.sh: line 18: <lab>/fmhome/state/qwen-scout.busy: No such file or directory
+busy-classify: idle qwen-hook | record: 
+--- pane: after /quit ---
+bash-5.2$ env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS -u GEMINI_CLI -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u OPENAI_API_KEY -u OPENAI_BASE_URL QWEN_CODE_SYSTEM_SETTINGS_PATH='/t
+mp/fm-qwen-lab.LdA83k/fmhome/state/qwen-scout.qwen-settings.json' '~/.local/bin/qwen' -y --model 'qwen3-coder:30b' --prompt-interactive 'Reply with the single word PONG and nothing else. Do
+ not run any tools.'
+To continue this session, run
+qwen --resume 7687727c-1a8f-4530-bcba-fc8531f1327d
+bash-5.2$

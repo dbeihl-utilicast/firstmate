@@ -1,0 +1,5 @@
+run1 rc=0
+{"name":"run_shell_command","input":{"command":"printf \"%s\\n\" \"$QWEN_CODE\"","description":"Running the exact bash command to print QWEN_CODE environment variable"}}
+{"content":"1","is_error":false}
+run2 rc=0
+run3 rc=0

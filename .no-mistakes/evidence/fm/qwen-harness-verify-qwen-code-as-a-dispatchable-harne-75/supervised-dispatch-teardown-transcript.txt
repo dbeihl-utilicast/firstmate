@@ -1,0 +1,170 @@
+
+## Supervised spawn
+$ QWEN_DEFAULT_AUTH_TYPE=openai OPENAI_BASE_URL=http://127.0.0.1:11434/v1 OPENAI_API_KEY=<sentinel> FM_HOME=<home> bin/fm-spawn.sh qwen-scout <project> --scout --harness qwen --model qwen3-coder:30b --backend tmux
+spawned qwen-scout harness=qwen kind=scout window=firstmate:fm-qwen-scout worktree=<lab>/wt-538663
+[exit 0]
+treehouse_calls=1 windows=bash,fm-qwen-scout, meta=present settings=present
+
+## Recorded metadata (state/qwen-scout.meta)
+window=firstmate:fm-qwen-scout
+endpoint_task_id=qwen-scout
+worktree=<lab>/wt-538663
+project=<lab>/project
+harness=qwen
+kind=scout
+tasktmp=/tmp/fm-qwen-scout
+model=qwen3-coder:30b
+effort=default
+busy_gen=g1789494893.539570.12915
+spawn_gen=s1789494893.537948.2901
+
+## Credential containment
+600 <lab>/home/state/qwen-scout.qwen-settings.json
+files under state/ containing the sentinel credential:
+<lab>/home/state/qwen-scout.qwen-settings.json
+settings keys:
+{"security":{"auth":{"selectedType":"openai"}},"env":["OPENAI_API_KEY","OPENAI_BASE_URL"],"hooks":["SessionEnd","Stop","StopFailure","UserPromptSubmit"]}
+endpoint target: firstmate:fm-qwen-scout
+sentinel present in any pane process argv: 0
+sentinel present in isolated tmux global environment: 0
+
+## Busy state across the launch-brief turn
++0s classify=busy fm-spawn
++2s classify=busy qwen-hook
++19s classify=idle qwen-hook
+busy record:
+qwen-scout.busy-gen:
+g1789494893.539570.12915
+qwen-scout.busy-state:
+v1 gen=g1789494893.539570.12915 seq=3 state=idle source=qwen-hook event=stop ts=1789494912
+turn-ended marker:
+qwen-scout.turn-ended
+--- pane after launch turn
+  ██║▄▄ ██║██║███╗██║██╔══╝  ██║╚██╗██║  │ API Key | qwen3-coder:30b (/model to change)             │
+  ╚██████╔╝╚███╔███╔╝███████╗██║ ╚████║  │ <lab>/wt-538663                   │
+   ╚══▀▀═╝  ╚══╝╚══╝ ╚══════╝╚═╝  ╚═══╝  └──────────────────────────────────────────────────────────┘
+  Tips: Add a QWEN.md file to give Qwen Code persistent project context.
+  ●︎ Extensions changed on disk. Run /reload-plugins to apply updates.
+  ●︎ Read context files: ../qwen-home/output-language.md
+  > ⁣FIRSTMATE_OP: v1 launch-brief: # Tas
+    ## Captain's intent
+    Reply with the single word PONG and do nothing else. Do not run any tools.
+    ## Firstmate spec
+    Reply PONG. This is a dispatch smoke test.
+    # Current worker role contract
+    When this task works on Firstmate itself, this section supersedes every earlier brief instruction about your role and identity.
+    When this task works on Firstmate itself, the repository root `AGENTS.md` (also imported by `CLAUDE.md`) is the primary/secondmate supervisor's contract: follow this brief instead of that
+    supervisor contract.
+    For that Firstmate task, do the assigned work yourself and report to firstmate; do not adopt the supervisor identity, delegate the task, run fleet supervision, or address the captain.
+    This exception preserves this brief's safety and authority boundaries and applicable contributor guidance, including `CONTRIBUTING.md` and `firstmate-coding-guidelines` for Firstmate changes.
+    Other projects retain their own instructions unchanged.
+  ◆︎ PONG
+  ●︎ Update successful! The new version will be used on your next run.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+*   Type your message or @path/to/file
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ➜ wt-538663 · git:(457dbec) · qwen3-coder:30b · 262.1k Context 11.7% used
+  YOLO mode (shift + tab to cycle)
+
+## Doorbell via fm-send
+$ FM_HOME=<home> bin/fm-send.sh qwen-scout 'Reply PONG.'
+[exit 0]
+classify during doorbell turn: busy qwen-hook (busy observed: 1)
+--- pane during doorbell turn
+    Reply with the single word PONG and do nothing else. Do not run any tools.
+    ## Firstmate spec
+    Reply PONG. This is a dispatch smoke test.
+    # Current worker role contract
+    When this task works on Firstmate itself, this section supersedes every earlier brief instruction about your role and identity.
+    When this task works on Firstmate itself, the repository root `AGENTS.md` (also imported by `CLAUDE.md`) is the primary/secondmate supervisor's contract: follow this brief instead of that
+    supervisor contract.
+    For that Firstmate task, do the assigned work yourself and report to firstmate; do not adopt the supervisor identity, delegate the task, run fleet supervision, or address the captain.
+    This exception preserves this brief's safety and authority boundaries and applicable contributor guidance, including `CONTRIBUTING.md` and `firstmate-coding-guidelines` for Firstmate changes.
+    Other projects retain their own instructions unchanged.
+  ◆︎ PONG
+  ●︎ Update successful! The new version will be used on your next run.
+  > : Firstmate instruction waiting: list '<lab>/home/state/qwen-scout.inbox'/*.msg and, in numeric order, read and act on each, then mv each handled file to
+    '<lab>/home/state/qwen-scout.inbox'/handled/.
+  .. Loading the next great idea... (0s · esc to cancel)
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+*   Type your message or @path/to/file
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ➜ wt-538663 · git:(457dbec) · qwen3-coder:30b · 262.1k Context 11.7% used
+  Enter to steer · Ctrl+Q to queue · YOLO mode (shift + tab to cycle)
+
+## Interrupt
+$ FM_HOME=<home> bin/fm-control.sh qwen-scout interrupt
+interrupt-delivered qwen-scout harness=qwen backend=tmux verified=agent-alive cancel=unconfirmed
+[exit 0]
+--- pane after interrupt
+    When this task works on Firstmate itself, the repository root `AGENTS.md` (also imported by `CLAUDE.md`) is the primary/secondmate supervisor's contract: follow this brief instead of that
+    supervisor contract.
+    For that Firstmate task, do the assigned work yourself and report to firstmate; do not adopt the supervisor identity, delegate the task, run fleet supervision, or address the captain.
+    This exception preserves this brief's safety and authority boundaries and applicable contributor guidance, including `CONTRIBUTING.md` and `firstmate-coding-guidelines` for Firstmate changes.
+    Other projects retain their own instructions unchanged.
+  ◆︎ PONG
+  ●︎ Update successful! The new version will be used on your next run.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+*   Type your message or @path/to/file
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ➜ wt-538663 · git:(457dbec) · qwen3-coder:30b · 262.1k Context 11.7% used
+  YOLO mode (shift + tab to cycle)
+
+## Exit
+$ FM_HOME=<home> bin/fm-control.sh qwen-scout exit
+stopped qwen-scout harness=qwen backend=tmux endpoint=firstmate:fm-qwen-scout worktree=<lab>/wt-538663
+[exit 0]
+--- pane after exit
+bash-5.2$ export GOTMPDIR=/tmp/fm-qwen-scout/gotmp
+bash-5.2$ export FM_TASK_ID=qwen-scout
+bash-5.2$ env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS -u GEMINI_CLI -u CURSOR_AGENT -u CURSOR_INVOKED_AS QWEN_CODE_SYSTEM
+_SETTINGS_PATH='<lab>/home/state/qwen-scout.qwen-settings.json' '<home>/.local/bin/qwen' -y --model 'qwen3-coder:30b' --prompt-interactive "$('<home>/.no-mistakes/wo
+rktrees/4962ffbf57ea/01M2JVTGMQ5S6P9PF6NHTGG8W5/bin/fm-operational-input.sh' encode launch-brief < '<lab>/home/data/qwen-scout/launch-brief.md')"
+To continue this session, run
+qwen --resume 25508b6f-81a1-411e-88bc-2bb7bdc18e8d
+bash-5.2$
+pane foreground command: bash
+
+## Resume is not a control verb
+$ FM_HOME=<home> bin/fm-control.sh qwen-scout resume
+error: 'resume' is not a control verb: resuming an exited agent is not deterministic across the verified adapters (codex and grok need a session id printed at exit, opencode continues the most recent session for the cwd, and claude, pi, pi-signed, and kimi have no verified pane-resume contract). Use 'relaunch', which carries the brief plus a progress note into a fresh agent on any adapter.
+allowed verbs:
+  interrupt
+  exit
+  relaunch
+[exit 2]
+
+## Relaunch is the recovery path
+$ QWEN_DEFAULT_AUTH_TYPE=openai ... FM_HOME=<home> bin/fm-control.sh qwen-scout relaunch --note 'Previous worker was interrupted and exited; reply PONG again.'
+relaunched qwen-scout harness=qwen from=qwen model=qwen3-coder:30b effort=default backend=tmux endpoint=firstmate:fm-qwen-scout worktree=<lab>/wt-538663
+[exit 0]
++0s classify=busy fm-spawn
++2s classify=busy qwen-hook
++18s classify=idle qwen-hook
+pane foreground command: node
+    supervisor contract.
+    For that Firstmate task, do the assigned work yourself and report to firstmate; do not adopt the supervisor identity, delegate the task, run fleet supervision, or address the captain.
+    This exception preserves this brief's safety and authority boundaries and applicable contributor guidance, including `CONTRIBUTING.md` and `firstmate-coding-guidelines` for Firstmate changes.
+    Other projects retain their own instructions unchanged.
+  ◆︎ PONG
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+*   Type your message or @path/to/file
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ➜ wt-538663 · git:(457dbec) · qwen3-coder:30b · 262.1k Context 11.7% used
+  YOLO mode (shift + tab to cycle)
+files under state/ containing the sentinel credential:
+<lab>/home/state/qwen-scout.qwen-settings.json
+stopped qwen-scout harness=qwen backend=tmux endpoint=firstmate:fm-qwen-scout worktree=<lab>/wt-538663
+[exit 0]
+
+## Teardown removes the credential-bearing settings
+$ FM_HOME=<home> bin/fm-teardown.sh qwen-scout --force   # scratch scout wrote no report
+teardown: reaping leaked worktree process(es) for qwen-scout: 538663
+teardown: force-killing leaked worktree process(es) for qwen-scout: 538663
+teardown qwen-scout complete (window firstmate:fm-qwen-scout, worktree <lab>/wt-538663)
+Backlog: qwen-scout just finished (this home keeps no markdown backlog at <lab>/home/data/backlog.md). Update <lab>/home/data/backlog.md - move qwen-scout to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+[exit 0]
+treehouse shim calls: treehouse get
+treehouse return --force /tmp/fm-qwen-dispatch.1NsofG/wt-538663
+settings file: absent
+files under state/ containing the sentinel credential:
