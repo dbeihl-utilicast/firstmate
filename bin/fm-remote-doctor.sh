@@ -764,7 +764,7 @@ host_plugins_note_auth() { # <id>
 
 host_plugins_parse_catalogue() { # <path>
   python3 - "$1" <<'PY'
-import json, sys
+import json, re, sys
 path = sys.argv[1]
 try:
     with open(path, "r", encoding="utf-8") as handle:
@@ -795,6 +795,12 @@ for index, marketplace in enumerate(data["marketplaces"]):
     source = source.strip()
     if any(char in name or char in source for char in "\n\r\t"):
         print("ERROR marketplaces[%d] name or source contains a control character" % index)
+        sys.exit(0)
+    remote_git = re.fullmatch(r"(?:https|ssh|git)://[^/\s]+/[^\s]+", source) \
+        or re.fullmatch(r"[^@/:\s]+@[^/:\s]+:[^\s]+", source)
+    direct_manifest = re.search(r"(?:^|/)marketplace\.json(?:[?#].*)?$", source, re.IGNORECASE)
+    if not remote_git or direct_manifest:
+        print("ERROR marketplaces[%d] source must be a remote Git repository URL" % index)
         sys.exit(0)
     if name in seen_mp:
         print("ERROR duplicate marketplace name: %s" % name)
@@ -911,7 +917,6 @@ host_plugins_dependency_audit() { # <catalogue-path> <marketplace-json> <plugin-
 import json
 import os
 from pathlib import Path
-import re
 import shutil
 import subprocess
 import sys
@@ -1009,21 +1014,14 @@ try:
                 continue
             if not stage_missing:
                 continue
-            local_source = Path(source).expanduser()
-            if local_source.is_dir():
-                roots[name] = local_source.resolve()
-                continue
             git = shutil.which("git")
             if not git:
                 raise AuditError("git does not resolve while staging marketplace %s" % name)
-            clone_source = source
-            if re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", source):
-                clone_source = "https://github.com/%s.git" % source
             destination = Path(probe_dir) / ("marketplace-%d" % index)
             env = os.environ.copy()
             env["GIT_TERMINAL_PROMPT"] = "0"
             cloned = subprocess.run(
-                [git, "clone", "--depth", "1", "--", clone_source, str(destination)],
+                [git, "clone", "--depth", "1", "--", source, str(destination)],
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -1035,6 +1033,20 @@ try:
                 detail = (cloned.stderr or cloned.stdout or "no diagnostic").strip().splitlines()[0]
                 raise AuditError("marketplace %s could not be staged: %s" % (name, detail))
             roots[name] = destination.resolve()
+
+        marketplace_entries = {}
+        for name, root in roots.items():
+            marketplace_manifest = child_path(root, ".claude-plugin/marketplace.json", "marketplace %s manifest" % name)
+            if not marketplace_manifest.is_file():
+                raise AuditError("marketplace %s has no .claude-plugin/marketplace.json" % name)
+            manifest = load_json(marketplace_manifest, "marketplace %s manifest" % name)
+            manifest_name = manifest.get("name") if isinstance(manifest, dict) else None
+            if manifest_name != name:
+                raise AuditError("marketplace %s manifest name does not match its configured name" % name)
+            entries = manifest.get("plugins")
+            if not isinstance(entries, list):
+                raise AuditError("marketplace %s manifest has no plugins array" % name)
+            marketplace_entries[name] = entries
 
         uncatalogued = set()
         for plugin_id in sorted(configured_plugins):
@@ -1054,13 +1066,7 @@ try:
                 root = roots.get(marketplace)
                 if root is None:
                     continue
-                marketplace_manifest = child_path(root, ".claude-plugin/marketplace.json", "marketplace %s manifest" % marketplace)
-                if not marketplace_manifest.is_file():
-                    raise AuditError("marketplace %s has no .claude-plugin/marketplace.json" % marketplace)
-                manifest = load_json(marketplace_manifest, "marketplace %s manifest" % marketplace)
-                entries = manifest.get("plugins") if isinstance(manifest, dict) else None
-                if not isinstance(entries, list):
-                    raise AuditError("marketplace %s manifest has no plugins array" % marketplace)
+                entries = marketplace_entries[marketplace]
                 matches = [entry for entry in entries if isinstance(entry, dict) and entry.get("name") == plugin]
                 if len(matches) != 1:
                     raise AuditError("%s does not resolve to exactly one marketplace entry" % plugin_id)

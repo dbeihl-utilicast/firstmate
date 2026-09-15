@@ -129,9 +129,8 @@ case "${1:-} ${2:-} ${3:-}" in
     python3 - "$state/marketplaces.json" "$source" "$state/marketplace" <<'PY'
 import json, os, sys
 path, source, install_location = sys.argv[1], sys.argv[2], sys.argv[3]
-name = "example-plugins"
-if "other" in source:
-    name = "other-plugins"
+with open(os.path.join(install_location, ".claude-plugin", "marketplace.json"), encoding="utf-8") as handle:
+    name = json.load(handle)["name"]
 data = []
 if os.path.exists(path):
     with open(path, encoding="utf-8") as handle:
@@ -258,6 +257,51 @@ assert_contains "$DOCTOR_OUT" 'check host-plugins=human:' "missing claude CLI wa
 assert_contains "$DOCTOR_OUT" 'install Claude Code' "missing claude CLI did not name the operator action"
 assert_not_contains "$DOCTOR_OUT" 'fix host-plugins=applied' "the doctor claimed to install Claude Code"
 pass "a missing claude CLI is reported and Claude Code is not installed"
+
+# --- only remote Git repository sources are valid catalogue input ----------
+
+for rejected_source in 'https://example.com/.claude-plugin/marketplace.json' './local-marketplace'; do
+  new_host
+  write_catalogue "$CASE_FM_HOME"
+  python3 - "$CASE_FM_HOME/config/host-plugins.json" "$rejected_source" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as handle:
+    data = json.load(handle)
+data["marketplaces"][0]["source"] = sys.argv[2]
+with open(sys.argv[1], "w", encoding="utf-8") as handle:
+    json.dump(data, handle)
+PY
+  run_doctor --fix
+  assert_contains "$DOCTOR_OUT" 'source must be a remote Git repository URL' \
+    "a non-repository marketplace source was not invalid config"
+  [ ! -s "$CASE_STATE/commands.log" ] || fail "invalid marketplace source invoked claude"
+done
+pass "direct manifests and local paths are rejected before host mutation"
+
+# --- marketplace identity is bound before any repair mutates the store -----
+
+new_host
+write_catalogue "$CASE_FM_HOME"
+python3 - "$CASE_STATE/marketplace/.claude-plugin/marketplace.json" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as handle:
+    data = json.load(handle)
+data["name"] = "other-plugins"
+with open(sys.argv[1], "w", encoding="utf-8") as handle:
+    json.dump(data, handle)
+PY
+run_doctor --fix
+assert_contains "$DOCTOR_OUT" 'marketplace example-plugins manifest name does not match its configured name' \
+  "a marketplace manifest with another name passed preflight"
+[ "$(cat "$CASE_STATE/marketplaces.json")" = '[]' ] \
+  || fail "marketplace identity mismatch registered an unconfigured marketplace"
+[ "$(cat "$CASE_STATE/plugins.json")" = '[]' ] \
+  || fail "marketplace identity mismatch installed a plugin"
+assert_not_contains "$(cat "$CASE_STATE/commands.log")" 'plugin marketplace add' \
+  "marketplace identity mismatch reached marketplace add"
+assert_not_contains "$(cat "$CASE_STATE/commands.log")" 'plugin install' \
+  "marketplace identity mismatch reached plugin install"
+pass "marketplace manifest identity is verified before mutation"
 
 # --- missing marketplace: --fix adds only the configured source -------------
 

@@ -447,7 +447,7 @@ An absent file means the check is not applicable and the public template is unch
 The doctor never installs Claude Code itself, never adds a marketplace or plugin that is not in this file, and never supplies credentials.
 
 The file is a JSON object with two arrays.
-`marketplaces` lists objects with a `name` and a `source` (a URL, path, or GitHub repo the `claude plugin marketplace add` command accepts).
+`marketplaces` lists objects with a `name` and a `source`, where the source is a remote Git repository URL using HTTPS, SSH, or the Git protocol; local paths and direct marketplace manifest URLs are invalid.
 `plugins` lists `plugin@marketplace` strings for that host's user-scope installs.
 
 ```json
