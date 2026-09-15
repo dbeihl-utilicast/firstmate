@@ -247,7 +247,7 @@ EOF
       literal) selected="$case_dir/raw-home"; raw="GROK_HOME=$selected grok --always-approve" ;;
       quoted) selected="$case_dir/raw home"; raw="GROK_HOME='$selected' grok --always-approve" ;;
       relative) selected="$case_dir/raw-home"; raw='GROK_HOME=../raw-home grok --always-approve' ;;
-      variable) selected="$pane_home/raw home"; raw='GROK_HOME="$HOME/raw home" grok --always-approve' ;;
+      variable) selected="$pane_home/raw home"; raw="GROK_HOME=\"\$HOME/raw home\" grok --always-approve" ;;
       empty) selected="$pane_home/.grok"; raw='GROK_HOME= grok --always-approve' ;;
       home) selected="$case_dir/raw-user/.grok"; raw="HOME='$case_dir/raw-user' GROK_HOME= grok --always-approve" ;;
     esac
