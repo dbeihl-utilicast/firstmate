@@ -20,10 +20,9 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Classifies the diff so a documentation-only pull request can skip the
-  # heavy behavior lanes below. Always runs (never skipped) so the jobs that
-  # key off its output keep their default success()-gated `needs`, and always
-  # reports docs_only=false for push, so a merge to main never skips anything.
+  # Classifies the diff so a documentation-only pull request can skip the heavy
+  # behavior lanes below. Always runs, so the jobs keying off its output keep
+  # their default success()-gated `needs`, and push always reports false.
   changes:
     name: Detect change scope
     runs-on: ubuntu-latest
@@ -38,20 +37,23 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -eu
-          if [ "$EVENT_NAME" != pull_request ]; then
-            echo "docs_only=false" >> "$GITHUB_OUTPUT"
-            exit 0
+          # Prose extension alone is not evidence of inertness: docs/ also holds
+          # test fixtures, and several tracked *.md files are runtime input. The
+          # repository's own change-to-test map decides, and anything it cannot
+          # classify falls through as not documentation-only.
+          docs_only=false
+          if [ "$EVENT_NAME" = pull_request ]; then
+            changed=$(git diff --name-only "${BASE_SHA}...HEAD")
+            printf '%s\n' "$changed"
+            if [ -n "$changed" ] && ! printf '%s\n' "$changed" | grep -qvE '\.md$'; then
+              if selected=$(bin/fm-test-run.sh --list --changed --base "$BASE_SHA"); then
+                [ -n "$selected" ] || docs_only=true
+              fi
+            fi
           fi
-          changed=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
-          printf '%s\n' "$changed"
-          if printf '%s\n' "$changed" | grep -qvE '\.md$|^docs/'; then
-            echo "docs_only=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "docs_only=true" >> "$GITHUB_OUTPUT"
-          fi
+          echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
 
   lint:
     name: Lint
@@ -73,6 +75,10 @@ jobs:
       # and the pre-push gate on this script so a self-broken ci.yml still
       # fails locally before merge.
       - run: bin/fm-lint.sh
+      # The only check that reads every tracked prose surface, so it has to run
+      # on the documentation-only pull requests that skip the behavior lanes.
+      - name: Documentation audience and local-link audit
+        run: bin/fm-doc-audience-check.sh
 
   # Deterministic proof that portable parallel shards + portable serial + Herdr
   # equal the complete tests/*.test.sh inventory with no missing or duplicates,
