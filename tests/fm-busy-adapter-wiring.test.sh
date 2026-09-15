@@ -498,35 +498,53 @@ test_raw_qwen_launch_has_no_semantic_wiring() {
 }
 
 test_qwen_spawn_refuses_without_auth() {
-  local rec id=busy-qw-noauth out
+  local rec id=busy-qw-noauth out tmux_log treehouse_log
   rec=$(make_spawn_case qwen-noauth qwen "$id")
   read_case_record "$rec"
-  # env(1) cannot invoke a shell function; unset in a subshell instead.
+  tmux_log="$CASE_DIR/tmux.log"
+  treehouse_log="$CASE_DIR/treehouse.log"
+  cat > "$FAKEBIN_DIR/treehouse" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$FM_FAKE_TREEHOUSE_LOG"
+SH
+  chmod +x "$FAKEBIN_DIR/treehouse"
   out=$(
     unset QWEN_DEFAULT_AUTH_TYPE OPENAI_API_KEY OPENAI_BASE_URL
-    run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" "$PROJ_DIR"
+    FM_FAKE_TMUX_COMMAND_LOG="$tmux_log" FM_FAKE_TREEHOUSE_LOG="$treehouse_log" \
+      run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" "$PROJ_DIR"
   ) && {
     fail "qwen spawn without auth must refuse, got: $out"
   }
-  assert_contains "$out" 'non-interactive auth' \
-    "qwen spawn without auth must name the picker-wedge refusal: $out"
-  pass "qwen spawn refuses rather than opening the ModelStudio auth picker"
+  assert_contains "$out" 'qwen-auth-unavailable' \
+    "qwen spawn without auth must name the auth refusal: $out"
+  assert_absent "$tmux_log" "qwen auth refusal created or wrote to an endpoint"
+  assert_absent "$treehouse_log" "qwen auth refusal provisioned a worktree"
+  assert_absent "$HOME_DIR/state/$id.meta" "qwen auth refusal published metadata"
+  assert_absent "$HOME_DIR/state/$id.qwen-settings.json" "qwen auth refusal wrote settings"
+  pass "qwen spawn refuses before provisioning when no secure auth shape exists"
 }
 
 test_qwen_launch_stays_interactive() {
-  local rec id=busy-qw-i out log
+  local rec id=busy-qw-i out log launch settings mode
   rec=$(make_spawn_case qwen-interactive qwen "$id")
   read_case_record "$rec"
   log="$CASE_DIR/launch.log"
+  settings="$HOME_DIR/state/$id.qwen-settings.json"
+  printf '{}\n' > "$settings"
+  chmod 644 "$settings"
   out=$(FM_FAKE_LAUNCH_LOG="$log" run_qwen_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" "$PROJ_DIR")
   expect_code 0 $? "qwen spawn should succeed: $out"
-  grep -q -- '--prompt-interactive' "$log" \
-    || fail "qwen launch must use --prompt-interactive so a positional brief is not one-shot headless: $(cat "$log")"
-  grep -q -- '--auth-type' "$log" \
-    || fail "qwen launch must pass --auth-type so the TUI does not wedge on the auth picker: $(cat "$log")"
-  grep -q -- 'qwen -y' "$log" \
-    || fail "qwen launch must keep -y: $(cat "$log")"
-  pass "qwen launch uses --prompt-interactive rather than a one-shot positional brief"
+  launch=$(cat "$log")
+  assert_contains "$launch" '--prompt-interactive' \
+    "qwen launch must use --prompt-interactive so a positional brief is not one-shot headless"
+  assert_contains "$launch" 'qwen -y' "qwen launch must keep -y"
+  assert_not_contains "$launch" 'OPENAI_API_KEY' "qwen launch recorded a credential name"
+  assert_not_contains "$launch" 'ollama' "qwen launch recorded a credential value"
+  jq -e '.security.auth.selectedType == "openai" and .env.OPENAI_API_KEY == "ollama" and .env.OPENAI_BASE_URL == "http://127.0.0.1:11434/v1"' "$settings" >/dev/null \
+    || fail "qwen settings did not carry the selected auth and environment"
+  mode=$(stat -c '%a' "$settings" 2>/dev/null || stat -f '%Lp' "$settings")
+  [ "$mode" = 600 ] || fail "qwen settings must be private, got mode $mode"
+  pass "qwen launch stays interactive and keeps credentials out of recorded commands"
 }
 
 test_qwen_is_refused_as_a_secondmate() {

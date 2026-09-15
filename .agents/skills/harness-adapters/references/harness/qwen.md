@@ -54,12 +54,13 @@ A local model can think for minutes without drawing a footer firstmate already t
 
 ## Auth
 
-A Qwen worker needs a credential it can use without a dialog, and firstmate does not manage one.
-Env prefixes on the launch line are not enough: the TUI still opens the ModelStudio access-method picker.
-`../../../../../bin/fm-spawn.sh` reads `QWEN_DEFAULT_AUTH_TYPE`, `OPENAI_BASE_URL`, and `OPENAI_API_KEY` at spawn time and forwards them as `--auth-type` / `--openai-base-url` / `--openai-api-key`.
-It refuses when `QWEN_DEFAULT_AUTH_TYPE` is unset rather than shipping a picker-wedged pane.
-Local Ollama is one such provider: `--auth-type openai --openai-base-url http://127.0.0.1:11434/v1 --openai-api-key ollama`.
-That shape is operator configuration, not launch-template identity, and is not hardcoded in `fm-spawn.sh`.
+A Qwen worker needs a credential it can use without a dialog, and firstmate does not invent one.
+The verified non-interactive path accepts `QWEN_DEFAULT_AUTH_TYPE=openai` plus `OPENAI_API_KEY` and an optional `OPENAI_BASE_URL` at spawn time.
+`../../../../../bin/fm-qwen-lib.sh` preflights that shape before a fresh spawn provisions anything and before a relaunch stops the running worker.
+`../../../../../bin/fm-spawn.sh` writes the selected type and provider environment into the mode-0600 firstmate-owned per-task settings file.
+The launch command carries only that settings path, so the credential is absent from process arguments and recorded commands.
+An unavailable or unsupported shape refuses as `qwen-auth-unavailable`.
+Local Ollama is one such operator-supplied OpenAI-compatible provider.
 
 Do NOT give a worker an isolated `QWEN_HOME`.
 It hides `~/.qwen` skills and stored auth the way an isolated `GEMINI_CLI_HOME` hides Gemini user skills.

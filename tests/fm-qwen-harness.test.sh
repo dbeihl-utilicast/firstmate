@@ -29,36 +29,39 @@ set -u
 HARNESS="$ROOT/bin/fm-harness.sh"
 TMP_ROOT=$(fm_test_tmproot fm-qwen-harness)
 
+detect_harness() {
+  env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI -u QWEN_CODE \
+    -u QWEN_CODE_CLI -u ATLASSIAN_AGENT_TYPE -u ROVODEV_CLI -u AGENT \
+    -u FM_OMP_HARNESS -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS \
+    -u GROK_AGENT "$@" "$HARNESS"
+}
+
 test_qwen_marker_outranks_inherited_grok_and_claudecode() {
   local out
-  out=$(GROK_AGENT=1 QWEN_CODE=1 "$HARNESS")
+  out=$(detect_harness GROK_AGENT=1 QWEN_CODE=1)
   [ "$out" = qwen ] || fail "GROK_AGENT + QWEN_CODE must detect qwen, got '$out'"
-  out=$(CLAUDECODE=1 QWEN_CODE=1 "$HARNESS")
+  out=$(detect_harness CLAUDECODE=1 QWEN_CODE=1)
   [ "$out" = qwen ] || fail "CLAUDECODE + QWEN_CODE must detect qwen, got '$out'"
-  out=$(env -u GROK_AGENT -u CLAUDECODE QWEN_CODE=1 "$HARNESS")
+  out=$(detect_harness QWEN_CODE=1)
   [ "$out" = qwen ] || fail "QWEN_CODE alone must detect qwen, got '$out'"
-  out=$(env -u QWEN_CODE GROK_AGENT=1 "$HARNESS")
+  out=$(detect_harness GROK_AGENT=1)
   [ "$out" = grok ] || fail "GROK_AGENT alone must still detect grok, got '$out'"
-  out=$(env -u QWEN_CODE -u GROK_AGENT CLAUDECODE=1 "$HARNESS")
+  out=$(detect_harness CLAUDECODE=1)
   [ "$out" = claude ] || fail "CLAUDECODE alone must still detect claude, got '$out'"
-  out=$(CURSOR_AGENT=1 QWEN_CODE=1 "$HARNESS")
+  out=$(detect_harness CURSOR_AGENT=1 QWEN_CODE=1)
   [ "$out" = cursor ] || fail "CURSOR_AGENT must still outrank QWEN_CODE, got '$out'"
   pass "fm-harness.sh: qwen's marker outranks inherited GROK_AGENT and CLAUDECODE"
 }
 
 test_qwen_does_not_claim_gemini_cli_or_qwen_code_cli_path() {
   local out
-  out=$(env -u QWEN_CODE -u CLAUDECODE -u GROK_AGENT -u CURSOR_AGENT \
-        -u CURSOR_INVOKED_AS -u PI_CODING_AGENT GEMINI_CLI=1 "$HARNESS")
+  out=$(detect_harness GEMINI_CLI=1)
   [ "$out" = gemini ] || fail "GEMINI_CLI must remain gemini, got '$out'"
-  out=$(env -u QWEN_CODE -u CLAUDECODE -u GROK_AGENT -u CURSOR_AGENT \
-        -u CURSOR_INVOKED_AS -u PI_CODING_AGENT -u GEMINI_CLI \
-        QWEN_CODE_CLI=/home/u/.local/lib/node_modules/@qwen-code/qwen-code/cli-entry.js \
-        "$HARNESS")
+  out=$(detect_harness \
+    QWEN_CODE_CLI=/home/u/.local/lib/node_modules/@qwen-code/qwen-code/cli-entry.js)
   [ "$out" != qwen ] \
     || fail "QWEN_CODE_CLI as a path must not claim the qwen identity, got '$out'"
-  out=$(env -u CLAUDECODE -u GROK_AGENT -u CURSOR_AGENT -u CURSOR_INVOKED_AS \
-        -u PI_CODING_AGENT -u GEMINI_CLI QWEN_CODE=0 "$HARNESS")
+  out=$(detect_harness QWEN_CODE=0)
   [ "$out" != qwen ] \
     || fail "QWEN_CODE=0 must not claim the qwen identity, got '$out'"
   pass "fm-harness.sh: GEMINI_CLI and QWEN_CODE_CLI never claim the qwen identity"
@@ -76,9 +79,7 @@ esac
 exit 1
 SH
   chmod +x "$fakebin/ps"
-  out=$(env -u QWEN_CODE -u CLAUDECODE -u GROK_AGENT -u CURSOR_AGENT \
-        -u CURSOR_INVOKED_AS -u PI_CODING_AGENT -u GEMINI_CLI \
-        PATH="$fakebin:$PATH" "$HARNESS")
+  out=$(detect_harness PATH="$fakebin:$PATH")
   [ "$out" = qwen ] \
     || fail "a natively-named qwen command must be detected by ancestry, got '$out'"
   pass "fm-harness.sh: ancestry detects a natively-named qwen command"
@@ -97,17 +98,13 @@ exit 1
 SH
   chmod +x "$fakebin/ps"
 
-  out=$(env -u QWEN_CODE -u CLAUDECODE -u GROK_AGENT -u CURSOR_AGENT \
-        -u CURSOR_INVOKED_AS -u PI_CODING_AGENT -u GEMINI_CLI \
-        FAKE_PS_COMM=qwen-helper FAKE_PS_ARGS='qwen-helper --serve' \
-        PATH="$fakebin:$PATH" "$HARNESS")
+  out=$(detect_harness FAKE_PS_COMM=qwen-helper \
+    FAKE_PS_ARGS='qwen-helper --serve' PATH="$fakebin:$PATH")
   [ "$out" != qwen ] \
     || fail "an unrelated qwen-helper command must not detect qwen, got '$out'"
 
-  out=$(env -u QWEN_CODE -u CLAUDECODE -u GROK_AGENT -u CURSOR_AGENT \
-        -u CURSOR_INVOKED_AS -u PI_CODING_AGENT -u GEMINI_CLI \
-        FAKE_PS_COMM=node FAKE_PS_ARGS='node server.js --model qwen' \
-        PATH="$fakebin:$PATH" "$HARNESS")
+  out=$(detect_harness FAKE_PS_COMM=node \
+    FAKE_PS_ARGS='node server.js --model qwen' PATH="$fakebin:$PATH")
   [ "$out" != qwen ] \
     || fail "a later node argument naming qwen must not detect qwen, got '$out'"
   pass "fm-harness.sh: ancestry rejects unrelated qwen mentions"
@@ -122,8 +119,10 @@ test_qwen_node_bundle_needs_script_argument_or_marker() {
   cat > "$dir/qwen" <<'JS'
 const { spawnSync } = require('child_process');
 const env = { ...process.env };
-for (const k of ['QWEN_CODE', 'CLAUDECODE', 'GROK_AGENT', 'CURSOR_AGENT',
-                 'CURSOR_INVOKED_AS', 'PI_CODING_AGENT', 'GEMINI_CLI']) delete env[k];
+for (const k of ['CURSOR_AGENT', 'CURSOR_INVOKED_AS', 'GEMINI_CLI',
+                 'QWEN_CODE', 'QWEN_CODE_CLI', 'ATLASSIAN_AGENT_TYPE',
+                 'ROVODEV_CLI', 'AGENT', 'FM_OMP_HARNESS', 'CLAUDECODE',
+                 'PI_CODING_AGENT', 'FM_PI_HARNESS', 'GROK_AGENT']) delete env[k];
 const r = spawnSync(process.env.FM_HARNESS_BIN, { env, encoding: 'utf8' });
 process.stdout.write(r.stdout || '');
 JS
@@ -137,9 +136,15 @@ JS
     *)
       [ "$out" != qwen ] \
         || fail "node reports comm=$comm here, so ancestry must not be claiming qwen from comm alone; got '$out'"
-      out=$(FM_HARNESS_BIN="$HARNESS" QWEN_CODE=1 node -e '
+      out=$(FM_HARNESS_BIN="$HARNESS" node -e '
 const { spawnSync } = require("child_process");
-const r = spawnSync(process.env.FM_HARNESS_BIN, { encoding: "utf8" });
+const env = { ...process.env };
+for (const k of ["CURSOR_AGENT", "CURSOR_INVOKED_AS", "GEMINI_CLI",
+                 "QWEN_CODE", "QWEN_CODE_CLI", "ATLASSIAN_AGENT_TYPE",
+                 "ROVODEV_CLI", "AGENT", "FM_OMP_HARNESS", "CLAUDECODE",
+                 "PI_CODING_AGENT", "FM_PI_HARNESS", "GROK_AGENT"]) delete env[k];
+env.QWEN_CODE = "1";
+const r = spawnSync(process.env.FM_HARNESS_BIN, { env, encoding: "utf8" });
 process.stdout.write(r.stdout || "");' 2>/dev/null | tr -d '\n')
       [ "$out" = qwen ] \
         || fail "QWEN_CODE must identify a node-bundle qwen worker, got '$out'"

@@ -20,10 +20,26 @@ fm_live_gate opt-in FM_QWEN_SIGNALS_LIVE qwen
 VERSION_OUT=$("$QWEN_BIN" --version 2>&1) || fail "qwen --version failed: $VERSION_OUT"
 echo "BOOTSTRAP_INFO: live qwen version: $VERSION_OUT"
 
+MODEL=${QWEN_LIVE_MODEL:-qwen3-coder:30b}
+BASE_URL=${OPENAI_BASE_URL:-http://127.0.0.1:11434/v1}
+LOCAL_OLLAMA=0
+OLLAMA_MODEL_WAS_RUNNING=0
+case "$BASE_URL" in
+  http://127.0.0.1:11434/*|http://localhost:11434/*|http://\[::1\]:11434/*) LOCAL_OLLAMA=1 ;;
+esac
+ollama_model_running() {
+  ollama ps 2>/dev/null | awk -v model="$MODEL" 'NR > 1 && $1 == model { found=1 } END { exit !found }'
+}
+if [ "$LOCAL_OLLAMA" -eq 1 ] && command -v ollama >/dev/null 2>&1 \
+   && ollama_model_running; then
+  OLLAMA_MODEL_WAS_RUNNING=1
+fi
+
 LAB=$(mktemp -d "${TMPDIR:-/tmp}/fm-qwen-signals.XXXXXX") || fail "could not create the isolated Qwen lab"
 cleanup() {
-  if command -v ollama >/dev/null 2>&1; then
-    ollama stop "${QWEN_LIVE_MODEL:-qwen3-coder:30b}" >/dev/null 2>&1 || true
+  if [ "$LOCAL_OLLAMA" -eq 1 ] && [ "$OLLAMA_MODEL_WAS_RUNNING" -eq 0 ] \
+     && command -v ollama >/dev/null 2>&1 && ollama_model_running; then
+    ollama stop "$MODEL" >/dev/null 2>&1 || true
   fi
   rm -rf -- "$LAB"
 }
@@ -69,8 +85,7 @@ open(os.path.join(lab, "home", "settings.json"), "w").write(
 PY
 
 : > "$LAB/hooks.jsonl"
-MODEL=${QWEN_LIVE_MODEL:-qwen3-coder:30b}
-PROMPT='Run this exact bash command and nothing else, then reply with the single word PONG: printf %s\\n "$QWEN_CODE"'
+PROMPT='Run this exact bash command and nothing else, then reply with the single word PONG: printf "%s\n" "$QWEN_CODE"'
 
 set +e
 (
@@ -81,10 +96,10 @@ set +e
     QWEN_CODE_SYSTEM_SETTINGS_PATH="$LAB/system-settings.json" \
     PROBE_HOOK_LOG="$LAB/hooks.jsonl" \
     QWEN_CODE_SUPPRESS_YOLO_WARNING=1 \
+    OPENAI_API_KEY="${OPENAI_API_KEY:-ollama}" \
+    OPENAI_BASE_URL="$BASE_URL" \
     timeout 180s "$QWEN_BIN" \
       --auth-type openai \
-      --openai-api-key "${OPENAI_API_KEY:-ollama}" \
-      --openai-base-url "${OPENAI_BASE_URL:-http://127.0.0.1:11434/v1}" \
       --model "$MODEL" \
       --yolo \
       --chat-recording=false \
@@ -107,16 +122,27 @@ if "Stop" not in events:
     raise SystemExit("Stop hook did not fire; events=%r" % events)
 if "UserPromptSubmit" not in events:
     raise SystemExit("UserPromptSubmit hook did not fire; events=%r" % events)
-tool_env = None
+expected_command = 'printf "%s\\n" "$QWEN_CODE"'
+tool_calls = {}
+tool_results = {}
 for line in open(lab + "/stdout.jsonl"):
     d = json.loads(line)
+    if d.get("type") == "assistant":
+        for block in d.get("message", {}).get("content", []):
+            if block.get("type") == "tool_use" and block.get("name") == "run_shell_command":
+                if block.get("input", {}).get("command", "").strip() == expected_command:
+                    tool_calls[block.get("id")] = block
     if d.get("type") != "user":
         continue
     for block in d.get("message", {}).get("content", []):
         if block.get("type") == "tool_result":
-            tool_env = block.get("content", "")
-if tool_env is None or "1" not in tool_env:
-    raise SystemExit("tool child did not print QWEN_CODE=1; content=%r" % tool_env)
+            tool_results[block.get("tool_use_id")] = block
+if len(tool_calls) != 1:
+    raise SystemExit("expected exactly one intended shell call; calls=%r" % list(tool_calls))
+tool_id = next(iter(tool_calls))
+result = tool_results.get(tool_id)
+if result is None or result.get("is_error") or result.get("content", "").strip() != "1":
+    raise SystemExit("intended shell stdout was not exactly QWEN_CODE=1; result=%r" % result)
 print("events", events)
 print("tool_env_ok")
 PY

@@ -132,6 +132,8 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 . "$SCRIPT_DIR/fm-busy-lib.sh"
 # shellcheck source=bin/fm-control-lib.sh
 . "$SCRIPT_DIR/fm-control-lib.sh"
+# shellcheck source=bin/fm-qwen-lib.sh
+. "$SCRIPT_DIR/fm-qwen-lib.sh"
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
 # shellcheck source=bin/fm-wake-lib.sh
@@ -792,6 +794,9 @@ do_relaunch() {
 
   require_state_verified_backend relaunch
   resolve_relaunch_profile
+  if [ "$TARGET_HARNESS" = qwen ]; then
+    fm_qwen_auth_preflight || exit 1
+  fi
 
   case "$KIND" in
     ship|scout)

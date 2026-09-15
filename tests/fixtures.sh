@@ -105,6 +105,9 @@ fm_test_fake_tmux_spawn() {
   cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u
+if [ -n "${FM_FAKE_TMUX_COMMAND_LOG:-}" ]; then
+  printf '%s\n' "$*" >> "$FM_FAKE_TMUX_COMMAND_LOG"
+fi
 case "$*" in
   *"#{pane_current_path}"*) printf '%s\n' "${FM_FAKE_PANE_PATH:-}"; exit 0 ;;
 esac

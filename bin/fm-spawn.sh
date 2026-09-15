@@ -429,6 +429,8 @@ fm_backlog_directory_present "$STATE" "state directory" || {
 . "$SCRIPT_DIR/fm-backend.sh"
 # shellcheck source=bin/fm-control-lib.sh
 . "$SCRIPT_DIR/fm-control-lib.sh"
+# shellcheck source=bin/fm-qwen-lib.sh
+. "$SCRIPT_DIR/fm-qwen-lib.sh"
 # shellcheck source=bin/fm-gate-refuse-lib.sh
 . "$SCRIPT_DIR/fm-gate-refuse-lib.sh"
 # shellcheck source=bin/fm-busy-lib.sh
@@ -1574,12 +1576,7 @@ launch_template() {
     # qwen exposes no CLI effort flag (checked against 0.23.0 --help; /effort
     # exists only as an in-session slash command), so the shared effort axis
     # is omitted here and stays in task metadata only.
-    # Auth must ride CLI flags, not env prefixes: a 2026-09-15 tmux spawn with
-    # QWEN_DEFAULT_AUTH_TYPE/OPENAI_* exported still opened the ModelStudio
-    # access-method picker and never ran the brief. __QWENAUTH__ is filled
-    # below from those same variables as --auth-type/--openai-base-url/
-    # --openai-api-key, or the spawn refuses. Nothing is hardcoded.
-    qwen) printf '%s' 'env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS -u GEMINI_CLI -u CURSOR_AGENT -u CURSOR_INVOKED_AS QWEN_CODE_SYSTEM_SETTINGS_PATH=__QWENSETTINGS__ qwen -y __MODELFLAG____QWENAUTH__--prompt-interactive "$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
+    qwen) printf '%s' 'env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS -u GEMINI_CLI -u CURSOR_AGENT -u CURSOR_INVOKED_AS QWEN_CODE_SYSTEM_SETTINGS_PATH=__QWENSETTINGS__ qwen -y __MODELFLAG__--prompt-interactive "$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
     # Kimi Code rejects a positional prompt, so it launches bare and receives
     # only an absolute brief pointer after the TUI readiness gate below.
     # Its turn-end signal is a globally configured Stop hook plus a guarded
@@ -1675,7 +1672,8 @@ case "$ARG3" in
     ;;
 esac
 
-# muse and gemini are verified as CREWMATE/SCOUT adapters only. A secondmate is
+# muse, gemini, and qwen are verified as CREWMATE/SCOUT adapters only. A
+# secondmate is
 # a firstmate instance, so it needs a primary supervision protocol.
 # gemini has none: docs/supervision-protocols/ carries no gemini wake protocol
 # and this task verified only crewmate-side launch, busy state, interrupt, and
@@ -1697,6 +1695,10 @@ fi
 if [ "$KIND" = secondmate ] && [ "$HARNESS" = rovo ]; then
   echo "error: rovo is a verified crewmate/scout adapter only and cannot run a secondmate; it has no primary supervision protocol. Select a harness verified for secondmates." >&2
   exit 1
+fi
+
+if [ "$HARNESS" = qwen ] && [ "$RAW_LAUNCH" -eq 0 ]; then
+  fm_qwen_auth_preflight || exit 1
 fi
 
 case "$HARNESS" in
@@ -3366,13 +3368,39 @@ EOF
       # empty JSON object qwen's hook contract accepted on stdout.
       busy_cmd_prefix="$(shell_quote "$FM_ROOT/bin/fm-busy-event.sh") apply $(shell_quote "$STATE_REAL") $(shell_quote "$ID")"
       busy_suffix="--gen $(shell_quote "$BUSY_GEN") --source qwen-hook"
-      q_submit=$(json_escape "$busy_cmd_prefix busy $busy_suffix --event user-prompt-submit >/dev/null 2>&1 || true; printf '{}'")
-      q_stop=$(json_escape "touch $(shell_quote "$TURNEND"); $busy_cmd_prefix idle $busy_suffix --event stop >/dev/null 2>&1 || true; printf '{}'")
-      q_stopfail=$(json_escape "$busy_cmd_prefix idle $busy_suffix --event stop-failure >/dev/null 2>&1 || true; printf '{}'")
-      q_sessionend=$(json_escape "$busy_cmd_prefix idle $busy_suffix --event session-end >/dev/null 2>&1 || true; printf '{}'")
-      cat > "$STATE_REAL/$ID.qwen-settings.json" <<EOF
-{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"$q_submit"}]}],"Stop":[{"hooks":[{"type":"command","command":"$q_stop"}]}],"StopFailure":[{"hooks":[{"type":"command","command":"$q_stopfail"}]}],"SessionEnd":[{"hooks":[{"type":"command","command":"$q_sessionend"}]}]}}
-EOF
+      q_submit="$busy_cmd_prefix busy $busy_suffix --event user-prompt-submit >/dev/null 2>&1 || true; printf '{}'"
+      q_stop="touch $(shell_quote "$TURNEND"); $busy_cmd_prefix idle $busy_suffix --event stop >/dev/null 2>&1 || true; printf '{}'"
+      q_stopfail="$busy_cmd_prefix idle $busy_suffix --event stop-failure >/dev/null 2>&1 || true; printf '{}'"
+      q_sessionend="$busy_cmd_prefix idle $busy_suffix --event session-end >/dev/null 2>&1 || true; printf '{}'"
+      qwen_settings="$STATE_REAL/$ID.qwen-settings.json"
+      qwen_settings_tmp="$qwen_settings.tmp.${BASHPID:-$$}"
+      (
+        umask 077
+        jq -n \
+          --arg submit "$q_submit" \
+          --arg stop "$q_stop" \
+          --arg stopfail "$q_stopfail" \
+          --arg sessionend "$q_sessionend" '
+          {
+            hooks: {
+              UserPromptSubmit: [{hooks: [{type: "command", command: $submit}]}],
+              Stop: [{hooks: [{type: "command", command: $stop}]}],
+              StopFailure: [{hooks: [{type: "command", command: $stopfail}]}],
+              SessionEnd: [{hooks: [{type: "command", command: $sessionend}]}]
+            }
+          }
+          + {
+              security: {auth: {selectedType: env.QWEN_DEFAULT_AUTH_TYPE}},
+              env: ({OPENAI_API_KEY: env.OPENAI_API_KEY} + if env.OPENAI_BASE_URL == null or env.OPENAI_BASE_URL == "" then {} else {OPENAI_BASE_URL: env.OPENAI_BASE_URL} end)
+            }
+        ' > "$qwen_settings_tmp" \
+          && chmod 600 "$qwen_settings_tmp" \
+          && mv -f "$qwen_settings_tmp" "$qwen_settings"
+      ) || {
+        rm -f -- "$qwen_settings_tmp"
+        echo "error: failed to write secure Qwen settings for $ID" >&2
+        exit 1
+      }
       fi
       ;;
     opencode*)
@@ -3894,21 +3922,6 @@ esac
 # an unset value is the single-store default and needs no prefix.
 if [ "$HARNESS" = claude ] && [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then
   LAUNCH="CLAUDE_CONFIG_DIR=$(shell_quote "$CLAUDE_CONFIG_DIR") $LAUNCH"
-fi
-# Qwen's TUI wedges on an Alibaba ModelStudio access-method picker unless an
-# auth type is selected on the CLI (verified, 0.23.0). Env prefixes on the
-# launch line were not enough. --auth-type is the load-bearing flag; forward
-# operator-supplied OpenAI endpoint values when set. Refuse rather than ship
-# a picker-wedged pane.
-if [ "$HARNESS" = qwen ] && [ "$RAW_LAUNCH" -eq 0 ]; then
-  if [ -z "${QWEN_DEFAULT_AUTH_TYPE:-}" ]; then
-    echo "error: qwen spawn needs non-interactive auth (set QWEN_DEFAULT_AUTH_TYPE and, for local Ollama, OPENAI_BASE_URL plus OPENAI_API_KEY); refusing a TUI that wedges on the auth picker" >&2
-    exit 1
-  fi
-  qwen_auth="--auth-type $(shell_quote "$QWEN_DEFAULT_AUTH_TYPE")"
-  [ -n "${OPENAI_BASE_URL:-}" ] && qwen_auth="$qwen_auth --openai-base-url $(shell_quote "$OPENAI_BASE_URL")"
-  [ -n "${OPENAI_API_KEY:-}" ] && qwen_auth="$qwen_auth --openai-api-key $(shell_quote "$OPENAI_API_KEY")"
-  LAUNCH=${LAUNCH//__QWENAUTH__/${qwen_auth} }
 fi
 if [ "$KIND" = secondmate ]; then
   sq_home=$(shell_quote "$PROJ_ABS")

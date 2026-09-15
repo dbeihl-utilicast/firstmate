@@ -62,9 +62,10 @@ child args=.../node --expose-gc .../@qwen-code/qwen-code/cli.js --yolo ...
 A positional prompt is one-shot headless and exits (`qwen --help`: "Positional prompt. Defaults to one-shot").
 `-y` / `--yolo` auto-approves tools.
 Folder trust is off by default; no trust dialog appeared on a fresh scratch git workspace.
-Auth must ride CLI flags.
-A spawn that only exported `QWEN_DEFAULT_AUTH_TYPE` / `OPENAI_*` still opened the ModelStudio access-method picker.
-`bin/fm-spawn.sh` forwards those variables as `--auth-type` / `--openai-base-url` / `--openai-api-key` and refuses when `QWEN_DEFAULT_AUTH_TYPE` is unset.
+Passing `QWEN_DEFAULT_AUTH_TYPE` / `OPENAI_*` directly into Qwen's launch environment still opened the ModelStudio access-method picker.
+`bin/fm-spawn.sh` preflights the verified OpenAI-compatible credential shape before provisioning, then writes the selected type and provider environment into the mode-0600 firstmate-owned settings file.
+The recorded launch command contains the settings path and no credential.
+The named `qwen-auth-unavailable` refusal occurs before a fresh spawn provisions a worktree or endpoint and before a relaunch stops its running worker.
 
 `QWEN_CODE_SYSTEM_SETTINGS_PATH` pointing at a firstmate-owned settings file caused these command hooks to fire on a one-turn headless session with no tools:
 
@@ -80,19 +81,20 @@ A tool-using turn also fired `PostToolUse`.
 
 The worktree's `.qwen/settings.json` was not written.
 `tests/fm-busy-adapter-wiring.test.sh` drives the generated hooks through the real writer and classifier: `UserPromptSubmit` classifies `busy qwen-hook`, `Stop` classifies `idle qwen-hook` and touches the turn-ended marker, and a raw `qwen ...` launch stays unwired.
-The same suite pins `--prompt-interactive`, `--auth-type` on the launch line, and the refuse-without-auth path.
+The same suite pins `--prompt-interactive`, private credential settings, the absence of credentials from the recorded launch command, and the refuse-before-provisioning path.
 
 ## Supervised dispatch
 
 Canonical `bin/fm-spawn.sh` as a qwen scout on isolated tmux, Qwen Code 0.23.4, model `qwen3-coder:30b` via local Ollama.
 A Herdr-lab spawn from this host's live session is refused by Herdr parent identity (cross-session), so isolated tmux is the verified supervised path.
 
-Launch (operator auth, not hardcoded):
+Recorded launch:
 
 ```
-qwen -y --model qwen3-coder:30b --auth-type openai --openai-base-url http://127.0.0.1:11434/v1 --openai-api-key ollama --prompt-interactive "<brief>"
+QWEN_CODE_SYSTEM_SETTINGS_PATH=<firstmate-state> qwen -y --model qwen3-coder:30b --prompt-interactive "<brief>"
 ```
 
+The selected auth type, provider endpoint, and credential were present only in the mode-0600 settings file.
 The TUI header showed `API Key | qwen3-coder:30b` with no access-method picker.
 Busy while the launch brief ran:
 
@@ -150,8 +152,8 @@ The advertised 262144 window is a model capability, not the context Qwen Code ac
 
 Use `qwen3-coder:30b` (or its 64k alias) for well-specified coding work.
 Use `qwen3.8` (or its 64k alias) for general, vision, or thinking-capable turns.
-Auth for local Ollama is operator configuration: `--auth-type openai --openai-base-url http://127.0.0.1:11434/v1 --openai-api-key ollama`.
-That shape is not hardcoded in `fm-spawn.sh`.
+Auth for local Ollama is operator configuration through `QWEN_DEFAULT_AUTH_TYPE=openai`, `OPENAI_BASE_URL`, and `OPENAI_API_KEY` at spawn time.
+Firstmate transfers that configuration into private per-task settings without placing a credential in process arguments or a recorded command.
 
 ## False success: the independent gate still fails, and the model did not claim
 
@@ -196,5 +198,5 @@ bin/fm-test-run.sh tests/fm-qwen-harness.test.sh tests/fm-busy-adapter-wiring.te
 FM_QWEN_SIGNALS_LIVE=1 bin/fm-test-run.sh tests/fm-qwen-signals-live-e2e.test.sh
 ```
 
-The live guard requires a real `qwen` binary and a reachable model (default `qwen3-coder:30b` via local Ollama) and stops that model on exit.
+The live guard requires a real `qwen` binary and a reachable model (default `qwen3-coder:30b` via local Ollama) and stops the local model on exit only when the guard loaded it.
 The portable counterparts run in ordinary CI.

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Qwen Code process identity.
-# Sourced by bin/backends/tmux.sh. This file is sourced by scripts and has no
-# side effects on source.
+# Qwen Code process identity and authentication preflight.
+# Sourced by bin/backends/tmux.sh, bin/fm-spawn.sh, and bin/fm-control.sh. This
+# file is sourced by scripts and has no side effects on source.
 #
 # Why one owner: Qwen Code 0.23.0 ships as a node bundle, so a live qwen pane
 # presents as an interpreter and nothing about its command NAME says qwen.
@@ -25,6 +25,18 @@
 # ancestry fallback. The QWEN_CODE=1 environment marker in bin/fm-harness.sh
 # remains the load-bearing path for tool subprocesses; hook processes inherit
 # QWEN_CODE_CLI but not QWEN_CODE=1 (verified, qwen 0.23.0).
+
+fm_qwen_auth_preflight() {
+  if [ "${QWEN_DEFAULT_AUTH_TYPE:-}" != openai ]; then
+    echo "error: qwen-auth-unavailable: QWEN_DEFAULT_AUTH_TYPE must be openai for the verified non-interactive credential path" >&2
+    return 1
+  fi
+  if [ -z "${OPENAI_API_KEY:-}" ]; then
+    echo "error: qwen-auth-unavailable: OPENAI_API_KEY is required for the verified non-interactive credential path" >&2
+    return 1
+  fi
+  return 0
+}
 
 # True when path $1 carries Qwen Code's own structural evidence: the file is
 # named qwen, or it sits inside the published @qwen-code/qwen-code package

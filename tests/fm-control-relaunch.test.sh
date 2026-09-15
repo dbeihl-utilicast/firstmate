@@ -847,6 +847,29 @@ test_secondmate_relaunch_onto_a_crewmate_only_adapter_refuses_before_stop() {
   pass "fm-control relaunch: an adapter unverified for this task kind refuses before the agent is stopped"
 }
 
+test_qwen_relaunch_without_auth_refuses_before_stop() {
+  local dir out rc before
+  dir=$(new_case qwenauth rl42)
+  add_ship_task "$dir" rl42 claude
+  before="$dir/meta-before"
+  cp "$dir/home/state/rl42.meta" "$before"
+
+  out=$(QWEN_DEFAULT_AUTH_TYPE= OPENAI_API_KEY= OPENAI_BASE_URL= \
+    run_control "$dir" rl42 relaunch --harness qwen --note "continue on qwen")
+  rc=$?
+  expect_code 1 "$rc" "a qwen relaunch without auth should refuse"
+  assert_contains "$out" "qwen-auth-unavailable" \
+    "the refusal should name the missing Qwen auth contract"
+  [ "$(cat "$dir/fake/command")" = claude ] \
+    || fail "the Qwen auth refusal stopped the running agent"
+  [ ! -s "$dir/fake/literal" ] || fail "the Qwen auth refusal sent lifecycle input"
+  cmp -s "$before" "$dir/home/state/rl42.meta" \
+    || fail "the Qwen auth refusal changed task metadata"
+  assert_absent "$dir/home/state/rl42.control-relaunch" \
+    "the Qwen auth refusal began a relaunch transaction"
+  pass "fm-control relaunch: Qwen auth refuses before the running agent is touched"
+}
+
 test_explicit_secondmate_harness_ignores_configured_profile_axes() {
   local dir home out rc
   dir=$(new_case smexplicit sm4)
@@ -1579,6 +1602,7 @@ test_turnend_auth_paths_are_owned_by_the_control_adapter
 test_secondmate_relaunch_picks_up_the_configured_harness_pin
 test_secondmate_relaunch_ignores_invalid_configured_effort_before_stop
 test_secondmate_relaunch_onto_a_crewmate_only_adapter_refuses_before_stop
+test_qwen_relaunch_without_auth_refuses_before_stop
 test_explicit_secondmate_harness_ignores_configured_profile_axes
 test_ship_relaunch_ignores_the_crew_harness_config
 test_spawn_relaunch_without_a_harness_reuses_the_recorded_one
