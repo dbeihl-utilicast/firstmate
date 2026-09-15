@@ -29,7 +29,8 @@
 # is gitignored, so a tracked-files fast-forward never carries these items. This
 # is an explicit copy run at the convergence points the primary owns - a
 # secondmate spawn (bin/fm-spawn.sh), the bootstrap secondmate sweep
-# (bin/fm-bootstrap.sh), and the focused mid-session config push
+# (bin/fm-bootstrap.sh), a primary-owned remote restart
+# (bin/fm-secondmate-restart.sh), and the focused mid-session config push
 # (bin/fm-config-push.sh). It is PRIMARY-AUTHORITATIVE: the primary's value wins
 # and is re-pushed on every convergence, so the fleet stays converged on the
 # primary; an item the primary does not set is mirrored as absence downstream.

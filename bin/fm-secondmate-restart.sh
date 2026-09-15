@@ -36,17 +36,17 @@
 #      open loop owned by the ordinary pending-reply recovery ladder, not state
 #      this restart pass may close.
 #
-# A mate whose persist answer did not arrive or whose runtime cannot prove a
-# restart gets the ordinary re-read nudge and is reported as a nudge, never as a
-# clean reload. Once a relaunch is attempted, any failed or ambiguous result is
-# reported as unknown rather than attributing it to either incarnation.
+# A mate that cannot enter the restart phase gets the ordinary re-read nudge and
+# is reported as a nudge, never as a clean reload. A failed remote prelaunch
+# convergence is reported as unreached; after a relaunch attempt, a failed or
+# ambiguous result is reported as unknown rather than attributed to an incarnation.
 #
-# Placement changes the transport and nothing else. A local mate is restarted
-# with bin/fm-control.sh <id> relaunch; a remote mate is restarted by running THAT
-# SAME command on its host over bin/fm-on.sh, through the host-local
-# fm-remote-secondmate-control.sh relaunch verb. The restart decision, the
-# profile, the request text, the bound, the failure vocabulary, and this report
-# are all computed here in the primary and are identical for both.
+# Placement changes the prelaunch path as well as the transport. A local mate is
+# restarted with bin/fm-control.sh <id> relaunch. A remote mate first holds the
+# inheritance lock, pushes current config, and passes host readiness. It then
+# runs that same control plane on its host over bin/fm-on.sh, through the
+# host-local fm-remote-secondmate-control.sh relaunch verb. The profile and
+# outcome report remain computed here in the primary for both placements.
 #
 # Nothing here forces, stashes, or discards anything. bin/fm-control.sh owns the
 # restart transaction, its checkpoint, its journal, and its rollback; a refusal

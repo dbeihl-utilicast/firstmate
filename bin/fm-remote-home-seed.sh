@@ -6,10 +6,10 @@
 #
 # The SSH alias must already reach a host whose non-interactive PATH exposes the
 # fixed fm-remote-entrypoint.sh from <remote-root>. The command records the
-# remote host dimension in data/secondmates.md, gates the host on
-# fm-remote-doctor.sh readiness before touching it, sends a bounded provisioning
-# manifest through fm-on.sh, and lets the remote host clone its own Firstmate
-# home and project origins. No project tree or secret environment is copied.
+# remote host dimension in data/secondmates.md, gates base fm-remote-doctor.sh
+# readiness with host plugins skipped until a launch can inherit the primary
+# catalogue, sends a bounded manifest through fm-on.sh, and lets the remote host
+# clone its own Firstmate home and project origins. No project tree or secret environment is copied.
 #
 # Each project needs an origin the remote account can clone. Firstmate resolves
 # that origin and names it as <project>=<origin-url>, so seeding never requires

@@ -4,7 +4,8 @@ Remote second mates place a whole persistent Firstmate home on another SSH-reach
 The primary still owns routing and supervision, while the remote home owns its own projects, backlog, and workers.
 Firstmate does not support placing an individual worker remotely or failing a remote route over to a local replacement.
 
-The remote second-mate agent itself always runs on the [Herdr backend](herdr-backend.md) in the shared `fm-remote` session, and every path that provisions or launches one refuses a host that is not ready for it.
+The remote second-mate agent itself always runs on the [Herdr backend](herdr-backend.md) in the shared `fm-remote` session.
+Provisioning refuses a host without base readiness, and every supported primary-owned path that starts an agent passes full readiness after current inherited configuration lands.
 `fm-remote` is reserved for remote fleet work and must not be used for personal work.
 The user's interactive Herdr session remains `default` and is not a remote-secondmate prerequisite.
 Herdr's remote-session server belongs to the host's own GUI login session rather than to the SSH connection, so the agent's endpoint survives every disconnection the primary's supervision depends on.
@@ -58,7 +59,7 @@ A checkout-local `bin/git` therefore cannot authorize an untracked command, and 
 
 The filesystem discovery normally finds tools installed by nvm, asdf, or mise without starting their shell hooks.
 When a required tool remains discoverable only through one of those managers, `fm-remote-doctor.sh --fix` may create a Firstmate-owned wrapper in `~/.local/bin` that executes its selected absolute target.
-It never overwrites a wrapper or other file it does not own, and it never installs a package.
+It never overwrites a wrapper or other file it does not own, and it never installs a required-tool package.
 An operator can use the same wrapper shape when a tool needs a manual selection:
 
 ```sh
@@ -106,7 +107,8 @@ It starts the same workers directly on Linux, recreates the `~/.local/bin/fm-rem
 It never installs required-tool packages, never installs Claude Code itself, and never overwrites a non-Firstmate file at a reserved wrapper path.
 When the optional inherited `config/host-plugins.json` catalogue is present, the same doctor directly requests only the marketplaces and plugins named there, then proves at least one named skill resolves per plugin; an absent file leaves that check inapplicable.
 Claude may auto-install a dependency outside that catalogue; the final inventory refuses launch but leaves the plugin installed until the operator removes or catalogues it.
-A fresh remote-agent launch, spawn or restart, inherits that catalogue first and then runs this check once; the earlier readiness pass skips it so a stale remote copy cannot install or block first.
+A fresh remote-agent spawn or restart inherits that catalogue first and then runs this check before the agent starts.
+Provisioning and a spawn's earlier base-readiness pass skip the plugin check so a stale or not-yet-created remote copy cannot install or block first.
 The schema lives in [configuration.md](configuration.md#host-claude-code-plugins-confighost-pluginsjson), and the doctor's header owns the exact check and repair.
 The dedicated Herdr launch agent owns only the remote-secondmate `fm-remote` server and does not inspect, rewrite, start, stop, or require the user's interactive `default` session or its `dev.firstmate.herdr` launch agent.
 It re-derives every check from the host afterwards, so what it prints is the state after the repair rather than the intent of one.
@@ -141,9 +143,9 @@ A bare `<project>` is still accepted when this machine happens to have `projects
 The primary validates every resolved origin before transport, and the receiving host validates it again before cloning.
 The project's registered delivery mode still comes from this machine's `data/projects.md`, so an unregistered or `local-only` project is refused rather than provisioned.
 
-The seed records `host:`, `root:`, and `home:` in `data/secondmates.md`, gates the host on readiness, sends a bounded manifest, and lets the remote host clone its own Firstmate home and project origins.
+The seed records `host:`, `root:`, and `home:` in `data/secondmates.md`, gates the host on base readiness, sends a bounded manifest, and lets the remote host clone its own Firstmate home and project origins.
 In the primary home, its durable registration effects are limited to that route and the charter brief under `data/<id>`; launch records are created only when the secondmate is launched.
-Readiness starts with a read-only check; when that check reports a gap, it runs `--fix` and then a second read-only check whose verdict decides, so the operator never has to run the repair by hand and a repair is never trusted on its own word.
+That pre-provisioning gate starts with a read-only check; when that check reports a gap, it runs `--fix` and then a second read-only check whose verdict decides, so the operator never has to run the repair by hand and a repair is never trusted on its own word.
 A host that stays red prints the doctor's remaining gaps and their operator steps, restores the registry, and creates nothing on the remote host.
 It does not copy project trees or the primary process environment.
 A known provisioning failure rolls back the new route, while SSH exit 255 preserves it because remote completion is unknown and must be reconciled on the same host.
@@ -163,7 +165,7 @@ Launch or recover the remote second mate with the same command used for a local 
 bin/fm-spawn.sh <id> --secondmate
 ```
 
-The primary resolves the verified secondmate harness and optional model and effort, runs the same readiness gate the seed runs, transfers the inherited-material allowlist, and asks the remote host to launch on Herdr in `fm-remote`.
+The primary resolves the verified secondmate harness and optional model and effort, follows the [readiness and inheritance sequence](#readiness-repair-and-the-human-steps), and asks the remote host to launch on Herdr in `fm-remote`.
 All remote secondmates on one host share `fm-remote` and retain separate `2ndmate-<id>` workspaces inside it.
 An explicit request for any other backend is refused rather than honored, and the remote host refuses one too.
 An existing remote endpoint recorded in another Herdr session, including `default`, is classified as unverified and left untouched; launch, liveness recovery, control, and retirement refuse it until an operator explicitly migrates it instead of attempting a live cutover.
