@@ -1121,7 +1121,9 @@ for item in data:
         continue
     enabled = "1" if item.get("enabled") is True else "0"
     scope = item.get("scope") or ""
-    print("%s\t%s\t%s" % (pid, enabled, scope))
+    errors = item.get("errors")
+    error_json = json.dumps(errors, ensure_ascii=True, sort_keys=True, separators=(",", ":")) if errors else ""
+    print("%s\t%s\t%s\t%s" % (pid, enabled, scope, error_json))
 '
 }
 
@@ -1140,13 +1142,14 @@ print(names[0])
 }
 
 host_plugins_user_plugin_state() { # <plugin@marketplace> <rows> -> prints enabled|disabled|missing
-  local id=$1 rows=$2 line pid enabled scope
+  local id=$1 rows=$2 line pid rest enabled scope
   while IFS= read -r line; do
     [ -n "$line" ] || continue
     pid=${line%%$'\t'*}
     rest=${line#*$'\t'}
     enabled=${rest%%$'\t'*}
-    scope=${rest#*$'\t'}
+    rest=${rest#*$'\t'}
+    scope=${rest%%$'\t'*}
     [ "$pid" = "$id" ] || continue
     [ "$scope" = user ] || continue
     if [ "$enabled" = 1 ]; then
@@ -1161,11 +1164,34 @@ EOF
   printf 'missing\n'
 }
 
+host_plugins_user_plugin_errors() { # <plugin@marketplace> <rows>
+  local id=$1 rows=$2 line pid rest scope errors
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    pid=${line%%$'\t'*}
+    rest=${line#*$'\t'}
+    rest=${rest#*$'\t'}
+    scope=${rest%%$'\t'*}
+    case "$rest" in
+      *$'\t'*) errors=${rest#*$'\t'} ;;
+      *) errors= ;;
+    esac
+    [ "$pid" = "$id" ] || continue
+    [ "$scope" = user ] || continue
+    [ -n "$errors" ] || continue
+    printf '%s\n' "$errors"
+    return 0
+  done <<EOF
+$rows
+EOF
+  return 1
+}
+
 check_host_plugins() {
   local path parsed line name source plugin marketplace claude_bin rest id
   local mp_json mp_rows plugin_json plugin_rows state details i bound host_plugins_dir_rc dependency_audit
-  local row_pid row_marketplace configured seen candidate
-  local missing_mp=() mismatched_mp=() missing_plugin=() disabled_plugin=() unresolved=() auth_human=() unexpected_plugin=()
+  local row_pid row_marketplace configured seen candidate load_error
+  local missing_mp=() mismatched_mp=() missing_plugin=() disabled_plugin=() unresolved=() auth_human=() unexpected_plugin=() load_errors=()
   local -a marketplaces_n=() marketplaces_s=() plugins_n=() plugins_m=()
   local ready_mp=()
   if ! path=$(host_plugins_config_path); then
@@ -1288,6 +1314,17 @@ EOF
   if [ "${#unexpected_plugin[@]}" -gt 0 ]; then
     record host-plugins "human: installed plugin from a configured marketplace is not named in the host plugin catalogue (${unexpected_plugin[*]})" \
       "uninstall each named plugin or add it to config/host-plugins.json if it is authorized, then rerun this command"
+    return 0
+  fi
+  for i in "${!plugins_n[@]}"; do
+    id="${plugins_n[$i]}@${plugins_m[$i]}"
+    if load_error=$(host_plugins_user_plugin_errors "$id" "$plugin_rows"); then
+      load_errors+=("$id: $load_error")
+    fi
+  done
+  if [ "${#load_errors[@]}" -gt 0 ]; then
+    record host-plugins "human: configured plugin failed to load (${load_errors[*]})" \
+      "repair each named Claude plugin load error on that account, then rerun this command"
     return 0
   fi
   dependency_audit=$(host_plugins_dependency_audit "$path" "$mp_json" "$plugin_json" 0) \
@@ -1500,7 +1537,7 @@ EOF
     rc=$?
     set -e
     if [ "$rc" -eq 0 ]; then
-      plugin_rows="$plugin_rows"$'\n'"$id"$'\t'"1"$'\t'"user"
+      plugin_rows="$plugin_rows"$'\n'"$id"$'\t'"1"$'\t'"user"$'\t'
       fix_report host-plugins applied "installed $id"
       continue
     fi

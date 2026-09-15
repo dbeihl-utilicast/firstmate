@@ -339,6 +339,32 @@ run_doctor --fix
 assert_not_contains "$DOCTOR_OUT" 'fix host-plugins=applied' "--fix tried to repair an unresolving installed plugin"
 pass "a plugin present but not resolving is the same as absent"
 
+new_host
+write_catalogue "$CASE_FM_HOME"
+python3 - "$CASE_STATE/marketplaces.json" "$CASE_STATE/plugins.json" "$CASE_STATE/marketplace" <<'PY'
+import json, sys
+json.dump([{"name": "example-plugins", "source": "git", "url": "https://github.com/example/example-plugins.git", "installLocation": sys.argv[3]}], open(sys.argv[1], "w"))
+json.dump([{
+    "id": "example-core@example-plugins",
+    "scope": "user",
+    "enabled": True,
+    "installPath": sys.argv[3] + "/plugins/example-core",
+    "errors": [{"type": "dependency-not-found", "message": "example-domain is missing"}],
+}], open(sys.argv[2], "w"))
+PY
+run_doctor
+assert_contains "$DOCTOR_OUT" 'check host-plugins=human: configured plugin failed to load' \
+  "an enabled plugin load error was not a human gap"
+assert_contains "$DOCTOR_OUT" 'example-core@example-plugins' \
+  "the load-error gap did not name the configured plugin"
+assert_contains "$DOCTOR_OUT" 'dependency-not-found' \
+  "the load-error gap discarded the Claude diagnostic"
+assert_not_contains "$DOCTOR_OUT" 'check host-plugins=ok:' \
+  "a plugin load error passed because its details inventory named a skill"
+assert_contains "$DOCTOR_OUT" 'error: this host is not ready for a remote second mate' \
+  "a configured plugin load error did not refuse launch"
+pass "a configured plugin load error refuses launch"
+
 # --- converged host: --fix changes nothing and prints no new repair ---------
 
 new_host
