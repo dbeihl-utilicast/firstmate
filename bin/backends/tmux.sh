@@ -26,6 +26,8 @@
 . "$FM_BACKEND_LIB_DIR/fm-cursor-lib.sh"
 # shellcheck source=bin/fm-gemini-lib.sh
 . "$FM_BACKEND_LIB_DIR/fm-gemini-lib.sh"
+# shellcheck source=bin/fm-qwen-lib.sh
+. "$FM_BACKEND_LIB_DIR/fm-qwen-lib.sh"
 
 # fm_backend_tmux_resolve_bare_selector: the live-window-listing fallback for a
 # selector that is neither an explicit target nor a task selector routed
@@ -175,7 +177,7 @@ fm_backend_tmux_classify_process_name() {  # <path> [argv0] -> agent|shell|other
     # omp (Oh My Pi) is anchored for the same reason as muse: its live process
     # name is the bare word `omp` (verified, omp 18.1.11) and a glob would claim
     # unrelated commands such as ompd or comp.
-    *claude*|*codex*|*opencode*|*grok*|*kimi*|*rovo*|pi|pi-signed|pi-launcher|Pi|omp) printf 'agent' ;;
+    *claude*|*codex*|*opencode*|*grok*|*kimi*|*rovo*|pi|pi-signed|pi-launcher|Pi|omp|qwen) printf 'agent' ;;
     zsh|bash|sh|dash|ash|ksh|mksh|tcsh|csh|fish) printf 'shell' ;;
     *)
       if fm_harness_path_name "$path" >/dev/null || fm_harness_path_name "$argv0" >/dev/null; then
@@ -359,6 +361,10 @@ EOF
       printf 'alive'
       return 0
     fi
+    if fm_qwen_pid_is_qwen "$pid"; then
+      printf 'alive'
+      return 0
+    fi
   done <<EOF
 $(fm_backend_tmux_foreground_pids "$target")
 EOF
@@ -368,6 +374,10 @@ EOF
   while IFS= read -r name; do
     [ -n "$name" ] || continue
     if fm_gemini_args_are_gemini "$name"; then
+      printf 'alive'
+      return 0
+    fi
+    if fm_qwen_args_are_qwen "$name"; then
       printf 'alive'
       return 0
     fi

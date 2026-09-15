@@ -125,7 +125,7 @@
 #   profile consultation. A --secondmate spawn is exempt and resolves the SECONDMATE
 #   harness (config/secondmate-harness -> config/crew-harness -> own), so the
 #   secondmate-vs-crewmate split is DURABLE across every respawn (recovery,
-#   /updatefirstmate, restart). A bare adapter name (claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp)
+#   /updatefirstmate, restart). A bare adapter name (claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|qwen)
 #   overrides it for this spawn (either kind). A non-flag string containing
 #   whitespace is treated as a RAW launch command - the escape hatch for verifying
 #   new adapters. For pi and pi-signed, fm-spawn resolves the selected executable
@@ -260,6 +260,7 @@
 #     __WORKTREE__  absolute path to the task worktree
 #     __CURSORBIN__ resolved, cursor-verified executable for a cursor launch
 #     __GEMINISETTINGS__ firstmate-owned per-task gemini settings file (busy-state hooks)
+#     __QWENSETTINGS__ firstmate-owned per-task qwen settings file (busy-state hooks)
 #     __ROVOBIN__   resolved, rovo-verified executable for a rovo launch
 # Verified per-harness turn-end hooks are installed automatically where enabled; some live outside the worktree.
 # Kimi uses one surgically installed Firstmate region in $HOME/.kimi-code/config.toml,
@@ -269,6 +270,12 @@
 # muse installs no hook at all - its plugin engine is off in the default build - so
 # it writes state/<id>.muse-session to bind the pane to muse's own session event
 # log; muse and gemini are crewmate/scout only and are refused for --secondmate.
+# qwen (Qwen Code) writes firstmate-owned busy-state hooks into
+# state/<id>.qwen-settings.json and reaches them through
+# QWEN_CODE_SYSTEM_SETTINGS_PATH, never the worktree's .qwen/settings.json.
+# Its events are the Claude-style UserPromptSubmit/Stop/SessionEnd set, not
+# Gemini's BeforeAgent/AfterAgent pair, even though the CLI is a Gemini-CLI
+# fork. qwen is crewmate/scout only and is refused for --secondmate.
 # rovo installs no hook either - its eventHooks fire at tool granularity only,
 # never turn-end - so it carries no busy-source wiring at all and no turn-end
 # hook. A positional brief is dead-on-arrival (rovo loads, never works, and drops
@@ -1344,7 +1351,7 @@ if [ "$RELAUNCH" -eq 1 ]; then
   }
 elif [ "$KIND" = secondmate ]; then
   case "${POS[1]:-}" in
-    ''|claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp)
+    ''|claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|qwen)
       ARG3=${POS[1]:-}
       ;;
     *' '*)
@@ -1548,6 +1555,27 @@ launch_template() {
     # Its turn-end and busy-state signals do NOT ride the launch command:
     # they are project hooks written into the worktree below.
     gemini) printf '%s' 'env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS GEMINI_CLI_TRUST_WORKSPACE=true GEMINI_CLI_SYSTEM_SETTINGS_PATH=__GEMINISETTINGS__ gemini -y __MODELFLAG__"$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
+    # qwen (Qwen Code): a positional query starts the supervised interactive
+    # session and auto-submits it, so the brief rides the launch command
+    # exactly as it does for claude and gemini (verified: qwen 0.23.0).
+    # -y (--yolo) auto-approves every tool call. Folder trust is disabled by
+    # default in qwen 0.23.0, so a fresh worktree does not show a trust dialog
+    # unless the operator has enabled security.folderTrust.enabled.
+    # QWEN_CODE_SYSTEM_SETTINGS_PATH points qwen at the firstmate-owned
+    # per-task settings file written below. It is deliberately NOT the
+    # worktree's .qwen/settings.json: that path is the PROJECT's own settings
+    # file, so writing it would clobber a project's configuration and removing
+    # it at teardown would delete a tracked file.
+    # The foreign primary markers are cleared because qwen does not scrub an
+    # inherited GROK_AGENT or CLAUDECODE (verified: a tool child under this
+    # grok primary carried GROK_AGENT=1 AND QWEN_CODE=1 together).
+    # qwen exposes no CLI effort flag (checked against 0.23.0 --help; /effort
+    # exists only as an in-session slash command), so the shared effort axis
+    # is omitted here and stays in task metadata only.
+    # Auth is operator configuration, not launch-template identity: local
+    # Ollama is reached through qwen's own openai-compatible settings or
+    # --auth-type/--openai-base-url/--openai-api-key, never hardcoded here.
+    qwen) printf '%s' 'env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS -u GEMINI_CLI -u CURSOR_AGENT -u CURSOR_INVOKED_AS QWEN_CODE_SYSTEM_SETTINGS_PATH=__QWENSETTINGS__ qwen -y __MODELFLAG__"$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
     # Kimi Code rejects a positional prompt, so it launches bare and receives
     # only an absolute brief pointer after the TUI readiness gate below.
     # Its turn-end signal is a globally configured Stop hook plus a guarded
@@ -1653,7 +1681,7 @@ esac
 # asyncRewake handlers that firstmate's primary turn-end supervision is built on
 # (muse 0.1.0-R708.1). Refusing here keeps that gap loud instead of standing up a
 # secondmate whose supervision cycle could never be armed.
-if [ "$KIND" = secondmate ] && { [ "$HARNESS" = muse ] || [ "$HARNESS" = gemini ]; }; then
+if [ "$KIND" = secondmate ] && { [ "$HARNESS" = muse ] || [ "$HARNESS" = gemini ] || [ "$HARNESS" = qwen ]; }; then
   echo "error: $HARNESS is a verified crewmate/scout adapter only and cannot run a secondmate; it has no primary supervision protocol. Select a harness verified for secondmates." >&2
   exit 1
 fi
@@ -1854,7 +1882,7 @@ model_flag_for_harness() {
   local harness=$1 model=$2
   [ -n "$model" ] && [ "$model" != default ] || return 0
   case "$harness" in
-    claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp)
+    claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|qwen)
       printf -- '--model %s ' "$(shell_quote "$model")"
       ;;
   esac
@@ -3239,6 +3267,15 @@ if [ "$KIND" != secondmate ]; then
         [ "$RELAUNCH" -ne 1 ] || RELAUNCH_REPLACEMENT_BUSY_GEN=$BUSY_GEN
       fi
       ;;
+    qwen)
+      if [ "$RAW_LAUNCH" -eq 0 ]; then
+        BUSY_GEN=$("$FM_ROOT/bin/fm-busy-event.sh" arm "$STATE_REAL" "$ID") || {
+          echo "error: failed to arm the busy-state contract for $ID" >&2
+          exit 1
+        }
+        [ "$RELAUNCH" -ne 1 ] || RELAUNCH_REPLACEMENT_BUSY_GEN=$BUSY_GEN
+      fi
+      ;;
     kimi*)
       # Standalone Kimi stays unknown until fm_busy_kimi_verified opens on a
       # live-verified installed version (bin/fm-busy-lib.sh owns the gate and
@@ -3304,6 +3341,33 @@ EOF
       g_sessionend=$(json_escape "$busy_cmd_prefix idle $busy_suffix --event session-end >/dev/null 2>&1 || true; printf '{}'")
       cat > "$STATE_REAL/$ID.gemini-settings.json" <<EOF
 {"hooks":{"BeforeAgent":[{"hooks":[{"type":"command","command":"$g_before"}]}],"AfterAgent":[{"hooks":[{"type":"command","command":"$g_after"}]}],"SessionEnd":[{"hooks":[{"type":"command","command":"$g_sessionend"}]}]}}
+EOF
+      fi
+      ;;
+    qwen)
+      if [ "$RAW_LAUNCH" -eq 0 ]; then
+      # Semantic busy-state hooks (bin/fm-busy-lib.sh): UserPromptSubmit opens
+      # a turn; Stop (normal completion), StopFailure (API-error turn end),
+      # and SessionEnd (process shutdown) all close it, so an abnormal end can
+      # never leave a stale busy record. Verified live on qwen 0.23.0: a
+      # one-turn headless session fired SessionStart, UserPromptSubmit, then
+      # Stop, and a tool-using turn also fired PostToolUse. SessionEnd was
+      # not observed on a natural headless exit, so Stop is the load-bearing
+      # close; SessionEnd remains wired so a TUI /quit cannot strand busy.
+      # These are written into a FIRSTMATE-OWNED settings file under state/,
+      # reached through QWEN_CODE_SYSTEM_SETTINGS_PATH on the launch command,
+      # never into the worktree's own .qwen/settings.json.
+      # Every hook command tolerates a refused event (|| true) so a stale-gen
+      # writer can never break qwen's own lifecycle, and each prints the
+      # empty JSON object qwen's hook contract accepted on stdout.
+      busy_cmd_prefix="$(shell_quote "$FM_ROOT/bin/fm-busy-event.sh") apply $(shell_quote "$STATE_REAL") $(shell_quote "$ID")"
+      busy_suffix="--gen $(shell_quote "$BUSY_GEN") --source qwen-hook"
+      q_submit=$(json_escape "$busy_cmd_prefix busy $busy_suffix --event user-prompt-submit >/dev/null 2>&1 || true; printf '{}'")
+      q_stop=$(json_escape "touch $(shell_quote "$TURNEND"); $busy_cmd_prefix idle $busy_suffix --event stop >/dev/null 2>&1 || true; printf '{}'")
+      q_stopfail=$(json_escape "$busy_cmd_prefix idle $busy_suffix --event stop-failure >/dev/null 2>&1 || true; printf '{}'")
+      q_sessionend=$(json_escape "$busy_cmd_prefix idle $busy_suffix --event session-end >/dev/null 2>&1 || true; printf '{}'")
+      cat > "$STATE_REAL/$ID.qwen-settings.json" <<EOF
+{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"$q_submit"}]}],"Stop":[{"hooks":[{"type":"command","command":"$q_stop"}]}],"StopFailure":[{"hooks":[{"type":"command","command":"$q_stopfail"}]}],"SessionEnd":[{"hooks":[{"type":"command","command":"$q_sessionend"}]}]}}
 EOF
       fi
       ;;
@@ -3808,11 +3872,12 @@ case "$HARNESS" in
   pi|pi-signed) LAUNCH=${LAUNCH//__PIBIN__/"$(shell_quote "$PI_BIN")"} ;;
   cursor) LAUNCH=${LAUNCH//__CURSORBIN__/"$(shell_quote "$CURSOR_BIN")"} ;;
   gemini) LAUNCH=${LAUNCH//__GEMINISETTINGS__/"$(shell_quote "$STATE_REAL/$ID.gemini-settings.json")"} ;;
+  qwen) LAUNCH=${LAUNCH//__QWENSETTINGS__/"$(shell_quote "$STATE_REAL/$ID.qwen-settings.json")"} ;;
   omp) LAUNCH=${LAUNCH//__OMPBIN__/"$(shell_quote "$OMP_BIN")"} ;;
 esac
 LAUNCH=${LAUNCH//__WORKTREE__/$sq_worktree}
 case "$HARNESS" in
-  claude|codex|opencode|pi|pi-signed|grok|kimi|gemini|muse|rovo)
+  claude|codex|opencode|pi|pi-signed|grok|kimi|gemini|muse|rovo|qwen)
     LAUNCH="env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI $LAUNCH"
     ;;
 esac

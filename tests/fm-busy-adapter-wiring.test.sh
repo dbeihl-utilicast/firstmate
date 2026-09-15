@@ -23,7 +23,7 @@ make_spawn_case() {  # <name> <harness> <id>
   home="$case_dir/home"
   proj="$case_dir/project"
   wt="$case_dir/wt"
-  fakebin=$(make_spawn_fakebin "$case_dir/fake" pi opencode claude codex gemini)
+  fakebin=$(make_spawn_fakebin "$case_dir/fake" pi opencode claude codex gemini qwen)
   fm_test_spawn_home "$home" "$harness"
   fm_git_worktree "$proj" "$wt" "wt-$name"
   fm_test_spawn_brief "$home" "$id"
@@ -407,6 +407,100 @@ test_gemini_is_refused_as_a_secondmate() {
   pass "gemini is refused as a secondmate because it has no primary supervision protocol"
 }
 
+run_qwen_hook() {  # <settings.json> <hook-event>
+  local cmd
+  cmd=$(jq -r ".hooks[\"$2\"][0].hooks[0].command" "$1")
+  [ -n "$cmd" ] && [ "$cmd" != null ] || fail "no $2 hook command in $1"
+  sh -c "$cmd"
+}
+
+test_qwen_hooks_semantic_lifecycle() {
+  local rec id=busy-qw-1 out state settings
+  rec=$(make_spawn_case qwen-lifecycle qwen "$id")
+  read_case_record "$rec"
+  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" "$PROJ_DIR")
+  expect_code 0 $? "qwen spawn should succeed: $out"
+  state="$HOME_DIR/state"
+  settings="$state/$id.qwen-settings.json"
+  assert_present "$settings" "qwen spawn did not write hook settings"
+  jq -e . "$settings" >/dev/null || fail "qwen hook settings are not valid JSON"
+  for ev in UserPromptSubmit Stop StopFailure SessionEnd; do
+    jq -e ".hooks[\"$ev\"]" "$settings" >/dev/null || fail "qwen hook settings lack $ev"
+  done
+  assert_absent "$WT_DIR/.qwen/settings.json" \
+    "qwen spawn must not write the project's own .qwen/settings.json"
+
+  out=$(classify qwen "$id" "$state")
+  [ "$out" = "busy fm-spawn" ] || fail "seed after spawn must be 'busy fm-spawn', got '$out'"
+
+  rm -f "$state/$id.turn-ended"
+  out=$(run_qwen_hook "$settings" Stop) || fail "Stop hook command failed"
+  printf '%s' "$out" | jq -e . >/dev/null \
+    || fail "Stop must print only a JSON object on stdout, got '$out'"
+  [ -f "$state/$id.turn-ended" ] || fail "Stop no longer touches the notification marker"
+  out=$(classify qwen "$id" "$state")
+  [ "$out" = "idle qwen-hook" ] || fail "Stop must classify 'idle qwen-hook', got '$out'"
+
+  out=$(run_qwen_hook "$settings" UserPromptSubmit) || fail "UserPromptSubmit hook command failed"
+  printf '%s' "$out" | jq -e . >/dev/null \
+    || fail "UserPromptSubmit must print only a JSON object on stdout, got '$out'"
+  out=$(classify qwen "$id" "$state")
+  [ "$out" = "busy qwen-hook" ] || fail "UserPromptSubmit must classify 'busy qwen-hook', got '$out'"
+
+  run_qwen_hook "$settings" StopFailure >/dev/null || fail "StopFailure hook command failed"
+  out=$(classify qwen "$id" "$state")
+  [ "$out" = "idle qwen-hook" ] || fail "StopFailure must classify idle so an API error cannot strand busy, got '$out'"
+
+  run_qwen_hook "$settings" UserPromptSubmit >/dev/null
+  run_qwen_hook "$settings" SessionEnd >/dev/null || fail "SessionEnd hook command failed"
+  out=$(classify qwen "$id" "$state")
+  [ "$out" = "idle qwen-hook" ] || fail "SessionEnd must classify idle, got '$out'"
+  pass "qwen hooks open on UserPromptSubmit and close on Stop, StopFailure, and SessionEnd"
+}
+
+test_qwen_hooks_stale_incarnation_harmless() {
+  local rec id=busy-qw-2 out state settings
+  rec=$(make_spawn_case qwen-stale qwen "$id")
+  read_case_record "$rec"
+  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" "$PROJ_DIR")
+  expect_code 0 $? "qwen spawn should succeed: $out"
+  state="$HOME_DIR/state"
+  settings="$state/$id.qwen-settings.json"
+  "$ROOT/bin/fm-busy-event.sh" arm "$state" "$id" >/dev/null
+  run_qwen_hook "$settings" UserPromptSubmit >/dev/null \
+    || fail "a stale-gen hook must still exit 0 so qwen's lifecycle is never broken"
+  out=$(classify qwen "$id" "$state")
+  [ "$out" = "busy fm-spawn" ] || fail "a stale-gen hook event must not change state, got '$out'"
+  pass "qwen hook events from a superseded incarnation are rejected without breaking the hook"
+}
+
+test_raw_qwen_launch_has_no_semantic_wiring() {
+  local rec id=busy-qw-raw out state
+  rec=$(make_spawn_case qwen-raw qwen "$id")
+  read_case_record "$rec"
+  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" "$PROJ_DIR" 'qwen --debug')
+  expect_code 0 $? "raw qwen spawn should succeed: $out"
+  state="$HOME_DIR/state"
+  assert_absent "$state/$id.busy-gen" "raw qwen launch must not arm a busy generation"
+  assert_absent "$state/$id.qwen-settings.json" "raw qwen launch must not write hook settings"
+  out=$(classify qwen "$id" "$state")
+  [ "$out" = "unknown missing" ] || fail "raw qwen launch must classify unknown, got '$out'"
+  pass "raw qwen launch remains unwired and classifies unknown"
+}
+
+test_qwen_is_refused_as_a_secondmate() {
+  local rec id=busy-qw-3 out
+  rec=$(make_spawn_case qwen-secondmate qwen "$id")
+  read_case_record "$rec"
+  out=$(GROK_HOME="$HOME_DIR/grok-home" \
+    fm_test_run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" --secondmate "$id" qwen) && {
+    fail "a qwen secondmate must be refused, it has no primary supervision protocol: $out"
+  }
+  assert_contains "$out" 'crewmate/scout adapter only' \
+    "refusing a qwen secondmate must name the crewmate/scout boundary: $out"
+  pass "qwen is refused as a secondmate because it has no primary supervision protocol"
+}
+
 test_kimi_and_grok_install_no_unverified_wiring() {
   local state out
   state="$TMP_ROOT/gates/state"
@@ -433,6 +527,10 @@ test_gemini_hooks_semantic_lifecycle
 test_gemini_hooks_stale_incarnation_harmless
 test_raw_gemini_launch_has_no_semantic_wiring
 test_gemini_is_refused_as_a_secondmate
+test_qwen_hooks_semantic_lifecycle
+test_qwen_hooks_stale_incarnation_harmless
+test_raw_qwen_launch_has_no_semantic_wiring
+test_qwen_is_refused_as_a_secondmate
 test_codex_unverified_until_a_semantic_source_exists
 
 echo "all fm-busy-adapter-wiring tests passed"

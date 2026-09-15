@@ -589,6 +589,19 @@ teardown gm2 complete; state/gm2.gemini-settings.json removed
 Gemini as a PRIMARY or SECONDMATE runtime is unverified and is refused by `bin/fm-spawn.sh`: no wake protocol exists under `docs/supervision-protocols/` and no turn-end guard adapter was built or exercised.
 No reasoning-effort axis was found; `gemini --help` on 0.58.0 exposes no effort, reasoning, or thinking flag, so the record-and-omit contract applies.
 
+## Qwen Code
+
+The Qwen Code crewmate/scout adapter was verified on 2026-09-15 with qwen 0.23.0 on Linux, Node v26.7.0, Ollama 0.32.14.
+[`qwen.md`](qwen.md) owns the dated commands, hook evidence, model context measurements, and the false-success negative.
+Refresh with:
+
+```
+bin/fm-test-run.sh tests/fm-qwen-harness.test.sh tests/fm-busy-adapter-wiring.test.sh
+FM_QWEN_SIGNALS_LIVE=1 bin/fm-test-run.sh tests/fm-qwen-signals-live-e2e.test.sh
+```
+
+Qwen as a primary or secondmate runtime is unverified and is refused by `bin/fm-spawn.sh`.
+
 ## Herdr
 
 The compatibility floor is protocol 14.
