@@ -1,0 +1,24 @@
+ok - the plugin catalogue is on the inherited local-material allowlist
+ok - absent config is not applicable and changes nothing
+ok - an explicit empty catalogue denies every installed plugin
+ok - a missing claude CLI is reported and Claude Code is not installed
+ok - noncanonical marketplace source spellings are rejected before host mutation
+ok - credential-bearing marketplace sources are rejected without disclosure
+ok - marketplace manifest identity is verified before mutation
+ok - a fresh store is classified under the supported system Bash, then converged
+ok - a missing plugin is installed without touching an already-registered marketplace
+ok - authentication failure reports the operator action and leaves the gap open
+ok - marketplace-add failures redact sources and subprocess output
+ok - plugin-install failures redact subprocess output
+ok - a plugin present but not resolving is the same as absent
+ok - a configured plugin load error refuses launch
+ok - configured plugin gaps converge before load errors refuse launch
+ok - a converged host changes nothing and prints no plugin repair
+ok - a marketplace is bound to its configured source
+ok - marketplace source identity requires an exact match
+ok - the pre-inheritance doctor pass does not touch plugins
+ok - the doctor uses CLAUDE_CONFIG_DIR as the effective Claude store
+ok - uncatalogued dependencies refuse every effective-store mutation
+ok - uncatalogued dependencies block plugin enable
+ok - installed plugins outside the configured catalogue are reported
+ok - catalogued dependency closure remains launch-ready
