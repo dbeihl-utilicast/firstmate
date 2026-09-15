@@ -7,8 +7,8 @@
 #
 #   fm_timeout_mechanism
 #       Prints the mechanism fm_run_timed will use on this host: "timeout",
-#       "gtimeout", "perl", or "bash". Set FM_TIMEOUT_MECHANISM_OVERRIDE=bash
-#       to force the dependency-free fallback.
+#       "gtimeout", "perl", or "bash". Set FM_TIMEOUT_MECHANISM_OVERRIDE to
+#       "perl" or "bash" to force either fallback.
 #
 #   fm_run_timed <seconds> <command> [args...]
 #       Runs the command with a hard bound. Exit status is the command's own,
@@ -19,10 +19,7 @@
 #       argument that tears down the bounded command's whole tree on demand -
 #       a caller that is itself killed before fm_run_timed returns can forward
 #       that same signal to this target from its own trap so the bounded
-#       command does not silently outlive it. Populated for the timeout,
-#       gtimeout, and bash mechanisms; left empty for the perl fallback, which
-#       has no equivalent safe target to expose - a caller must treat an empty
-#       target as "nothing more to do here", never retry with a guess.
+#       command does not silently outlive it.
 #
 # A non-positive bound is not a bound: `timeout 0` and the perl fallback's
 # `alarm 0` both disable the deadline, so callers must reject 0 before calling.
@@ -37,9 +34,10 @@
 set -u
 
 fm_timeout_mechanism() {
-  if [ "${FM_TIMEOUT_MECHANISM_OVERRIDE:-}" = bash ]; then
-    printf 'bash\n'
-  elif command -v timeout >/dev/null 2>&1; then
+  case "${FM_TIMEOUT_MECHANISM_OVERRIDE:-}" in
+    bash|perl) printf '%s\n' "$FM_TIMEOUT_MECHANISM_OVERRIDE"; return ;;
+  esac
+  if command -v timeout >/dev/null 2>&1; then
     printf 'timeout\n'
   elif command -v gtimeout >/dev/null 2>&1; then
     printf 'gtimeout\n'
@@ -51,51 +49,79 @@ fm_timeout_mechanism() {
 }
 
 fm_run_bash_timeout() {
-  local seconds=$1 command_status deadline_status child_pid watchdog_pid command_rc recorded_rc monitor_was_on=0
+  local seconds=$1 deadline_status coordinator_pid coordinator_rc monitor_was_on=0
   shift
-  command_status=$(mktemp "${TMPDIR:-/tmp}/fm-bash-timeout-command.XXXXXX" 2>/dev/null) || return 124
-  deadline_status="${command_status}.deadline"
+  deadline_status=$(mktemp "${TMPDIR:-/tmp}/fm-bash-timeout-deadline.XXXXXX" 2>/dev/null) || return 124
   case $- in *m*) monitor_was_on=1 ;; esac
   set -m
   (
     set +m
-    "$@"
-    command_rc=$?
-    printf '%s\n' "$command_rc" > "$command_status"
+    coordinator_pid=${BASHPID:-$$}
+    trap 'trap "" HUP INT TERM USR1; kill -TERM -- "-$coordinator_pid" 2>/dev/null || true; sleep 0.2; kill -KILL -- "-$coordinator_pid" 2>/dev/null || true' HUP INT TERM
+    trap 'printf "expired\n" > "$deadline_status"; trap "" HUP INT TERM USR1; kill -TERM -- "-$coordinator_pid" 2>/dev/null || true; sleep 0.2; kill -KILL -- "-$coordinator_pid" 2>/dev/null || true' USR1
+    "$@" <&0 &
+    command_pid=$!
+    ( sleep "$seconds"; kill -USR1 "$coordinator_pid" 2>/dev/null || true ) < /dev/null &
+    watchdog_pid=$!
+    command_rc=0
+    wait "$command_pid" || command_rc=$?
+    kill -TERM "$watchdog_pid" 2>/dev/null || true
+    wait "$watchdog_pid" 2>/dev/null || true
     exit "$command_rc"
-  ) &
-  child_pid=$!
-  # Monitor mode gave this job its own process group headed by child_pid, so
-  # the group form is what a caller's trap must signal to reach it.
-  FM_RUN_TIMED_KILL_TARGET="-$child_pid"
-  (
-    set +m
-    sleep "$seconds"
-    printf 'expired\n' > "$deadline_status"
-    kill -TERM -- "-$child_pid" 2>/dev/null || true
-    sleep 0.2
-    kill -KILL -- "-$child_pid" 2>/dev/null || true
-    exit 124
-  ) &
-  watchdog_pid=$!
+  ) <&0 &
+  coordinator_pid=$!
+  FM_RUN_TIMED_KILL_TARGET="$coordinator_pid"
   [ "$monitor_was_on" -eq 1 ] || set +m
 
-  if wait "$child_pid" 2>/dev/null; then
-    command_rc=0
+  if wait "$coordinator_pid" 2>/dev/null; then
+    coordinator_rc=0
   else
-    command_rc=$?
+    coordinator_rc=$?
   fi
-  if [ -s "$deadline_status" ]; then
-    wait "$watchdog_pid" 2>/dev/null || true
-    command_rc=124
+  [ ! -s "$deadline_status" ] || coordinator_rc=124
+  rm -f "$deadline_status" 2>/dev/null || true
+  return "$coordinator_rc"
+}
+
+fm_run_perl_timeout() {
+  local seconds=$1 deadline_status coordinator_pid coordinator_rc monitor_was_on=0
+  shift
+  deadline_status=$(mktemp "${TMPDIR:-/tmp}/fm-perl-timeout-deadline.XXXXXX" 2>/dev/null) || return 124
+  case $- in *m*) monitor_was_on=1 ;; esac
+  set -m
+  perl -e '
+    my $t = shift;
+    my $deadline = shift;
+    setpgrp(0, 0);
+    my $group = getpgrp(0);
+    my $stop = sub {
+      $SIG{HUP} = $SIG{INT} = $SIG{TERM} = $SIG{ALRM} = "IGNORE";
+      kill "KILL", -$group;
+    };
+    local $SIG{HUP} = $stop;
+    local $SIG{INT} = $stop;
+    local $SIG{TERM} = $stop;
+    local $SIG{ALRM} = sub { open my $fh, ">", $deadline or exit 124; print {$fh} "expired\n"; close $fh; $stop->() };
+    my $pid = fork;
+    die "fork failed" unless defined $pid;
+    if (!$pid) { exec @ARGV }
+    alarm $t;
+    waitpid $pid, 0;
+    alarm 0;
+    my $status = $?;
+    exit(($status & 127) ? 128 + ($status & 127) : $status >> 8);
+  ' "$seconds" "$deadline_status" "$@" <&0 &
+  coordinator_pid=$!
+  FM_RUN_TIMED_KILL_TARGET="$coordinator_pid"
+  [ "$monitor_was_on" -eq 1 ] || set +m
+  if wait "$coordinator_pid" 2>/dev/null; then
+    coordinator_rc=0
   else
-    kill -TERM -- "-$watchdog_pid" 2>/dev/null || kill "$watchdog_pid" 2>/dev/null || true
-    wait "$watchdog_pid" 2>/dev/null || true
-    recorded_rc=$(cat "$command_status" 2>/dev/null || true)
-    case "$recorded_rc" in ''|*[!0-9]*) ;; *) command_rc=$recorded_rc ;; esac
+    coordinator_rc=$?
   fi
-  rm -f "$command_status" "$deadline_status" 2>/dev/null || true
-  return "$command_rc"
+  [ ! -s "$deadline_status" ] || coordinator_rc=124
+  rm -f "$deadline_status" 2>/dev/null || true
+  return "$coordinator_rc"
 }
 
 fm_run_external_timeout() {
@@ -160,10 +186,7 @@ fm_run_timed() {  # <seconds> <command...>
   case "$(fm_timeout_mechanism)" in
     timeout) fm_run_external_timeout timeout "$seconds" "$@" ;;
     gtimeout) fm_run_external_timeout gtimeout "$seconds" "$@" ;;
-    perl)
-      perl -e 'my $t = shift; my $pid = fork; die "fork failed" unless defined $pid; if (!$pid) { setpgrp(0, 0); exec @ARGV } local $SIG{ALRM} = sub { kill "TERM", -$pid; select undef, undef, undef, 0.2; kill "KILL", -$pid; exit 124 }; alarm $t; waitpid $pid, 0; exit($? >> 8)' \
-        "$seconds" "$@"
-      ;;
+    perl) fm_run_perl_timeout "$seconds" "$@" ;;
     bash) fm_run_bash_timeout "$seconds" "$@" ;;
     *) return 124 ;;
   esac

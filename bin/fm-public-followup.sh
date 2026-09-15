@@ -536,7 +536,7 @@ collect_remote_staged_events() {
       || die "jq is required to collect a terminal result from a remote work home" 1
 
     collect_rc=0
-    payload=$("$FM_ROOT/bin/fm-on.sh" "$sid" fm-public-followup-collect.sh drain "$id" < /dev/null) \
+    payload=$("$FM_ROOT/bin/fm-on.sh" "$sid" fm-public-followup-collect.sh drain "$id") \
       || collect_rc=$?
     # fm-on.sh returns ssh's status unchanged, so 255 is the established
     # "delivered but completion unknown" status this codebase reconciles rather
@@ -579,7 +579,7 @@ collect_remote_staged_events() {
       # dropped as a duplicate.
       dropped=0
       "$FM_ROOT/bin/fm-on.sh" "$sid" fm-public-followup-collect.sh drop "$id" "$event_id" \
-        < /dev/null >/dev/null 2>&1 || dropped=$?
+        >/dev/null 2>&1 || dropped=$?
       [ "$dropped" -eq 0 ] \
         || printf 'collected %s: the copy staged on %s could not be retired and will be collected again\n' \
              "$event_id" "$sid"

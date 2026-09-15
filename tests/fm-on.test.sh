@@ -111,6 +111,16 @@ case "${FM_FAKE_SSH_MODE:-normal}" in
   # and it produces no output before being killed - indistinguishable from a
   # remote that is simply still working, except that it never finishes.
   hang) exec sleep 999999 ;;
+  cancel)
+    printf '%s\n' "$$" > "$FM_TEST_CANCEL_SSH_PID"
+    trap '' HUP INT TERM
+    (
+      trap '' HUP INT TERM
+      printf '%s\n' "${BASHPID:-$$}" > "$FM_TEST_CANCEL_CHILD_PID"
+      while :; do sleep 1; done
+    ) &
+    wait
+    ;;
   *) exec "$FM_FAKE_REMOTE_ENTRYPOINT" "$@" ;;
 esac
 SH
@@ -544,5 +554,45 @@ assert_contains "$HANG_OUT" 'did not complete within 2s' "the timeout diagnostic
 assert_contains "$HANG_OUT" 'talking to remote-mac' "the timeout diagnostic did not name the host it was talking to"
 assert_absent "$REMOTE_HOME/hang-mutation" "a bounded-out hung remote still ran the mutation"
 pass "a live but unresponsive remote fails loudly, naming the host, within FM_ON_TIMEOUT instead of hanging (${HANG_ELAPSED}s elapsed)"
+
+assert_cancelled_pid_gone() {
+  local path=$1 label=$2 pid i=0
+  pid=$(cat "$path")
+  while [ "$i" -lt 50 ]; do
+    kill -0 "$pid" 2>/dev/null || return 0
+    sleep 0.05
+    i=$((i + 1))
+  done
+  fail "$label survived cancellation (pid $pid)"
+}
+
+test_fallback_cancellation() {
+  local mechanism=$1 fm_pid rc=0 i=0 ssh_pid child_pid
+  ssh_pid="$TMP_ROOT/$mechanism-ssh.pid"
+  child_pid="$TMP_ROOT/$mechanism-child.pid"
+  FM_HOME="$LOCAL_HOME" FM_ROOT_OVERRIDE="$REMOTE_ROOT" FM_SSH_BIN="$FAKEBIN/fake-ssh" \
+    FM_FAKE_SSH_COUNT="$SSH_COUNT" FM_FAKE_SSH_LOG="$SSH_LOG" \
+    FM_FAKE_REMOTE_ENTRYPOINT="$REMOTE_ROOT/bin/fm-remote-entrypoint.sh" \
+    FM_FAKE_SSH_MODE=cancel FM_TEST_CANCEL_SSH_PID="$ssh_pid" \
+    FM_TEST_CANCEL_CHILD_PID="$child_pid" FM_TIMEOUT_MECHANISM_OVERRIDE="$mechanism" \
+    FM_ON_TIMEOUT=60 "$ROOT/bin/fm-on.sh" ios fm-mutate.sh "$REMOTE_HOME/cancel-mutation" \
+    > "$TMP_ROOT/$mechanism-cancel.out" 2> "$TMP_ROOT/$mechanism-cancel.err" &
+  fm_pid=$!
+  while [ "$i" -lt 100 ] && { [ ! -s "$ssh_pid" ] || [ ! -s "$child_pid" ]; }; do
+    kill -0 "$fm_pid" 2>/dev/null || fail "$mechanism fallback exited before its cancellation fixture started"
+    sleep 0.05
+    i=$((i + 1))
+  done
+  [ -s "$ssh_pid" ] && [ -s "$child_pid" ] || fail "$mechanism fallback did not start its full command tree"
+  kill -TERM "$fm_pid"
+  wait "$fm_pid" || rc=$?
+  [ "$rc" -eq 143 ] || fail "$mechanism fallback cancellation returned $rc instead of 143"
+  assert_cancelled_pid_gone "$ssh_pid" "$mechanism fallback SSH process"
+  assert_cancelled_pid_gone "$child_pid" "$mechanism fallback SSH descendant"
+  pass "$mechanism fallback cancellation tears down its TERM-resistant command tree"
+}
+
+test_fallback_cancellation bash
+test_fallback_cancellation perl
 
 echo "ALL TESTS PASSED"
