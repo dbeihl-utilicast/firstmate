@@ -439,7 +439,8 @@ Every claude launch's inline `--settings` JSON also carries `"attribution":{"com
 
 ## Host Claude Code plugins (config/host-plugins.json)
 
-The optional local, gitignored `config/host-plugins.json` names the Claude Code marketplaces and plugins a remote second-mate host must carry.
+The optional local, gitignored `config/host-plugins.json` is the exact allowlist of Claude Code plugins a remote second-mate host's account may have installed at user scope, resolved from the marketplaces it also names.
+User-scope Claude Code plugins belong to the host's account rather than to one Firstmate home, so one list governs every home and every Claude worker on that host, not only the home holding the copy.
 It is inherited into secondmate homes under the [primary-authoritative configuration contract](../.agents/skills/secondmate-provisioning/SKILL.md).
 `bin/fm-remote-doctor.sh` reads the copy in the remote home and converges that account's user-scope Claude Code plugins as one more readiness check; its header owns the exact check, repair, and operator-action lines.
 A registered marketplace must match the configured source, not only the name.
