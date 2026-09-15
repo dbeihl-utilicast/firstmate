@@ -56,7 +56,7 @@ A local model can think for minutes without drawing a footer firstmate already t
 
 A Qwen worker needs a credential it can use without a dialog, and firstmate does not invent one.
 The verified non-interactive path accepts `QWEN_DEFAULT_AUTH_TYPE=openai` plus `OPENAI_API_KEY` and an optional `OPENAI_BASE_URL` at spawn time.
-`../../../../../bin/fm-qwen-lib.sh` preflights that shape before a fresh spawn provisions anything and before a relaunch stops the running worker.
+`../../../../../bin/fm-qwen-lib.sh` preflights that shape and resolves the Qwen executable before a fresh spawn provisions anything and before a relaunch stops the running worker.
 `../../../../../bin/fm-spawn.sh` writes the selected type and provider environment into the mode-0600 firstmate-owned per-task settings file.
 The launch command carries only that settings path, so the credential is absent from process arguments and recorded commands.
 An unavailable or unsupported shape refuses as `qwen-auth-unavailable`.

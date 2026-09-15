@@ -13,7 +13,7 @@ The skill tree rooted at [`.agents/skills/harness-adapters/references/harness/qw
 | Platform | Linux aarch64, Node v26.7.0 |
 | Model host | Ollama 0.32.14 |
 
-Every command below ran in throwaway scratch directories against the real CLI.
+Every command in the evidence sections below ran in throwaway scratch directories against the real CLI; the final refresh section lists future rerun commands separately.
 No live fleet pane was used.
 Supervised dispatch used an isolated tmux server, not this host's live Herdr session.
 The live guard does not unload models because Ollama exposes shared model residency without a per-client ownership signal.
@@ -90,7 +90,9 @@ The same suite pins `--prompt-interactive`, private credential settings, the abs
 Canonical `bin/fm-spawn.sh` as a qwen scout on isolated tmux, Qwen Code 0.23.4, model `qwen3-coder:30b` via local Ollama.
 A Herdr-lab spawn from this host's live session is refused by Herdr parent identity (cross-session), so isolated tmux is the verified supervised path.
 
-This is the sanitized historical transcript; only the scratch home, project, worktree, isolated tmux target, and credential value are replaced.
+This is a sanitized historical evidence excerpt, not a reproduction recipe.
+It records the `fm-spawn.sh` invocation and output after the operator had already routed bare `tmux` commands through an isolated private socket; that shell setup was not retained.
+The scratch home, project, worktree, isolated tmux target, and credential value are replaced.
 
 ```text
 $ QWEN_DEFAULT_AUTH_TYPE=openai OPENAI_BASE_URL=http://127.0.0.1:11434/v1 OPENAI_API_KEY=<local-placeholder> FM_HOME=<scratch-home> bin/fm-spawn.sh qwen-scout <scratch-project> --scout --harness qwen --model qwen3-coder:30b --backend tmux
@@ -295,6 +297,7 @@ Stop-on-Escape during a blocking foreground tool call is not separately proven.
 bin/fm-test-run.sh tests/fm-qwen-harness.test.sh tests/fm-busy-adapter-wiring.test.sh tests/fm-tmux-agent-liveness.test.sh
 FM_HARNESS_LIVENESS_DRIFT=1 bin/fm-test-run.sh tests/fm-harness-liveness-drift-live-e2e.test.sh
 FM_QWEN_SIGNALS_LIVE=1 bin/fm-test-run.sh tests/fm-qwen-signals-live-e2e.test.sh
+# After routing bare tmux commands through an isolated private socket:
 QWEN_DEFAULT_AUTH_TYPE=openai OPENAI_BASE_URL=<provider-url> OPENAI_API_KEY=<credential> FM_HOME=<scratch-home> bin/fm-spawn.sh qwen-scout <scratch-project> --scout --harness qwen --model qwen3-coder:30b --backend tmux
 FM_HOME=<scratch-home> bin/fm-send.sh qwen-scout 'Reply PONG.'
 FM_HOME=<scratch-home> bin/fm-control.sh qwen-scout interrupt

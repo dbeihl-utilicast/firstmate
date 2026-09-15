@@ -484,17 +484,24 @@ test_qwen_hooks_stale_incarnation_harmless() {
 }
 
 test_raw_qwen_launch_has_no_semantic_wiring() {
-  local rec id=busy-qw-raw out state
+  local rec id=busy-qw-raw out state path_without_qwen raw_bin
   rec=$(make_spawn_case qwen-raw qwen "$id")
   read_case_record "$rec"
-  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" "$PROJ_DIR" 'qwen --debug')
+  rm -f "$FAKEBIN_DIR/qwen"
+  raw_bin="$CASE_DIR/raw-bin/qwen"
+  mkdir -p "${raw_bin%/*}"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$raw_bin"
+  chmod +x "$raw_bin"
+  path_without_qwen=$(fm_test_base_path_sans "$PATH" qwen)
+  out=$(PATH="$path_without_qwen" \
+    run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" "$PROJ_DIR" "$raw_bin --debug")
   expect_code 0 $? "raw qwen spawn should succeed: $out"
   state="$HOME_DIR/state"
   assert_absent "$state/$id.busy-gen" "raw qwen launch must not arm a busy generation"
   assert_absent "$state/$id.qwen-settings.json" "raw qwen launch must not write hook settings"
   out=$(classify qwen "$id" "$state")
   [ "$out" = "unknown missing" ] || fail "raw qwen launch must classify unknown, got '$out'"
-  pass "raw qwen launch remains unwired and classifies unknown"
+  pass "raw qwen launch bypasses canonical preflight, remains unwired, and classifies unknown"
 }
 
 test_qwen_spawn_refuses_without_auth() {

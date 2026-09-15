@@ -795,7 +795,7 @@ do_relaunch() {
   require_state_verified_backend relaunch
   resolve_relaunch_profile
   if [ "$TARGET_HARNESS" = qwen ]; then
-    fm_qwen_auth_preflight || exit 1
+    fm_qwen_launch_preflight >/dev/null || exit 1
   fi
 
   case "$KIND" in

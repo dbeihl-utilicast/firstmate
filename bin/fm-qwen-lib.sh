@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Qwen Code process identity and authentication preflight.
+# Qwen Code process identity and launch preflight.
 # Sourced by bin/backends/tmux.sh, bin/fm-spawn.sh, and bin/fm-control.sh. This
 # file is sourced by scripts and has no side effects on source.
 #
@@ -36,6 +36,27 @@ fm_qwen_auth_preflight() {
     return 1
   fi
   return 0
+}
+
+fm_qwen_resolve_executable() {
+  local candidate dir
+  candidate=$(type -P -- qwen 2>/dev/null) || return 1
+  [ -x "$candidate" ] || return 1
+  case "$candidate" in
+    /*) printf '%s\n' "$candidate" ;;
+    *)
+      dir=$(cd "$(dirname "$candidate")" 2>/dev/null && pwd -P) || return 1
+      printf '%s/%s\n' "$dir" "$(basename "$candidate")"
+      ;;
+  esac
+}
+
+fm_qwen_launch_preflight() {
+  fm_qwen_auth_preflight || return 1
+  if ! fm_qwen_resolve_executable; then
+    echo "error: qwen-executable-unavailable: qwen executable not found on PATH; install Qwen Code or select a different verified harness" >&2
+    return 1
+  fi
 }
 
 # True when path $1 carries Qwen Code's own structural evidence: the file is

@@ -1708,10 +1708,6 @@ if [ "$KIND" = secondmate ] && [ "$HARNESS" = rovo ]; then
   exit 1
 fi
 
-if [ "$HARNESS" = qwen ] && [ "$RAW_LAUNCH" -eq 0 ]; then
-  fm_qwen_auth_preflight || exit 1
-fi
-
 case "$HARNESS" in
   pi|pi-signed)
     PI_BIN=$(resolve_path_executable "$HARNESS") || {
@@ -1726,10 +1722,9 @@ case "$HARNESS" in
     LAUNCH="FM_PI_HARNESS=$HARNESS $LAUNCH"
     ;;
   qwen)
-    QWEN_BIN=$(resolve_path_executable qwen) || {
-      echo "error: qwen-executable-unavailable: qwen executable not found on PATH; install Qwen Code or select a different verified harness" >&2
-      exit 1
-    }
+    if [ "$RAW_LAUNCH" -eq 0 ]; then
+      QWEN_BIN=$(fm_qwen_launch_preflight) || exit 1
+    fi
     ;;
   cursor)
     # `cursor` is not the CLI name, and the legacy alias `agent` is far too
@@ -3926,8 +3921,10 @@ case "$HARNESS" in
   cursor) LAUNCH=${LAUNCH//__CURSORBIN__/"$(shell_quote "$CURSOR_BIN")"} ;;
   gemini) LAUNCH=${LAUNCH//__GEMINISETTINGS__/"$(shell_quote "$STATE_REAL/$ID.gemini-settings.json")"} ;;
   qwen)
-    LAUNCH=${LAUNCH//__QWENBIN__/"$(shell_quote "$QWEN_BIN")"}
-    LAUNCH=${LAUNCH//__QWENSETTINGS__/"$(shell_quote "$STATE_REAL/$ID.qwen-settings.json")"}
+    if [ "$RAW_LAUNCH" -eq 0 ]; then
+      LAUNCH=${LAUNCH//__QWENBIN__/"$(shell_quote "$QWEN_BIN")"}
+      LAUNCH=${LAUNCH//__QWENSETTINGS__/"$(shell_quote "$STATE_REAL/$ID.qwen-settings.json")"}
+    fi
     ;;
   omp) LAUNCH=${LAUNCH//__OMPBIN__/"$(shell_quote "$OMP_BIN")"} ;;
 esac
