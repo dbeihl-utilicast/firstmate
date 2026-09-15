@@ -49,11 +49,12 @@
 # both Firstmate-owned Aqua agents, starts the Linux workers where no Aqua agent
 # applies, recreates the entrypoint symlink, may add an owned ~/.local/bin
 # wrapper for a required tool it can discover under nvm, asdf, or mise, and may
-# register or install only the Claude Code marketplaces and plugins named in
-# the optional gitignored config/host-plugins.json catalogue (schema:
-# docs/configuration.md). It never installs Claude Code itself, never adds a
-# marketplace or plugin that is not in that catalogue, never supplies
-# credentials, never installs required-tool packages, never creates a login
+# directly request only the Claude Code marketplaces and plugins named in the
+# optional gitignored config/host-plugins.json catalogue (schema:
+# docs/configuration.md). Claude may auto-install a dependency outside that
+# catalogue; the final inventory refuses launch but leaves it installed until
+# the operator removes or catalogues it. It never installs Claude Code itself,
+# supplies credentials, installs required-tool packages, creates a login
 # session, writes an auto-login password, changes FileVault, stores an account
 # password, or replaces a non-Firstmate wrapper; those remain reported gaps.
 set -eu
@@ -1298,12 +1299,14 @@ EOF
     row_pid=${line%%$'\t'*}
     case "$row_pid" in *@*) ;; *) continue ;; esac
     configured=0
-    for i in "${!plugins_n[@]}"; do
+    i=0
+    while [ "$i" -lt "${#plugins_n[@]}" ]; do
       [ "$row_pid" = "${plugins_n[$i]}@${plugins_m[$i]}" ] && configured=1
+      i=$((i + 1))
     done
     [ "$configured" -eq 0 ] || continue
     seen=0
-    for candidate in "${unexpected_plugin[@]}"; do
+    for candidate in ${unexpected_plugin[@]+"${unexpected_plugin[@]}"}; do
       [ "$candidate" = "$row_pid" ] && seen=1
     done
     [ "$seen" -eq 0 ] && unexpected_plugin+=("$row_pid")
@@ -1311,15 +1314,17 @@ EOF
 $plugin_rows
 EOF
   if [ "${#unexpected_plugin[@]}" -gt 0 ]; then
-    record host-plugins "human: installed or enabled plugin is not named in the host plugin catalogue (${unexpected_plugin[*]})" \
+    record host-plugins "human: installed or enabled plugin is not named in the host plugin catalogue (${unexpected_plugin[*]+"${unexpected_plugin[*]}"})" \
       "add each named plugin to config/host-plugins.json if it is authorized, or remove it from the Claude plugin store, then rerun this command"
     return 0
   fi
-  for i in "${!plugins_n[@]}"; do
+  i=0
+  while [ "$i" -lt "${#plugins_n[@]}" ]; do
     id="${plugins_n[$i]}@${plugins_m[$i]}"
     if load_error=$(host_plugins_user_plugin_errors "$id" "$plugin_rows"); then
       load_errors+=("$id: $load_error")
     fi
+    i=$((i + 1))
   done
   dependency_audit=$(host_plugins_dependency_audit "$path" "$mp_json" "$plugin_json" 0) \
     || dependency_audit="ERROR dependency audit could not run"
@@ -1327,7 +1332,7 @@ EOF
     host_plugins_record_dependency_gap "$dependency_audit"
     return 0
   fi
-  local i=0
+  i=0
   while [ "$i" -lt "${#marketplaces_n[@]}" ]; do
     name=${marketplaces_n[$i]}
     source=${marketplaces_s[$i]}
@@ -1351,13 +1356,14 @@ EOF
     plugin=${plugins_n[$i]}
     marketplace=${plugins_m[$i]}
     id="$plugin@$marketplace"
-    case " ${ready_mp[*]} " in
-      *" $marketplace "*) ;;
-      *)
-        i=$((i + 1))
-        continue
-        ;;
-    esac
+    seen=0
+    for candidate in ${ready_mp[@]+"${ready_mp[@]}"}; do
+      [ "$candidate" = "$marketplace" ] && seen=1
+    done
+    if [ "$seen" -eq 0 ]; then
+      i=$((i + 1))
+      continue
+    fi
     state=$(host_plugins_user_plugin_state "$id" "$plugin_rows")
     case "$state" in
       missing)
@@ -1380,37 +1386,37 @@ EOF
     i=$((i + 1))
   done
   if [ "${#auth_human[@]}" -gt 0 ]; then
-    record host-plugins "human: configured Claude Code plugins could not be registered because git authentication failed (${auth_human[*]})" \
+    record host-plugins "human: configured Claude Code plugins could not be registered because git authentication failed (${auth_human[*]+"${auth_human[*]}"})" \
       "authenticate git access to the configured marketplace source on that account without supplying credentials to Firstmate, then rerun this command with --fix"
     return 0
   fi
   if [ "${#missing_mp[@]}" -gt 0 ]; then
-    record host-plugins "fixable: configured marketplace is not registered (${missing_mp[*]})" \
+    record host-plugins "fixable: configured marketplace is not registered (${missing_mp[*]+"${missing_mp[*]}"})" \
       "rerun this command with --fix to register the configured marketplace"
     return 0
   fi
   if [ "${#mismatched_mp[@]}" -gt 0 ]; then
-    record host-plugins "human: configured marketplace is registered from a different source (${mismatched_mp[*]})" \
+    record host-plugins "human: configured marketplace is registered from a different source (${mismatched_mp[*]+"${mismatched_mp[*]}"})" \
       "unregister the mismatched marketplace on that account, then rerun this command with --fix so only the configured source is registered"
     return 0
   fi
   if [ "${#missing_plugin[@]}" -gt 0 ]; then
-    record host-plugins "fixable: configured plugin is not installed (${missing_plugin[*]})" \
+    record host-plugins "fixable: configured plugin is not installed (${missing_plugin[*]+"${missing_plugin[*]}"})" \
       "rerun this command with --fix to install the configured plugin"
     return 0
   fi
   if [ "${#disabled_plugin[@]}" -gt 0 ]; then
-    record host-plugins "fixable: configured plugin is installed but disabled (${disabled_plugin[*]})" \
+    record host-plugins "fixable: configured plugin is installed but disabled (${disabled_plugin[*]+"${disabled_plugin[*]}"})" \
       "rerun this command with --fix to enable the configured plugin"
     return 0
   fi
   if [ "${#load_errors[@]}" -gt 0 ]; then
-    record host-plugins "human: configured plugin failed to load (${load_errors[*]})" \
+    record host-plugins "human: configured plugin failed to load (${load_errors[*]+"${load_errors[*]}"})" \
       "repair each named Claude plugin load error on that account, then rerun this command"
     return 0
   fi
   if [ "${#unresolved[@]}" -gt 0 ]; then
-    record host-plugins "human: configured plugin is installed but no skill resolves (${unresolved[*]}); a skill present but not resolving is the same as absent" \
+    record host-plugins "human: configured plugin is installed but no skill resolves (${unresolved[*]+"${unresolved[*]}"}); a skill present but not resolving is the same as absent" \
       "inspect claude plugin details for each named plugin on that account; Firstmate does not treat install success as proof"
     return 0
   fi
@@ -1418,7 +1424,7 @@ EOF
 }
 
 fix_host_plugins() {
-  local path parsed line name source plugin marketplace id out rc i rest dependency_audit
+  local path parsed line name source plugin marketplace id out rc i rest dependency_audit candidate seen
   local mp_json mp_rows plugin_json plugin_rows state
   local -a marketplaces_n=() marketplaces_s=() plugins_n=() plugins_m=()
   path=$(host_plugins_config_path) || return 0
@@ -1514,7 +1520,11 @@ EOF
     marketplace=${plugins_m[$i]}
     id="$plugin@$marketplace"
     i=$((i + 1))
-    case " ${ready_mp[*]} " in *" $marketplace "*) ;; *) continue ;; esac
+    seen=0
+    for candidate in ${ready_mp[@]+"${ready_mp[@]}"}; do
+      [ "$candidate" = "$marketplace" ] && seen=1
+    done
+    [ "$seen" -eq 1 ] || continue
     state=$(host_plugins_user_plugin_state "$id" "$plugin_rows")
     case "$state" in
       enabled) continue ;;

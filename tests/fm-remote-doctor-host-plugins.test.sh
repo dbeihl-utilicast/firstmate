@@ -107,7 +107,7 @@ for arg in "$@"; do
     *) args+=("$arg") ;;
   esac
 done
-set -- "${args[@]}"
+set -- ${args[@]+"${args[@]}"}
 case "${1:-} ${2:-} ${3:-}" in
   "plugin marketplace list"*)
     [ "$json_flag" -eq 1 ] || exit 1
@@ -208,7 +208,9 @@ SH
   chmod +x "$state/bin/claude" "$state/bin/git"
 }
 
-run_doctor() { # [--fix]
+run_doctor_with_shell() { # <shell> [--fix]
+  local shell=$1
+  shift
   set +e
   DOCTOR_OUT=$(
     HOME="$CASE_HOME" \
@@ -216,9 +218,13 @@ run_doctor() { # [--fix]
     FM_REMOTE_JOB_ACTIVE=1 \
     CLAUDE_CONFIG_DIR="${CLAUDE_CONFIG_DIR:-}" \
     PATH="$CASE_CLAUDE_BIN:$BASE_PATH" \
-    "$ROOT/bin/fm-remote-doctor.sh" "$@" 2>&1
+    "$shell" "$ROOT/bin/fm-remote-doctor.sh" "$@" 2>&1
   )
   set -e
+}
+
+run_doctor() { # [--fix]
+  run_doctor_with_shell "${BASH:-/bin/bash}" "$@"
 }
 
 new_host() {
@@ -350,12 +356,12 @@ pass "marketplace manifest identity is verified before mutation"
 
 new_host
 write_catalogue "$CASE_FM_HOME"
-run_doctor
+run_doctor_with_shell /bin/bash
 assert_contains "$DOCTOR_OUT" 'check host-plugins=fixable: configured marketplace is not registered' \
   "a missing marketplace was not fixable"
 assert_contains "$DOCTOR_OUT" 'example-plugins' "the missing marketplace was not named"
 : > "$CASE_STATE/commands.log"
-run_doctor --fix
+run_doctor_with_shell /bin/bash --fix
 assert_contains "$DOCTOR_OUT" 'fix host-plugins=applied: registered marketplace example-plugins' \
   "--fix did not register the configured marketplace"
 assert_contains "$DOCTOR_OUT" 'fix host-plugins=applied: installed example-core@example-plugins' \
@@ -370,7 +376,7 @@ assert_not_contains "$(cat "$CASE_STATE/commands.log")" '--yes' \
   "--fix pre-approved a marketplace-declared command"
 assert_not_contains "$(cat "$CASE_STATE/commands.log")" 'other-plugins' \
   "--fix added a marketplace that is not in config"
-pass "a missing marketplace is registered and its plugin is installed, then a skill resolves"
+pass "a fresh store is classified under the supported system Bash, then converged"
 
 # --- missing plugin only ----------------------------------------------------
 
