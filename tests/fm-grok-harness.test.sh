@@ -92,6 +92,52 @@ EOF
   pass "grok teardown removes pointer and token state"
 }
 
+# assert_grok_trusted <grok-home> <path> <msg>: the store has a trusted=true
+# block for <path>, immediately followed by its own trusted/decided_at lines.
+assert_grok_trusted() {
+  awk -v want="[folders.\"$2\"]" '$0==want{f=1;next} f&&/trusted[ \t]*=[ \t]*true/{found=1} f&&/^\[/{f=0}
+    END{exit found?0:1}' "$1/trusted_folders.toml" 2>/dev/null || fail "$3"
+}
+
+test_grok_spawn_pretrusts_the_project_not_the_worktree() {
+  local rec case_dir home proj wt fakebin grok_home id out
+  rec=$(make_spawn_case trust-project)
+  IFS='|' read -r case_dir home proj wt fakebin grok_home id <<EOF
+$rec
+EOF
+  out=$(run_grok_spawn "$home" "$proj" "$wt" "$fakebin" "$grok_home" "$id")
+  expect_code 0 $? "grok spawn should succeed: $out"
+  assert_grok_trusted "$grok_home" "$proj" \
+    "grok spawn did not pre-register trust for the project's primary checkout"
+  assert_no_grep "\"$wt\"" "$grok_home/trusted_folders.toml" \
+    "grok spawn registered the ephemeral worktree instead of relying on grok's own inheritance"
+  pass "grok spawn pre-trusts the project primary checkout, not the task worktree"
+}
+
+test_grok_secondmate_spawn_pretrusts_its_own_home() {
+  local case_dir home mate fakebin grok_home id out
+  case_dir="$TMP_ROOT/secondmate-trust"
+  home="$case_dir/home"
+  mate="$case_dir/mate-home"
+  fakebin=$(make_spawn_fakebin "$case_dir/fake" gh-axi gh)
+  grok_home="$case_dir/grok"
+  id="grok-secondmate-x1"
+  mkdir -p "$grok_home" "$mate/bin" "$mate/data"
+  fm_test_spawn_home "$home" grok
+  fm_git_init_commit "$mate"
+  printf '# Firstmate\n' > "$mate/AGENTS.md"
+  git -C "$mate" add AGENTS.md
+  git -C "$mate" -c user.email=t@t -c user.name=t commit --quiet -m agents
+  printf '%s\n' "$id" > "$mate/.fm-secondmate-home"
+  printf 'charter for %s\n' "$id" > "$mate/data/charter.md"
+  out=$(GROK_HOME="$grok_home" fm_test_run_spawn "$home" "$mate" "$fakebin" \
+    "$id" "$mate" --secondmate)
+  expect_code 0 $? "grok secondmate spawn should succeed: $out"
+  assert_grok_trusted "$grok_home" "$mate" \
+    "grok secondmate spawn did not pre-register trust for its own home"
+  pass "grok secondmate spawn pre-trusts its own home the same way a crewmate spawn does"
+}
+
 test_fm_lock_recognizes_grok_holder() {
   local home fakebin out
   home="$TMP_ROOT/lock-home"
@@ -114,4 +160,6 @@ SH
 
 test_grok_hook_requires_registered_token
 test_grok_teardown_removes_pointer_and_token
+test_grok_spawn_pretrusts_the_project_not_the_worktree
+test_grok_secondmate_spawn_pretrusts_its_own_home
 test_fm_lock_recognizes_grok_holder

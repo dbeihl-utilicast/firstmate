@@ -65,15 +65,15 @@ ps -t "${tty#/dev/}" -o pgid=,tpgid=,comm=      # rows where pgid = tpgid
 
 Observed identities, and the resulting verdict:
 
-| Harness | Version | `#{pane_current_command}` | Foreground `comm` | Verdict |
-| --- | --- | --- | --- | --- |
-| claude | 2.1.220 | `2.1.220` | `claude` | alive |
-| codex | codex-cli 0.146.0 | `codex` | `codex` | alive |
-| opencode | 1.18.11 | `opencode` | `opencode` | alive |
-| pi | 0.82.0 | `pi-launcher` | `pi-signed`, `pi` | alive |
-| pi-signed | 0.82.0 | `pi-launcher` | `pi-signed`, `pi` | alive |
-| grok | 0.2.118 | `grok-0.2.118-ma` | `grok` | alive |
-| kimi | 0.31.1 | `kimi` | `kimi` | alive |
+| Harness   | Version           | `#{pane_current_command}` | Foreground `comm` | Verdict |
+| --------- | ----------------- | ------------------------- | ----------------- | ------- |
+| claude    | 2.1.220           | `2.1.220`                 | `claude`          | alive   |
+| codex     | codex-cli 0.146.0 | `codex`                   | `codex`           | alive   |
+| opencode  | 1.18.11           | `opencode`                | `opencode`        | alive   |
+| pi        | 0.82.0            | `pi-launcher`             | `pi-signed`, `pi` | alive   |
+| pi-signed | 0.82.0            | `pi-launcher`             | `pi-signed`, `pi` | alive   |
+| grok      | 0.2.118           | `grok-0.2.118-ma`         | `grok`            | alive   |
+| kimi      | 0.31.1            | `kimi`                    | `kimi`            | alive   |
 
 In that 2026-08-03 seven-adapter run, Claude Code was the only harness whose title did not attribute it; every other adapter was attributed by both sources.
 Codex reported `codex-aarch64-a` at 0.145.0 and `codex` at 0.146.0, and Kimi Code reported `kimi-code` as its foreground `comm` at 0.29.1 and `kimi` at 0.31.1, so these identities move between ordinary patch releases in both directions.
@@ -614,15 +614,15 @@ herdr 0.7.5
 
 The CLI matrix was checked directly:
 
-| Guarantee | Command shape | Result |
-| --- | --- | --- |
-| Explicit session routing | `herdr <verb> ... --session <name>` | Reached the named session even while another server was running. |
-| Literal send | `herdr pane send-text <pane> <text> --session <name>` | Left text unsubmitted until Enter. |
-| Keys | `herdr pane send-keys <pane> enter|escape|ctrl+c --session <name>` | Enter and Escape worked; Ctrl-C interrupted foreground work. |
-| Capture | `herdr pane read <pane> --source recent --lines N` | Small N could return empty below viewport height; a 200-line request plus local trim was stable. |
-| Native state | `herdr agent get <pane>` | Working and done transitions were visible on some harnesses; live Claude Code 2.1.236 on Herdr 0.8.0 kept `agent_status=idle` for an entire landed turn, including a multi-second tool call, so submit confirmation falls through to the shared composer verdict. Native `busy` remains positive activity evidence, while native `idle` cannot close a turn and the adapter's semantic lifecycle decides worker state. |
-| Restart | guarded named-session stop then start | Workspace, tab, pane, and labels persisted; the agent process and registration did not. |
-| Close | `herdr pane close <pane> --session <name>` | The exact one-pane task tab closed; closing a final tab could remove the workspace. |
+| Guarantee                | Command shape                                         | Result                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ------------------------ | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Explicit session routing | `herdr <verb> ... --session <name>`                   | Reached the named session even while another server was running.                                                                                                                                                                                                                                                                                                                                                       |
+| Literal send             | `herdr pane send-text <pane> <text> --session <name>` | Left text unsubmitted until Enter.                                                                                                                                                                                                                                                                                                                                                                                     |
+| Keys                     | `herdr pane send-keys <pane> enter                    | escape                                                                                                                                                                                                                                                                                                                                                                                                                 | ctrl+c --session <name>` | Enter and Escape worked; Ctrl-C interrupted foreground work. |
+| Capture                  | `herdr pane read <pane> --source recent --lines N`    | Small N could return empty below viewport height; a 200-line request plus local trim was stable.                                                                                                                                                                                                                                                                                                                       |
+| Native state             | `herdr agent get <pane>`                              | Working and done transitions were visible on some harnesses; live Claude Code 2.1.236 on Herdr 0.8.0 kept `agent_status=idle` for an entire landed turn, including a multi-second tool call, so submit confirmation falls through to the shared composer verdict. Native `busy` remains positive activity evidence, while native `idle` cannot close a turn and the adapter's semantic lifecycle decides worker state. |
+| Restart                  | guarded named-session stop then start                 | Workspace, tab, pane, and labels persisted; the agent process and registration did not.                                                                                                                                                                                                                                                                                                                                |
+| Close                    | `herdr pane close <pane> --session <name>`            | The exact one-pane task tab closed; closing a final tab could remove the workspace.                                                                                                                                                                                                                                                                                                                                    |
 
 All destructive verification used `bin/fm-herdr-lab.sh` with a non-default `fm-lab-` name and a byte-identical default-session tripwire.
 No ambient `herdr server stop` command is a supported test operation.
@@ -633,11 +633,11 @@ Measured 2026-09-09 on macOS 26 (Darwin 25.6.0) aarch64 with Claude Code 2.1.266
 
 Same user, same `HOME`, same login keychain item, three births, probed with `launchctl managername`, `getaudit_addr` (a compiled probe), `security find-generic-password -a "$USER" -w -s "Claude Code-credentials"` (output withheld), and `claude auth status`:
 
-| Birth | `managername` | audit session | `security ... -w` | `claude auth status` |
-| --- | --- | --- | --- | --- |
-| `gui/501` LaunchAgent, bare `ProgramArguments`, `launchctl bootstrap` + `kickstart -k` mid-session | Aqua | asid 100038 (the `gui/501` asid), `HAS_GRAPHIC_ACCESS HAS_TTY HAS_CONSOLE_ACCESS HAS_AUTHENTICATED` | exit 0 | `loggedIn: true` |
-| `gui/501` LaunchAgent, `zsh -l -c 'exec ...'`, same reload | Aqua | asid 100038, same flags | exit 0 | `loggedIn: true` |
-| `user/501` LaunchAgent (`LimitLoadToSessionType=Background`), same reload | Background | asid 100056, flags `0x0` | exit 36 `User interaction is not allowed.`, item metadata still readable | `loggedIn: false`, `authMethod: none` |
+| Birth                                                                                              | `managername` | audit session                                                                                       | `security ... -w`                                                        | `claude auth status`                  |
+| -------------------------------------------------------------------------------------------------- | ------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ | ------------------------------------- |
+| `gui/501` LaunchAgent, bare `ProgramArguments`, `launchctl bootstrap` + `kickstart -k` mid-session | Aqua          | asid 100038 (the `gui/501` asid), `HAS_GRAPHIC_ACCESS HAS_TTY HAS_CONSOLE_ACCESS HAS_AUTHENTICATED` | exit 0                                                                   | `loggedIn: true`                      |
+| `gui/501` LaunchAgent, `zsh -l -c 'exec ...'`, same reload                                         | Aqua          | asid 100038, same flags                                                                             | exit 0                                                                   | `loggedIn: true`                      |
+| `user/501` LaunchAgent (`LimitLoadToSessionType=Background`), same reload                          | Background    | asid 100056, flags `0x0`                                                                            | exit 36 `User interaction is not allowed.`, item metadata still readable | `loggedIn: false`, `authMethod: none` |
 
 Claude Code 2.1.266 maps that exit 36 (and 44) to "no keychain data" and reads `~/.claude/.credentials.json` instead; with a stale file it prints `Failed to authenticate: OAuth session expired and could not be refreshed` (interactive: `Login expired · Please run /login`).
 
@@ -909,15 +909,15 @@ The suite also cross-checks its own Part A measurement against the floor classif
 Default-on presentation projection is floored at Herdr 0.8.0.
 The floor's structural signal is the selected running server's protocol number, falling back to the client protocol only when that selected session positively reports no running server, and the release mapping was measured on 2026-08-05 by running each pinned upstream macOS aarch64 release asset's own `status --json` through the guarded lab helper:
 
-| Release | Reported version | Protocol | Carries both upstream focus fixes | Floor verdict |
-|---|---|---|---|---|
-| v0.7.3 | 0.7.3 | 16 | no | below |
-| v0.7.4 | 0.7.4 | 16 | no | below |
-| v0.7.5 | 0.7.5 | 17 | no | below |
-| preview-2026-07-21-0f10e1453a7f | 0.7.5-preview.2026-07-21-0f10e1453a7f | 17 | no | below |
-| preview-2026-07-29-44b3adb12552 | 0.7.5-preview.2026-07-29-44b3adb12552 | 18 | yes | below |
-| preview-2026-08-04-d78e3d3b5126 | 0.8.0-preview.2026-08-04-d78e3d3b5126 | 19 | yes | above |
-| v0.8.0 | 0.8.0 | 19 | yes | above |
+| Release                         | Reported version                      | Protocol | Carries both upstream focus fixes | Floor verdict |
+| ------------------------------- | ------------------------------------- | -------- | --------------------------------- | ------------- |
+| v0.7.3                          | 0.7.3                                 | 16       | no                                | below         |
+| v0.7.4                          | 0.7.4                                 | 16       | no                                | below         |
+| v0.7.5                          | 0.7.5                                 | 17       | no                                | below         |
+| preview-2026-07-21-0f10e1453a7f | 0.7.5-preview.2026-07-21-0f10e1453a7f | 17       | no                                | below         |
+| preview-2026-07-29-44b3adb12552 | 0.7.5-preview.2026-07-29-44b3adb12552 | 18       | yes                               | below         |
+| preview-2026-08-04-d78e3d3b5126 | 0.8.0-preview.2026-08-04-d78e3d3b5126 | 19       | yes                               | above         |
+| v0.8.0                          | 0.8.0                                 | 19       | yes                               | above         |
 
 No build lacking both fixes reaches protocol 19, and every pre-fix build tops out at 17, so protocol 19 is a safe structural expression of the 0.8.0 floor.
 The one post-fix build below it is a preview that still reports a 0.7.5 version, so it is conservatively treated as below the floor, which costs a preview build its projection and never lets an unfixed build through.
@@ -1136,18 +1136,18 @@ The daemon injection transport into a live composer keeps its coverage in `tests
 The current compatibility floor and latest verification are Zellij 0.44.0 with `jq` on macOS aarch64.
 All real tests use a uniquely named session and `tests/zellij-test-safety.sh`; they never touch a session named `firstmate` or call all-session deletion.
 
-| Guarantee | Command shape | Result |
-| --- | --- | --- |
-| Headless session | `zellij attach -b <name>` without a TTY | Created a persistent background session and returned. |
-| Session list | `zellij list-sessions --short --no-formatting` | Returned one plain name per line without starting a session. |
-| Create tab | `zellij action new-tab --cwd <dir> --name <title>` | Returned a numeric tab id and focused the new tab when a client was attached. |
-| Pane discovery | `zellij action list-panes --json` | Included terminal pane id, tab id, plugin flag, and top-level `pane_cwd`. |
-| Literal send | `zellij action paste --pane-id <id> -- <text>` | Left text unsubmitted. |
-| Keys | `send-keys --pane-id <id> Enter`, `Esc`, and one argument `Ctrl c` | All three shared operations worked. |
-| Capture | `dump-screen --pane-id <id>` or `--full` | Worked with no attached client; no line-bound flag exists. |
-| Styled capture | `dump-screen --pane-id <id> --ansi` | Preserved ANSI styling ("Composer classification matrix" above); feeds the zellij composer classifier. |
-| Close | `close-tab-by-id <id>` | Removed the live task pane and tab together. |
-| Failure exit | actions against missing targets | Returned exit 0, requiring structural preflight and output-shape validation. |
+| Guarantee        | Command shape                                                      | Result                                                                                                 |
+| ---------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
+| Headless session | `zellij attach -b <name>` without a TTY                            | Created a persistent background session and returned.                                                  |
+| Session list     | `zellij list-sessions --short --no-formatting`                     | Returned one plain name per line without starting a session.                                           |
+| Create tab       | `zellij action new-tab --cwd <dir> --name <title>`                 | Returned a numeric tab id and focused the new tab when a client was attached.                          |
+| Pane discovery   | `zellij action list-panes --json`                                  | Included terminal pane id, tab id, plugin flag, and top-level `pane_cwd`.                              |
+| Literal send     | `zellij action paste --pane-id <id> -- <text>`                     | Left text unsubmitted.                                                                                 |
+| Keys             | `send-keys --pane-id <id> Enter`, `Esc`, and one argument `Ctrl c` | All three shared operations worked.                                                                    |
+| Capture          | `dump-screen --pane-id <id>` or `--full`                           | Worked with no attached client; no line-bound flag exists.                                             |
+| Styled capture   | `dump-screen --pane-id <id> --ansi`                                | Preserved ANSI styling ("Composer classification matrix" above); feeds the zellij composer classifier. |
+| Close            | `close-tab-by-id <id>`                                             | Removed the live task pane and tab together.                                                           |
+| Failure exit     | actions against missing targets                                    | Returned exit 0, requiring structural preflight and output-shape validation.                           |
 
 `pane_cwd` stayed frozen when a foreground subshell changed directory.
 The marker-delimited `pwd` probe returned the live nested cwd and is covered by the real smoke.
@@ -1217,16 +1217,16 @@ The app configuration writer did not retain a hand-added socket password, which 
 
 Current active CLI findings:
 
-| Guarantee | Command shape | Result |
-| --- | --- | --- |
-| Create | `new-workspace --name <title> --cwd <dir> --focus false --id-format uuids` | Created one workspace with one surface without focusing it. |
-| Fresh readiness | `list-panes --workspace <id> --json --id-format uuids` | Found a brand-new surface before content existed. |
-| Fresh read counterexample | `read-screen` before any write | Returned `internal_error: Failed to read terminal text`. |
-| Literal send | `send --workspace <id> --surface <id> -- <text>` | Left text unsubmitted. |
-| Keys | `send-key ... enter|escape|ctrl-c` | All shared key operations worked. |
-| Nested cwd | `current_directory` plus foreground subshell | Structured cwd froze; the marker-delimited `pwd` probe found the live cwd. |
-| Last surface | `close-surface` on the only surface | Refused with `invalid_state: Cannot close the last surface`. |
-| Last workspace | `close-workspace` on the only workspace in a window | Printed success but left the workspace present. |
+| Guarantee                 | Command shape                                                              | Result                                                                     |
+| ------------------------- | -------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| Create                    | `new-workspace --name <title> --cwd <dir> --focus false --id-format uuids` | Created one workspace with one surface without focusing it.                |
+| Fresh readiness           | `list-panes --workspace <id> --json --id-format uuids`                     | Found a brand-new surface before content existed.                          |
+| Fresh read counterexample | `read-screen` before any write                                             | Returned `internal_error: Failed to read terminal text`.                   |
+| Literal send              | `send --workspace <id> --surface <id> -- <text>`                           | Left text unsubmitted.                                                     |
+| Keys                      | `send-key ... enter                                                        | escape                                                                     | ctrl-c` | All shared key operations worked. |
+| Nested cwd                | `current_directory` plus foreground subshell                               | Structured cwd froze; the marker-delimited `pwd` probe found the live cwd. |
+| Last surface              | `close-surface` on the only surface                                        | Refused with `invalid_state: Cannot close the last surface`.               |
+| Last workspace            | `close-workspace` on the only workspace in a window                        | Printed success but left the workspace present.                            |
 
 The last-workspace workaround was reverified on 2026-07-10 in Automation mode.
 After creating one unfocused unnamed sibling in the same window, `close-workspace` removed the exact task workspace and left only cmux's default sibling.
@@ -1293,11 +1293,11 @@ Resolution prints the STABLE launcher rather than the canonical target, because 
 
 `#{pane_current_command}` and `ps -o comm=` disagree for cursor, which is why identity reads both:
 
-| Source | Observed value |
-| --- | --- |
-| `#{pane_current_command}` | `node` |
-| `ps -o comm=` | `/Users/<user>/.local/bin/cursor-agent` |
-| child argv | `.../bin/cursor-agent --use-system-ca .../versions/2026.08.11-e8db854/index.js --trust --yolo` |
+| Source                    | Observed value                                                                                 |
+| ------------------------- | ---------------------------------------------------------------------------------------------- |
+| `#{pane_current_command}` | `node`                                                                                         |
+| `ps -o comm=`             | `/Users/<user>/.local/bin/cursor-agent`                                                        |
+| child argv                | `.../bin/cursor-agent --use-system-ca .../versions/2026.08.11-e8db854/index.js --trust --yolo` |
 
 `node` matches no harness name pattern, so a cursor pane is identified from Cursor's own name or install tree in the path or argv[0].
 An unrelated `node` or `agent` matches neither and classifies `other`, which the liveness callers fold into `ambiguous` rather than `dead`.
@@ -1307,12 +1307,12 @@ A live cursor pane returned `alive`; a plain shell pane in the same run returned
 
 Read from the live agent process and from a tool subprocess it spawned:
 
-| Marker | Where observed |
-| --- | --- |
-| `CURSOR_INVOKED_AS=cursor-agent` | the agent process itself, and its children |
-| `CURSOR_AGENT=1` | child/tool processes only |
-| `CURSOR_CONVERSATION_ID=<uuid>` | child/tool processes |
-| `AGENT_TRANSCRIPTS=<projects-root>/<slug>/agent-transcripts` | child/tool processes |
+| Marker                                                       | Where observed                             |
+| ------------------------------------------------------------ | ------------------------------------------ |
+| `CURSOR_INVOKED_AS=cursor-agent`                             | the agent process itself, and its children |
+| `CURSOR_AGENT=1`                                             | child/tool processes only                  |
+| `CURSOR_CONVERSATION_ID=<uuid>`                              | child/tool processes                       |
+| `AGENT_TRANSCRIPTS=<projects-root>/<slug>/agent-transcripts` | child/tool processes                       |
 
 Cursor does not clear an inherited `CLAUDECODE`, so ordering decides the verdict.
 With both markers set, `bin/fm-harness.sh` reports `cursor`; with `CLAUDECODE` alone it still reports `claude`.
@@ -1372,16 +1372,16 @@ This row is a delivery guard for submit acknowledgement only; recorded worker st
 
 ### Launch, lifecycle, and skills
 
-| Fact | Observed |
-| --- | --- |
-| Workspace trust | `--trust` suppressed the prompt; `--yolo` alone did NOT, and the prompt blocks a fresh worktree |
-| Autonomy | `--yolo` (alias of `--force`); the footer renders `Run Everything` |
-| Worktree | `-w/--worktree` allocates a SECOND worktree under `~/.cursor/worktrees` and is never passed |
-| Effort | no effort flag exists; requested effort stays in task metadata |
-| Interrupt | single Escape; the pane showed `Cancelled` and the composer returned to its placeholder, so no clear key is needed |
-| Exit | `/exit` |
+| Fact             | Observed                                                                                                                                            |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Workspace trust  | `--trust` suppressed the prompt; `--yolo` alone did NOT, and the prompt blocks a fresh worktree                                                     |
+| Autonomy         | `--yolo` (alias of `--force`); the footer renders `Run Everything`                                                                                  |
+| Worktree         | `-w/--worktree` allocates a SECOND worktree under `~/.cursor/worktrees` and is never passed                                                         |
+| Effort           | no effort flag exists; requested effort stays in task metadata                                                                                      |
+| Interrupt        | single Escape; the pane showed `Cancelled` and the composer returned to its placeholder, so no clear key is needed                                  |
+| Exit             | `/exit`                                                                                                                                             |
 | Skill invocation | `/<skill>`; cursor discovers firstmate's user-level skills, and `/no-mistakes` autocompleted with firstmate's own description and invoked the skill |
-| Slash popup | real: the first Enter closes the popup and a SECOND Enter submits, the same hazard as grok, covered by the submit core's retried Enter |
+| Slash popup      | real: the first Enter closes the popup and a SECOND Enter submits, the same hazard as grok, covered by the submit core's retried Enter              |
 
 ### End-to-end
 
@@ -1404,11 +1404,11 @@ Every step ran inside an isolated `fm-lab-` session provisioned by `bin/fm-herdr
 A 60-sample probe of `agent get` across a full turn reported `agent_status=blocked` in every state - idle, mid-turn, and after.
 The typed submit path's idle baseline is therefore structurally unreachable for Cursor, and every typed send falls into the composer branch.
 
-| Pane state | Composer verdict | Rendered footer |
-| --- | --- | --- |
-| Idle | `empty` | no busy token |
-| Text typed, not submitted | `pending` | no busy token |
-| Mid-turn | `pending` (placeholder plus `ctrl+c to stop` on one row) | `ctrl+c to stop` |
+| Pane state                | Composer verdict                                         | Rendered footer  |
+| ------------------------- | -------------------------------------------------------- | ---------------- |
+| Idle                      | `empty`                                                  | no busy token    |
+| Text typed, not submitted | `pending`                                                | no busy token    |
+| Mid-turn                  | `pending` (placeholder plus `ctrl+c to stop` on one row) | `ctrl+c to stop` |
 
 Herdr draws the composer's rules with the half-block glyphs U+2584 and U+2580 rather than the box-drawing family.
 Before those were taught to the shared edge detector, a bare composer's wrap region ran through its own closing rule and swallowed the model and path footer, so an idle pane read `pending`.
@@ -1653,14 +1653,14 @@ After the rule, the same live Herdr capture read `empty`, a steer's doorbell lan
 
 ### Busy state and lifecycle
 
-| Fact | Observed |
-| --- | --- |
-| Semantic source | `omp-ext`: `busy source=omp-ext event=agent-start` on the brief, `idle source=omp-ext event=agent-end` at its natural end, `busy` again on a steer, `idle` after a control-plane interrupt |
+| Fact              | Observed                                                                                                                                                                                                                                                                  |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Semantic source   | `omp-ext`: `busy source=omp-ext event=agent-start` on the brief, `idle source=omp-ext event=agent-end` at its natural end, `busy` again on a steer, `idle` after a control-plane interrupt                                                                                |
 | Rendered busy row | `⎋ Working…` (U+2026) above the composer and a braille spinner plus elapsed cell (`⠧ 36s`) in the status row; the omp busy regex accepts only those two TUI signals, not the `Working...` that headless `-p` writes to stderr, since no supervised omp pane runs headless |
-| Interrupt | `bin/fm-control.sh <id> interrupt` delivered a single Escape (`verified=agent-alive cancel=unconfirmed`), the composer read `empty`, and omp raised `agent_end` |
-| Exit | `bin/fm-control.sh <id> exit` typed `/quit`; Herdr then reported the pane `dead` |
-| Extension loading | a file named both by `-e` and by `<cwd>/.omp/extensions` loads twice; discovery is top-level and cwd-only |
-| Extension tools | the openai-codex model invokes a registered tool by writing `xd://<tool>` through omp's virtual-file bridge |
+| Interrupt         | `bin/fm-control.sh <id> interrupt` delivered a single Escape (`verified=agent-alive cancel=unconfirmed`), the composer read `empty`, and omp raised `agent_end`                                                                                                           |
+| Exit              | `bin/fm-control.sh <id> exit` typed `/quit`; Herdr then reported the pane `dead`                                                                                                                                                                                          |
+| Extension loading | a file named both by `-e` and by `<cwd>/.omp/extensions` loads twice; discovery is top-level and cwd-only                                                                                                                                                                 |
+| Extension tools   | the openai-codex model invokes a registered tool by writing `xd://<tool>` through omp's virtual-file bridge                                                                                                                                                               |
 
 ### End-to-end
 
@@ -1674,3 +1674,30 @@ A throwaway scout was spawned through `bin/fm-spawn.sh --scout --harness omp --m
 6. `bin/fm-control.sh <id> exit` stopped the agent and `bin/fm-teardown.sh` returned the worktree and closed the item.
 
 `FM_OMP_LIVE_E2E=1 tests/fm-omp-primary-live-e2e.test.sh` refreshes the primary evidence; the worker path above is refreshed by repeating the scout dispatch after any omp upgrade.
+
+## Grok folder trust
+
+Verified on 2026-09-15 with grok 1.0.30 (stable).
+`bin/fm-grok-trust.sh` and its call site in `bin/fm-spawn.sh` own the mechanism; this record owns the evidence for the inheritance rule they rely on.
+Every launch below used tmux to start `grok` in a fresh pane and `tmux capture-pane -p` to read the initial screen, then `tmux kill-session` to end the process; no keystroke was ever sent to a trust dialog.
+
+The dialog only fires for a directory carrying project-level automation content (an `AGENTS.md`, project instructions, a `.grok/hooks/*.json`), not for a bare git repository with no such file; every probe below therefore committed an `AGENTS.md`.
+
+| Probe                                                                                           | Setup                                                                                         | Result       |
+| ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- | ------------ |
+| Fresh repo, no entry                                                                            | plain git repo with `AGENTS.md`, nothing in `trusted_folders.toml`                            | dialog fires |
+| Same repo, exact entry added                                                                    | `[folders."<repo>"]` with `trusted = true` appended for that exact path                       | no dialog    |
+| Linked worktree of a now-trusted primary checkout                                               | `git worktree add` off the trusted repo above, worktree itself never listed                   | no dialog    |
+| Primary checkout of a repo whose _linked worktree_ was trusted                                  | the reverse of the row above: only the worktree path was listed, the primary checkout was not | dialog fires |
+| Fresh unrelated repo, sibling under the same parent directory as a trusted repo                 | plain filesystem proximity only, no git relationship                                          | dialog fires |
+| Fresh unrelated repo nested under a trusted plain (non-git) ancestor directory, two levels deep | ancestor directory itself listed as trusted, is not a git repository                          | dialog fires |
+| Same, as a direct child of the trusted ancestor directory                                       | one level of nesting instead of two                                                           | dialog fires |
+
+The rule that explains every row: trust is a property of a git repository's identity, granted only by an entry naming its primary checkout (the worktree whose own git directory is not a pointer file), and it is inherited by every linked worktree of that same repository in that direction only.
+It does not follow plain filesystem containment in either direction, and a linked worktree's own trust does not extend to its primary checkout or to a sibling worktree.
+`grok inspect --json`'s `projectTrusted` field reported `true` for a brand-new, unrelated repository with no entry anywhere in `trusted_folders.toml`, so it does not track this gate and is not usable as evidence for it.
+
+This is why `bin/fm-grok-trust.sh` registers a project's primary checkout rather than the ephemeral task worktree the way `bin/fm-claude-trust.sh` does for Claude: one idempotent registration per project covers every current and future treehouse worktree of it, and registering an ancestor directory instead (as was tried by hand against `~/.treehouse` and `~/personal` before this fix landed) does not work at all.
+Re-run the probes above after a grok upgrade before trusting this evidence.
+
+The worker turn-end hook in `bin/fm-spawn.sh` still installs a global hook under `~/.grok/hooks/` rather than a project-local one, unrelated to the dialog fix above: project hooks are a separate grant that folder trust also happens to cover, but the global hook needs no per-worktree wiring at all and was left as is because changing it is out of this fix's scope.

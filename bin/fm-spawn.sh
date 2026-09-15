@@ -3166,6 +3166,17 @@ if [ "$KIND" != secondmate ]; then
   esac
 fi
 
+# Registers PROJ_ABS, not WT, and runs for a secondmate too: see
+# docs/verification/runtime-backends.md "Grok folder trust" for why.
+case "$HARNESS" in
+  grok*)
+    if ! "$FM_ROOT/bin/fm-grok-trust.sh" "$PROJ_ABS" >/dev/null; then
+      echo "error: could not pre-register Grok folder trust for $PROJ_ABS; refusing to launch a grok worker that would wedge on the trust dialog; inspect window $T" >&2
+      exit 1
+    fi
+    ;;
+esac
+
 # Per-task temp root: /tmp/fm-<id>/ with Go's build temp nested at gotmp/. Go won't
 # create GOTMPDIR, so mkdir before it is used; fm-teardown removes the whole root.
 # Nested (not a bare /tmp/fm-<id>/gotmp) so other per-task temp can live alongside
@@ -3452,20 +3463,9 @@ EOF
       # the launch command via -c notify=[...] and __TURNEND__.
       ;;
     grok*)
-      # grok fires a Stop hook at every turn boundary (verified, grok 0.2.73), the
-      # clean equivalent of codex's notify= and pi's turn_end. But grok only loads
-      # PROJECT hooks (<worktree>/.grok/hooks/, <worktree>/.claude/settings.local.json)
-      # after the folder is granted hook-trust, which is not automatic and which
-      # firstmate cannot establish at launch without editing grok's own managed
-      # trust store (a high-blast-radius write). GLOBAL hooks in ~/.grok/hooks/ are
-      # always trusted and load on first launch with no gate. So the turn-end hook
-      # lives OUTSIDE the worktree as a single firstmate-owned global hook that is a
-      # guarded no-op for every non-firstmate grok session: it fires only when the
-      # current workspace holds a .fm-grok-turnend token pointer that matches the
-      # firstmate-owned hook registry. firstmate then drops that per-task pointer
-      # (gitignored, like the other harnesses' worktree hook files).
-      # Result: the hook is outside the worktree, needs no trust grant, and never
-      # touches grok's managed config - only firstmate-owned files.
+      # grok fires a Stop hook at every turn boundary; this uses a global hook
+      # instead of a project one so it needs no per-worktree trust grant.
+      # docs/verification/runtime-backends.md "Grok folder trust" owns why.
       GROK_HOOKS_DIR="${GROK_HOME:-$HOME/.grok}/hooks"
       GROK_AUTH_DIR="$GROK_HOOKS_DIR/fm-turn-end.d"
       mkdir -p "$GROK_AUTH_DIR"
