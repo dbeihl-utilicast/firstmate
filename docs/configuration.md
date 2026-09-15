@@ -480,7 +480,7 @@ When the file exists, `fm-spawn.sh` enforces that contract by refusing crewmate 
 Batch spawns satisfy the same requirement with a shared `--harness`.
 Secondmate spawns are exempt and still resolve through `config/secondmate-harness` and its optional model and effort tokens.
 V2 is the required fleet policy whenever this file exists.
-Bootstrap emits `CREW_DISPATCH: invalid ...` for a missing or non-2 `schema_version`, an unknown field, a missing required key, malformed value, unverified harness, invalid effort, unclassified or misclassified model, or an Astra/Fable candidate outside `Utilicast-LLC/utilicast-triage`.
+Bootstrap emits `CREW_DISPATCH: invalid ...` for a missing or non-2 `schema_version`, an unknown field, a missing required key, malformed value, unverified harness, invalid effort, unclassified or misclassified model, or a blocked-class candidate whose rule `match.task_shape` is missing, empty, or not a subset of that constraint's `allowed_task_shapes`.
 This section is the single owner of the canonical V2 schema and its per-field semantics.
 `AGENTS.md` section 4 owns the always-loaded dispatch intake boundary, and `quota-array-dispatch` owns the completion-aware profile-array selection procedure.
 
@@ -489,10 +489,10 @@ This section is the single owner of the canonical V2 schema and its per-field se
 | `schema_version` | The number `2`. |
 | `placement` | Non-empty capability map and ordered target rules, `unmatched: "retain-intake-home"`, and an `enforcement` object. `enforcement.current` must be `"advisory"` and `not_read_by` must name `fm-bootstrap` and `fm-spawn`: bootstrap validates this data, but neither path uses it to route work. `mechanical_owner` records the intended future routing owner; the example names `intake-and-backlog-handoff`. |
 | `dispatch` | `selector: "quota-array-dispatch"`, non-empty `target_host_checks` naming checks for firstmate to perform on the target host, `higher_reasoning_requires_reason: true`, and `history_ref: "data/crew-dispatch-history.md"`. These declarations do not run checks or write history. |
-| `constraints` | At least one constraint. Each must set `allowed_projects` to exactly `["Utilicast-LLC/utilicast-triage"]`, block the `astra` and `fable` model classes, treat an unknown model class as blocked, and report when no candidate remains. |
+| `constraints` | At least one constraint. Each names `allowed_task_shapes` (the task shapes that may use the blocked classes), `blocked_model_classes` (each value must be a known `model_class`), `unknown_model_class: "treat_as_blocked"`, and `on_no_eligible_candidate: "report"`. The last two values are fixed on purpose. |
 | `exceptions` | Exactly `[]`. Quota eligibility, runway, and ranking follow `quota-array-dispatch`. |
 | `rules` | A non-empty ordered array of `id`, natural-language `when`, `reasoning`, and non-empty `use` profiles. `match`, `independence`, and `decision_refs` are optional; an absent `match` matches whatever no earlier rule already claimed, so rule order carries a fallback rule's precedence. A fixed reasoning rule must name an effort target and require a dispatch reason. |
-| `default` | A non-empty quota-aware array of ordinary profiles used only when no task-shaped rule matches. |
+| `default` | A non-empty quota-aware array of profiles used only when no task-shaped rule matches. A profile whose `model_class` is listed in `blocked_model_classes` is rejected here. |
 
 The `placement.rules` and `rules` arrays carry rule order; `default` defines default membership.
 Separate `precedence` and `dispatch.ordinary_default_profiles` declarations are rejected.
@@ -505,7 +505,7 @@ Profile IDs must be unique within each `use` array and within `default`.
 `model_class` must agree with the static classification owned by `crew_dispatch_validate` in [`bin/fm-bootstrap.sh`](../bin/fm-bootstrap.sh).
 Models outside that classification, including automatic aliases, are rejected even if a target-host catalogue lists them; changing `model_class` cannot make them eligible.
 This classification establishes policy eligibility; target-host catalogue and authentication checks still establish model availability.
-An Astra/Fable profile is valid only in a rule whose `match.project` is exactly `Utilicast-LLC/utilicast-triage`; Astra/Fable defaults are rejected.
+A profile whose `model_class` appears in a constraint's `blocked_model_classes` is valid only in a rule whose `match.task_shape` is a non-empty subset of that constraint's `allowed_task_shapes`; those classes are rejected in `default`.
 `ultra` is native-only: the model-aware validation contract and launch mapping are owned by `bin/fm-harness.sh validate-native-effort` and `bin/fm-spawn.sh` respectively.
 Every profile array, including a one-candidate array, is a quota-aware choice resolved through `quota-array-dispatch`.
 If no dispatch rule fits, firstmate resolves the required `default` array; [`harness-adapters`](../.agents/skills/harness-adapters/references/common/dispatch.md) owns profile precedence and the static-harness fallback.
