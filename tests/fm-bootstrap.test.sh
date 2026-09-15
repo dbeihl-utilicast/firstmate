@@ -1143,6 +1143,16 @@ malformed v2 profile classification is refused^.rules[0].use[0].model_class = 5^
 array v2 profile classification is refused^.rules[0].use[0].model_class = ["ordinary"]^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 profile.model_class must be one of ordinary, astra, fable
 unknown v2 model is refused^.rules[0].use[0].model = "unclassified-model"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 unclassified model: unclassified-model
 automatic default model is refused^.default[0].model = "auto"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 unclassified model: auto
+gpt-5.6-luna is accepted as ordinary^.rules[0].use[0].model = "gpt-5.6-luna"^empty^
+claude-opus-5 is accepted as ordinary^.rules[0].use[0].harness = "claude" | .rules[0].use[0].model = "claude-opus-5"^empty^
+luna and opus together are accepted^.rules[0].use = [{"id":"codex-luna","harness":"codex","model":"gpt-5.6-luna","model_class":"ordinary"},{"id":"claude-opus","harness":"claude","model":"claude-opus-5","model_class":"ordinary"}]^empty^
+explicit ordinary_models accepts a listed name^.ordinary_models = ["gpt-5.6-terra", "gpt-5.6-paper"] | .rules[0].use[0].model = "gpt-5.6-paper"^empty^
+explicit ordinary_models refuses an unlisted name^.ordinary_models = ["gpt-5.6-terra"] | .rules[0].use[0].model = "gpt-5.6-luna"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 unclassified model: gpt-5.6-luna
+ordinary_models cannot list astra^.ordinary_models = ["gpt-5.6-terra", "gpt-6-astra"]^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 ordinary_models cannot include a top-tier model: gpt-6-astra
+ordinary_models cannot list fable^.ordinary_models = ["gpt-5.6-terra", "fable"]^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 ordinary_models cannot include a top-tier model: fable
+ordinary_models cannot list qualified names^.ordinary_models = ["anthropic/claude-sonnet-5"]^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 ordinary_models must be bare model names: anthropic/claude-sonnet-5
+empty ordinary_models is refused^.ordinary_models = []^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 top-level.ordinary_models must be a non-empty string array
+astra remains top-tier when ordinary_models is present^.ordinary_models = ["gpt-5.6-terra"] | .rules[0].use[0].model = "gpt-6-astra"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 profile.model_class does not match model: gpt-6-astra
 ordinary model cannot claim astra class^.rules[0].use[0].model_class = "astra"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 profile.model_class does not match model: gpt-5.6-terra
 unverified v2 harness is refused^.rules[0].use[0].harness = "spaceship"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 unverified harness: spaceship
 unsupported v2 effort is refused^.rules[0].use[0].effort = "max"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 invalid effort: codex:max
