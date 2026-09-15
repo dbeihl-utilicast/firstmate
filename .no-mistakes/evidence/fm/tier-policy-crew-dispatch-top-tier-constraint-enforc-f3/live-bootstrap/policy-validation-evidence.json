@@ -1,0 +1,140 @@
+{
+  "baseline_reproduction": {
+    "policy": {
+      "id": "top-tier-triage-only",
+      "allowed_projects": [
+        "Utilicast-LLC/utilicast-triage"
+      ],
+      "blocked_model_classes": [
+        "astra",
+        "fable"
+      ],
+      "unknown_model_class": "treat_as_blocked",
+      "on_no_eligible_candidate": "report",
+      "decision_ref": "decision/2026-09-13/top-tier-triage-only"
+    },
+    "rule_match": {
+      "task_shape": [
+        "large",
+        "architecturally-hard",
+        "multi-subsystem",
+        "open-ended-design",
+        "gnarly-diagnosis"
+      ]
+    },
+    "profiles": [
+      {
+        "id": "codex-astra",
+        "harness": "codex",
+        "model": "gpt-6-astra",
+        "effort": "xhigh",
+        "model_class": "astra"
+      },
+      {
+        "id": "claude-fable",
+        "harness": "claude",
+        "model": "fable",
+        "effort": "xhigh",
+        "model_class": "fable"
+      }
+    ],
+    "bootstrap_output": "CREW_DISPATCH: invalid config/crew-dispatch.json - v2 top-tier model class astra requires rule match.project Utilicast-LLC/utilicast-triage\nBOOTSTRAP_INFO: tasks-axi available"
+  },
+  "permitted_hard_work": {
+    "policy": {
+      "id": "top-tier-task-shape",
+      "allowed_task_shapes": [
+        "large",
+        "architecturally-hard",
+        "multi-subsystem",
+        "open-ended-design",
+        "gnarly-diagnosis"
+      ],
+      "blocked_model_classes": [
+        "astra",
+        "fable"
+      ],
+      "unknown_model_class": "treat_as_blocked",
+      "on_no_eligible_candidate": "report",
+      "decision_ref": "decision/example/top-tier-task-shape"
+    },
+    "rule_match": {
+      "task_shape": [
+        "large",
+        "architecturally-hard",
+        "multi-subsystem",
+        "open-ended-design",
+        "gnarly-diagnosis"
+      ]
+    },
+    "profiles": [
+      {
+        "id": "codex-astra",
+        "harness": "codex",
+        "model": "gpt-6-astra",
+        "effort": "xhigh",
+        "model_class": "astra"
+      },
+      {
+        "id": "claude-fable",
+        "harness": "claude",
+        "model": "fable",
+        "effort": "xhigh",
+        "model_class": "fable"
+      }
+    ],
+    "bootstrap_output": "BOOTSTRAP_INFO: crew dispatch active config/crew-dispatch.json\nBOOTSTRAP_INFO: crew dispatch rule: Review, verification, or second reading of work another runtime produced. -> quota-balanced[codex/gpt-5.6-terra, claude/sonnet]\nBOOTSTRAP_INFO: crew dispatch rule: Large, architecturally hard, multi-subsystem, open-ended design, or gnarly diagnostic work. -> quota-balanced[codex/gpt-6-astra/xhigh, claude/fable/xhigh]\nBOOTSTRAP_INFO: crew dispatch default: quota-balanced[codex/gpt-5.6-terra, claude/sonnet]\nBOOTSTRAP_INFO: tasks-axi available"
+  },
+  "mixed_shape_refused": {
+    "allowed_task_shapes": [
+      "large",
+      "architecturally-hard",
+      "multi-subsystem",
+      "open-ended-design",
+      "gnarly-diagnosis"
+    ],
+    "rule_task_shapes": [
+      "architecturally-hard",
+      "routine"
+    ],
+    "bootstrap_output": "CREW_DISPATCH: invalid config/crew-dispatch.json - v2 top-tier model class astra requires rule match.task_shape to be a non-empty subset of constraint allowed_task_shapes\nBOOTSTRAP_INFO: tasks-axi available"
+  },
+  "policy_changed_refused": {
+    "allowed_task_shapes": [
+      "routine"
+    ],
+    "rule_task_shapes": [
+      "large",
+      "architecturally-hard",
+      "multi-subsystem",
+      "open-ended-design",
+      "gnarly-diagnosis"
+    ],
+    "bootstrap_output": "CREW_DISPATCH: invalid config/crew-dispatch.json - v2 top-tier model class astra requires rule match.task_shape to be a non-empty subset of constraint allowed_task_shapes\nBOOTSTRAP_INFO: tasks-axi available"
+  },
+  "policy_changed_permitted": {
+    "allowed_task_shapes": [
+      "routine"
+    ],
+    "rule_task_shapes": [
+      "routine"
+    ],
+    "bootstrap_output": "BOOTSTRAP_INFO: crew dispatch active config/crew-dispatch.json\nBOOTSTRAP_INFO: crew dispatch rule: Review, verification, or second reading of work another runtime produced. -> quota-balanced[codex/gpt-5.6-terra, claude/sonnet]\nBOOTSTRAP_INFO: crew dispatch rule: Large, architecturally hard, multi-subsystem, open-ended design, or gnarly diagnostic work. -> quota-balanced[codex/gpt-6-astra/xhigh, claude/fable/xhigh]\nBOOTSTRAP_INFO: crew dispatch default: quota-balanced[codex/gpt-5.6-terra, claude/sonnet]\nBOOTSTRAP_INFO: tasks-axi available"
+  },
+  "fail_closed_guards": {
+    "unknown_policy_value": "allow",
+    "unknown_policy_output": "CREW_DISPATCH: invalid config/crew-dispatch.json - v2 constraint.unknown_model_class must be treat_as_blocked\nBOOTSTRAP_INFO: tasks-axi available",
+    "unrecognized_profile_class": "mystery",
+    "unrecognized_profile_output": "CREW_DISPATCH: invalid config/crew-dispatch.json - v2 profile.model_class must be one of ordinary, astra, fable\nBOOTSTRAP_INFO: tasks-axi available",
+    "no_candidate_policy_value": "fallback",
+    "no_candidate_policy_output": "CREW_DISPATCH: invalid config/crew-dispatch.json - v2 constraint.on_no_eligible_candidate must be report\nBOOTSTRAP_INFO: tasks-axi available",
+    "blocked_default_profile": {
+      "id": "codex-astra",
+      "harness": "codex",
+      "model": "gpt-6-astra",
+      "effort": "xhigh",
+      "model_class": "astra"
+    },
+    "blocked_default_output": "CREW_DISPATCH: invalid config/crew-dispatch.json - v2 top-tier model class astra cannot appear in default\nBOOTSTRAP_INFO: tasks-axi available"
+  }
+}

@@ -1,0 +1,2 @@
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 top-tier model class astra requires rule match.task_shape to be a non-empty subset of constraint allowed_task_shapes
+BOOTSTRAP_INFO: tasks-axi available

@@ -1,0 +1,2 @@
+CREW_DISPATCH: invalid config/crew-dispatch.json - v2 profile.model_class must be one of ordinary, astra, fable
+BOOTSTRAP_INFO: tasks-axi available

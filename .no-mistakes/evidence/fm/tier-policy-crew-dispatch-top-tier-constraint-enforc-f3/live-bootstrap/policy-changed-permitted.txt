@@ -1,0 +1,5 @@
+BOOTSTRAP_INFO: crew dispatch active config/crew-dispatch.json
+BOOTSTRAP_INFO: crew dispatch rule: Review, verification, or second reading of work another runtime produced. -> quota-balanced[codex/gpt-5.6-terra, claude/sonnet]
+BOOTSTRAP_INFO: crew dispatch rule: Large, architecturally hard, multi-subsystem, open-ended design, or gnarly diagnostic work. -> quota-balanced[codex/gpt-6-astra/xhigh, claude/fable/xhigh]
+BOOTSTRAP_INFO: crew dispatch default: quota-balanced[codex/gpt-5.6-terra, claude/sonnet]
+BOOTSTRAP_INFO: tasks-axi available
