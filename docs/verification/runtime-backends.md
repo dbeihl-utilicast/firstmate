@@ -591,8 +591,8 @@ No reasoning-effort axis was found; `gemini --help` on 0.58.0 exposes no effort,
 
 ## Qwen Code
 
-The Qwen Code crewmate/scout adapter was verified on 2026-09-15 with qwen 0.23.0 on Linux, Node v26.7.0, Ollama 0.32.14.
-[`qwen.md`](qwen.md) owns the dated commands, hook evidence, model context measurements, and the false-success negative.
+The Qwen Code crewmate/scout adapter was verified on 2026-09-15 with qwen 0.23.0 (hooks, detection) and re-verified the same day on 0.23.4 (supervised TUI dispatch) on Linux, Node v26.7.0, Ollama 0.32.14.
+[`qwen.md`](qwen.md) owns the dated commands, hook evidence, supervised-dispatch proof, model context measurements, and the false-success negative (the model did not claim; the independent gate stayed red).
 Refresh with:
 
 ```

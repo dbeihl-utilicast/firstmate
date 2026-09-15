@@ -205,7 +205,7 @@ test_qwen_control_mechanics_are_the_verified_ones() {
   out=$(fm_control_interrupt_repeat qwen)
   [ "$out" = 1 ] || fail "qwen interrupts on a single press, got '$out'"
   out=$(fm_control_interrupt_clear_key qwen)
-  [ -z "$out" ] || fail "qwen needs no composer clear key, got '$out'"
+  [ "$out" = C-u ] || fail "qwen restores the cancelled prompt, so interrupt must Ctrl-U, got '$out'"
   out=$(fm_control_exit_command qwen)
   [ "$out" = /quit ] || fail "qwen exits with /quit, got '$out'"
   pass "fm-control-lib.sh: qwen carries its verified interrupt and exit mechanics"

@@ -1,7 +1,7 @@
 # Qwen Code
 
-Verified 2026-09-15 on Qwen Code 0.23.0 for crewmate/scout work only.
-Not verified as a secondmate or primary: `../../../../../docs/supervision-protocols/` carries no qwen wake protocol, and this adapter verified only the crewmate-side launch, busy state, interrupt key, and exit command.
+Verified 2026-09-15 on Qwen Code 0.23.0 (hooks, detection) and re-verified the same day on 0.23.4 (supervised TUI dispatch) for crewmate/scout work only.
+Not verified as a secondmate or primary: `../../../../../docs/supervision-protocols/` carries no qwen wake protocol, and this adapter verified only the crewmate-side launch, busy state, interrupt key, composer-clear, and exit command.
 The router owns that task-kind boundary.
 
 ## Operating facts
@@ -9,17 +9,17 @@ The router owns that task-kind boundary.
 | Fact | Value |
 |---|---|
 | Binary | `qwen` on `PATH`; the installed launcher is a node bundle (`~/.local/bin/qwen` -> `@qwen-code/qwen-code/cli-entry.js`). |
-| Launch | Positional instructions plus `-y` / `--yolo`, like Gemini. |
+| Launch | `--prompt-interactive <brief>` plus `-y` / `--yolo`. A positional prompt is one-shot headless and exits. |
 | Models | `--model <model>`; discover from the in-session `/model` dialog or the host's model provider. There is no `qwen models` subcommand. |
 | Busy | Semantic `qwen-hook`: `UserPromptSubmit` opens a turn; `Stop`, `StopFailure`, and `SessionEnd` close it. |
 | Turn end | `Stop` fires once per completed turn (verified, 0.23.0). `SessionEnd` was not observed on a natural headless exit, so `Stop` is the load-bearing close. |
 | Exit | `/quit` (alias `/exit`), one Enter. |
-| Interrupt | Single Escape, which the keyboard reference names as cancel for an ongoing request when the prompt is empty. |
+| Interrupt | Single Escape, then Ctrl-U. Escape restores the cancelled prompt as bright composer text; Ctrl-U clears it so the next line cannot concatenate onto it. |
 | Skill | `/<skill>`, the Claude or Grok form. |
 | Autonomy | `-y` / `--yolo`. `--approval-mode yolo` is the equivalent long form. |
 | Trust | Folder trust is disabled by default (`security.folderTrust.enabled` defaults false). A fresh worktree does not show a trust dialog unless that setting is on. |
 | Marker | `QWEN_CODE=1` on tool subprocesses. `QWEN_CODE_CLI` is a path, not an identity flag. `GEMINI_CLI` is not set. |
-| Resume | `--resume <session-id>` or `-c` / `--continue` for the most recent session. |
+| Resume | Native CLI: `--resume <session-id>` or `-c` / `--continue`. Firstmate control has no `resume` verb; use `relaunch`. |
 | Effort | None on the CLI. `/effort` exists as an in-session slash command (`low\|medium\|high\|xhigh\|max`) and is not a verified spawn axis, so `references/common/model-and-effort.md`'s record-and-omit contract applies. |
 
 ## Detection
@@ -55,7 +55,9 @@ A local model can think for minutes without drawing a footer firstmate already t
 ## Auth
 
 A Qwen worker needs a credential it can use without a dialog, and firstmate does not manage one.
-Export the provider settings Qwen already reads (`--auth-type`, `--openai-base-url`, `--openai-api-key`, or the equivalent user `settings.json`) into the environment BEFORE the session-provider daemon starts.
+Env prefixes on the launch line are not enough: the TUI still opens the ModelStudio access-method picker.
+`../../../../../bin/fm-spawn.sh` reads `QWEN_DEFAULT_AUTH_TYPE`, `OPENAI_BASE_URL`, and `OPENAI_API_KEY` at spawn time and forwards them as `--auth-type` / `--openai-base-url` / `--openai-api-key`.
+It refuses when `QWEN_DEFAULT_AUTH_TYPE` is unset rather than shipping a picker-wedged pane.
 Local Ollama is one such provider: `--auth-type openai --openai-base-url http://127.0.0.1:11434/v1 --openai-api-key ollama`.
 That shape is operator configuration, not launch-template identity, and is not hardcoded in `fm-spawn.sh`.
 
@@ -89,4 +91,4 @@ Unsupported and unverified.
 
 The fleet never treats Qwen's process exit, `subtype: success`, or prose claim as acceptance.
 A change is judged by the repository tests, checks, and selected delivery path.
-`../../../../../docs/verification/qwen.md` owns the live negative: a tiny failing test Qwen could not honestly fix, a success claim, and the test gate still red.
+`../../../../../docs/verification/qwen.md` owns the live negative: a tiny failing test Qwen could not honestly fix, an explicit request to print DONE, no success claim, and the test gate still red.

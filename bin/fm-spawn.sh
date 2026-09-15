@@ -1555,12 +1555,14 @@ launch_template() {
     # Its turn-end and busy-state signals do NOT ride the launch command:
     # they are project hooks written into the worktree below.
     gemini) printf '%s' 'env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS GEMINI_CLI_TRUST_WORKSPACE=true GEMINI_CLI_SYSTEM_SETTINGS_PATH=__GEMINISETTINGS__ gemini -y __MODELFLAG__"$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
-    # qwen (Qwen Code): a positional query starts the supervised interactive
-    # session and auto-submits it, so the brief rides the launch command
-    # exactly as it does for claude and gemini (verified: qwen 0.23.0).
-    # -y (--yolo) auto-approves every tool call. Folder trust is disabled by
-    # default in qwen 0.23.0, so a fresh worktree does not show a trust dialog
-    # unless the operator has enabled security.folderTrust.enabled.
+    # qwen (Qwen Code): a positional query is one-shot headless and exits
+    # (verified, 0.23.0: `qwen -y --model ... "<brief>"` printed "No auth type
+    # is selected... before running in non-interactive mode" and dropped to a
+    # shell). --prompt-interactive <brief> runs that prompt and stays in the
+    # TUI, which is the crewmate shape. -y (--yolo) auto-approves every tool
+    # call. Folder trust is disabled by default in qwen 0.23.0, so a fresh
+    # worktree does not show a trust dialog unless the operator has enabled
+    # security.folderTrust.enabled.
     # QWEN_CODE_SYSTEM_SETTINGS_PATH points qwen at the firstmate-owned
     # per-task settings file written below. It is deliberately NOT the
     # worktree's .qwen/settings.json: that path is the PROJECT's own settings
@@ -1572,10 +1574,12 @@ launch_template() {
     # qwen exposes no CLI effort flag (checked against 0.23.0 --help; /effort
     # exists only as an in-session slash command), so the shared effort axis
     # is omitted here and stays in task metadata only.
-    # Auth is operator configuration, not launch-template identity: local
-    # Ollama is reached through qwen's own openai-compatible settings or
-    # --auth-type/--openai-base-url/--openai-api-key, never hardcoded here.
-    qwen) printf '%s' 'env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS -u GEMINI_CLI -u CURSOR_AGENT -u CURSOR_INVOKED_AS QWEN_CODE_SYSTEM_SETTINGS_PATH=__QWENSETTINGS__ qwen -y __MODELFLAG__"$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
+    # Auth must ride CLI flags, not env prefixes: a 2026-09-15 tmux spawn with
+    # QWEN_DEFAULT_AUTH_TYPE/OPENAI_* exported still opened the ModelStudio
+    # access-method picker and never ran the brief. __QWENAUTH__ is filled
+    # below from those same variables as --auth-type/--openai-base-url/
+    # --openai-api-key, or the spawn refuses. Nothing is hardcoded.
+    qwen) printf '%s' 'env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS -u GEMINI_CLI -u CURSOR_AGENT -u CURSOR_INVOKED_AS QWEN_CODE_SYSTEM_SETTINGS_PATH=__QWENSETTINGS__ qwen -y __MODELFLAG____QWENAUTH__--prompt-interactive "$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
     # Kimi Code rejects a positional prompt, so it launches bare and receives
     # only an absolute brief pointer after the TUI readiness gate below.
     # Its turn-end signal is a globally configured Stop hook plus a guarded
@@ -3890,6 +3894,21 @@ esac
 # an unset value is the single-store default and needs no prefix.
 if [ "$HARNESS" = claude ] && [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then
   LAUNCH="CLAUDE_CONFIG_DIR=$(shell_quote "$CLAUDE_CONFIG_DIR") $LAUNCH"
+fi
+# Qwen's TUI wedges on an Alibaba ModelStudio access-method picker unless an
+# auth type is selected on the CLI (verified, 0.23.0). Env prefixes on the
+# launch line were not enough. --auth-type is the load-bearing flag; forward
+# operator-supplied OpenAI endpoint values when set. Refuse rather than ship
+# a picker-wedged pane.
+if [ "$HARNESS" = qwen ] && [ "$RAW_LAUNCH" -eq 0 ]; then
+  if [ -z "${QWEN_DEFAULT_AUTH_TYPE:-}" ]; then
+    echo "error: qwen spawn needs non-interactive auth (set QWEN_DEFAULT_AUTH_TYPE and, for local Ollama, OPENAI_BASE_URL plus OPENAI_API_KEY); refusing a TUI that wedges on the auth picker" >&2
+    exit 1
+  fi
+  qwen_auth="--auth-type $(shell_quote "$QWEN_DEFAULT_AUTH_TYPE")"
+  [ -n "${OPENAI_BASE_URL:-}" ] && qwen_auth="$qwen_auth --openai-base-url $(shell_quote "$OPENAI_BASE_URL")"
+  [ -n "${OPENAI_API_KEY:-}" ] && qwen_auth="$qwen_auth --openai-api-key $(shell_quote "$OPENAI_API_KEY")"
+  LAUNCH=${LAUNCH//__QWENAUTH__/${qwen_auth} }
 fi
 if [ "$KIND" = secondmate ]; then
   sq_home=$(shell_quote "$PROJ_ABS")

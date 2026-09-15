@@ -137,11 +137,12 @@ fm_control_interrupt_repeat() {  # <harness>
 }
 
 # The key that must follow the interrupt key to leave the composer empty, or
-# nothing when the adapter needs none. muse is the one verified adapter that
-# RESTORES the cancelled prompt into its composer as real bright text, so an
-# interrupt is not complete until Ctrl+U has cleared it; leaving it there would
-# make the next submitted line - a steer, or this plane's own exit command -
-# concatenate onto it. cursor was checked for exactly that behaviour and does
+# nothing when the adapter needs none. muse and qwen restore the cancelled
+# prompt into the composer as real bright text, so an interrupt is not complete
+# until Ctrl+U has cleared it; leaving it there would make the next submitted
+# line - a steer, or this plane's own exit command - concatenate onto it
+# (verified for qwen 0.23.4: Escape restored the doorbell line and `/quit`
+# concatenated onto it). cursor was checked for exactly that behaviour and does
 # NOT repollute: after a single Escape its composer shows only the `Add a
 # follow-up` placeholder, so it needs no clear key. gemini was checked the
 # same way and also does not repollute: after a single Escape it prints
@@ -151,8 +152,8 @@ fm_control_interrupt_repeat() {  # <harness>
 # above.
 fm_control_interrupt_clear_key() {  # <harness>
   case "${1-}" in
-    muse) printf 'C-u' ;;
-    claude|codex|opencode|pi|pi-signed|omp|grok|kimi|cursor|gemini|rovo|qwen) ;;
+    muse|qwen) printf 'C-u' ;;
+    claude|codex|opencode|pi|pi-signed|omp|grok|kimi|cursor|gemini|rovo) ;;
     *) return 1 ;;
   esac
 }

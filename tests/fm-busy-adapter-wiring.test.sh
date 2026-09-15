@@ -40,6 +40,15 @@ run_spawn() {  # <home> <wt> <fakebin> <spawn-args...>
     fm_test_run_spawn "$home" "$wt" "$fakebin" "$@" --mode no-mistakes --yolo off
 }
 
+# Canonical qwen spawn needs non-interactive auth flags or it wedges on the
+# ModelStudio picker. Tests that drive the real template export the local
+# Ollama placeholders; they are not secrets.
+run_qwen_spawn() {
+  QWEN_DEFAULT_AUTH_TYPE=openai OPENAI_API_KEY=ollama \
+    OPENAI_BASE_URL=http://127.0.0.1:11434/v1 \
+    run_spawn "$@"
+}
+
 read_case_record() {
   # shellcheck disable=SC2034 # CASE_DIR is part of the shared record shape
   IFS='|' read -r CASE_DIR HOME_DIR PROJ_DIR WT_DIR FAKEBIN_DIR <<EOF
@@ -418,7 +427,7 @@ test_qwen_hooks_semantic_lifecycle() {
   local rec id=busy-qw-1 out state settings
   rec=$(make_spawn_case qwen-lifecycle qwen "$id")
   read_case_record "$rec"
-  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" "$PROJ_DIR")
+  out=$(run_qwen_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" "$PROJ_DIR")
   expect_code 0 $? "qwen spawn should succeed: $out"
   state="$HOME_DIR/state"
   settings="$state/$id.qwen-settings.json"
@@ -462,7 +471,7 @@ test_qwen_hooks_stale_incarnation_harmless() {
   local rec id=busy-qw-2 out state settings
   rec=$(make_spawn_case qwen-stale qwen "$id")
   read_case_record "$rec"
-  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" "$PROJ_DIR")
+  out=$(run_qwen_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" "$PROJ_DIR")
   expect_code 0 $? "qwen spawn should succeed: $out"
   state="$HOME_DIR/state"
   settings="$state/$id.qwen-settings.json"
@@ -486,6 +495,38 @@ test_raw_qwen_launch_has_no_semantic_wiring() {
   out=$(classify qwen "$id" "$state")
   [ "$out" = "unknown missing" ] || fail "raw qwen launch must classify unknown, got '$out'"
   pass "raw qwen launch remains unwired and classifies unknown"
+}
+
+test_qwen_spawn_refuses_without_auth() {
+  local rec id=busy-qw-noauth out
+  rec=$(make_spawn_case qwen-noauth qwen "$id")
+  read_case_record "$rec"
+  # env(1) cannot invoke a shell function; unset in a subshell instead.
+  out=$(
+    unset QWEN_DEFAULT_AUTH_TYPE OPENAI_API_KEY OPENAI_BASE_URL
+    run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" "$PROJ_DIR"
+  ) && {
+    fail "qwen spawn without auth must refuse, got: $out"
+  }
+  assert_contains "$out" 'non-interactive auth' \
+    "qwen spawn without auth must name the picker-wedge refusal: $out"
+  pass "qwen spawn refuses rather than opening the ModelStudio auth picker"
+}
+
+test_qwen_launch_stays_interactive() {
+  local rec id=busy-qw-i out log
+  rec=$(make_spawn_case qwen-interactive qwen "$id")
+  read_case_record "$rec"
+  log="$CASE_DIR/launch.log"
+  out=$(FM_FAKE_LAUNCH_LOG="$log" run_qwen_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" "$PROJ_DIR")
+  expect_code 0 $? "qwen spawn should succeed: $out"
+  grep -q -- '--prompt-interactive' "$log" \
+    || fail "qwen launch must use --prompt-interactive so a positional brief is not one-shot headless: $(cat "$log")"
+  grep -q -- '--auth-type' "$log" \
+    || fail "qwen launch must pass --auth-type so the TUI does not wedge on the auth picker: $(cat "$log")"
+  grep -q -- 'qwen -y' "$log" \
+    || fail "qwen launch must keep -y: $(cat "$log")"
+  pass "qwen launch uses --prompt-interactive rather than a one-shot positional brief"
 }
 
 test_qwen_is_refused_as_a_secondmate() {
@@ -530,6 +571,8 @@ test_gemini_is_refused_as_a_secondmate
 test_qwen_hooks_semantic_lifecycle
 test_qwen_hooks_stale_incarnation_harmless
 test_raw_qwen_launch_has_no_semantic_wiring
+test_qwen_spawn_refuses_without_auth
+test_qwen_launch_stays_interactive
 test_qwen_is_refused_as_a_secondmate
 test_codex_unverified_until_a_semantic_source_exists
 
