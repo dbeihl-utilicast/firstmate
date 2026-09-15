@@ -442,6 +442,17 @@ jobs:
             exit 1
           }
 
+          # Resume of an itemless remote outbox: KEYS stays empty after list_keys
+          # and must not abort under nounset on stock macOS Bash 3.2.
+          rec_output=$(FM_TEST_ONLY=test_itemless_outbox_receive_succeeds_under_bash32 \
+            /bin/bash tests/fm-remote-backlog-handoff.test.sh)
+          printf '%s\n' "$rec_output"
+          rec_count=$(printf '%s\n' "$rec_output" | grep -c '^ok - ')
+          [ "$rec_count" -eq 1 ] || {
+            echo "::error::expected 1 itemless-outbox bash 3.2 receive regression, got $rec_count"
+            exit 1
+          }
+
   invariants:
     name: Repo invariants
     runs-on: ubuntu-latest
