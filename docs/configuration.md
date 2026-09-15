@@ -443,7 +443,9 @@ It is inherited into secondmate homes under the [primary-authoritative configura
 `bin/fm-remote-doctor.sh` reads the copy in the remote home and converges that account's user-scope Claude Code plugins as one more readiness check; its header owns the exact check, repair, and operator-action lines.
 A registered marketplace must match the configured source, not only the name.
 An absent file means the check is not applicable and the public template is unchanged.
-The doctor never installs Claude Code itself, never adds a marketplace or plugin that is not in this file, and never supplies credentials.
+An explicit catalogue with empty arrays still audits the Claude plugin inventory and allows no installed plugins.
+The doctor never installs Claude Code itself, directly requests only marketplaces and plugins named in this file, and never supplies credentials.
+If Claude Code auto-installs a dependency that the preflight did not recognize, the final read-only inventory leaves it installed and refuses the remote second-mate launch until the operator adds it to the catalogue or removes it.
 
 The file is a JSON object with two arrays.
 `marketplaces` lists objects with a `name` and a `source`, where the source is a credential-free HTTPS Git repository URL ending in `.git`; other source spellings are invalid.

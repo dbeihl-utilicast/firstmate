@@ -1256,10 +1256,6 @@ check_host_plugins() {
   done <<EOF
 $parsed
 EOF
-  if [ "${#marketplaces_n[@]}" -eq 0 ] && [ "${#plugins_n[@]}" -eq 0 ]; then
-    record host-plugins "ok: host plugin catalogue is empty"
-    return 0
-  fi
   claude_bin=$(command -v claude 2>/dev/null || true)
   if [ -z "$claude_bin" ] || [ ! -x "$claude_bin" ]; then
     record host-plugins "human: the claude CLI does not resolve, so the configured plugin catalogue cannot be checked" \

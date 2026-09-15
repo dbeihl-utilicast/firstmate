@@ -247,6 +247,29 @@ assert_not_contains "$DOCTOR_OUT" 'fix host-plugins=' "--fix with absent config 
 [ ! -s "$CASE_STATE/commands.log" ] || fail "--fix with absent config invoked claude"
 pass "absent config is not applicable and changes nothing"
 
+# --- present empty config denies installed plugins -------------------------
+
+new_host
+mkdir -p "$CASE_FM_HOME/config"
+printf '{"marketplaces":[],"plugins":[]}\n' > "$CASE_FM_HOME/config/host-plugins.json"
+cat > "$CASE_STATE/plugins.json" <<'JSON'
+[
+  {
+    "id": "example-ops@example-plugins",
+    "scope": "user",
+    "enabled": true
+  }
+]
+JSON
+run_doctor
+assert_contains "$DOCTOR_OUT" 'check host-plugins=human: installed or enabled plugin is not named' \
+  "an explicit empty catalogue accepted an installed plugin"
+assert_contains "$DOCTOR_OUT" 'example-ops@example-plugins' \
+  "the empty-catalogue gap did not name the installed plugin"
+assert_contains "$DOCTOR_OUT" 'add each named plugin to config/host-plugins.json if it is authorized, or remove it' \
+  "the empty-catalogue gap did not tell the operator to add or remove the plugin"
+pass "an explicit empty catalogue denies every installed plugin"
+
 # --- claude missing is a named operator gap, and Claude Code is not installed
 
 new_host
