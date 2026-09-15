@@ -1,0 +1,16 @@
+scenario=real Claude Code converges the authorized Utilicast host catalogue end to end
+host=spark-cd19
+command=CLAUDE_CONFIG_DIR=<fresh-isolated-store> FM_CONFIG_OVERRIDE=<catalogue> bin/fm-remote-doctor.sh --fix
+exit=0
+mode=fix
+fix host-plugins=applied: registered marketplace utilicast-plugins
+fix host-plugins=applied: installed utilicast-core@utilicast-plugins
+fix host-plugins=applied: installed utilicast-azure@utilicast-plugins
+fix host-plugins=applied: installed utilicast-vault@utilicast-plugins
+fix host-plugins=applied: installed utilicast-python@utilicast-plugins
+fix host-plugins=applied: installed utilicast-frontend@utilicast-plugins
+fix host-plugins=applied: installed utilicast-testing@utilicast-plugins
+check host-plugins=ok: configured Claude Code plugins resolve on this host
+ok: remote second-mate readiness confirmed on this host
+installed=utilicast-azure@utilicast-plugins,utilicast-core@utilicast-plugins,utilicast-frontend@utilicast-plugins,utilicast-python@utilicast-plugins,utilicast-testing@utilicast-plugins,utilicast-vault@utilicast-plugins
+utilicast-ops=not-installed

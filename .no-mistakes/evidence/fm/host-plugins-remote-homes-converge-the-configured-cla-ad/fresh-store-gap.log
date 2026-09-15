@@ -1,0 +1,7 @@
+scenario=fresh isolated Claude store is detected before mutation
+command=FM_HOME=<isolated-home> CLAUDE_CONFIG_DIR=<isolated-store> bin/fm-remote-doctor.sh
+exit=1
+mode=check
+check host-plugins=fixable: configured marketplace is not registered (utilicast-plugins)
+action: host-plugins: rerun this command with --fix to register the configured marketplace
+error: this host is not ready for a remote second mate; unresolved: herdr-server host-plugins

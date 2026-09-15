@@ -1,0 +1,16 @@
+scenario=live read-only Spark host-plugin readiness
+host=spark-cd19
+command=FM_HOME=<catalogue-home> bin/fm-remote-doctor.sh
+doctor_exit=0
+mode=check
+platform=linux
+check host-plugins=ok: configured Claude Code plugins resolve on this host
+ok: remote second-mate readiness confirmed on this host
+catalogue=utilicast-azure,utilicast-core,utilicast-frontend,utilicast-python,utilicast-testing,utilicast-vault
+utilicast-ops=not-installed
+resolution utilicast-core=Skills (37)  address-review-comments, adr, architecture-map, brief, coding-discipline, context-audit, cross-doc-fact-drift, decisions-to-adr, dependency-upgrade, deploy-seam, detail, discipline, discipline-debt, discipline-review, doc-freshness-sweep, efficiency-discipline, external-handoff-scrub, extract-learnings, grill-me, humanize, humanize-audit, issue-patrol, last-reviewed-sweep, mermaid-diagrams, minimalism-discipline, repo-hygiene, retrospective, root-cause-analysis, second-operator-check, skill-author, skill-improve, skill-step-insert, spec-author, tauri-scaffold, test-merge-audit, trigger-eval, verification-before-completion
+resolution utilicast-azure=Skills (11)  appinsights-instrumentation, azure-deployment-preflight, azure-ops-script, azure-pricing, bicep-authoring, entra-app-role-grant, foundry-claude-endpoint, kv-secret-broker, m365-copilot-plugin-preflight, m365-teams-app-upload, utilicast-bicep
+resolution utilicast-vault=Skills (7)  vault-adr-new, vault-capture, vault-codebase-map, vault-connect-repo, vault-init, vault-moc-grow, vault-weekly-review
+resolution utilicast-python=Skills (1)  utilicast-python
+resolution utilicast-frontend=Skills (3)  ds-sync, ui-design-system, utilicast-brand-tokens
+resolution utilicast-testing=Skills (7)  fixture-pinning, flake-hunt, guard-authoring, input-permutation-audit, live-data-guard, negative-control, review-panel

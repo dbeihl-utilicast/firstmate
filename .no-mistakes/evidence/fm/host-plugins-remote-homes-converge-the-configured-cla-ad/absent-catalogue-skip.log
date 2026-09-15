@@ -1,0 +1,7 @@
+scenario=absent catalogue is inapplicable and leaves the host plugin inventory unchanged
+host=spark-cd19
+command=FM_CONFIG_OVERRIDE=<directory-without-host-plugins.json> bin/fm-remote-doctor.sh
+exit=0
+check host-plugins=skip: no host plugin catalogue is configured
+ok: remote second-mate readiness confirmed on this host
+plugin_inventory_unchanged=yes

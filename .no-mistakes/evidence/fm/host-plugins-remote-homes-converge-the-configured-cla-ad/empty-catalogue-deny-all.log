@@ -1,0 +1,7 @@
+scenario=explicit empty catalogue denies installed plugins
+host=spark-cd19
+command=FM_CONFIG_OVERRIDE=<empty-catalogue> bin/fm-remote-doctor.sh
+exit=1
+check host-plugins=human: installed or enabled plugin is not named in the host plugin catalogue (utilicast-azure@utilicast-plugins utilicast-core@utilicast-plugins utilicast-frontend@utilicast-plugins utilicast-python@utilicast-plugins utilicast-testing@utilicast-plugins utilicast-vault@utilicast-plugins)
+action: host-plugins: add each named plugin to config/host-plugins.json if it is authorized, or remove it from the Claude plugin store, then rerun this command
+error: this host is not ready for a remote second mate; unresolved: host-plugins
