@@ -124,9 +124,12 @@ fm_start_proxy() {
 }
 
 # fm_write_fake_az <dir> <calls-file>
-# Mints "FAKE-TOKEN-<n>" on the n'th invocation and always reports it as
-# already expired, so callers always take the refresh path with no need to
-# fake wall-clock time. Never touches a real credential.
+# Mints "FAKE-TOKEN-<n>" on the n'th invocation, reporting an expiry 30
+# seconds in the future - comfortably not-yet-expired at fetch time (the
+# proxy now refuses an already-expired token outright) but still deep inside
+# REFRESH_MARGIN_SECONDS (300s), so callers always take the refresh path on
+# their NEXT request with no need to fake wall-clock time. Never touches a
+# real credential.
 fm_write_fake_az() {
   local dir=$1 calls_file=$2
   mkdir -p "$dir"
@@ -136,7 +139,7 @@ fm_write_fake_az() {
 set -u
 n=\$(( \$(cat "$calls_file") + 1 ))
 echo "\$n" > "$calls_file"
-printf '{"accessToken":"FAKE-TOKEN-%s","expires_on":1}\n' "\$n"
+printf '{"accessToken":"FAKE-TOKEN-%s","expires_on":%s}\n' "\$n" "\$(( \$(date +%s) + 30 ))"
 SH
   chmod +x "$dir/az"
 }
@@ -875,7 +878,11 @@ test_refuses_to_start_when_the_foundry_config_is_missing_or_invalid() {
   for host in \
     "evil.example.com" \
     "fixture-account.services.ai.azure.com.evil.example.com" \
-    ".services.ai.azure.com"; do
+    ".services.ai.azure.com" \
+    "evil.example/.services.ai.azure.com" \
+    "a.b.services.ai.azure.com" \
+    "fixture-account.services.ai.azure.com:443" \
+    "<foundry-account>.services.ai.azure.com"; do
     printf '{"host":"%s","subscription_id":"00000000-0000-0000-0000-000000000000"}' "$host" \
       > "$bad_dir/non-azure-host.json"
     out=$(FM_FOUNDRY_LUNA_CONFIG="$bad_dir/non-azure-host.json" timeout 5 python3 "$PROXY" serve 0 2>&1)
@@ -885,20 +892,35 @@ test_refuses_to_start_when_the_foundry_config_is_missing_or_invalid() {
     assert_contains "$out" "'host'" "the refusal for host '$host' names the invalid field"
   done
 
-  pass "fm-foundry-luna-proxy: refuses to start when the Foundry config is missing, malformed, or names a non-Azure host"
+  for subscription in "not-a-guid" "00000000-0000-0000-0000-00000000000" "00000000-0000-0000-0000-0000000000gg"; do
+    printf '{"host":"fixture-account.services.ai.azure.com","subscription_id":"%s"}' "$subscription" \
+      > "$bad_dir/non-guid-subscription.json"
+    out=$(FM_FOUNDRY_LUNA_CONFIG="$bad_dir/non-guid-subscription.json" timeout 5 python3 "$PROXY" serve 0 2>&1)
+    status=$?
+    [ "$status" -ne 0 ] \
+      || fail "the proxy must refuse a non-GUID subscription_id '$subscription'"
+    assert_contains "$out" "'subscription_id'" "the refusal for subscription_id '$subscription' names the invalid field"
+  done
+
+  pass "fm-foundry-luna-proxy: refuses to start when the Foundry config is missing, malformed, names a non-Azure host, or names a non-GUID subscription id"
 }
 
 test_refuses_to_serve_when_the_token_expiry_is_unreadable() {
   local scenario az_dir body out_file err_file status log loud_err
 
-  for scenario in missing non-numeric; do
+  for scenario in missing non-numeric past; do
     az_dir="$TMP_ROOT/az-unreadable-expiry-$scenario"
     mkdir -p "$az_dir"
-    if [ "$scenario" = missing ]; then
-      body='{"accessToken":"FAKE-TOKEN-NO-EXPIRY"}'
-    else
-      body='{"accessToken":"FAKE-TOKEN-NULL-EXPIRY","expires_on":null}'
-    fi
+    case "$scenario" in
+      missing) body='{"accessToken":"FAKE-TOKEN-NO-EXPIRY"}' ;;
+      non-numeric) body='{"accessToken":"FAKE-TOKEN-NULL-EXPIRY","expires_on":null}' ;;
+      # A real, parseable, already-elapsed epoch - what az would report for a
+      # token that is dead on arrival. This must never be cached or forwarded
+      # either: the earlier fm_write_fake_az fixture used exactly this shape
+      # (expires_on=1) purely as a "force the next refresh" trick, which is
+      # why that fixture now mints a near-future expiry instead.
+      past) body='{"accessToken":"FAKE-TOKEN-PAST-EXPIRY","expires_on":1}' ;;
+    esac
     cat > "$az_dir/az" <<SH
 #!/usr/bin/env bash
 printf '%s\n' '$body'

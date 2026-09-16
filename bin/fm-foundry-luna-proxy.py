@@ -34,6 +34,7 @@ import http.client
 import http.server
 import json
 import os
+import re
 import secrets
 import subprocess
 import sys
@@ -44,6 +45,18 @@ import traceback
 ALLOWED_MODEL = "gpt-5.6-luna"
 ALLOWED_PATH = "/openai/v1/responses"
 FOUNDRY_HOST_SUFFIX = ".services.ai.azure.com"
+# Exactly one DNS label (RFC 1123: alnum, interior hyphens, 1-63 chars) plus
+# the literal Foundry suffix - no extra subdomain labels, no path, no port,
+# and no placeholder-shaped value such as docs/examples/foundry-luna.json's
+# own "<foundry-account>..." (angle brackets are not a valid label character).
+FOUNDRY_HOST_RE = re.compile(
+    r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?" + re.escape(FOUNDRY_HOST_SUFFIX) + r"$",
+    re.IGNORECASE,
+)
+SUBSCRIPTION_ID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
 TOKEN_RESOURCE = "https://cognitiveservices.azure.com"
 REFRESH_MARGIN_SECONDS = 300
 
@@ -96,16 +109,18 @@ def resolve_foundry_config():
         )
     host = data.get("host") if isinstance(data, dict) else None
     subscription = data.get("subscription_id") if isinstance(data, dict) else None
-    if not isinstance(host, str) or not host or not host.endswith(FOUNDRY_HOST_SUFFIX) or host == FOUNDRY_HOST_SUFFIX:
+    if not isinstance(host, str) or not FOUNDRY_HOST_RE.match(host):
         sys.exit(
             "fm-foundry-luna-proxy: config file at %r has an invalid or "
-            "missing 'host'; it must be a non-empty hostname ending in %r"
+            "missing 'host'; it must be exactly one DNS label plus %r "
+            "(docs/examples/foundry-luna.json's own placeholder value is "
+            "deliberately invalid until filled in)"
             % (path, FOUNDRY_HOST_SUFFIX)
         )
-    if not isinstance(subscription, str) or not subscription:
+    if not isinstance(subscription, str) or not SUBSCRIPTION_ID_RE.match(subscription):
         sys.exit(
             "fm-foundry-luna-proxy: config file at %r has an invalid or "
-            "missing 'subscription_id'" % path
+            "missing 'subscription_id'; it must be a GUID" % path
         )
     _foundry_config = (host, subscription)
     return _foundry_config
@@ -155,11 +170,12 @@ def fetch_az_token(subscription=None, resource=TOKEN_RESOURCE):
 
     Never logs or returns anything but the two values the caller needs; the
     token itself is handed straight to the caller and never printed here.
-    An `expires_on` that is missing or cannot be read as a number is never
-    guessed at: that is a failed refresh, raised as ValueError/KeyError so
-    every caller's existing refusal path handles it the same way a broken
-    `az` invocation already does, and the caller never caches or forwards a
-    token with no real expiry attached.
+    An `expires_on` that is missing, cannot be read as a number, or is
+    already at or before now is never guessed at or used: that is a failed
+    refresh, raised as ValueError/KeyError so every caller's existing
+    refusal path handles it the same way a broken `az` invocation already
+    does, and the caller never caches or forwards a token with no real
+    remaining expiry attached.
     """
     if subscription is None:
         _, subscription = resolve_foundry_config()
@@ -179,6 +195,8 @@ def fetch_az_token(subscription=None, resource=TOKEN_RESOURCE):
         raise ValueError(
             "az reported a token with an unreadable expires_on value"
         ) from exc
+    if expires_at <= time.time():
+        raise ValueError("az reported a token that is already expired")
     return data["accessToken"], expires_at
 
 

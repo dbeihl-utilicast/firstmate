@@ -589,8 +589,8 @@ The codex-foundry-luna crewmate/scout adapter's local token-refreshing gateway (
 It is inherited into secondmate homes under the same [primary-authoritative configuration contract](../.agents/skills/secondmate-provisioning/SKILL.md) as `config/host-plugins.json`, so a secondmate's own crewmates can dispatch onto `gpt-5.6-luna` too.
 
 The file is a JSON object with two string fields.
-`host` must be a non-empty hostname ending in `.services.ai.azure.com` - the gateway refuses any other shape, including a host that merely contains that suffix elsewhere in the string, so a malformed or malicious config cannot redirect the gateway's real AAD bearer token to an arbitrary host.
-`subscription_id` is the Azure subscription id `az account get-access-token` resolves the token against.
+`host` must be exactly one DNS label plus the literal suffix `.services.ai.azure.com` (case-insensitive) - no extra subdomain labels, no path, no port, and no other shape, so neither a malformed value nor a crafted one that merely contains that suffix elsewhere in the string can redirect the gateway's real AAD bearer token to an arbitrary host.
+`subscription_id` must be a GUID, the Azure subscription id `az account get-access-token` resolves the token against.
 Neither field, nor anything else in this file, is a secret: the AAD token itself is fetched inline by `az` at the point of use and is never read from this file, written to it, or logged.
 
 ```json
@@ -600,7 +600,7 @@ Neither field, nor anything else in this file, is a secret: the AAD token itself
 }
 ```
 
-See [`docs/examples/foundry-luna.json`](examples/foundry-luna.json) for a copyable starting point.
+See [`docs/examples/foundry-luna.json`](examples/foundry-luna.json) for a copyable starting point - its `host` placeholder is deliberately invalid (angle brackets are not a valid DNS label character) and the gateway refuses it until the real account's host replaces it.
 `docs/verification/codex-foundry-luna.md` records the empirical evidence for the adapter as a whole; it does not restate the real account values either.
 
 ## Crew dispatch profiles (config/crew-dispatch.json)

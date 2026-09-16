@@ -1,13 +1,7 @@
 {
   "version": 1,
   "scope": {
-    "trackedPatterns": [
-      "*.md",
-      "*.mdx",
-      "*.rst",
-      "*.txt",
-      "docs/examples/*"
-    ],
+    "trackedPatterns": ["*.md", "*.mdx", "*.rst", "*.txt", "docs/examples/*"],
     "description": "Tracked Markdown-like prose, including symlinked aliases, plus copyable documentation examples. Script headers, executable configuration, generated JSON evidence, and legal text keep their existing code/config/legal owners."
   },
   "allowedAudiences": [
@@ -18,11 +12,7 @@
     "maintainer-verification",
     "agent-runtime"
   ],
-  "setupAudiences": [
-    "public-product",
-    "operator-current",
-    "operator-example"
-  ],
+  "setupAudiences": ["public-product", "operator-current", "operator-example"],
   "readmeSetupTargets": [
     "docs/configuration.md",
     "docs/wedge-alarm.md",
@@ -378,6 +368,10 @@
     },
     {
       "path": "docs/examples/host-plugins.json",
+      "audience": "operator-example"
+    },
+    {
+      "path": "docs/examples/foundry-luna.json",
       "audience": "operator-example"
     },
     {
