@@ -468,7 +468,12 @@ test_fm_lint_default_path_catches_broken_ci_yml() {
   mkdir -p "$tmp/bin" "$tmp/.github/workflows"
   cp "$LINT" "$tmp/bin/fm-lint.sh"
   cp "$LINT_WF" "$tmp/bin/fm-lint-workflows.sh"
-  chmod +x "$tmp/bin/fm-lint.sh" "$tmp/bin/fm-lint-workflows.sh"
+  cat > "$tmp/bin/fm-doc-audience-check.sh" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+  chmod +x "$tmp/bin/fm-lint.sh" "$tmp/bin/fm-lint-workflows.sh" \
+    "$tmp/bin/fm-doc-audience-check.sh"
   write_col0_heredoc_workflow "$tmp/.github/workflows/ci.yml"
 
   fakebin=$(fm_fakebin "$tmp")

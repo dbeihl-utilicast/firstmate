@@ -191,9 +191,13 @@ test_list_files_reports_the_shell_inventory() {
 #   FM_TEST_GIT_DIFF_FILE        path to a file of NUL-separated changed paths
 fm_lint_stub_git() {
   local fakebin=$1
+  command -v git > "$fakebin/.real-git"
   cat > "$fakebin/git" <<'SH'
 #!/usr/bin/env bash
 case "$*" in
+  *"ls-files"*)
+    exec "$(cat "$(dirname "$0")/.real-git")" "$@"
+    ;;
   "rev-parse --is-inside-work-tree")
     [ "${FM_TEST_GIT_INSIDE_WORKTREE:-1}" = 1 ] || exit 1
     printf 'true\n'
@@ -1029,6 +1033,10 @@ test_rejects_direct_beads_cli_invocations() {
 #!/usr/bin/env bash
 exit 0
 SH
+  cat > "$tmp/repo/bin/fm-doc-audience-check.sh" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
   cat > "$tmp/repo/bin/backends/noop.sh" <<'SH'
 #!/usr/bin/env bash
 exit 0
@@ -1037,7 +1045,8 @@ SH
 #!/usr/bin/env bash
 exit 0
 SH
-  chmod +x "$lint_copy" "$tmp/repo/bin/fm-lint-workflows.sh"
+  chmod +x "$lint_copy" "$tmp/repo/bin/fm-lint-workflows.sh" \
+    "$tmp/repo/bin/fm-doc-audience-check.sh"
   fm_lint_stub_shellcheck "$fakebin" "$log"
 
   for invocation in \

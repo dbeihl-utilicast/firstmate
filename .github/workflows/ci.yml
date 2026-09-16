@@ -75,10 +75,6 @@ jobs:
       # and the pre-push gate on this script so a self-broken ci.yml still
       # fails locally before merge.
       - run: bin/fm-lint.sh
-      # The only check that reads every tracked prose surface, so it has to run
-      # on the documentation-only pull requests that skip the behavior lanes.
-      - name: Documentation audience and local-link audit
-        run: bin/fm-doc-audience-check.sh
 
   # Deterministic proof that portable parallel shards + portable serial + Herdr
   # equal the complete tests/*.test.sh inventory with no missing or duplicates,
