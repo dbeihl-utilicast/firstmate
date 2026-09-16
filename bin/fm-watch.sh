@@ -2024,7 +2024,16 @@ if ! fm_lock_try_acquire "$WATCH_LOCK"; then
     fi
   fi
   if [ -n "$staleness" ]; then
-    if ! evict_stale_watcher "$held_pid" "$staleness" || ! fm_lock_try_acquire "$WATCH_LOCK"; then
+    if ! evict_stale_watcher "$held_pid" "$staleness"; then
+      echo "watcher: lock held by live pid $held_pid but $staleness, and it could not be proven to be this home's watcher or did not stop; inspect or stop that watcher before re-arming." >&2
+      exit 1
+    fi
+    if ! fm_lock_try_acquire "$WATCH_LOCK"; then
+      winner_pid=${FM_LOCK_HELD_PID:-}
+      if [ -n "$winner_pid" ] && fm_pid_alive "$winner_pid"; then
+        echo "watcher: already running pid $winner_pid"
+        exit 0
+      fi
       echo "watcher: lock held by live pid $held_pid but $staleness, and it could not be proven to be this home's watcher or did not stop; inspect or stop that watcher before re-arming." >&2
       exit 1
     fi
