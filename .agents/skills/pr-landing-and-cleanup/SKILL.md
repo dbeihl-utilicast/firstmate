@@ -9,7 +9,7 @@ metadata:
 # PR landing and cleanup
 
 For PR-based ship tasks, the ready signal depends on mode: `no-mistakes` reports `done: PR <url> checks green` after CI is green, while `direct-PR` reports `done: PR <url>` after opening the PR.
-Run `bin/fm-pr-check.sh <id> <PR url>` with the URL copied from that ready signal - it records `pr=` and the forge's `pr_head=` when available in the task's meta and arms the watcher's merge poll.
+Run `bin/fm-pr-check.sh <id> <PR url>` with the URL copied from that ready signal - it records `pr=` and the forge's `pr_head=` when available in the task's meta and arms the watcher's merge poll. For a ship task on a local-model harness, `fm-pr-check.sh` itself enforces the red-first contract's revert-check (`bin/fm-local-model-verify.sh`) before registering the PR ready.
 For branch-refresh wakes, follow [Branch-currency dispatch](../../../docs/configuration.md#branch-currency-dispatch-configpr-refresh).
 Tell the captain the PR's full `https://...` URL copied from the worker's ready line or the task's `pr=` metadata, a concise outcome summary, and the no-mistakes risk level when applicable.
 A captain instruction to merge is explicit authority; `yolo` is the only standing routine merge authority.
