@@ -392,6 +392,8 @@ run_pr_merge() {
   FM_TEST_GH_OUTCOME="$case_dir/github-outcome" \
   FM_TEST_GH_RULES="$case_dir/github-rules" \
   FM_TEST_GH_ADMIN_PRECHECK="$case_dir/github-admin-precheck" \
+  FM_TEST_GH_ADMIN_PRECHECK_JSON="$case_dir/github-admin-precheck.json" \
+  FM_TEST_JQ_BIN="$JQ_BIN" \
   FM_TEST_META_AT_MERGE="$case_dir/meta-at-merge" \
   FM_TEST_REAL_MV="$REAL_MV" \
   FM_TEST_GLAB_LOG="$case_dir/glab.log" \
@@ -1913,6 +1915,63 @@ test_github_admin_bypass_review_red_checks_refuses() {
   pass "fm-pr-merge refuses an admin-bypass merge of a red or pending pull request"
 }
 
+# The precheck's real --jq filter (not a hardcoded stand-in) runs against a
+# GraphQL-shaped payload mixing a legacy StatusContext (state only, no
+# conclusion field) with a CheckRun (conclusion only). Before the fix this
+# filter read only .conclusion, so the StatusContext's missing conclusion
+# field was miscounted as failing and the merge was wrongly refused.
+test_github_admin_bypass_review_legacy_status_context_checks_pass() {
+  local case_dir rc
+  case_dir=$(make_case github-admin-bypass-legacy-status-context)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" 5151515151515151515151515151515151515151
+  cat > "$case_dir/fakebin/gh" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "\$FM_TEST_GH_LOG"
+case "\${1:-} \${2:-}" in
+  "pr view")
+    case " \$* " in
+      *headRefOid*) printf '%s\n' '5151515151515151515151515151515151515151' ; exit 0 ;;
+      *statusCheckRollup*)
+        prev=""
+        filter=""
+        for a in "\$@"; do
+          [ "\$prev" = --jq ] && filter=\$a
+          prev=\$a
+        done
+        exec "\$FM_TEST_JQ_BIN" -r "\$filter" "\$FM_TEST_GH_ADMIN_PRECHECK_JSON"
+        ;;
+    esac
+    ;;
+  "pr merge") printf 'merged:\n  number: %s\n  status: ok\n' "\${3:-}" ; exit 0 ;;
+  "api graphql") cat "\$FM_TEST_GH_OUTCOME" ; exit 0 ;;
+  api\ *) cat "\$FM_TEST_GH_RULES" ; exit 0 ;;
+esac
+exit 0
+SH
+  chmod +x "$case_dir/fakebin/gh"
+  cat > "$case_dir/github-admin-precheck.json" <<'JSON'
+{"state":"OPEN","mergeable":"MERGEABLE","statusCheckRollup":[{"state":"SUCCESS"},{"conclusion":"SUCCESS"}]}
+JSON
+  : > "$case_dir/gh-axi.log"
+  : > "$case_dir/gh.log"
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/92 \
+    --admin-bypass-review \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" \
+    "github-admin-bypass-legacy-status-context: a fully green PR with a legacy status check must merge"
+  assert_grep 'pr merge 92 --repo example/repo --squash --admin' "$case_dir/gh.log" \
+    "github-admin-bypass-legacy-status-context: gh pr merge was never invoked"
+  assert_no_grep 'status check(s) are failing or still pending' "$case_dir/stderr" \
+    "github-admin-bypass-legacy-status-context: a passing legacy status check was miscounted as failing"
+  pass "fm-pr-merge's admin-bypass precheck treats a passing legacy status context as passing"
+}
+
 test_github_admin_bypass_review_open_unqueued_outcome_refuses() {
   local case_dir rc
   case_dir=$(make_case github-admin-bypass-unproved)
@@ -2500,6 +2559,7 @@ test_github_still_forwards_sha_arg
 test_github_admin_bypass_review_merges_and_records_marker
 test_github_admin_bypass_review_ordinary_merge_carries_no_marker
 test_github_admin_bypass_review_red_checks_refuses
+test_github_admin_bypass_review_legacy_status_context_checks_pass
 test_github_admin_bypass_review_open_unqueued_outcome_refuses
 test_github_admin_bypass_review_without_gh_refuses
 test_gitlab_admin_bypass_review_refuses_before_recording
