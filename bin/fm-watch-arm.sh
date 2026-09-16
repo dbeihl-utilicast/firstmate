@@ -530,6 +530,7 @@ owned_child_finished() {
 # date(1) exposes whole seconds. Keep the configured confirmation budget from
 # collapsing when startup begins just before the next second boundary.
 deadline=$(( $(date +%s) + CONFIRM_TIMEOUT + 1 ))
+evict_extended=0
 while :; do
   if healthy_watcher; then
     if [ "$HEALTHY_PID" = "$child" ]; then
@@ -565,7 +566,17 @@ while :; do
     owned_child_finished "$rc"
     exit $?
   fi
-  [ "$(date +%s)" -ge "$deadline" ] && break
+  if [ "$(date +%s)" -ge "$deadline" ]; then
+    # The child may still be evicting a live holder with a stale beacon.
+    holder=$(cat "$WATCH_LOCK/pid" 2>/dev/null || true)
+    if [ "$evict_extended" -eq 0 ] && [ "$holder" != "$child" ] && fm_pid_alive "$holder" \
+      && [ "$(fm_path_age "$BEAT")" -ge "$GRACE" ]; then
+      evict_extended=1
+      deadline=$(( deadline + 2 * $(fm_watcher_evict_wait) + 1 ))
+    else
+      break
+    fi
+  fi
   sleep 0.2
 done
 

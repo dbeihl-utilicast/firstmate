@@ -1982,24 +1982,82 @@ if [ "${BASH_SOURCE[0]}" != "$0" ]; then
   return 0
 fi
 
+# Stop a live lock holder whose beacon went stale, but only when the lock's own
+# home, watcher path, and recorded process identity prove it is this home's
+# watcher. TERM first, then KILL, each bounded by fm_watcher_evict_wait seconds.
+WATCHER_EVICT_WAIT=$(fm_watcher_evict_wait)
+evict_stale_watcher() {  # <pid> <staleness>
+  local pid=$1 staleness=$2 sig i
+  for sig in TERM KILL; do
+    fm_watcher_lock_matches_pid "$STATE" "$WATCH_PATH" "$pid" "$FM_HOME" || return 1
+    kill "-$sig" "$pid" 2>/dev/null || true
+    i=0
+    while fm_pid_alive "$pid" && [ "$i" -lt $((WATCHER_EVICT_WAIT * 10)) ]; do
+      sleep 0.1
+      i=$((i + 1))
+    done
+    if ! fm_pid_alive "$pid"; then
+      echo "watcher: evicted live watcher pid $pid ($staleness) with SIG$sig" >&2
+      triage_log "evicted live watcher pid $pid ($staleness) with SIG$sig"
+      return 0
+    fi
+  done
+  return 1
+}
+
 if ! fm_lock_try_acquire "$WATCH_LOCK"; then
+  if [ -n "${FM_LOCK_CREATE_FAILED:-}" ]; then
+    echo "watcher: FAILED - could not create lock $WATCH_LOCK (is the state directory full or unwritable?); no watcher is running." >&2
+    exit 1
+  fi
   BEAT="$STATE/.last-watcher-beat"
-  if [ -n "${FM_LOCK_HELD_PID:-}" ]; then
+  held_pid=${FM_LOCK_HELD_PID:-}
+  staleness=
+  if [ -n "$held_pid" ]; then
     if [ -e "$BEAT" ]; then
       beat_age=$(fm_path_age "$BEAT")
       if [ "$beat_age" -ge "$WATCHER_STALE_GRACE" ]; then
-        echo "watcher: lock held by live pid $FM_LOCK_HELD_PID but heartbeat is stale for ${beat_age}s (>${WATCHER_STALE_GRACE}s); inspect or stop that watcher before re-arming." >&2
-        exit 1
+        staleness="heartbeat is stale for ${beat_age}s (>${WATCHER_STALE_GRACE}s)"
       fi
     elif [ "$(fm_path_age "$WATCH_LOCK")" -ge "$WATCHER_STALE_GRACE" ]; then
-      echo "watcher: lock held by live pid $FM_LOCK_HELD_PID but no heartbeat exists; inspect or stop that watcher before re-arming." >&2
+      staleness="no heartbeat exists"
+    fi
+  fi
+  if [ -n "$staleness" ]; then
+    evict_stale_watcher "$held_pid" "$staleness"
+    evict_status=$?
+    # A sibling's identity recheck can beat ours to evicting $held_pid, so only
+    # escalate while it is still alive; a dead target falls through to the
+    # reacquire loop, which reports a live winner as benign.
+    if [ "$evict_status" -ne 0 ] && fm_pid_alive "$held_pid"; then
+      echo "watcher: lock held by live pid $held_pid but $staleness, and it could not be proven to be this home's watcher or did not stop; inspect or stop that watcher before re-arming." >&2
       exit 1
     fi
-    echo "watcher: already running pid $FM_LOCK_HELD_PID"
+    reacquire_tries=0
+    until fm_lock_try_acquire "$WATCH_LOCK"; do
+      winner_pid=${FM_LOCK_HELD_PID:-}
+      if [ -n "$winner_pid" ] && fm_pid_alive "$winner_pid"; then
+        echo "watcher: already running pid $winner_pid"
+        exit 0
+      fi
+      # A sibling evictor racing the same stale holder can be mid steal-mutex
+      # hold right when this process re-reads the lock, so a live winner's pid
+      # is transiently unreadable; retry briefly before concluding recovery
+      # failed outright.
+      reacquire_tries=$((reacquire_tries + 1))
+      if [ "$reacquire_tries" -ge 20 ]; then
+        echo "watcher: lock held by live pid $held_pid but $staleness, and it could not be proven to be this home's watcher or did not stop; inspect or stop that watcher before re-arming." >&2
+        exit 1
+      fi
+      sleep 0.1
+    done
+  elif [ -n "$held_pid" ]; then
+    echo "watcher: already running pid $held_pid"
+    exit 0
   else
     echo "watcher: already running"
+    exit 0
   fi
-  exit 0
 fi
 WATCHER_RECOVERY_PENDING=0
 if [ -n "${FM_LOCK_RECOVERED_PID:-}" ]; then

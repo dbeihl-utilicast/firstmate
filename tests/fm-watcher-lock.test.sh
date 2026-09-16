@@ -755,6 +755,39 @@ test_lock_empty_pid_uses_minimum_grace() {
   pass "empty mid-acquire lock keeps a minimum grace"
 }
 
+test_lock_uncreatable_returns_promptly() {
+  local dir state lockdir pid status
+  dir=$(make_case lock-uncreatable)
+  state="$dir/state"
+  lockdir="$state/missing/.contend.lock"
+  FM_STATE_OVERRIDE="$state" bash -c '. "$1"; fm_lock_try_acquire "$2"' _ "$LIB" "$lockdir" > /dev/null 2>&1 &
+  pid=$!
+  wait_for_exit "$pid" 50
+  status=$?
+  [ "$status" -ne 124 ] || fail "lock acquisition kept recursing when the lock could not be created"
+  [ "$status" -eq 1 ] || fail "uncreatable lock acquisition did not report failure (status $status)"
+  [ ! -e "$lockdir.steal" ] || fail "uncreatable lock acquisition left a steal lock"
+
+  # A full disk, simulated: only the watcher lock's owner directory cannot be made.
+  cat > "$dir/fakebin/mktemp" <<SH
+#!/usr/bin/env bash
+case "\$*" in *.watch.lock.owner.*) exit 1 ;; esac
+exec $(command -v mktemp) "\$@"
+SH
+  chmod +x "$dir/fakebin/mktemp"
+  PATH="$dir/fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$state" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$dir/watch.out" 2>&1 &
+  pid=$!
+  wait_for_exit "$pid" 100
+  status=$?
+  [ "$status" -ne 124 ] || fail "watcher hung when its lock could not be created"
+  ! grep -F 'already running' "$dir/watch.out" >/dev/null \
+    || fail "watcher claimed one was already running when its lock could not be created: $(cat "$dir/watch.out")"
+  [ "$status" -ne 0 ] || fail "watcher exited zero when its lock could not be created: $(cat "$dir/watch.out")"
+  grep -F "could not create lock $state/.watch.lock" "$dir/watch.out" >/dev/null \
+    || fail "watcher did not name the uncreatable lock: $(cat "$dir/watch.out")"
+  pass "uncreatable lock fails promptly instead of recursing into steal locks"
+}
+
 test_lock_late_claim_loses_after_recreate() {
   local dir state lockdir out
   dir=$(make_case lock-late-claim)
@@ -1234,6 +1267,188 @@ test_arm_fails_loud_when_no_fresh_watcher_confirmable() {
   pass "arm reports FAILED and exits non-zero when no fresh watcher can be confirmed"
 }
 
+test_arm_evicts_live_holder_with_stale_beacon() {
+  # A hung watcher: a TERM-ignoring busy loop bound by the identity a watcher
+  # records. The arm path must evict it and surface recovery; a holder bound to
+  # another home must never be signalled.
+  local row dir state fakebin armout armpid reaper holder identity lock_home i status holder_alive
+  for row in own-home foreign-home; do
+    dir=$(make_case "arm-evict-$row")
+    state="$dir/state"
+    fakebin="$dir/fakebin"
+    armout="$dir/arm.out"
+    # A waiting parent reaps the holder, as the arm reaps a real watcher.
+    (bash -c 'trap "" TERM; while :; do :; done' & printf '%s\n' "$!" > "$dir/holder.pid"; wait) 2>/dev/null &
+    reaper=$!
+    i=0
+    while [ "$i" -lt 50 ] && [ ! -s "$dir/holder.pid" ]; do sleep 0.02; i=$((i + 1)); done
+    holder=$(cat "$dir/holder.pid")
+    identity=$(FM_STATE_OVERRIDE="$state" bash -c '. "$1"; fm_pid_identity "$2"' _ "$LIB" "$holder")
+    lock_home=$dir
+    [ "$row" = foreign-home ] && lock_home="$dir/other-home"
+    mkdir "$state/.watch.lock"
+    printf '%s\n' "$holder" > "$state/.watch.lock/pid"
+    printf '%s\n' "$lock_home" > "$state/.watch.lock/fm-home"
+    printf '%s\n' "$WATCH" > "$state/.watch.lock/watcher-path"
+    printf '%s\n' "$identity" > "$state/.watch.lock/pid-identity"
+    touch -t 200001010000 "$state/.last-watcher-beat" "$state/.watch.lock"
+    PATH="$fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$state" FM_WATCHER_EVICT_WAIT=3 FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_ARM_CONFIRM_TIMEOUT=1 "$WATCH_ARM" > "$armout" 2>&1 &
+    armpid=$!
+    wait_for_exit "$armpid" 200
+    status=$?
+    holder_alive=0
+    is_live_non_zombie "$holder" && holder_alive=1
+    kill -KILL "$holder" 2>/dev/null || true
+    wait "$reaper" 2>/dev/null || true
+    if [ "$row" = foreign-home ]; then
+      [ "$holder_alive" -eq 1 ] || fail "arm killed a live lock holder bound to another home"
+      [ "$status" -ne 0 ] || fail "arm exited zero behind a foreign-home stale holder"
+      grep -F 'watcher: FAILED' "$armout" >/dev/null || fail "foreign-home holder did not produce a typed FAILED line"
+      continue
+    fi
+    [ "$status" -ne 124 ] || fail "arm never recovered from a live holder with a stale beacon: $(cat "$armout")"
+    [ "$holder_alive" -eq 0 ] || fail "live holder with a stale beacon was not evicted: $(cat "$armout")"
+    [ "$status" -eq 0 ] || fail "arm did not recover after evicting the stale holder (status $status): $(cat "$armout")"
+    grep -F 'check: rearm-resurface' "$armout" >/dev/null \
+      || fail "eviction did not surface a recovery wake: $(cat "$armout")"
+    grep -F "evicted live watcher pid $holder" "$state/.watch-triage.log" >/dev/null \
+      || fail "eviction was not recorded in the triage log"
+  done
+  pass "arm evicts this home's live watcher with a stale beacon and never another home's"
+}
+
+test_watch_reports_benign_race_loss_after_own_eviction_succeeds() {
+  # Two independent re-arm triggers can both evict the same stale-beacon live
+  # holder and then race the follow-up lock acquisition. This simulates the
+  # sibling evictor as a direct fm_lock_try_acquire racer (rather than a
+  # second real fm-watch.sh, whose natural timing only wins this race a
+  # fraction of the time): it wins the internal steal mutex the instant the
+  # shared holder dies - ahead of fm-watch.sh's own coarser 0.1s poll - then
+  # holds it through a deliberately widened remove-and-recreate window so
+  # fm-watch.sh's follow-up acquisition attempt is certain to land inside it
+  # at least once. fm-watch.sh's own eviction of the same holder must still
+  # succeed, and its follow-up acquisition must report the sibling's settled
+  # live pid as a benign "already running" exit 0, not the FAILED escalation.
+  local dir state fakebin out holder identity lockdir winner_pid sim i status
+  dir=$(make_case watch-race-benign-loss)
+  state="$dir/state"
+  fakebin="$dir/fakebin"
+  out="$dir/watch.out"
+  lockdir="$state/.watch.lock"
+
+  (bash -c 'trap "" TERM; while :; do :; done' & printf '%s\n' "$!" > "$dir/holder.pid"; wait) 2>/dev/null &
+  i=0
+  while [ "$i" -lt 50 ] && [ ! -s "$dir/holder.pid" ]; do sleep 0.02; i=$((i + 1)); done
+  holder=$(cat "$dir/holder.pid")
+  identity=$(FM_STATE_OVERRIDE="$state" bash -c '. "$1"; fm_pid_identity "$2"' _ "$LIB" "$holder")
+  mkdir "$lockdir"
+  printf '%s\n' "$holder" > "$lockdir/pid"
+  printf '%s\n' "$dir" > "$lockdir/fm-home"
+  printf '%s\n' "$WATCH" > "$lockdir/watcher-path"
+  printf '%s\n' "$identity" > "$lockdir/pid-identity"
+  touch -t 200001010000 "$state/.last-watcher-beat" "$lockdir"
+
+  sleep 300 &
+  winner_pid=$!
+  FM_STATE_OVERRIDE="$state" bash -c '
+    . "$1"
+    lockdir=$2; target=$3; winner=$4
+    while fm_pid_alive "$target"; do sleep 0.01; done
+    fm_lock_try_acquire "$lockdir.steal" || exit 7
+    fm_lock_remove_path "$lockdir"
+    sleep 0.8
+    mkdir "$lockdir"
+    printf "%s\n" "$winner" > "$lockdir/pid"
+    fm_lock_release "$lockdir.steal"
+  ' _ "$LIB" "$lockdir" "$holder" "$winner_pid" &
+  sim=$!
+
+  status=0
+  PATH="$fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$state" FM_WATCHER_EVICT_WAIT=1 FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" 2>&1 &
+  watchpid=$!
+  wait_for_exit "$watchpid" 100
+  status=$?
+
+  wait "$sim" || fail "steal-mutex racer failed: $(cat "$out")"
+  kill "$winner_pid" 2>/dev/null || true
+  wait "$winner_pid" 2>/dev/null || true
+  kill -KILL "$holder" 2>/dev/null || true
+
+  [ "$status" -eq 0 ] || fail "watch did not treat losing the race to its own eviction's live winner as benign (status $status): $(cat "$out")"
+  grep -F "watcher: already running pid $winner_pid" "$out" >/dev/null \
+    || fail "watch did not report the settled live winner from the race it lost: $(cat "$out")"
+  grep -F 'could not be proven' "$out" >/dev/null \
+    && fail "watch escalated a benign race loss instead of reporting it as already running: $(cat "$out")"
+  pass "watch reports a benign already-running exit after losing the follow-up acquisition to its own eviction's live winner"
+}
+
+test_watch_evict_race_between_two_real_watchers_never_falsely_fails() {
+  # Two real fm-watch.sh processes contend to evict the same live, stale-beacon
+  # holder; the loser's own recheck can lose that race to the winner's. It must
+  # settle on a benign "already running pid <winner>" exit 0, not escalate.
+  local dir state fakebin out1 out2 holder identity i pid1 pid2 live status winner loser winner_out loser_out
+  dir=$(make_case watch-real-evict-race)
+  state="$dir/state"
+  fakebin="$dir/fakebin"
+  out1="$dir/watch-one.out"
+  out2="$dir/watch-two.out"
+
+  (bash -c 'trap "" TERM; while :; do :; done' & printf '%s\n' "$!" > "$dir/holder.pid"; wait) 2>/dev/null &
+  i=0
+  while [ "$i" -lt 50 ] && [ ! -s "$dir/holder.pid" ]; do sleep 0.02; i=$((i + 1)); done
+  holder=$(cat "$dir/holder.pid")
+  identity=$(FM_STATE_OVERRIDE="$state" bash -c '. "$1"; fm_pid_identity "$2"' _ "$LIB" "$holder")
+  mkdir "$state/.watch.lock"
+  printf '%s\n' "$holder" > "$state/.watch.lock/pid"
+  printf '%s\n' "$dir" > "$state/.watch.lock/fm-home"
+  printf '%s\n' "$WATCH" > "$state/.watch.lock/watcher-path"
+  printf '%s\n' "$identity" > "$state/.watch.lock/pid-identity"
+  touch -t 200001010000 "$state/.last-watcher-beat" "$state/.watch.lock"
+
+  PATH="$fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$state" FM_WATCHER_EVICT_WAIT=1 FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out1" 2>&1 &
+  pid1=$!
+  PATH="$fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$state" FM_WATCHER_EVICT_WAIT=1 FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out2" 2>&1 &
+  pid2=$!
+
+  i=0
+  live=2
+  while [ "$i" -lt 100 ]; do
+    live=0
+    is_live_non_zombie "$pid1" && live=$((live + 1))
+    is_live_non_zombie "$pid2" && live=$((live + 1))
+    [ "$live" -eq 1 ] && break
+    sleep 0.1
+    i=$((i + 1))
+  done
+  [ "$live" -eq 1 ] || {
+    kill "$pid1" "$pid2" 2>/dev/null || true
+    wait "$pid1" "$pid2" 2>/dev/null || true
+    kill -KILL "$holder" 2>/dev/null || true
+    fail "expected exactly one real watcher to survive the eviction race, got $live: $(cat "$out1") / $(cat "$out2")"
+  }
+
+  if is_live_non_zombie "$pid1"; then
+    winner=$pid1; winner_out=$out1; loser=$pid2; loser_out=$out2
+  else
+    winner=$pid2; winner_out=$out2; loser=$pid1; loser_out=$out1
+  fi
+  wait_for_exit "$loser" 50
+  status=$?
+
+  kill "$winner" 2>/dev/null || true
+  wait "$winner" 2>/dev/null || true
+  kill -KILL "$holder" 2>/dev/null || true
+
+  [ "$status" -eq 0 ] || fail "the losing watcher did not exit 0 after losing the eviction race (status $status): $(cat "$loser_out")"
+  grep -F "watcher: already running pid $winner" "$loser_out" >/dev/null \
+    || fail "the losing watcher did not report the winner as a benign already-running pid: $(cat "$loser_out")"
+  grep -F 'could not be proven' "$loser_out" >/dev/null \
+    && fail "the losing watcher falsely escalated a race it actually recovered from: $(cat "$loser_out")"
+  grep -F 'could not be proven' "$winner_out" >/dev/null \
+    && fail "the winning watcher falsely escalated: $(cat "$winner_out")"
+  pass "two real watchers racing to evict the same stale holder never produce a false FAILED escalation"
+}
+
 test_cycle_exit_ledger_links_successor_and_stays_bounded() {
   local dir state fakebin armout check_file first_arm successor_arm successor_pid i size iteration
   dir=$(make_case cycle-ledger)
@@ -1530,6 +1745,7 @@ test_lock_stale_steal_single_winner_under_concurrency
 test_lock_live_steal_mutex_is_not_reclaimed
 test_lock_does_not_steal_live_lock
 test_lock_empty_pid_uses_minimum_grace
+test_lock_uncreatable_returns_promptly
 test_lock_late_claim_loses_after_recreate
 test_lock_paused_mid_acquire_claim_fails_during_steal
 test_watch_restart_rejects_reused_pid
@@ -1543,5 +1759,8 @@ test_arm_hup_cleans_child_and_temp_output
 test_arm_propagates_immediate_wake_before_confirmation
 test_arm_waits_for_peer_beacon_after_child_stands_down
 test_arm_fails_loud_when_no_fresh_watcher_confirmable
+test_arm_evicts_live_holder_with_stale_beacon
+test_watch_reports_benign_race_loss_after_own_eviction_succeeds
+test_watch_evict_race_between_two_real_watchers_never_falsely_fails
 test_cycle_exit_ledger_links_successor_and_stays_bounded
 test_stopped_watcher_is_live_but_stale_then_exit_is_classified

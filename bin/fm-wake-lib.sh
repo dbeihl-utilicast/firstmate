@@ -153,6 +153,15 @@ fm_poll_derived_grace() {
   printf '%s\n' "$derived"
 }
 
+# Seconds a starting watcher waits after each of TERM and KILL when evicting a
+# hung holder; the arm reads the same value to size its confirmation window.
+fm_watcher_evict_wait() {
+  case "${FM_WATCHER_EVICT_WAIT:-}" in
+    ''|*[!0-9]*|0) printf '5\n' ;;
+    *) printf '%s\n' "$FM_WATCHER_EVICT_WAIT" ;;
+  esac
+}
+
 # fm_watcher_lock_unheld <state>
 # True when the watcher lock or its symlinked owner directory is absent, or when
 # the existing lock records no pid at all. Any non-empty pid remains held here;
@@ -551,7 +560,12 @@ fm_lock_claim() {
 fm_lock_try_create() {
   local lockdir=$1 allowed_steal_owner=${2:-} ownerdir
   FM_LOCK_OWNER_DIR=
-  ownerdir=$(fm_lock_owner_dir "$lockdir") || return 1
+  FM_LOCK_CREATE_FAILED=
+  ownerdir=$(fm_lock_owner_dir "$lockdir") || {
+    # shellcheck disable=SC2034 # Read by fm_lock_try_acquire after this call.
+    FM_LOCK_CREATE_FAILED=1
+    return 1
+  }
   if [ -e "$lockdir" ] || [ -L "$lockdir" ]; then
     fm_lock_discard_owner "$ownerdir"
     return 1
@@ -947,9 +961,18 @@ fm_lock_try_acquire() {
   FM_LOCK_HELD_PID=
   FM_LOCK_OWNER_DIR=
   FM_LOCK_RECOVERED_PID=
+  FM_LOCK_CREATE_FAILED=
 
   if fm_lock_try_create "$lockdir"; then
     return 0
+  fi
+  # Nothing to steal: recursing into "$lockdir.steal" would never bottom out
+  # while creation keeps failing (full disk, unwritable state directory). This
+  # checks the actual reason fm_lock_try_create failed rather than whether
+  # $lockdir now exists, since a swapped or raced boundary can leave $lockdir
+  # absent even though creation itself made real progress.
+  if [ -n "$FM_LOCK_CREATE_FAILED" ]; then
+    return 1
   fi
 
   fm_current_pid current || return 1
