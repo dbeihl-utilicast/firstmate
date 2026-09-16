@@ -35,17 +35,24 @@
 #   identify this repo. Briefs made without it carry a loud declaration so an
 #   omitted contract cannot be silent.
 #   --local-model-contract adds the local-model red-first contract (ship briefs
-#   only): a fixed "Local-model contract: enabled" marker plus worker instructions
-#   requiring a captured red-proof artifact before implementation, a narrow
-#   test-only acceptance scope, and a post-green revert-check. bin/fm-spawn.sh
-#   refuses a ship spawn on a harness bin/fm-harness.sh is-local-model reports
-#   true for (today: qwen only) unless this marker is present. Pass it only when
-#   ## Firstmate spec already names a specific failing test for the worker to
-#   turn green - this contract makes that test the acceptance mechanism, it does
-#   not write one. Two further scope rules are firstmate's own intake judgment,
-#   not something this flag or bin/fm-spawn.sh's check can verify from brief
-#   text: never route a local model onto a security or guard path, and never ask
-#   one whether an existing guard is too strict (AGENTS.md section 7).
+#   only): a fixed "Local-model contract: enabled" marker, a "Red test: {RED_TEST}"
+#   placeholder to fill with the failing test's path (same two-step as {TASK} and
+#   {FIRSTMATE_SPEC}), and worker instructions for a narrow test-only acceptance
+#   scope and captured working evidence. Pass it only after a specific failing
+#   test already exists for the worker to turn green - this contract makes that
+#   test the acceptance mechanism, it does not write one. bin/fm-spawn.sh refuses
+#   a ship spawn on a harness bin/fm-harness.sh is-local-model reports true for
+#   (today: qwen only) unless the marker is present, the Red test line is filled,
+#   and the named file exists. What is mechanical stops there: bin/fm-spawn.sh
+#   checks the brief text, it does not run anything. The worker's own captured
+#   red/green/revert files are its working evidence, not proof firstmate trusts;
+#   bin/fm-local-model-verify.sh is the one mechanism that independently re-runs
+#   the named test against the worker's real committed code (once at HEAD, once
+#   with only the implementation reverted) and firstmate runs it after the
+#   worker reports done, before validation starts. Two further scope rules are
+#   firstmate's own intake judgment, not something any of this can verify from
+#   brief text: never route a local model onto a security or guard path, and
+#   never ask one whether an existing guard is too strict (AGENTS.md section 7).
 # For ship tasks, --mode is REQUIRED and shapes the definition of done. Firstmate
 # resolves it per task at intake (AGENTS.md section 7); data/projects.md holds the
 # captain's standing posture as context, and this script never reads it:
@@ -464,11 +471,10 @@ if [ "$LOCAL_MODEL_CONTRACT" -eq 1 ]; then
 IFS= read -r -d '' LOCAL_MODEL_SECTION <<EOF || true
 # Local-model red-first contract
 Local-model contract: enabled
-\`## Firstmate spec\` above names a specific failing test. Acceptance is decided before you start, not by your own judgment: your job is narrowly to make that named test pass by changing only what is needed to do so - no redesign, no touching unrelated tests, no editing the named test itself, no weakening or skipping it. If you believe the named test is wrong, stop and report \`needs-decision\` rather than changing it.
-Before writing any implementation change, run the named test exactly as instructed and capture its failing output verbatim to \`$DATA/$ID/red-before.txt\`. This red proof is mandatory: reaching \`done\` without it is rejected regardless of what you report, so never fabricate or paraphrase it - it must be a real command's captured output.
-After your change makes the test pass, capture the passing output to \`$DATA/$ID/green-after.txt\`.
-Then run a revert-check: undo only your implementation change (keep the test itself), rerun the named test and capture that output to \`$DATA/$ID/red-revert.txt\` to confirm it fails again, then reapply your change. If the test does not return to red on revert, it is not testing what it claims to - stop and report \`needs-decision\` instead of \`done\`.
-Reference all three captured files by path in your \`done:\` line, and paste the \`red-before.txt\` contents verbatim into the PR body as the red proof.
+Red test: {RED_TEST}
+The test named on the \`Red test:\` line above is your acceptance mechanism, not your own judgment: your job is narrowly to make that exact test pass by changing only what is needed to do so - no redesign, no touching unrelated tests, no editing the named test itself, no weakening it, no marking it skip/xfail. If you believe the named test is wrong, stop and report \`needs-decision\` rather than changing it.
+Firstmate independently re-runs the named test itself after you report done, in a copy of your branch you never touch: once at your committed HEAD (must pass), and once with only your implementation reverted and the test itself kept (must fail). Nothing you write about your own work - a status line, a PR description, a captured log - is taken on your word; only that independent re-run decides acceptance.
+Still capture your own working evidence before you report done, because it is how you catch your own mistake before firstmate's independent check does: run the named test before touching implementation code and save its failing output to \`$DATA/$ID/red-before.txt\`; after your change, save the passing output to \`$DATA/$ID/green-after.txt\`; then revert only your implementation change, confirm the test fails again, save that to \`$DATA/$ID/red-revert.txt\`, and reapply your change. If any of those three does not show the behavior it should, you have the same failure firstmate's independent check would catch - stop and report \`needs-decision\` instead of \`done\`.
 EOF
 LOCAL_MODEL_SECTION=${LOCAL_MODEL_SECTION%$'\n'}
 fi

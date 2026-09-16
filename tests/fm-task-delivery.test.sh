@@ -180,22 +180,57 @@ EOF
   pass "fm-spawn: a ship spawn on a local-model harness refuses without the brief's red-first contract"
 }
 
-# The check is mechanical - the marker line, not a judgment call - so a brief
-# that carries it clears the gate and only fails later, at the refusing tmux
-# every other case in this file is backstopped by.
+# A brief carrying only the marker but no "Red test:" line, an unfilled
+# {RED_TEST} placeholder, or a path that does not exist in the project must
+# each be refused with a distinct, actionable reason - the same three-way
+# split as the {TASK}/{FIRSTMATE_SPEC} placeholder contract.
+test_ship_spawn_refuses_local_model_harness_with_bad_red_test_line() {
+  local rec home proj fakebin out status label content expect n=0
+  rec=$(make_home local-model-redtest-bad)
+  IFS='|' read -r home proj fakebin <<EOF
+$rec
+EOF
+  mkdir -p "$proj/tests"
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$proj/tests/real.test.sh"
+  while IFS='|' read -r label content expect; do
+    [ -n "$label" ] || continue
+    n=$((n + 1))
+    mkdir -p "$home/data/delivery-local-model-badred-$n"
+    printf 'You are a crewmate.\n\n# Task\n## Captain'\''s intent\nExercise the local-model contract.\n\n## Firstmate spec\nMake the named test green.\n\n# Local-model red-first contract\nLocal-model contract: enabled\n%s\n# Definition of done\nDelivery contract: mode=no-mistakes\n' "$content" \
+      > "$home/data/delivery-local-model-badred-$n/brief.md"
+    out=$(run_spawn "$home" "$fakebin" "delivery-local-model-badred-$n" "$proj" 'qwen --unverified-marker' --mode no-mistakes --yolo off)
+    status=$?
+    [ "$status" -ne 0 ] || fail "$label: expected a non-zero exit"
+    assert_contains "$out" "$expect" "$label: refusal did not explain the Red test problem"
+    assert_absent "$home/state/delivery-local-model-badred-$n.meta" "$label: refused spawn wrote task metadata"
+  done <<'ROWS'
+no Red test line at all||carries no 'Red test: <path>' line
+still the unfilled placeholder|Red test: {RED_TEST}|is still the unfilled {RED_TEST} placeholder
+names a file that does not exist|Red test: tests/does-not-exist.test.sh|that does not exist in
+ROWS
+  pass "fm-spawn: a local-model ship spawn refuses a missing, placeholder, or nonexistent Red test line"
+}
+
+# The check is mechanical - the marker plus a validated Red test line, not a
+# judgment call - so a brief that carries both clears the gate and only fails
+# later, at the refusing tmux every other case in this file is backstopped by.
 test_ship_spawn_accepts_local_model_harness_with_contract() {
   local rec home proj fakebin out
   rec=$(make_home local-model-accepted)
   IFS='|' read -r home proj fakebin <<EOF
 $rec
 EOF
+  mkdir -p "$proj/tests"
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$proj/tests/real.test.sh"
   mkdir -p "$home/data/delivery-local-model-g2"
-  printf 'You are a crewmate.\n\n# Task\n## Captain'\''s intent\nExercise the local-model contract.\n\n## Firstmate spec\nMake the named test green.\n\n# Local-model red-first contract\nLocal-model contract: enabled\n\n# Definition of done\nDelivery contract: mode=no-mistakes\n' \
+  printf 'You are a crewmate.\n\n# Task\n## Captain'\''s intent\nExercise the local-model contract.\n\n## Firstmate spec\nMake the named test green.\n\n# Local-model red-first contract\nLocal-model contract: enabled\nRed test: tests/real.test.sh\n\n# Definition of done\nDelivery contract: mode=no-mistakes\n' \
     > "$home/data/delivery-local-model-g2/brief.md"
   out=$(run_spawn "$home" "$fakebin" delivery-local-model-g2 "$proj" 'qwen --unverified-marker' --mode no-mistakes --yolo off)
   assert_not_contains "$out" "carries no local-model red-first contract" \
     "a brief carrying the contract marker was still refused"
-  pass "fm-spawn: a ship spawn on a local-model harness whose brief carries the contract clears the gate"
+  assert_not_contains "$out" "Red test" \
+    "a brief carrying a valid Red test line was still refused over it"
+  pass "fm-spawn: a ship spawn on a local-model harness whose brief carries the contract and a real Red test clears the gate"
 }
 
 # The gate is scoped to ship tasks (AGENTS.md section 7, the captain's ask): a
@@ -853,6 +888,7 @@ test_ship_spawn_requires_a_valid_delivery_contract
 test_scout_and_secondmate_refuse_delivery_flags
 test_spawn_refuses_a_brief_mode_mismatch
 test_ship_spawn_refuses_local_model_harness_without_contract
+test_ship_spawn_refuses_local_model_harness_with_bad_red_test_line
 test_ship_spawn_accepts_local_model_harness_with_contract
 test_scout_spawn_on_local_model_harness_is_not_gated
 test_spawn_notices_a_rigor_downgrade_against_the_registry
