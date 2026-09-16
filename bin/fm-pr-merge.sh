@@ -65,15 +65,30 @@
 # Extra args must not include --repo or -R in any form, including a bundled
 # short-option cluster such as -yR, because the repository comes only from the
 # URL, nor --sha on GitLab because the head comes only from the live read.
-# On GitHub, --admin among those extra arguments is a first-class path: this
-# script records pr= and any available pr_head= first, then invokes gh pr merge
-# directly, translates --method forms to gh's native method flags, and applies
-# the same default --squash rule unless the caller named a method.
-# The existing outcome read-back still accepts only a merged or queued pull
-# request and refuses an open unqueued one. gh is required for that path; if it
-# is absent the merge is refused with a named error and never falls back to
-# gh-axi. On GitLab, --admin is refused before any state is recorded because it
-# is GitHub-only.
+# A raw --admin among those extra arguments is never accepted: it is refused
+# before anything is recorded, naming the one supported way in below, so a
+# captain-authorized admin merge always leaves the same durable trail.
+#
+# Usage: fm-pr-merge.sh <task-id> <pr-url> [--admin-bypass-review] [-- <extra forge merge args>]
+#
+# --admin-bypass-review is this wrapper's own opt-in flag, placed before the
+# -- separator, and is the only way to request a captain-authorized GitHub
+# admin merge; it is never a default and is never inferred from any other
+# flag. On GitHub it records pr= and any available pr_head= first, then reads
+# the pull request's live mergeable state and status checks and refuses a
+# merge conflict or any check that is failing or still pending exactly as the
+# ordinary path would; the bypass skips only GitHub's required-review
+# restriction. It then invokes gh pr merge directly with --admin, translates
+# --method forms to gh's native method flags, and applies the same default
+# --squash rule unless the caller named a method. The existing outcome
+# read-back still accepts only a merged or queued pull request and refuses an
+# open unqueued one. gh is required for this path; if it is absent the merge
+# is refused with a named error and never falls back to gh-axi. A successful
+# admin-bypass merge records an explicit admin_bypass_review=true line in the
+# task's metadata and prints the outcome as merged with the review requirement
+# bypassed, not satisfied; an ordinary merge carries neither. On GitLab,
+# --admin-bypass-review is refused before any state is recorded because it is
+# GitHub-only.
 #
 # On GitLab, this script confirms the MR is actually merged before reporting it;
 # an auto-merge-queued or unconfirmed request leaves the poll armed and records
@@ -81,7 +96,6 @@
 # destination, normal-case deduplication, and at-least-once recovery.
 # A landed merge whose outcome cannot be written is reported loudly rather than
 # misreported as a failed merge.
-# Usage: fm-pr-merge.sh <task-id> <pr-url> [-- <extra forge merge args>]
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -115,7 +129,25 @@ PR_NUMBER=$FM_PR_NUMBER
 # rebuilt from the parsed identity rather than read from any ambient default.
 PROJECT_URL="https://$FM_PR_HOST/$FM_PR_PATH"
 shift 2
+
+ADMIN_BYPASS_REVIEW=false
+if [ "${1:-}" = "--admin-bypass-review" ]; then
+  ADMIN_BYPASS_REVIEW=true
+  shift
+fi
 [ "${1:-}" = "--" ] && shift
+
+# A raw --admin among the extra forge arguments is never accepted, whatever
+# the provider: --admin-bypass-review before the -- separator is the only
+# supported way to request an admin merge, so a captain-authorized bypass
+# always leaves the same recorded trail.
+for _fm_extra_arg in "$@"; do
+  if [ "$_fm_extra_arg" = --admin ]; then
+    echo "error: raw --admin is not accepted; pass --admin-bypass-review before -- to request an admin merge" >&2
+    exit 1
+  fi
+done
+unset _fm_extra_arg
 
 caller_has_merge_method() {
   local arg
@@ -169,7 +201,7 @@ normalize_gh_admin_merge_args() {
       continue
     fi
     case "$arg" in
-      --admin|--merge|--squash|--rebase|--auto|--auto=*|--delete-branch)
+      --merge|--squash|--rebase|--auto|--auto=*|--delete-branch)
         GH_MERGE_ARGS+=("$arg")
         ;;
       --body|--body-file|--subject)
@@ -220,19 +252,6 @@ caller_requested_auto_merge() {
   return "$requested"
 }
 
-# Whether the caller's own extra arguments asked for GitHub's --admin merge.
-# That flag is GitHub-only and is not a gh-axi merge option, so it selects the
-# gh pr merge path rather than being forwarded through the ordinary abstraction.
-caller_requested_admin() {
-  local arg
-  for arg in "$@"; do
-    case "$arg" in
-      --admin) return 0 ;;
-    esac
-  done
-  return 1
-}
-
 reject_repo_overrides() {
   local arg
   for arg in "$@"; do
@@ -266,8 +285,8 @@ reject_head_overrides() {
 
 reject_repo_overrides "$@" || exit 1
 [ "$PROVIDER" != gitlab ] || reject_head_overrides "$@" || exit 1
-if [ "$PROVIDER" = gitlab ] && caller_requested_admin "$@"; then
-  echo "error: --admin is GitHub-only and cannot be used with a GitLab merge request" >&2
+if [ "$PROVIDER" = gitlab ] && [ "$ADMIN_BYPASS_REVIEW" = true ]; then
+  echo "error: --admin-bypass-review is GitHub-only and cannot be used with a GitLab merge request" >&2
   exit 1
 fi
 
@@ -327,7 +346,7 @@ if [ "$PROVIDER" = gitlab ]; then
     exit 1
   fi
 fi
-if [ "$PROVIDER" = github ] && caller_requested_admin "$@" \
+if [ "$PROVIDER" = github ] && [ "$ADMIN_BYPASS_REVIEW" = true ] \
   && ! command -v gh >/dev/null 2>&1; then
   echo "error: admin merge requires gh" >&2
   exit 1
@@ -625,6 +644,15 @@ record_pr_metadata() {
   }
 }
 
+# Records that this landed merge bypassed GitHub's required-review restriction,
+# so the task's durable record states it was bypassed rather than satisfied.
+# Only called after a confirmed admin-bypass merge; an ordinary merge never
+# calls this and never carries the marker.
+record_admin_bypass_marker() {
+  grep -qxF admin_bypass_review=true "$META" \
+    || echo admin_bypass_review=true >> "$META"
+}
+
 require_released_captain_hold() {
   local hold_status=0
   FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
@@ -745,6 +773,68 @@ github_report_unmerged_outcome() {
   github_report_queue_rules
 }
 
+# Pre-merge guard for the admin-bypass path only: --admin overrides GitHub's
+# required-review restriction, and this refuses everything else it would also
+# override, so the bypass skips only the review requirement. Reads one live
+# view of mergeability and status checks and refuses a merge conflict or any
+# check that is failing or still pending, exactly as the ordinary path is left
+# to the forge to refuse.
+github_admin_verify_reviewless_mergeable() {
+  local fields line total=0 named=0
+  local state='' mergeable='' failing_checks=''
+  local refusals=''
+  if ! fields=$(gh pr view "$PR_NUMBER" --repo "$PR_OWNER/$PR_REPO" \
+    --json state,mergeable,statusCheckRollup \
+    --jq '"state=" + (.state // ""),
+      "mergeable=" + (.mergeable // ""),
+      "checks=" + (([(.statusCheckRollup // [])[] | select(.conclusion != "SUCCESS" and .conclusion != "NEUTRAL" and .conclusion != "SKIPPED")]) | length | tostring)' \
+    2>/dev/null) || [ -z "$fields" ]; then
+    echo "error: could not read the GitHub pull request's mergeable state and status checks before an admin-bypass merge" >&2
+    return 1
+  fi
+  while IFS= read -r line; do
+    total=$((total + 1))
+    case "$line" in
+      state=*) state=${line#state=} ;;
+      mergeable=*) mergeable=${line#mergeable=} ;;
+      checks=*) failing_checks=${line#checks=} ;;
+      *) continue ;;
+    esac
+    named=$((named + 1))
+  done <<FIELDS
+$fields
+FIELDS
+  if [ "$named" -ne 3 ] || [ "$total" -ne 3 ]; then
+    echo "error: could not read the GitHub pull request's mergeable state and status checks before an admin-bypass merge" >&2
+    return 1
+  fi
+
+  [ "$state" = OPEN ] \
+    || refusals="$refusals  - state is \"${state:-unreadable}\", not open
+"
+  [ "$mergeable" = MERGEABLE ] \
+    || refusals="$refusals  - mergeable is \"${mergeable:-unreadable}\", not mergeable
+"
+  case "$failing_checks" in
+    0) ;;
+    ''|*[!0-9]*)
+      refusals="$refusals  - the pull request's status checks could not be read
+"
+      ;;
+    *)
+      refusals="$refusals  - $failing_checks status check(s) are failing or still pending
+"
+      ;;
+  esac
+
+  if [ -n "$refusals" ]; then
+    printf 'error: refusing the admin-bypass merge of %s: the bypass skips only the review requirement, and every other guard still applies\n' \
+      "$URL" >&2
+    printf '%s' "$refusals" >&2
+    return 1
+  fi
+}
+
 gitlab_confirm_merged() {
   local json state
   if ! json=$(GITLAB_HOST="$FM_PR_HOST" glab mr view "$PR_NUMBER" \
@@ -774,9 +864,10 @@ case "$PROVIDER" in
     merge_args=()
     merge_forward_args=("$@")
     merge_cli=gh-axi
-    if caller_requested_admin "$@"; then
+    if [ "$ADMIN_BYPASS_REVIEW" = true ]; then
       merge_cli=gh
       normalize_gh_admin_merge_args "$@" || exit 1
+      GH_MERGE_ARGS+=(--admin)
       merge_forward_args=("${GH_MERGE_ARGS[@]+"${GH_MERGE_ARGS[@]}"}")
     fi
     if ! caller_has_merge_method "$@"; then
@@ -787,6 +878,9 @@ case "$PROVIDER" in
     fi
     FM_PR_GITHUB_CALLER_METHOD=$(caller_merge_method "$@")
     require_released_captain_hold || exit 1
+    if [ "$ADMIN_BYPASS_REVIEW" = true ]; then
+      github_admin_verify_reviewless_mergeable || exit 1
+    fi
     merge_status=0
     merge_output=$("$merge_cli" pr merge "$PR_NUMBER" --repo "$PR_OWNER/$PR_REPO" \
       "${merge_args[@]+"${merge_args[@]}"}" \
@@ -812,11 +906,23 @@ case "$PROVIDER" in
       exit 1
     fi
     if [ "$FM_PR_GITHUB_MERGED" = true ]; then
-      printf 'verified: %s is merged (state=%s, merged=%s, isInMergeQueue=%s)\n' \
-        "$URL" "$FM_PR_GITHUB_STATE" "$FM_PR_GITHUB_MERGED" "$FM_PR_GITHUB_QUEUED"
+      if [ "$ADMIN_BYPASS_REVIEW" = true ]; then
+        record_admin_bypass_marker
+        printf 'verified: %s is merged with admin bypass: the review requirement was bypassed, not satisfied (state=%s, merged=%s, isInMergeQueue=%s)\n' \
+          "$URL" "$FM_PR_GITHUB_STATE" "$FM_PR_GITHUB_MERGED" "$FM_PR_GITHUB_QUEUED"
+      else
+        printf 'verified: %s is merged (state=%s, merged=%s, isInMergeQueue=%s)\n' \
+          "$URL" "$FM_PR_GITHUB_STATE" "$FM_PR_GITHUB_MERGED" "$FM_PR_GITHUB_QUEUED"
+      fi
     elif [ "$FM_PR_GITHUB_QUEUED" = true ]; then
-      printf 'verified: %s is queued (state=%s, merged=%s, isInMergeQueue=%s)\n' \
-        "$URL" "$FM_PR_GITHUB_STATE" "$FM_PR_GITHUB_MERGED" "$FM_PR_GITHUB_QUEUED"
+      if [ "$ADMIN_BYPASS_REVIEW" = true ]; then
+        record_admin_bypass_marker
+        printf 'verified: %s is queued with admin bypass: the review requirement was bypassed, not satisfied (state=%s, merged=%s, isInMergeQueue=%s)\n' \
+          "$URL" "$FM_PR_GITHUB_STATE" "$FM_PR_GITHUB_MERGED" "$FM_PR_GITHUB_QUEUED"
+      else
+        printf 'verified: %s is queued (state=%s, merged=%s, isInMergeQueue=%s)\n' \
+          "$URL" "$FM_PR_GITHUB_STATE" "$FM_PR_GITHUB_MERGED" "$FM_PR_GITHUB_QUEUED"
+      fi
       exit 0
     else
       github_report_forge_output "$merge_output"
