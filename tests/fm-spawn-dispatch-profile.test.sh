@@ -434,6 +434,44 @@ test_codex_omits_invalid_max_effort() {
   pass "codex omits unsupported max effort instead of passing a bad config value"
 }
 
+test_codex_foundry_luna_pins_the_deployment_and_threads_effort() {
+  local rec id out status launch
+  id=profile-foundry-luna-z6
+  rec=$(make_spawn_case profile-foundry-luna codex-foundry-luna "$id")
+  read_case_record "$rec"
+
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --effort high)
+  status=$?
+  expect_code 0 "$status" "codex-foundry-luna spawn should succeed"
+  assert_meta_profile "$HOME_DIR/state/$id.meta" codex-foundry-luna default high
+  launch=$(cat "$LAUNCH_LOG")
+  assert_contains "$launch" "fm-foundry-luna-proxy.py' run --port " \
+    "codex-foundry-luna launch must start the local token-refreshing gateway"
+  assert_contains "$launch" '-c model=\"gpt-5.6-luna\"' \
+    "codex-foundry-luna launch must pin the one authorized deployment"
+  assert_contains "$launch" '-c model_providers.fm_foundry_luna.wire_api=\"responses\"' \
+    "codex-foundry-luna launch must use the wire format this codex CLI actually accepts"
+  assert_contains "$launch" 'model_reasoning_effort="high"' \
+    "codex-foundry-luna launch must still thread the effort axis like plain codex"
+  assert_not_contains "$launch" "--model " \
+    "codex-foundry-luna must never expose a --model flag a caller could repoint at another deployment"
+  pass "codex-foundry-luna pins base_url/wire_api/model to gpt-5.6-luna and still threads effort"
+}
+
+test_codex_foundry_luna_refuses_a_different_deployment_name() {
+  local rec id out status
+  id=profile-foundry-luna-refuse-z7
+  rec=$(make_spawn_case profile-foundry-luna-refuse codex-foundry-luna "$id")
+  read_case_record "$rec"
+
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --model gpt-5.6-terra 2>&1)
+  status=$?
+  expect_code 1 "$status" "codex-foundry-luna must refuse a --model naming a different deployment"
+  assert_contains "$out" "gpt-5.6-luna deployment only" "refusal names the one authorized deployment"
+  [ ! -e "$HOME_DIR/state/$id.meta" ] || fail "a refused spawn must not leave a task record behind"
+  pass "codex-foundry-luna refuses --model naming any deployment other than gpt-5.6-luna"
+}
+
 test_grok_threads_model_and_reasoning_effort() {
   local rec id out status launch
   id=profile-grok-z5
@@ -1218,6 +1256,8 @@ test_active_dispatch_profile_allows_raw_launch_command
 test_claude_threads_model_and_effort
 test_codex_threads_model_and_effort
 test_codex_omits_invalid_max_effort
+test_codex_foundry_luna_pins_the_deployment_and_threads_effort
+test_codex_foundry_luna_refuses_a_different_deployment_name
 test_grok_threads_model_and_reasoning_effort
 test_grok_omits_invalid_max_reasoning_effort
 test_grok_omits_invalid_xhigh_reasoning_effort

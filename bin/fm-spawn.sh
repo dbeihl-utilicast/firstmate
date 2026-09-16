@@ -125,8 +125,15 @@
 #   profile consultation. A --secondmate spawn is exempt and resolves the SECONDMATE
 #   harness (config/secondmate-harness -> config/crew-harness -> own), so the
 #   secondmate-vs-crewmate split is DURABLE across every respawn (recovery,
-#   /updatefirstmate, restart). A bare adapter name (claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|qwen)
-#   overrides it for this spawn (either kind). A non-flag string containing
+#   /updatefirstmate, restart). A bare adapter name (claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|qwen|codex-foundry-luna)
+#   overrides it for this spawn (either kind). codex-foundry-luna is codex itself,
+#   repointed at the Azure AI Foundry `gpt-5.6-luna` deployment (aih-utilicast-ftiek)
+#   through a local per-task token-refreshing proxy (bin/fm-foundry-luna-proxy.py)
+#   instead of OpenAI's own API; it is crewmate/scout only (no secondmate: it carries
+#   no separate control/busy mechanics of its own and inherits codex's via the
+#   `codex*` family match in fm-control-lib.sh and fm-busy-lib.sh) and refuses a
+#   --model other than gpt-5.6-luna outright, since the account carries other
+#   deployments whose cost is not authorized for fleet dispatch. A non-flag string containing
 #   whitespace is treated as a RAW launch command - the escape hatch for verifying
 #   new adapters. For pi and pi-signed, fm-spawn resolves the selected executable
 #   name from PATH once, probes that concrete path with --help, and launches the
@@ -1483,6 +1490,19 @@ launch_template() {
         printf '%s' 'codex __MODELFLAG____EFFORTFLAG__--dangerously-bypass-approvals-and-sandbox -c "notify=[\"bash\",\"-c\",\"touch __TURNEND__\"]" "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
       fi
       ;;
+    # codex-foundry-luna: codex itself, repointed at the Azure AI Foundry
+    # gpt-5.6-luna deployment instead of OpenAI's own API. __FOUNDRYLUNAPROXY__
+    # (bin/fm-foundry-luna-proxy.py, `run --port <n> -- <codex...>`) starts the
+    # local token-refreshing gateway first and runs codex as its child; that
+    # script's own header owns the refusal and token-refresh mechanics. codex's
+    # model/provider/base_url/wire_api are fixed with -c overrides here rather
+    # than left to --model, per the captain's single-deployment authorization.
+    # No env_key: codex sends no Authorization header of its own to a local
+    # provider with none configured, and the proxy supplies the real one.
+    # Crewmate/scout only: see the secondmate refusal below.
+    codex-foundry-luna)
+      printf '%s' '__FOUNDRYLUNAPROXY__ run --port __FOUNDRYLUNAPORT__ -- codex -c model=\"gpt-5.6-luna\" -c model_provider=\"fm_foundry_luna\" -c model_providers.fm_foundry_luna.name=\"Azure AI Foundry (gpt-5.6-luna)\" -c model_providers.fm_foundry_luna.base_url=\"http://127.0.0.1:__FOUNDRYLUNAPORT__/openai/v1\" -c model_providers.fm_foundry_luna.wire_api=\"responses\" __EFFORTFLAG__--dangerously-bypass-approvals-and-sandbox -c "notify=[\"bash\",\"-c\",\"touch __TURNEND__\"]" "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
+      ;;
     opencode) printf '%s' 'OPENCODE_CONFIG_CONTENT='\''{"permission":{"*":"allow"}}'\'' opencode __MODELFLAG__--prompt "$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
     pi|pi-signed)
       printf '%s' '__PIBIN____PITUIMODE__'
@@ -1708,6 +1728,25 @@ if [ "$KIND" = secondmate ] && [ "$HARNESS" = rovo ]; then
   exit 1
 fi
 
+# codex-foundry-luna carries no supervision mechanics of its own - it is codex,
+# and inherits codex's turn-end hook and busy detection via the `codex*` family
+# match in fm-control-lib.sh and fm-busy-lib.sh - but a secondmate is a firstmate
+# instance dispatching its OWN crew, which this adapter has never been verified
+# to run pointed at a single locked-down Foundry deployment. Refused rather than
+# guessed.
+if [ "$KIND" = secondmate ] && [ "$HARNESS" = codex-foundry-luna ]; then
+  echo "error: codex-foundry-luna is a verified crewmate/scout adapter only and cannot run a secondmate. Select a harness verified for secondmates." >&2
+  exit 1
+fi
+
+# gpt-5.6-luna is the only Foundry deployment the captain authorized for fleet
+# dispatch; other deployments on this account work but bill Azure without
+# authorization, so a caller cannot use --model to point this adapter at one.
+if [ "$HARNESS" = codex-foundry-luna ] && [ -n "$MODEL" ] && [ "$MODEL" != default ] && [ "$MODEL" != gpt-5.6-luna ]; then
+  echo "error: codex-foundry-luna dispatches the gpt-5.6-luna deployment only; refusing --model '$MODEL'" >&2
+  exit 1
+fi
+
 case "$HARNESS" in
   pi|pi-signed)
     PI_BIN=$(resolve_path_executable "$HARNESS") || {
@@ -1915,10 +1954,11 @@ effort_flag_for_harness() {
         low|medium|high|xhigh|max) printf -- '--effort %s ' "$(shell_quote "$effort")" ;;
       esac
       ;;
-    codex)
+    codex|codex-foundry-luna)
       # The installed codex config schema uses model_reasoning_effort, and the
       # bundled model catalog advertises low|medium|high|xhigh. Omit max rather
-      # than passing an unsupported value.
+      # than passing an unsupported value. codex-foundry-luna is codex itself,
+      # so the same override applies.
       case "$effort" in
         low|medium|high|xhigh) printf -- '-c %s ' "$(shell_quote "model_reasoning_effort=\"$effort\"")" ;;
       esac
@@ -2053,6 +2093,18 @@ rovo_config_override_flag() {
     "$(json_escape "$state_real/$id.status")")
   config_json="{${agent_json}\"toolPermissions\":{\"allowedExternalPaths\":[$paths_json]}}"
   printf -- '--config-override %s ' "$(shell_quote "$config_json")"
+}
+
+# A deterministic loopback port for this task's fm-foundry-luna-proxy.py
+# instance, derived from the task id so concurrent codex-foundry-luna tasks on
+# one host land on distinct ports without a shared allocation registry. The
+# port appears twice in one launch command (the `run --port` flag and inside
+# codex's base_url), so it must be chosen once, here, rather than left to the
+# proxy to self-assign as its own `serve 0` does.
+foundry_luna_port_for_task() {
+  local id=$1 sum
+  sum=$(printf '%s' "$id" | cksum | cut -d' ' -f1)
+  printf '%s' $((40000 + sum % 10000))
 }
 
 resolved_existing_dir() {
@@ -3907,6 +3959,11 @@ if [ "$HARNESS" = rovo ]; then
     exit 1
   }
   LAUNCH=${LAUNCH//__ROVOCONFIGOVERRIDE__/$ROVOCONFIGOVERRIDE}
+fi
+if [ "$HARNESS" = codex-foundry-luna ]; then
+  FOUNDRYLUNAPORT=$(foundry_luna_port_for_task "$ID")
+  LAUNCH=${LAUNCH//__FOUNDRYLUNAPROXY__/"$(shell_quote "$FM_ROOT/bin/fm-foundry-luna-proxy.py")"}
+  LAUNCH=${LAUNCH//__FOUNDRYLUNAPORT__/$FOUNDRYLUNAPORT}
 fi
 LAUNCH=${LAUNCH//__BRIEF__/$sq_brief}
 LAUNCH=${LAUNCH//__TURNEND__/$sq_turnend}

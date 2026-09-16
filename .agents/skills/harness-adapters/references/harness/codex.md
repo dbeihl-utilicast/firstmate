@@ -41,3 +41,13 @@ The tracked hook anchors to `pwd -P`, verifies that root is Firstmate-shaped and
 Codex's primary watcher protocol is `../../../bin/fm-watch-checkpoint.sh --seconds "${FM_CODEX_WATCH_CHECKPOINT:-180}"`, not `../../../bin/fm-watch-arm.sh`.
 Codex cannot reason while a foreground tool call is running, so the checkpoint is deliberately foreground and bounded to return control regularly for user messages and queued notifications.
 Codex's PreToolUse watcher-arm seatbelt blocks directly through its project hook.
+
+## codex-foundry-luna
+
+`codex-foundry-luna` is this same codex binary, repointed at the Azure AI Foundry `gpt-5.6-luna` deployment (account `aih-utilicast-ftiek`) instead of OpenAI's own API.
+Everything above (exit command, skill popup, resume, primary integration) applies unchanged; only model/provider selection differs, so it is a crewmate/scout-only bare adapter name in `bin/fm-spawn.sh`, never a secondmate.
+`bin/fm-spawn.sh`'s launch template runs `bin/fm-foundry-luna-proxy.py run --port <n> -- codex -c ...`: that script starts a loopback-only gateway first, then execs codex as its child with `-c model=`, `model_provider=`, `model_providers.<id>.base_url=`, and `model_providers.<id>.wire_api="responses"` overrides, never `--model`.
+`wire_api = "responses"` is required on codex-cli 0.153.4; `"chat"` fails config load with "no longer supported" even though Foundry's own `/openai/v1/chat/completions` route works fine for a direct HTTP client (verified 2026-09-16).
+No `env_key` is configured: codex sends no Authorization header to a provider with none set, and the proxy supplies the real AAD bearer token itself, fetched fresh via `az account get-access-token` and refreshed before its ~1-hour expiry.
+The gateway also refuses any request whose `model` is not exactly `gpt-5.6-luna`, so a caller cannot repoint it at another deployment on the same account.
+`bin/fm-spawn.sh` refuses a `--model` other than `gpt-5.6-luna` at spawn time too, and refuses `--secondmate` outright; see that script's `codex-foundry-luna` case and guards.
