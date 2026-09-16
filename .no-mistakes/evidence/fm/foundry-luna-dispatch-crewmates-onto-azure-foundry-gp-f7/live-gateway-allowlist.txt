@@ -1,0 +1,20 @@
+$ FM_FOUNDRY_LUNA_LOG=<file> bin/fm-foundry-luna-proxy.py run -- python3 client.py __FOUNDRYLUNAPORT__   # real az token, real Foundry
+authorized gpt-5.6-luna via /openai/v1/responses   -> HTTP 200 model=gpt-5.6-luna status=completed output_items=1 jwt_in_body=False
+unauthorized deployment gpt-5.6-terra in body      -> HTTP 403 error=deployment 'gpt-5.6-terra' is not authorized; only 'gpt-5.6-luna' may be dispatched jwt_in_body=False
+deployment-scoped URL for another deployment       -> HTTP 403 error=route '/openai/deployments/gpt-5.6-terra/chat/completions?api-version=2024-10-21' is not authorized; only '/openai/v1/re jwt_in_body=False
+wrong admission secret                             -> HTTP 401 error=caller is not authorized to use this gateway jwt_in_body=False
+no Authorization header                            -> HTTP 401 error=caller is not authorized to use this gateway jwt_in_body=False
+gateway exit=0; gateway+client stderr bytes: 0; JWT-shaped strings in stdout/stderr/access log: 0
+
+--- access log (FM_FOUNDRY_LUNA_LOG)
+fm-foundry-luna-proxy: "POST /openai/v1/responses HTTP/1.1" 200 -
+fm-foundry-luna-proxy: "POST /openai/v1/responses HTTP/1.1" 403 -
+fm-foundry-luna-proxy: "POST /openai/deployments/gpt-5.6-terra/chat/completions?api-version=2024-10-21 HTTP/1.1" 403 -
+fm-foundry-luna-proxy: code 400, message Bad request version ('64}')
+fm-foundry-luna-proxy: "{"model": "gpt-5.6-luna", "input": "Reply with the single word: pong", "max_output_tokens": 64}" 400 -
+fm-foundry-luna-proxy: "POST /openai/v1/responses HTTP/1.1" 401 -
+fm-foundry-luna-proxy: code 400, message Bad request version ('64}')
+fm-foundry-luna-proxy: "{"model": "gpt-5.6-luna", "input": "Reply with the single word: pong", "max_output_tokens": 64}" 400 -
+fm-foundry-luna-proxy: "POST /openai/v1/responses HTTP/1.1" 401 -
+fm-foundry-luna-proxy: code 400, message Bad request version ('64}')
+fm-foundry-luna-proxy: "{"model": "gpt-5.6-luna", "input": "Reply with the single word: pong", "max_output_tokens": 64}" 400 -

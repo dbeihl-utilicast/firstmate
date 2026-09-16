@@ -1,0 +1,20 @@
+$ bin/fm-foundry-luna-proxy.py run -- codex <launch-template -c overrides, env_key=FM_FOUNDRY_LUNA_SECRET, effort low> --dangerously-bypass-approvals-and-sandbox exec --skip-git-repo-check "Reply with exactly the word pong and nothing else."
+exit=0
+model: gpt-5.6-luna
+provider: fm_foundry_luna
+reasoning effort: low
+final stdout: pong
+JWT-shaped / accessToken strings in codex stdout, stderr, access log: 0
+
+--- access log (FM_FOUNDRY_LUNA_LOG)
+fm-foundry-luna-proxy: code 501, message Unsupported method ('GET')
+fm-foundry-luna-proxy: "GET /openai/v1/models?client_version=0.153.4 HTTP/1.1" 501 -
+fm-foundry-luna-proxy: code 501, message Unsupported method ('GET')
+fm-foundry-luna-proxy: "GET /openai/v1/models?client_version=0.153.4 HTTP/1.1" 501 -
+fm-foundry-luna-proxy: code 501, message Unsupported method ('GET')
+fm-foundry-luna-proxy: "GET /openai/v1/models?client_version=0.153.4 HTTP/1.1" 501 -
+fm-foundry-luna-proxy: code 501, message Unsupported method ('GET')
+fm-foundry-luna-proxy: "GET /openai/v1/models?client_version=0.153.4 HTTP/1.1" 501 -
+fm-foundry-luna-proxy: "POST /openai/v1/responses HTTP/1.1" 200 -
+fm-foundry-luna-proxy: code 501, message Unsupported method ('GET')
+fm-foundry-luna-proxy: "GET /openai/v1/models?client_version=0.153.4 HTTP/1.1" 501 -
