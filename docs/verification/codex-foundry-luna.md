@@ -20,7 +20,7 @@ The subscription id and tenant live in `bin/fm-foundry-luna-proxy.py` and are no
 
 ## The route the dispatched worker actually uses
 
-The launch template in `bin/fm-spawn.sh` pins `model_providers.fm_foundry_luna.base_url` to `http://127.0.0.1:__FOUNDRYLUNAPORT__/openai/v1` and `wire_api` to `responses`, and the gateway replaces that placeholder with the port it has bound before it execs codex.
+The launch template in `bin/fm-spawn.sh` pins `model_providers.fm_foundry_luna.base_url` to `http://127.0.0.1:__FOUNDRYLUNAPORT__/openai/v1` and `wire_api` to `responses`, and the gateway replaces that placeholder with the port it has bound before it starts codex as its child.
 Captured against a local recording server, codex 0.153.4 with that configuration issues exactly two routes:
 
 ```text
