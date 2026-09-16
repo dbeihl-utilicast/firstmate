@@ -1984,9 +1984,8 @@ fi
 
 # Stop a live lock holder whose beacon went stale, but only when the lock's own
 # home, watcher path, and recorded process identity prove it is this home's
-# watcher. TERM first, then KILL, each bounded by FM_WATCHER_EVICT_WAIT seconds.
-WATCHER_EVICT_WAIT=${FM_WATCHER_EVICT_WAIT:-5}
-case "$WATCHER_EVICT_WAIT" in ''|*[!0-9]*|0) WATCHER_EVICT_WAIT=5 ;; esac
+# watcher. TERM first, then KILL, each bounded by fm_watcher_evict_wait seconds.
+WATCHER_EVICT_WAIT=$(fm_watcher_evict_wait)
 evict_stale_watcher() {  # <pid> <staleness>
   local pid=$1 staleness=$2 sig i
   for sig in TERM KILL; do
@@ -2007,6 +2006,10 @@ evict_stale_watcher() {  # <pid> <staleness>
 }
 
 if ! fm_lock_try_acquire "$WATCH_LOCK"; then
+  if [ -n "${FM_LOCK_CREATE_FAILED:-}" ]; then
+    echo "watcher: FAILED - could not create lock $WATCH_LOCK (is the state directory full or unwritable?); no watcher is running." >&2
+    exit 1
+  fi
   BEAT="$STATE/.last-watcher-beat"
   held_pid=${FM_LOCK_HELD_PID:-}
   staleness=

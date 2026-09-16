@@ -767,6 +767,24 @@ test_lock_uncreatable_returns_promptly() {
   [ "$status" -ne 124 ] || fail "lock acquisition kept recursing when the lock could not be created"
   [ "$status" -eq 1 ] || fail "uncreatable lock acquisition did not report failure (status $status)"
   [ ! -e "$lockdir.steal" ] || fail "uncreatable lock acquisition left a steal lock"
+
+  # A full disk, simulated: only the watcher lock's owner directory cannot be made.
+  cat > "$dir/fakebin/mktemp" <<SH
+#!/usr/bin/env bash
+case "\$*" in *.watch.lock.owner.*) exit 1 ;; esac
+exec $(command -v mktemp) "\$@"
+SH
+  chmod +x "$dir/fakebin/mktemp"
+  PATH="$dir/fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$state" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$dir/watch.out" 2>&1 &
+  pid=$!
+  wait_for_exit "$pid" 100
+  status=$?
+  [ "$status" -ne 124 ] || fail "watcher hung when its lock could not be created"
+  ! grep -F 'already running' "$dir/watch.out" >/dev/null \
+    || fail "watcher claimed one was already running when its lock could not be created: $(cat "$dir/watch.out")"
+  [ "$status" -ne 0 ] || fail "watcher exited zero when its lock could not be created: $(cat "$dir/watch.out")"
+  grep -F "could not create lock $state/.watch.lock" "$dir/watch.out" >/dev/null \
+    || fail "watcher did not name the uncreatable lock: $(cat "$dir/watch.out")"
   pass "uncreatable lock fails promptly instead of recursing into steal locks"
 }
 
@@ -1274,7 +1292,7 @@ test_arm_evicts_live_holder_with_stale_beacon() {
     printf '%s\n' "$WATCH" > "$state/.watch.lock/watcher-path"
     printf '%s\n' "$identity" > "$state/.watch.lock/pid-identity"
     touch -t 200001010000 "$state/.last-watcher-beat" "$state/.watch.lock"
-    PATH="$fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$state" FM_WATCHER_EVICT_WAIT=1 FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_ARM_CONFIRM_TIMEOUT=3 "$WATCH_ARM" > "$armout" 2>&1 &
+    PATH="$fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$state" FM_WATCHER_EVICT_WAIT=3 FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_ARM_CONFIRM_TIMEOUT=1 "$WATCH_ARM" > "$armout" 2>&1 &
     armpid=$!
     wait_for_exit "$armpid" 200
     status=$?
