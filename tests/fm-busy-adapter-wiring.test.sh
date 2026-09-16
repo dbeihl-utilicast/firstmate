@@ -27,6 +27,18 @@ make_spawn_case() {  # <name> <harness> <id>
   fm_test_spawn_home "$home" "$harness"
   fm_git_worktree "$proj" "$wt" "wt-$name"
   fm_test_spawn_brief "$home" "$id"
+  # qwen is the one verified local-model harness (bin/fm-harness.sh
+  # is-local-model), so bin/fm-spawn.sh now refuses a qwen ship spawn whose
+  # brief lacks the local-model red-first contract. Every case here still
+  # exercises busy-state wiring, not the contract itself, so the named test
+  # only needs to exist - it is never actually run by these cases.
+  if [ "$harness" = qwen ]; then
+    mkdir -p "$proj/tests"
+    printf '#!/usr/bin/env bash\nexit 1\n' > "$proj/tests/fixture.test.sh"
+    chmod +x "$proj/tests/fixture.test.sh"
+    printf '\n# Local-model red-first contract\nLocal-model contract: enabled\nRed test: tests/fixture.test.sh\n' \
+      >> "$home/data/$id/brief.md"
+  fi
   printf '%s\n' "$case_dir|$home|$proj|$wt|$fakebin"
 }
 
