@@ -170,6 +170,34 @@ test_rejects_when_the_test_still_fails_at_head() {
   pass "fm-local-model-verify.sh: a test still failing at HEAD is rejected before the revert-check runs"
 }
 
+# The PASS check must judge only what the worker committed, never its live
+# worktree: an uncommitted change that happens to make the test pass would
+# otherwise verify a commit that does not actually hold the fix - exactly the
+# class of false success this whole contract exists to catch.
+test_rejects_uncommitted_working_tree_changes_the_committed_head_does_not_have() {
+  local id proj wt fmhome out status
+  id=verify-uncommitted-e1
+  proj=$(new_project "$id")
+  add_red_test "$proj" tests/add.test.sh add
+  wt=$(new_task_worktree "$proj" "$id")
+  echo "irrelevant" > "$wt/README-e1.md"
+  git -C "$wt" add -A
+  git -C "$wt" commit -q -m "no real implementation committed; test still fails at HEAD"
+  # Leave an UNCOMMITTED change that makes the test pass. Only the commit above
+  # is the worker's "done" report; this file must never be judged.
+  cat > "$wt/lib/add.sh" <<'EOF'
+add() { echo $(( $1 + $2 )); }
+EOF
+
+  fmhome="$TMP_ROOT/$id/fmhome"
+  write_meta_and_brief "$fmhome" "$id" "$proj" "$wt" "Red test: tests/add.test.sh"
+  out=$(run_verify "$fmhome" "$id"); status=$?
+  [ "$status" -ne 0 ] || fail "an uncommitted working-tree fix must not verify a commit that lacks it"
+  assert_contains "$out" "does not pass on $id's own committed HEAD" \
+    "uncommitted-change rejection did not explain which half failed"
+  pass "fm-local-model-verify.sh: an uncommitted working-tree change never substitutes for what the worker committed"
+}
+
 # Defense in depth: the verifier re-validates the same three Red-test-line
 # problems bin/fm-spawn.sh already gates at dispatch time, in case it is ever
 # invoked standalone or the brief was hand-edited after spawn.
@@ -206,5 +234,6 @@ test_script_parses
 test_accepts_a_genuine_red_test_that_fails_on_revert
 test_rejects_a_pass_body_test_that_cannot_go_red_on_revert
 test_rejects_when_the_test_still_fails_at_head
+test_rejects_uncommitted_working_tree_changes_the_committed_head_does_not_have
 test_refuses_a_bad_red_test_line_independent_of_fm_spawn
 echo "# all fm-local-model-verify tests passed"

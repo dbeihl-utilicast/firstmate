@@ -5,10 +5,12 @@
 # --local-model-contract), which the worker's worktree can never touch. Run
 # after a local-model worker reports done, before validation starts.
 #
-# Requires, read-only against the worker's own worktree: the named test
-# passes at HEAD; then, in a throwaway linked worktree, the same test fails
-# once every file the branch touched (except the test itself) is reverted to
-# its pre-implementation content. A test that stays green on revert is not
+# Both checks run in a throwaway linked worktree - a clean checkout of the
+# committed branch tip, never $WT itself, so an uncommitted change in the
+# worker's own copy can never stand in for what it actually committed.
+# Requires the named test to pass there, then to fail once every file the
+# branch touched (except the test itself) is reverted to its
+# pre-implementation content. A test that stays green on revert is not
 # testing what it claims to (the pass-body class this contract exists to
 # reject); a test that fails at HEAD means the worker's "done" report was wrong.
 #
@@ -89,12 +91,6 @@ run_named_test() {  # <dir> <path>
   fi
 }
 
-echo "verify $ID: running $RED_TEST on the worker's own committed HEAD (must PASS)"
-if ! run_named_test "$WT" "$RED_TEST"; then
-  echo "error: $RED_TEST does not pass on $ID's own committed HEAD; the worker's done report does not hold" >&2
-  exit 1
-fi
-
 DEFAULT=$(default_branch "$PROJ") || { echo "error: cannot determine default branch for $PROJ" >&2; exit 1; }
 if git -C "$PROJ" remote get-url origin >/dev/null 2>&1; then
   git -C "$WT" fetch origin "+refs/heads/$DEFAULT:refs/remotes/origin/$DEFAULT" --quiet 2>/dev/null || true
@@ -119,6 +115,16 @@ trap cleanup EXIT
 
 git -C "$WT" worktree add --detach --quiet "$SCRATCH" "$BRANCH" \
   || { echo "error: could not create a scratch worktree for the revert-check" >&2; exit 1; }
+
+# Both checks below run only in $SCRATCH, a clean checkout of the committed
+# $BRANCH tip, never in $WT: the worker's own worktree can hold uncommitted
+# changes the committed history does not, and judging those would verify a
+# commit that does not actually hold what it claims to.
+echo "verify $ID: running $RED_TEST on the worker's own committed HEAD (must PASS)"
+if ! run_named_test "$SCRATCH" "$RED_TEST"; then
+  echo "error: $RED_TEST does not pass on $ID's own committed HEAD; the worker's done report does not hold" >&2
+  exit 1
+fi
 
 CHANGED=$(git -C "$WT" diff --name-only "$MB" "$BRANCH" --)
 while IFS= read -r f; do
