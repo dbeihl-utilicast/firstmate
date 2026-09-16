@@ -1,0 +1,85 @@
+/tmp/real-sibling-race.sh: line 34: 3210368 Killed                  bash -c 'trap "" TERM; while :; do :; done'
+trial 1: s1=0 s2=1 escalated=1
+  --- out1 ---
+watcher: evicted live watcher pid 3210368 (heartbeat is stale for 842890237s (>300s)) with SIGKILL
+check: rearm-resurface
+  --- out2 ---
+watcher: lock held by live pid 3210368 but heartbeat is stale for 842890237s (>300s), and it could not be proven to be this home's watcher or did not stop; inspect or stop that watcher before re-arming.
+/tmp/real-sibling-race.sh: line 34: 3216108 Killed                  bash -c 'trap "" TERM; while :; do :; done'
+trial 2: s1=1 s2=0 escalated=1
+  --- out1 ---
+watcher: lock held by live pid 3216108 but heartbeat is stale for 842890239s (>300s), and it could not be proven to be this home's watcher or did not stop; inspect or stop that watcher before re-arming.
+  --- out2 ---
+watcher: evicted live watcher pid 3216108 (heartbeat is stale for 842890239s (>300s)) with SIGKILL
+check: rearm-resurface
+/tmp/real-sibling-race.sh: line 34: 3220803 Killed                  bash -c 'trap "" TERM; while :; do :; done'
+trial 3: s1=0 s2=1 escalated=1
+  --- out1 ---
+watcher: evicted live watcher pid 3220803 (heartbeat is stale for 842890241s (>300s)) with SIGKILL
+check: rearm-resurface
+  --- out2 ---
+watcher: lock held by live pid 3220803 but heartbeat is stale for 842890241s (>300s), and it could not be proven to be this home's watcher or did not stop; inspect or stop that watcher before re-arming.
+/tmp/real-sibling-race.sh: line 34: 3226355 Killed                  bash -c 'trap "" TERM; while :; do :; done'
+trial 4: s1=0 s2=1 escalated=1
+  --- out1 ---
+watcher: evicted live watcher pid 3226355 (heartbeat is stale for 842890243s (>300s)) with SIGKILL
+check: rearm-resurface
+  --- out2 ---
+watcher: lock held by live pid 3226355 but heartbeat is stale for 842890243s (>300s), and it could not be proven to be this home's watcher or did not stop; inspect or stop that watcher before re-arming.
+/tmp/real-sibling-race.sh: line 34: 3230892 Killed                  bash -c 'trap "" TERM; while :; do :; done'
+trial 5: s1=0 s2=1 escalated=1
+  --- out1 ---
+watcher: evicted live watcher pid 3230892 (heartbeat is stale for 842890245s (>300s)) with SIGKILL
+check: rearm-resurface
+  --- out2 ---
+watcher: lock held by live pid 3230892 but heartbeat is stale for 842890245s (>300s), and it could not be proven to be this home's watcher or did not stop; inspect or stop that watcher before re-arming.
+/tmp/real-sibling-race.sh: line 34: 3233770 Killed                  bash -c 'trap "" TERM; while :; do :; done'
+trial 6: s1=0 s2=1 escalated=1
+  --- out1 ---
+watcher: evicted live watcher pid 3233770 (heartbeat is stale for 842890246s (>300s)) with SIGKILL
+check: rearm-resurface
+  --- out2 ---
+watcher: lock held by live pid 3233770 but heartbeat is stale for 842890246s (>300s), and it could not be proven to be this home's watcher or did not stop; inspect or stop that watcher before re-arming.
+/tmp/real-sibling-race.sh: line 34: 3237820 Killed                  bash -c 'trap "" TERM; while :; do :; done'
+trial 7: s1=0 s2=1 escalated=1
+  --- out1 ---
+watcher: evicted live watcher pid 3237820 (heartbeat is stale for 842890248s (>300s)) with SIGKILL
+check: rearm-resurface
+  --- out2 ---
+watcher: lock held by live pid 3237820 but heartbeat is stale for 842890248s (>300s), and it could not be proven to be this home's watcher or did not stop; inspect or stop that watcher before re-arming.
+/tmp/real-sibling-race.sh: line 34: 3240787 Killed                  bash -c 'trap "" TERM; while :; do :; done'
+trial 8: s1=1 s2=0 escalated=1
+  --- out1 ---
+watcher: lock held by live pid 3240787 but heartbeat is stale for 842890250s (>300s), and it could not be proven to be this home's watcher or did not stop; inspect or stop that watcher before re-arming.
+  --- out2 ---
+watcher: evicted live watcher pid 3240787 (heartbeat is stale for 842890250s (>300s)) with SIGKILL
+check: rearm-resurface
+/tmp/real-sibling-race.sh: line 34: 3244681 Killed                  bash -c 'trap "" TERM; while :; do :; done'
+trial 9: s1=0 s2=1 escalated=1
+  --- out1 ---
+watcher: evicted live watcher pid 3244681 (heartbeat is stale for 842890252s (>300s)) with SIGKILL
+check: rearm-resurface
+  --- out2 ---
+watcher: lock held by live pid 3244681 but heartbeat is stale for 842890252s (>300s), and it could not be proven to be this home's watcher or did not stop; inspect or stop that watcher before re-arming.
+/tmp/real-sibling-race.sh: line 34: 3248471 Killed                  bash -c 'trap "" TERM; while :; do :; done'
+trial 10: s1=0 s2=1 escalated=1
+  --- out1 ---
+watcher: evicted live watcher pid 3248471 (heartbeat is stale for 842890254s (>300s)) with SIGKILL
+check: rearm-resurface
+  --- out2 ---
+watcher: lock held by live pid 3248471 but heartbeat is stale for 842890254s (>300s), and it could not be proven to be this home's watcher or did not stop; inspect or stop that watcher before re-arming.
+/tmp/real-sibling-race.sh: line 34: 3252670 Killed                  bash -c 'trap "" TERM; while :; do :; done'
+trial 11: s1=1 s2=0 escalated=1
+  --- out1 ---
+watcher: lock held by live pid 3252670 but heartbeat is stale for 842890256s (>300s), and it could not be proven to be this home's watcher or did not stop; inspect or stop that watcher before re-arming.
+  --- out2 ---
+watcher: evicted live watcher pid 3252670 (heartbeat is stale for 842890256s (>300s)) with SIGKILL
+check: rearm-resurface
+/tmp/real-sibling-race.sh: line 34: 3257143 Killed                  bash -c 'trap "" TERM; while :; do :; done'
+trial 12: s1=0 s2=1 escalated=1
+  --- out1 ---
+watcher: evicted live watcher pid 3257143 (heartbeat is stale for 842890258s (>300s)) with SIGKILL
+check: rearm-resurface
+  --- out2 ---
+watcher: lock held by live pid 3257143 but heartbeat is stale for 842890258s (>300s), and it could not be proven to be this home's watcher or did not stop; inspect or stop that watcher before re-arming.
+DONE fail=1

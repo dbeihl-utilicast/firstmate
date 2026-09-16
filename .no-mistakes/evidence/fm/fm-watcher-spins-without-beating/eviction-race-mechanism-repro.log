@@ -1,0 +1,8 @@
+/tmp/single-trial.sh: line 30: 3140911 Killed                  bash -c 'trap "" TERM; while :; do :; done'
+s1=1 s2=0
+=== out1 ===
+watcher: lock held by live pid 3140911 but heartbeat is stale for 842890199s (>300s), and it could not be proven to be this home's watcher or did not stop; inspect or stop that watcher before re-arming.
+=== out2 ===
+watcher: evicted live watcher pid 3140911 (heartbeat is stale for 842890199s (>300s)) with SIGKILL
+check: rearm-resurface
+dir=/tmp/real-sib-race.NAiQ1l holder=3140911

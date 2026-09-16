@@ -1,0 +1,26 @@
+Manual live reproduction (not a test-harness run) of defect #1's fix: a live,
+TERM-ignoring process holding bin/fm-watch.sh's lock with a stale beacon must
+be evicted rather than blocking replacement indefinitely.
+
+Setup: a real bash process trapping SIGTERM was recorded as the lock holder
+(pid, fm-home, watcher-path, pid-identity all matching this home), with the
+beacon file backdated to 2000-01-01 so it reads as stale.
+
+Command:
+  PATH="$ROOT/tests/fakebin:$PATH" FM_HOME="$DIR" FM_STATE_OVERRIDE="$STATE" \
+    FM_WATCHER_EVICT_WAIT=2 FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 \
+    FM_HEARTBEAT=999999 timeout 20 bin/fm-watch.sh
+
+Output:
+  watcher: evicted live watcher pid 1446708 (heartbeat is stale for 842891487s (>300s)) with SIGKILL
+  check: rearm-resurface
+  exit status: 0
+
+Holder liveness after run: dead (confirmed via kill -0).
+
+This shows the real fm-watch.sh binary escalating from SIGTERM (ignored by the
+holder, per its trap) to SIGKILL, successfully reclaiming the lock from a live
+hung holder, and exiting 0 having surfaced a recovery wake — the core behavior
+required by user intent defect #1 ("Either evict a live holder on a stale
+beacon the way a dead one is evicted, or escalate something actionable
+instead of refusing").
