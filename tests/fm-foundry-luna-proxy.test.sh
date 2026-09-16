@@ -769,7 +769,10 @@ SH
   ran="$TMP_ROOT/broken-child-ran"
   rm -f "$ran"
   child_script="$TMP_ROOT/broken-child.sh"
-  printf '#!/usr/bin/env bash\ntouch "$1"\n' > "$child_script"
+  cat > "$child_script" <<'SH'
+#!/usr/bin/env bash
+touch "$1"
+SH
   chmod +x "$child_script"
 
   PATH="$az_dir:$PATH" \
