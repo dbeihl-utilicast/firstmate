@@ -1,0 +1,41 @@
+bin/fm-lint.sh - the owner pinned as commands.lint in .no-mistakes.yaml and invoked by
+the always-running CI Lint job - driven on a real clone, on a documentation-only branch
+with CI unset: exactly the local pre-push path a prose-only pull request takes, and the
+path where the new CI skip retires the behavior lanes.
+
+
+----- 1. docs-only branch, CI unset (the LOCAL pre-push path) - clean docs -----
+fm-lint.sh: no changed lint targets
+fm-lint-workflows.sh: 3 workflow files valid
+fm-doc-audience-check: ok surfaces=109 local_links=429
+exit=0
+
+----- 2. same branch, but the prose commit BREAKS a local link (regression) -----
+fm-lint.sh: no changed lint targets
+fm-lint-workflows.sh: 3 workflow files valid
+fm-doc-audience-check: unresolved local link in README.md: docs/this-page-does-not-exist.md
+exit=1
+
+----- 3. same branch, prose commit adds an UNCLASSIFIED doc surface -----
+fm-lint.sh: no changed lint targets
+fm-lint-workflows.sh: 3 workflow files valid
+fm-doc-audience-check: unclassified: docs/probe-new-surface.md
+exit=1
+
+Reading: with zero changed shell files the lint owner still runs the documentation
+audience audit, and it turns red for both failure modes the retired lane used to catch.
+
+############## THE SEAM, DRIVEN END TO END ##############
+One commit that renames a documentation page, run through BOTH halves in sequence:
+the classifier that retires the behavior lanes, then the Lint job that always runs.
+
+--- classifier verdict for this exact commit ---
+docs_only=true
+--- the always-running lint job on the same commit ---
+fm-lint.sh: no changed lint targets
+fm-lint-workflows.sh: 3 workflow files valid
+fm-doc-audience-check: unclassified: docs/architecture-renamed.md; not tracked/in scope: docs/architecture.md
+exit=1
+
+Reading: the six behavior lanes are skipped for this commit, and the regression they would
+have caught is still caught, by a job the classifier cannot gate.

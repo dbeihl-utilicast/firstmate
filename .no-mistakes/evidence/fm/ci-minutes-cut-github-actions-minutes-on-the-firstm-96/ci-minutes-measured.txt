@@ -1,0 +1,38 @@
+MEASURED CI MINUTES - dbeihl-utilicast/firstmate, workflow .github/workflows/ci.yml
+window 2026-09-11 .. 2026-09-16  (4.5 days, 50 runs, 13 jobs per run)
+source: GitHub Actions REST API run+job timestamps, each job rounded up to the whole minute as GitHub bills it
+
+                                     raw job-minutes    billed (macOS x10)
+total in window                                 6900                  9150
+  the 6 classifier-gated lanes                  6141                  8391
+  always-run (lint/cov/invariants)               759                   759
+BEFORE, per 30 days at this cadence             45512                 60353
+
+LEVER 1 - cancel superseded runs
+  7 of 29 pull_request runs in the window were already obsolete when they finished
+  (a later push to the same branch replaced that head) yet ran all 13 jobs to completion
+  they consumed 947 raw / 1253 billed minutes = 14% of the window
+  AFTER (upper bound, a cancel still pays elapsed time): 52088 billed min / 30 days
+
+LEVER 2 - skip the heavy lanes on a documentation-only diff
+  average pull_request run: 180 billed min, of which 165 min is the 6 gated lanes
+  0 of the 29 pull_request runs in this window carried a documentation-only diff, so this lever
+  contributes 0 MEASURED minutes here; it removes ~165 billed min from each future prose-only PR run
+  (4 jobs still run on such a PR: Detect change scope, Lint, Test coverage guard, Repo invariants)
+
+longest 6 runs in the window:
+  35017502756 push          09-15 20:05 success    146 raw /  209 billed min  main
+  34609190262 push          09-11 14:16 success    143 raw /  206 billed min  main
+  34892515188 push          09-14 20:22 failure    143 raw /  197 billed min  main
+  34981989403 push          09-15 14:29 cancelled  151 raw /  196 billed min  main
+  35009490542 pull_request  09-15 18:45 success    142 raw /  196 billed min  fm/fm-update-wedge-fm-update-wedges-be
+  35022182648 push          09-15 20:51 failure    141 raw /  195 billed min  main
+
+superseded runs that the concurrency block would now cancel:
+  34623317549 09-11 16:40  130 raw /  184 billed min  fm/fork-branch-currency
+  34640511876 09-11 19:45  138 raw /  192 billed min  fm/fork-branch-currency
+  34772684307 09-13 17:48  139 raw /  184 billed min  fm/pr6-nomistakes-route
+  34775462713 09-13 18:42  133 raw /  169 billed min  fm/pr6-nomistakes-route
+  34882116244 09-14 18:39  137 raw /  164 billed min  fm/running-list-read-only-lavish-view-of-the
+  34903869062 09-14 22:23  135 raw /  171 billed min  fm/quiescence-ship
+  34922261041 09-15 02:43  135 raw /  189 billed min  fm/bash32-empty-bash-3-2-empty-array-aborts-

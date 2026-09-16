@@ -1,0 +1,50 @@
+The classify step from .github/workflows/ci.yml, extracted VERBATIM from the parsed
+workflow and executed against real clones of this repository with real commits.
+docs_only=true is the verdict that skips the six behavior lanes.
+
+base commit: 78fcc8eb14867fb0744881c29fbd366f4c5294f0
+
+SCENARIO                                                   | CHANGED PATHS                                         | CLASSIFIER VERDICT
+======================================================================================================================================================
+prose-only: README.md typo                                 | changed=README.md                                    | docs_only=true | step_rc=0
+prose-only: VISION.md (unmapped doc)                       | changed=VISION.md                                    | docs_only=false | step_rc=0
+runtime prose: docs/supervision-protocols/codex.md         | changed=docs/supervision-protocols/codex.md          | docs_only=false | step_rc=0
+runtime prose: .agents/skills harness-adapters SKILL.md    | changed=.agents/skills/harness-adapters/SKILL.md     | docs_only=false | step_rc=0
+runtime prose: AGENTS.md                                   | changed=AGENTS.md                                    | docs_only=false | step_rc=0
+non-md docs fixture: docs/examples/*.json                  | changed=docs/examples/crew-dispatch.json             | docs_only=false | step_rc=0
+code: bin/fm-lint.sh                                       | changed=bin/fm-lint.sh                               | docs_only=false | step_rc=0
+code: .github/workflows/ci.yml                             | changed=.github/workflows/ci.yml                     | docs_only=false | step_rc=0
+mixed: README.md + bin/fm-lint.sh                          | changed=README.md,bin/fm-lint.sh                     | docs_only=false | step_rc=0
+
+ADVERSARIAL SCENARIO                                 | CLASSIFIER VERDICT
+==============================================================================================================
+prose-only: docs/architecture.md                     | docs_only=true | step_rc=0
+prose-only: LICENSE                                  | docs_only=false | step_rc=0
+On branch probe
+nothing to commit, working tree clean
+empty diff (no commit)                               | docs_only=false | step_rc=0
+unreachable BASE_SHA (force-push shape)              | docs_only=<NOT WRITTEN> | step_rc=128
+      step stderr: fatal: Invalid symmetric difference expression deadbeefdeadbeefdeadbeefdeadbeefdeadbeef...HEAD 
+selector exits non-zero on README-only diff          | docs_only=false | step_rc=0
+selector prints junk to stdout, README-only          | docs_only=false | step_rc=0
+
+Reading: only genuinely inert prose (README.md, an unmapped docs/*.md) classifies as
+documentation-only. Every runtime-prose path the review rounds named - a supervision
+protocol the fm-supervision-instructions script reads, a SKILL.md carrying a parsed
+JSON block, AGENTS.md, a non-.md docs/examples fixture - classifies as false and keeps
+the lanes. A broken selector, an empty diff and an unreachable base all fall to false
+or to a red job, never to true.
+
+############## BOUNDARY CASES: delete / rename / add ##############
+BOUNDARY SCENARIO                                        | CLASSIFIER VERDICT
+===============================================================================================
+DELETE an inert prose file (docs/*.md)                   | docs_only=true | rc=0
+DELETE a runtime prose file (supervision protocol)       | docs_only=false | rc=0
+RENAME docs/*.md -> docs/other.md                        | docs_only=true | rc=0
+ADD a brand-new docs/*.md page                           | docs_only=true | rc=0
+ADD a new .md at repo root                               | docs_only=false | rc=0
+prose in skills/stow/SKILL.md (unmapped)                 | docs_only=false | rc=0
+
+Reading: a delete, a rename and a brand-new docs page can all reach docs_only=true, which
+is where the skipped tests/fm-documentation-audiences.test.sh lane used to be the only
+control. The pairing that closes that seam is driven end to end in lint-doc-audience.txt.

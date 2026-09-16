@@ -1,0 +1,18 @@
+Concurrency group strings, evaluated with GitHub's own expression engine from the
+real ci.yml concurrency block, under each event context.
+
+pull_request run 1 (PR #96, sha aaaa)              group=ci-pull_request-96           cancel-in-progress=true
+pull_request run 2 (PR #96, sha bbbb - fix round)  group=ci-pull_request-96           cancel-in-progress=true
+pull_request run 3 (PR #97, sha cccc)              group=ci-pull_request-97           cancel-in-progress=true
+push to main, merge commit dddd                    group=ci-push-dddd                 cancel-in-progress=false
+push to main, next merge commit eeee               group=ci-push-eeee                 cancel-in-progress=false
+Same pull_request event (PR #96) evaluated against every workflow that declares a concurrency group:
+  ci                     group=ci-pull_request-96                         cancel-in-progress=true
+  no-mistakes-required   group=no-mistakes-required-96-head-change        cancel-in-progress=True
+
+collision across workflows? no - every group string is distinct
+
+Reading: two runs on the SAME pull request share one group and cancel-in-progress is
+true, so a fix-round push cancels the superseded run. Every push to main lands in its
+own github.sha-keyed group AND carries cancel-in-progress=false, so a default-branch
+run can neither cancel another nor be cancelled.

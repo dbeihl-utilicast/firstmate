@@ -1,0 +1,60 @@
+Driving GitHub's OWN Actions expression engine (@actions/expressions v0.3.61, the
+library GitHub publishes and uses to evaluate workflow expressions) over the real
+if: / needs: expressions parsed out of .github/workflows/ci.yml as YAML.
+success()/failure()/cancelled()/always() are supplied per job-outcome scenario, and
+GitHub's implicit-success() rule for a job-level if is applied by walking the parsed
+AST for a status-check FunctionCall node.
+
+############## PART 1: the shipped ci.yml ##############
+LANE                              classifier FAILED (c  classifier SKIPPED (  classifier ok, no ve  classifier ok, docs_  classifier ok, docs_  run CANCELLED (super  
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+tests-portable-parallel-1         RUNS                  RUNS                  RUNS                  RUNS                  skip                  skip                  
+tests-portable-parallel-2         RUNS                  RUNS                  RUNS                  RUNS                  skip                  skip                  
+tests-portable-serial             RUNS                  RUNS                  RUNS                  RUNS                  skip                  skip                  
+tests-herdr                       RUNS                  RUNS                  RUNS                  RUNS                  skip                  skip                  
+tests-timing-aggregate            RUNS                  RUNS                  RUNS                  RUNS                  skip                  skip                  
+macos-stock-bash                  RUNS                  RUNS                  RUNS                  RUNS                  skip                  skip                  
+
+legend: expected per column -> classifier FAILED (clone/diff error, force-push)=RUNS | classifier SKIPPED (push to main)=RUNS | classifier ok, no verdict written=RUNS | classifier ok, docs_only=false (code diff)=RUNS | classifier ok, docs_only=true (prose diff)=skip | run CANCELLED (superseded by fix-round push)=skip
+
+implicit-success() gate dropped (condition names a status function)?
+  tests-portable-parallel-1      yes
+  tests-portable-parallel-2      yes
+  tests-portable-serial          yes
+  tests-herdr                    yes
+  tests-timing-aggregate         yes
+  macos-stock-bash               yes
+
+classifier job `if`: github.event_name == 'pull_request'
+  event=pull_request         classifier RUNS
+  event=push                 classifier does not run
+  event=workflow_dispatch    classifier does not run
+
+############## PART 2: NEGATIVE CONTROL ##############
+Same driver, fed the fail-open condition shapes this branch shipped before the
+review rounds (bare needs.changes.outputs.docs_only != 'true' on the lanes, bare
+always() on tests-timing-aggregate). The driver must mark these WRONG.
+
+LANE                              classifier FAILED (c  classifier SKIPPED (  classifier ok, no ve  classifier ok, docs_  classifier ok, docs_  run CANCELLED (super  
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+tests-portable-parallel-1         skip <<WRONG          RUNS                  RUNS                  RUNS                  skip                  skip                  
+tests-portable-parallel-2         skip <<WRONG          RUNS                  RUNS                  RUNS                  skip                  skip                  
+tests-portable-serial             skip <<WRONG          RUNS                  RUNS                  RUNS                  skip                  skip                  
+tests-herdr                       skip <<WRONG          RUNS                  RUNS                  RUNS                  skip                  skip                  
+tests-timing-aggregate            RUNS                  RUNS                  RUNS                  RUNS                  RUNS <<WRONG          RUNS <<WRONG          
+macos-stock-bash                  skip <<WRONG          RUNS                  RUNS                  RUNS                  skip                  skip                  
+
+legend: expected per column -> classifier FAILED (clone/diff error, force-push)=RUNS | classifier SKIPPED (push to main)=RUNS | classifier ok, no verdict written=RUNS | classifier ok, docs_only=false (code diff)=RUNS | classifier ok, docs_only=true (prose diff)=skip | run CANCELLED (superseded by fix-round push)=skip
+
+implicit-success() gate dropped (condition names a status function)?
+  tests-portable-parallel-1      NO  <<fail-open shape
+  tests-portable-parallel-2      NO  <<fail-open shape
+  tests-portable-serial          NO  <<fail-open shape
+  tests-herdr                    NO  <<fail-open shape
+  tests-timing-aggregate         yes
+  macos-stock-bash               NO  <<fail-open shape
+
+classifier job `if`: github.event_name == 'pull_request'
+  event=pull_request         classifier RUNS
+  event=push                 classifier does not run
+  event=workflow_dispatch    classifier does not run

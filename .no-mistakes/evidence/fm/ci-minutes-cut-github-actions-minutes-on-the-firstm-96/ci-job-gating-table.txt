@@ -1,0 +1,17 @@
+triggers: {'push': {'branches': ['main']}, 'pull_request': {'branches': ['main']}}
+
+JOB                              NEEDS          GATED BY CLASSIFIER? RUNS-ON
+changes                          -              n/a (classifier)     ubuntu-latest
+lint                             -              NO - always runs     ubuntu-latest
+test-coverage                    -              NO - always runs     ubuntu-latest
+tests-portable-parallel-1        changes        yes                  ubuntu-latest
+tests-portable-parallel-2        changes        yes                  ubuntu-latest
+tests-portable-serial            changes        yes                  ubuntu-latest
+tests-herdr                      changes        yes                  ubuntu-latest
+tests-timing-aggregate           changes,tests- yes                  ubuntu-latest
+macos-stock-bash                 changes        yes                  macos-latest
+invariants                       -              NO - always runs     ubuntu-latest
+
+lint step: Install pinned ShellCheck -> set -eu ; bin/fm-install-shellcheck.sh "$RUNNER_TEMP/bin" ; echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+lint step: Install pinned actionlint -> set -eu ; bin/fm-install-actionlint.sh "$RUNNER_TEMP/bin" ; echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+lint step: None -> bin/fm-lint.sh
