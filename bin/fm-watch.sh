@@ -2028,15 +2028,24 @@ if ! fm_lock_try_acquire "$WATCH_LOCK"; then
       echo "watcher: lock held by live pid $held_pid but $staleness, and it could not be proven to be this home's watcher or did not stop; inspect or stop that watcher before re-arming." >&2
       exit 1
     fi
-    if ! fm_lock_try_acquire "$WATCH_LOCK"; then
+    reacquire_tries=0
+    until fm_lock_try_acquire "$WATCH_LOCK"; do
       winner_pid=${FM_LOCK_HELD_PID:-}
       if [ -n "$winner_pid" ] && fm_pid_alive "$winner_pid"; then
         echo "watcher: already running pid $winner_pid"
         exit 0
       fi
-      echo "watcher: lock held by live pid $held_pid but $staleness, and it could not be proven to be this home's watcher or did not stop; inspect or stop that watcher before re-arming." >&2
-      exit 1
-    fi
+      # A sibling evictor racing the same stale holder can be mid steal-mutex
+      # hold right when this process re-reads the lock, so a live winner's pid
+      # is transiently unreadable; retry briefly before concluding recovery
+      # failed outright.
+      reacquire_tries=$((reacquire_tries + 1))
+      if [ "$reacquire_tries" -ge 20 ]; then
+        echo "watcher: lock held by live pid $held_pid but $staleness, and it could not be proven to be this home's watcher or did not stop; inspect or stop that watcher before re-arming." >&2
+        exit 1
+      fi
+      sleep 0.1
+    done
   elif [ -n "$held_pid" ]; then
     echo "watcher: already running pid $held_pid"
     exit 0
