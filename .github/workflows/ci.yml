@@ -507,6 +507,33 @@ jobs:
             exit 1
           }
 
+  # Fails when a pattern from a repo-secret private list matches the tracked
+  # tree, and on a pull request also the diff. Always runs, including
+  # docs-only PRs: it is cheap and this is the mechanism that keeps a private
+  # customer/company identifier from returning to a public repo. The script
+  # fails closed (exit 1) when FM_PRIVATE_PATTERNS is unset or empty, and
+  # GitHub does not expose repository secrets to a pull_request run triggered
+  # from a fork, so a fork PR fails closed here rather than silently skipping
+  # the check; no separate fork detection is needed.
+  private-pattern-check:
+    name: Private pattern check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Scan tree (and diff, on a pull request) for private patterns
+        env:
+          FM_PRIVATE_PATTERNS: ${{ secrets.FM_PRIVATE_PATTERNS }}
+        run: |
+          set -eu
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            bin/fm-private-pattern-check.sh \
+              --diff-range '${{ github.event.pull_request.base.sha }}...${{ github.sha }}'
+          else
+            bin/fm-private-pattern-check.sh
+          fi
+
   invariants:
     name: Repo invariants
     runs-on: ubuntu-latest
