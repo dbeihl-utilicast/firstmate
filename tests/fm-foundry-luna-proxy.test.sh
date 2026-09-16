@@ -18,9 +18,9 @@ set -u
 PROXY="$ROOT/bin/fm-foundry-luna-proxy.py"
 TMP_ROOT=$(fm_test_tmproot fm-foundry-luna-proxy)
 
-# The per-task secret the gateway admits, standing in for the value
-# bin/fm-spawn.sh mints per spawn. A nonsecret fixture string that resembles no
-# real credential.
+# The secret a foreground `serve` gateway admits, for the cases that drive it
+# with curl rather than through a wrapped child. A nonsecret fixture string that
+# resembles no real credential; `run` mints its own and hands it to its child.
 GATEWAY_SECRET=fm-test-gateway-fixture-not-a-credential
 AUTH_HEADER="Authorization: Bearer $GATEWAY_SECRET"
 
@@ -100,7 +100,7 @@ fm_start_proxy() {
   portfile=$(mktemp "$TMP_ROOT/proxy-port.XXXXXX")
   PATH="$az_dir:$PATH" \
     FM_FOUNDRY_LUNA_TEST_UPSTREAM_HOST="127.0.0.1:$upstream_port" \
-    FM_FOUNDRY_LUNA_SECRET="$GATEWAY_SECRET" \
+    FM_FOUNDRY_LUNA_TEST_SECRET="$GATEWAY_SECRET" \
     python3 "$PROXY" serve 0 > "$portfile" 2>"$TMP_ROOT/proxy-err-$$" &
   local pid=$!
   local port=
@@ -426,7 +426,6 @@ test_run_mode_is_silent_unless_an_access_log_file_is_named() {
   quiet_err="$TMP_ROOT/quiet-stderr"
   PATH="$az_dir:$PATH" \
     FM_FOUNDRY_LUNA_TEST_UPSTREAM_HOST="127.0.0.1:$upstream_port" \
-    FM_FOUNDRY_LUNA_SECRET="$GATEWAY_SECRET" \
     python3 "$PROXY" run -- "$child_script" __FOUNDRYLUNAPORT__ "$probe" \
     > "$TMP_ROOT/quiet-stdout" 2>"$quiet_err"
   expect_code 200 "$(cat "$probe")" "the wrapped command's request must still be relayed"
@@ -439,7 +438,6 @@ test_run_mode_is_silent_unless_an_access_log_file_is_named() {
   loud_err="$TMP_ROOT/loud-stderr"
   PATH="$az_dir:$PATH" \
     FM_FOUNDRY_LUNA_TEST_UPSTREAM_HOST="127.0.0.1:$upstream_port" \
-    FM_FOUNDRY_LUNA_SECRET="$GATEWAY_SECRET" \
     FM_FOUNDRY_LUNA_LOG="$access_log" \
     python3 "$PROXY" run -- "$child_script" __FOUNDRYLUNAPORT__ "$probe" \
     > /dev/null 2>"$loud_err"
@@ -462,7 +460,6 @@ test_run_mode_is_silent_unless_an_access_log_file_is_named() {
   error_quiet_err="$TMP_ROOT/error-quiet-stderr"
   PATH="$az_dir:$PATH" \
     FM_FOUNDRY_LUNA_TEST_UPSTREAM_HOST="127.0.0.1:1" \
-    FM_FOUNDRY_LUNA_SECRET="$GATEWAY_SECRET" \
     python3 "$PROXY" run -- "$child_script" __FOUNDRYLUNAPORT__ "$error_probe" \
     > "$TMP_ROOT/error-quiet-stdout" 2>"$error_quiet_err"
   [ ! -s "$error_quiet_err" ] \
@@ -474,7 +471,6 @@ test_run_mode_is_silent_unless_an_access_log_file_is_named() {
   error_loud_err="$TMP_ROOT/error-loud-stderr"
   PATH="$az_dir:$PATH" \
     FM_FOUNDRY_LUNA_TEST_UPSTREAM_HOST="127.0.0.1:1" \
-    FM_FOUNDRY_LUNA_SECRET="$GATEWAY_SECRET" \
     FM_FOUNDRY_LUNA_LOG="$error_log" \
     python3 "$PROXY" run -- "$child_script" __FOUNDRYLUNAPORT__ "$error_probe" \
     > /dev/null 2>"$error_loud_err"
@@ -509,7 +505,6 @@ test_run_subcommand_serves_while_the_child_runs_then_stops() {
   port_probe="$TMP_ROOT/run-port-probe"
   PATH="$az_dir:$PATH" \
     FM_FOUNDRY_LUNA_TEST_UPSTREAM_HOST="127.0.0.1:$upstream_port" \
-    FM_FOUNDRY_LUNA_SECRET="$GATEWAY_SECRET" \
     python3 "$PROXY" run -- "$child_script" __FOUNDRYLUNAPORT__ "$port_probe" "$TMP_ROOT/run-port-seen"
   run_status=$?
 
@@ -526,6 +521,106 @@ test_run_subcommand_serves_while_the_child_runs_then_stops() {
   ! curl -sS -o /dev/null --max-time 1 "http://127.0.0.1:$served_port/openai/v1/responses" 2>/dev/null \
     || fail "the gateway must stop listening once the wrapped command exits"
   pass "fm-foundry-luna-proxy: 'run' serves the wrapped command on the port it resolves for it, and stops when the command exits"
+}
+
+test_run_mints_the_admission_secret_into_its_child_environment_only() {
+  local az_dir calls upstream_info upstream_pid upstream_port upstream_log
+  local child_script len_a len_b digest_a digest_b
+
+  az_dir="$TMP_ROOT/az-mint"
+  calls="$TMP_ROOT/az-mint-calls"
+  fm_write_fake_az "$az_dir" "$calls"
+
+  upstream_log="$TMP_ROOT/upstream-mint.log"
+  : > "$upstream_log"
+  upstream_info=$(fm_start_fake_upstream "$upstream_log")
+  upstream_pid=${upstream_info%% *}
+  upstream_port=${upstream_info##* }
+
+  # Reports its secret's LENGTH and DIGEST, never the value, plus whether that
+  # value is visible in its own or the gateway's command line - the /proc
+  # exposure any local uid can read when a secret rides a launch command.
+  child_script="$TMP_ROOT/mint-child.sh"
+  cat > "$child_script" <<'SH'
+#!/usr/bin/env bash
+set -u
+port=$1
+printf '%s\n' "${#FM_FOUNDRY_LUNA_SECRET}" > "$3"
+printf '%s' "$FM_FOUNDRY_LUNA_SECRET" | sha256sum | cut -d' ' -f1 > "$4"
+if ps -ww -o args= -p $$ -p "$PPID" 2>/dev/null | grep -qF -- "$FM_FOUNDRY_LUNA_SECRET"; then
+  printf 'leaked\n' > "$5"
+else
+  printf 'clean\n' > "$5"
+fi
+curl -s -o /dev/null -w '%{http_code}' \
+  -X POST "http://127.0.0.1:$port/openai/v1/responses" \
+  -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $FM_FOUNDRY_LUNA_SECRET" \
+  -d '{"model":"gpt-5.6-luna","input":[]}' 2>/dev/null > "$2"
+SH
+  chmod +x "$child_script"
+
+  PATH="$az_dir:$PATH" \
+    FM_FOUNDRY_LUNA_TEST_UPSTREAM_HOST="127.0.0.1:$upstream_port" \
+    python3 "$PROXY" run -- "$child_script" __FOUNDRYLUNAPORT__ \
+      "$TMP_ROOT/mint-status-a" "$TMP_ROOT/mint-len-a" "$TMP_ROOT/mint-digest-a" "$TMP_ROOT/mint-argv-a" \
+    > "$TMP_ROOT/mint-stdout" 2>"$TMP_ROOT/mint-stderr"
+  PATH="$az_dir:$PATH" \
+    FM_FOUNDRY_LUNA_TEST_UPSTREAM_HOST="127.0.0.1:$upstream_port" \
+    python3 "$PROXY" run -- "$child_script" __FOUNDRYLUNAPORT__ \
+      "$TMP_ROOT/mint-status-b" "$TMP_ROOT/mint-len-b" "$TMP_ROOT/mint-digest-b" "$TMP_ROOT/mint-argv-b" \
+    > /dev/null 2>>"$TMP_ROOT/mint-stderr"
+
+  kill "$upstream_pid" 2>/dev/null
+  wait "$upstream_pid" 2>/dev/null
+
+  expect_code 200 "$(cat "$TMP_ROOT/mint-status-a")" \
+    "the child must be admitted by the secret the gateway put in its environment"
+  assert_equals "clean" "$(cat "$TMP_ROOT/mint-argv-a")" \
+    "the admission secret must never appear in the child's or the gateway's command line"
+  assert_equals "clean" "$(cat "$TMP_ROOT/mint-argv-b")" \
+    "the admission secret must never appear in the child's or the gateway's command line"
+  len_a=$(cat "$TMP_ROOT/mint-len-a")
+  len_b=$(cat "$TMP_ROOT/mint-len-b")
+  assert_equals "64" "$len_a" "the gateway must mint a full-length secret, not inherit a placeholder"
+  assert_equals "64" "$len_b" "the gateway must mint a full-length secret, not inherit a placeholder"
+  digest_a=$(cat "$TMP_ROOT/mint-digest-a")
+  digest_b=$(cat "$TMP_ROOT/mint-digest-b")
+  assert_not_equals "$digest_a" "$digest_b" \
+    "each launch must mint its own admission secret, never reuse one across launches"
+  [ ! -s "$TMP_ROOT/mint-stderr" ] && [ ! -s "$TMP_ROOT/mint-stdout" ] \
+    || fail "minting must stay silent on the pane's stdio: $(cat "$TMP_ROOT/mint-stderr" "$TMP_ROOT/mint-stdout")"
+  pass "fm-foundry-luna-proxy: 'run' mints its own admission secret and hands it only to its child's environment"
+}
+
+test_run_reports_a_wrapped_command_it_cannot_start_without_a_traceback() {
+  local az_dir calls status log
+
+  az_dir="$TMP_ROOT/az-nochild"
+  calls="$TMP_ROOT/az-nochild-calls"
+  fm_write_fake_az "$az_dir" "$calls"
+
+  PATH="$az_dir:$PATH" \
+    python3 "$PROXY" run -- "$TMP_ROOT/no-such-command-here" \
+    > "$TMP_ROOT/nochild-stdout" 2>"$TMP_ROOT/nochild-stderr"
+  status=$?
+
+  [ "$status" -ne 0 ] || fail "run must not report success when the wrapped command never started"
+  [ ! -s "$TMP_ROOT/nochild-stderr" ] \
+    || fail "an unstartable wrapped command must not print a traceback to the pane, got: $(cat "$TMP_ROOT/nochild-stderr")"
+  [ ! -s "$TMP_ROOT/nochild-stdout" ] \
+    || fail "an unstartable wrapped command must not print to the pane's stdout, got: $(cat "$TMP_ROOT/nochild-stdout")"
+
+  log="$TMP_ROOT/nochild-access.log"
+  PATH="$az_dir:$PATH" \
+    FM_FOUNDRY_LUNA_LOG="$log" \
+    python3 "$PROXY" run -- "$TMP_ROOT/no-such-command-here" \
+    > /dev/null 2>"$TMP_ROOT/nochild-loud-stderr"
+  [ ! -s "$TMP_ROOT/nochild-loud-stderr" ] \
+    || fail "a named access log must catch the unstartable command too, got: $(cat "$TMP_ROOT/nochild-loud-stderr")"
+  [ -s "$log" ] \
+    || fail "a named access log must record that the wrapped command could not be started"
+  pass "fm-foundry-luna-proxy: a wrapped command that cannot start is reported, never as a pane traceback"
 }
 
 test_two_live_gateways_never_share_a_port() {
@@ -566,14 +661,12 @@ SH
   rm -f "$TMP_ROOT/port-a" "$TMP_ROOT/port-b"
   PATH="$az_dir:$PATH" \
     FM_FOUNDRY_LUNA_TEST_UPSTREAM_HOST="127.0.0.1:$upstream_port" \
-    FM_FOUNDRY_LUNA_SECRET="$GATEWAY_SECRET" \
     python3 "$PROXY" run -- "$child_script" __FOUNDRYLUNAPORT__ \
       "$TMP_ROOT/status-a" "$TMP_ROOT/port-a" "$TMP_ROOT/port-b" \
     > /dev/null 2>"$TMP_ROOT/ports-a-stderr" &
   local a_pid=$!
   PATH="$az_dir:$PATH" \
     FM_FOUNDRY_LUNA_TEST_UPSTREAM_HOST="127.0.0.1:$upstream_port" \
-    FM_FOUNDRY_LUNA_SECRET="$GATEWAY_SECRET" \
     python3 "$PROXY" run -- "$child_script" __FOUNDRYLUNAPORT__ \
       "$TMP_ROOT/status-b" "$TMP_ROOT/port-b" "$TMP_ROOT/port-a" \
     > /dev/null 2>"$TMP_ROOT/ports-b-stderr" &
@@ -680,7 +773,6 @@ SH
   chmod +x "$child_script"
 
   PATH="$az_dir:$PATH" \
-    FM_FOUNDRY_LUNA_SECRET="$GATEWAY_SECRET" \
     python3 "$PROXY" run -- "$child_script" "$ran" \
     > "$TMP_ROOT/broken-stdout" 2>"$TMP_ROOT/broken-stderr"
   status=$?
@@ -698,7 +790,6 @@ SH
 
   log="$TMP_ROOT/broken-access.log"
   PATH="$az_dir:$PATH" \
-    FM_FOUNDRY_LUNA_SECRET="$GATEWAY_SECRET" \
     FM_FOUNDRY_LUNA_LOG="$log" \
     python3 "$PROXY" run -- "$child_script" "$ran" \
     > /dev/null 2>"$TMP_ROOT/broken-loud-stderr"
@@ -709,7 +800,7 @@ SH
   [ -s "$log" ] \
     || fail "a named access log must record why the gateway refused to serve, and nothing was written"
 
-  out=$(PATH="$az_dir:$PATH" FM_FOUNDRY_LUNA_SECRET="$GATEWAY_SECRET" \
+  out=$(PATH="$az_dir:$PATH" FM_FOUNDRY_LUNA_TEST_SECRET="$GATEWAY_SECRET" \
     timeout 10 python3 "$PROXY" serve 0 2>"$TMP_ROOT/broken-serve-stderr")
   status=$?
   [ "$status" -ne 0 ] || fail "serve must exit non-zero rather than listen without a usable credential"
@@ -723,12 +814,12 @@ test_refuses_to_serve_without_a_gateway_secret() {
 
   # Bounded: a gateway that wrongly starts would otherwise block here forever
   # instead of failing, and a guard that can only hang is not a guard.
-  out=$(env -u FM_FOUNDRY_LUNA_SECRET timeout 5 python3 "$PROXY" serve 0 2>&1)
+  out=$(env -u FM_FOUNDRY_LUNA_TEST_SECRET timeout 5 python3 "$PROXY" serve 0 2>&1)
   status=$?
 
   [ "$status" -ne 0 ] \
     || fail "the proxy must refuse to start rather than broker an AAD token with no caller check at all"
-  assert_contains "$out" "FM_FOUNDRY_LUNA_SECRET" "the refusal names the missing secret"
+  assert_contains "$out" "FM_FOUNDRY_LUNA_TEST_SECRET" "the refusal names the missing secret"
   pass "fm-foundry-luna-proxy: refuses to start without this task's gateway secret"
 }
 
@@ -741,6 +832,8 @@ test_refuses_a_non_loopback_upstream_override
 test_run_mode_is_silent_unless_an_access_log_file_is_named
 test_run_subcommand_serves_while_the_child_runs_then_stops
 test_two_live_gateways_never_share_a_port
+test_run_mints_the_admission_secret_into_its_child_environment_only
+test_run_reports_a_wrapped_command_it_cannot_start_without_a_traceback
 test_refuses_a_caller_without_this_tasks_secret
 test_refuses_to_serve_without_a_gateway_secret
 test_refuses_to_serve_when_the_first_token_fetch_fails

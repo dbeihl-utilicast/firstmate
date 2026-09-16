@@ -1502,8 +1502,8 @@ launch_template() {
     # argv once it has bound the port it serves, so nothing can take that port
     # in between. codex's model/provider/base_url/wire_api are fixed with -c
     # overrides rather than left to --model, per the captain's single-deployment
-    # authorization, and env_key points codex at this task's
-    # FM_FOUNDRY_LUNA_SECRET, the only caller the gateway admits.
+    # authorization, and env_key names the variable the gateway puts its own
+    # minted admission secret in, so no secret rides this command text.
     # Crewmate/scout only: see the secondmate refusal below.
     codex-foundry-luna)
       printf '%s' '__FOUNDRYLUNAPROXY__ run -- codex -c model=\"gpt-5.6-luna\" -c model_provider=\"fm_foundry_luna\" -c model_providers.fm_foundry_luna.name=\"Azure-AI-Foundry-gpt-5.6-luna\" -c model_providers.fm_foundry_luna.base_url=\"http://127.0.0.1:__FOUNDRYLUNAPORT__/openai/v1\" -c model_providers.fm_foundry_luna.wire_api=\"responses\" -c model_providers.fm_foundry_luna.env_key=\"FM_FOUNDRY_LUNA_SECRET\" __EFFORTFLAG__--dangerously-bypass-approvals-and-sandbox -c "notify=[\"bash\",\"-c\",\"touch __TURNEND__\"]" "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
@@ -4001,16 +4001,6 @@ esac
 # an unset value is the single-store default and needs no prefix.
 if [ "$HARNESS" = claude ] && [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then
   LAUNCH="CLAUDE_CONFIG_DIR=$(shell_quote "$CLAUDE_CONFIG_DIR") $LAUNCH"
-fi
-# The gateway brokers the operator's own AAD token, so it admits only the caller
-# holding this task's freshly minted secret rather than every local process. The
-# secret reaches the worker the explicit-assignment way CLAUDE_CONFIG_DIR does.
-if [ "$HARNESS" = codex-foundry-luna ]; then
-  FOUNDRYLUNASECRET=$(python3 -c 'import secrets; print(secrets.token_hex(32))') && [ -n "$FOUNDRYLUNASECRET" ] || {
-    echo "error: could not mint a gateway secret for the codex-foundry-luna task" >&2
-    exit 1
-  }
-  LAUNCH="FM_FOUNDRY_LUNA_SECRET=$(shell_quote "$FOUNDRYLUNASECRET") $LAUNCH"
 fi
 if [ "$KIND" = secondmate ]; then
   sq_home=$(shell_quote "$PROJ_ABS")

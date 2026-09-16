@@ -8,12 +8,12 @@
 # overnight worker outlives it, but the OpenAI-compatible CLI this proxy sits
 # behind reads its bearer token once from its process environment at launch
 # and has no per-request refresh hook for a generic (non-AWS) provider. This
-# proxy is the worker's own token refresh: it listens on loopback only, admits
-# only the caller holding this task's FM_FOUNDRY_LUNA_SECRET, fetches a fresh
-# AAD token via `az account get-access-token` on demand, caches it only
-# in memory until shortly before expiry, and forwards to Foundry with that
-# token attached. No credential value is ever read from argv, written to a
-# file, or logged. The gateway is silent on stdout and stderr - including its
+# proxy is the worker's own token refresh: it listens on loopback only, mints
+# its own per-launch secret and admits only the child it handed that secret to,
+# fetches a fresh AAD token via `az account get-access-token` on demand, caches
+# it only in memory until shortly before expiry, and forwards to Foundry with
+# that token attached. Neither value is ever read from argv, written to a file,
+# or logged. The gateway is silent on stdout and stderr - including its
 # error path (a client disconnect mid-relay, an upstream network failure) -
 # because in a dispatched pane it shares a tty with the worker's TUI; naming a
 # file in FM_FOUNDRY_LUNA_LOG appends each request's status line there instead.
@@ -28,6 +28,7 @@ import http.client
 import http.server
 import json
 import os
+import secrets
 import subprocess
 import sys
 import threading
@@ -42,7 +43,7 @@ TOKEN_RESOURCE = "https://cognitiveservices.azure.com"
 REFRESH_MARGIN_SECONDS = 300
 
 ACCESS_LOG_PATH = os.environ.get("FM_FOUNDRY_LUNA_LOG", "")
-CLIENT_SECRET = os.environ.get("FM_FOUNDRY_LUNA_SECRET", "")
+CLIENT_SECRET_ENV = "FM_FOUNDRY_LUNA_SECRET"
 PORT_PLACEHOLDER = "__FOUNDRYLUNAPORT__"
 HOP_BY_HOP_HEADERS = (
     "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
@@ -107,7 +108,7 @@ def fetch_az_token(subscription=SUBSCRIPTION_ID, resource=TOKEN_RESOURCE):
     return data["accessToken"], float(data["expires_on"])
 
 
-def make_handler(token_cache, upstream_host=UPSTREAM_HOST, upstream_scheme=UPSTREAM_SCHEME):
+def make_handler(token_cache, client_secret, upstream_host=UPSTREAM_HOST, upstream_scheme=UPSTREAM_SCHEME):
     class Handler(http.server.BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
@@ -119,7 +120,7 @@ def make_handler(token_cache, upstream_host=UPSTREAM_HOST, upstream_scheme=UPSTR
 
         def do_POST(self):
             offered = self.headers.get("Authorization", "").encode("latin-1", "replace")
-            expected = ("Bearer " + CLIENT_SECRET).encode("latin-1", "replace")
+            expected = ("Bearer " + client_secret).encode("latin-1", "replace")
             if not hmac.compare_digest(offered, expected):
                 self._reject(401, "caller is not authorized to use this gateway")
                 return
@@ -228,33 +229,39 @@ class Gateway(http.server.ThreadingHTTPServer):
         log_silently("error handling request from %s" % (client_address,))
 
 
-def start_server(port):
+def start_server(port, client_secret):
     """Binds the listening socket. The bound port is the ONE the gateway serves.
 
-    Refuses to start without this task's shared secret rather than opening an
-    unauthenticated broker for the operator's AAD token to every local process,
-    and takes the first token BEFORE binding, so an unusable credential is a
-    launch that fails instead of a live pane that 502s silently on every turn.
+    Takes the first token BEFORE binding, so an unusable credential is a launch
+    that fails instead of a live pane that 502s silently on every turn.
     """
-    if not CLIENT_SECRET:
-        sys.exit(
-            "fm-foundry-luna-proxy: FM_FOUNDRY_LUNA_SECRET must name this task's "
-            "gateway secret; refusing to serve an unauthenticated AAD token broker"
-        )
     token_cache = TokenCache(fetch_az_token)
     try:
         token_cache.get()
     except (subprocess.CalledProcessError, OSError, ValueError, KeyError):
         log_silently("initial AAD token fetch failed; refusing to serve")
         raise SystemExit(70)
-    server = Gateway(("127.0.0.1", port), make_handler(token_cache))
+    server = Gateway(("127.0.0.1", port), make_handler(token_cache, client_secret))
     return server
 
 
 def cmd_serve(argv):
-    """serve <port>: run the gateway in the foreground; prints its port, then blocks."""
+    """serve <port>: foreground gateway for tests; prints its port, then blocks.
+
+    Test-only, like FM_FOUNDRY_LUNA_TEST_UPSTREAM_HOST: it admits the caller
+    holding FM_FOUNDRY_LUNA_TEST_SECRET, because a test client has no child
+    environment to read one from. The dispatched path is `run`, which mints its
+    own secret so no admission value ever exists outside this process and the
+    child it starts.
+    """
+    client_secret = os.environ.get("FM_FOUNDRY_LUNA_TEST_SECRET", "")
+    if not client_secret:
+        sys.exit(
+            "fm-foundry-luna-proxy: serve needs FM_FOUNDRY_LUNA_TEST_SECRET to name "
+            "the secret it admits; refusing to serve an unauthenticated AAD token broker"
+        )
     port = int(argv[0]) if argv else 0
-    server = start_server(port)
+    server = start_server(port, client_secret)
     sys.stdout.write("%d\n" % server.server_address[1])
     sys.stdout.flush()
     server.serve_forever()
@@ -269,17 +276,23 @@ def cmd_run(argv):
 
     The port is chosen here, at the one moment it can be held: the socket that
     is probed is the socket that serves, so nothing can take it in between.
+
+    The admission secret is minted here too and reaches the child only through
+    its environment, so it never appears in a launch command, an argv any local
+    user can read out of /proc, or anything on disk.
     """
     if len(argv) < 2 or argv[0] != "--":
         sys.exit("usage: fm-foundry-luna-proxy.py run -- <command> [args...]")
     command = argv[1:]
+    client_secret = secrets.token_hex(32)
     try:
-        server = start_server(0)
+        server = start_server(0, client_secret)
     except OSError:
         log_silently("gateway could not bind a loopback port")
         return 70
     port = str(server.server_address[1])
     command = [arg.replace(PORT_PLACEHOLDER, port) for arg in command]
+    child_env = dict(os.environ, **{CLIENT_SECRET_ENV: client_secret})
 
     def serve():
         try:
@@ -290,7 +303,10 @@ def cmd_run(argv):
     thread = threading.Thread(target=serve, daemon=True)
     thread.start()
     try:
-        return subprocess.run(command).returncode
+        return subprocess.run(command, env=child_env).returncode
+    except OSError:
+        log_silently("the wrapped command could not be started")
+        return 70
     finally:
         server.shutdown()
 

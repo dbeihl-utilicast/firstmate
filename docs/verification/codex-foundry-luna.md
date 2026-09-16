@@ -56,9 +56,11 @@ Reply text, request headers, and response bodies are deliberately not recorded h
 ## Who may reach the gateway
 
 The gateway holds the operator's own AAD token, so a loopback bind alone would let any local process spend the captain's Foundry budget under that identity.
-`bin/fm-spawn.sh` mints a fresh random secret per spawn, hands it to the worker as an explicit `FM_FOUNDRY_LUNA_SECRET=` assignment on the launch command, and points codex at it with `model_providers.fm_foundry_luna.env_key`.
-The gateway refuses to start at all without that variable, and answers 401 to any request whose `Authorization` header is not exactly this task's secret, before a route check, a deployment check, or a token fetch.
-The secret never leaves the host: `_forward` strips the caller's `Authorization` header and replaces it with the gateway's own fetched token.
+The gateway mints a fresh random secret per launch and passes it to codex, its own child, through that child's environment; `bin/fm-spawn.sh` never sees it, and `model_providers.fm_foundry_luna.env_key` only names the variable codex reads it from.
+It is deliberately not an assignment on the launch command: under `config/launch-env-allowlist` that text becomes `/bin/sh`'s own `-c` argument, and `/proc/<pid>/cmdline` is world-readable, so a secret placed there would be readable by every local uid rather than only the operator.
+Any request whose `Authorization` header is not exactly that secret is answered 401, before a route check, a deployment check, or a token fetch.
+The secret never leaves the host either: `_forward` strips the caller's `Authorization` header and replaces it with the gateway's own fetched token.
+`serve` is the foreground test mode and takes its admission secret from `FM_FOUNDRY_LUNA_TEST_SECRET`, refusing to start without one, because a curl client has no child environment to read one from.
 
 ## Getting a token at all
 
@@ -108,9 +110,10 @@ A supervised fleet pane on this adapter has not been run.
 ```
 bin/fm-test-run.sh tests/fm-foundry-luna-proxy.test.sh tests/fm-spawn-dispatch-profile.test.sh tests/fm-control-relaunch.test.sh
 az account get-access-token --subscription <id> --resource https://cognitiveservices.azure.com -o none
-FM_FOUNDRY_LUNA_SECRET=<a throwaway nonsecret string> FM_FOUNDRY_LUNA_LOG=<access-log-path> bin/fm-foundry-luna-proxy.py run -- codex -c model=\"gpt-5.6-luna\" -c model_provider=\"fm_foundry_luna\" -c model_providers.fm_foundry_luna.name=\"Azure-AI-Foundry-gpt-5.6-luna\" -c model_providers.fm_foundry_luna.base_url=\"http://127.0.0.1:__FOUNDRYLUNAPORT__/openai/v1\" -c model_providers.fm_foundry_luna.wire_api=\"responses\" --dangerously-bypass-approvals-and-sandbox exec --skip-git-repo-check "<one-line prompt>"
+FM_FOUNDRY_LUNA_LOG=<access-log-path> bin/fm-foundry-luna-proxy.py run -- codex -c model=\"gpt-5.6-luna\" -c model_provider=\"fm_foundry_luna\" -c model_providers.fm_foundry_luna.name=\"Azure-AI-Foundry-gpt-5.6-luna\" -c model_providers.fm_foundry_luna.base_url=\"http://127.0.0.1:__FOUNDRYLUNAPORT__/openai/v1\" -c model_providers.fm_foundry_luna.wire_api=\"responses\" --dangerously-bypass-approvals-and-sandbox exec --skip-git-repo-check "<one-line prompt>"
 ```
 
 The live step needs an in-tenant az login with access to the account and bills the turn to Azure.
 `FM_FOUNDRY_LUNA_LOG` is what makes the relayed status line observable; without it the gateway relays silently.
+`run` mints its own admission secret and hands it to codex, so nothing about it belongs on that command line.
 The portable counterparts run in ordinary CI with a fake `az` and a fake upstream, and never touch the real account.

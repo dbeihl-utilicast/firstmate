@@ -451,9 +451,7 @@ test_codex_foundry_luna_pins_the_deployment_and_threads_effort() {
   assert_contains "$launch" "fm-foundry-luna-proxy.py' run -- codex " \
     "codex-foundry-luna launch must start the local token-refreshing gateway"
   assert_contains "$launch" '-c model_providers.fm_foundry_luna.env_key=\"FM_FOUNDRY_LUNA_SECRET\"' \
-    "codex-foundry-luna launch must make codex present this task's gateway secret"
-  assert_contains "$launch" "FM_FOUNDRY_LUNA_SECRET=" \
-    "codex-foundry-luna launch must carry a per-task gateway secret into the worker's environment"
+    "codex-foundry-luna launch must name the variable the gateway puts its admission secret in"
   assert_contains "$launch" '-c model=\"gpt-5.6-luna\"' \
     "codex-foundry-luna launch must pin the one authorized deployment"
   assert_contains "$launch" '-c model_providers.fm_foundry_luna.wire_api=\"responses\"' \
@@ -469,7 +467,7 @@ test_codex_foundry_luna_pins_the_deployment_and_threads_effort() {
 }
 
 test_codex_foundry_luna_leaves_the_gateway_port_for_the_gateway_to_resolve() {
-  local rec id out status launch secret_a secret_b
+  local rec id out status launch
   id=profile-foundry-luna-port-z8
   rec=$(make_spawn_case profile-foundry-luna-port codex-foundry-luna "$id")
   read_case_record "$rec"
@@ -486,35 +484,35 @@ test_codex_foundry_luna_leaves_the_gateway_port_for_the_gateway_to_resolve() {
     "codex's base_url must carry the placeholder the gateway resolves, not a port fm-spawn released"
   assert_not_contains "$launch" "run --port" \
     "fm-spawn must not hand the gateway a port it probed and let go of"
-
-  secret_a=${launch#*FM_FOUNDRY_LUNA_SECRET=}
-  secret_a=${secret_a%% *}
-  id=profile-foundry-luna-port-z9
-  rec=$(make_spawn_case profile-foundry-luna-port2 codex-foundry-luna "$id")
-  read_case_record "$rec"
-  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
-  expect_code 0 "$?" "a second codex-foundry-luna spawn should succeed"
-  launch=$(cat "$LAUNCH_LOG")
-  secret_b=${launch#*FM_FOUNDRY_LUNA_SECRET=}
-  secret_b=${secret_b%% *}
-
-  [ -n "$secret_a" ] && [ -n "$secret_b" ] \
-    || fail "each codex-foundry-luna spawn must carry a gateway secret"
-  assert_not_equals "$secret_a" "$secret_b" \
-    "each task's gateway secret must be minted fresh, never shared across spawns"
-  pass "codex-foundry-luna leaves the gateway port to the gateway and mints a fresh secret per task"
+  pass "codex-foundry-luna leaves the gateway port for the gateway to resolve"
 }
 
-# Every PATH entry that does not carry an executable az, so the refusal below
-# reproduces a host without the Azure CLI rather than the developer's own.
-path_without_az() {
-  local dir out=
-  local IFS=:
-  for dir in $PATH; do
-    [ -x "$dir/az" ] && continue
-    out="${out:+$out:}$dir"
-  done
-  printf '%s\n' "$out"
+test_codex_foundry_luna_keeps_the_gateway_secret_off_the_launch_command() {
+  local rec id out status launch
+  id=profile-foundry-luna-secret-z9
+  rec=$(make_spawn_case profile-foundry-luna-secret codex-foundry-luna "$id")
+  read_case_record "$rec"
+
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  status=$?
+  expect_code 0 "$status" "a codex-foundry-luna spawn should succeed"
+  launch=$(cat "$LAUNCH_LOG")
+
+  # Under config/launch-env-allowlist the launch text becomes /bin/sh's own -c
+  # argument, and /proc/<pid>/cmdline is world-readable, so an admission secret
+  # placed here would be readable by every local uid. The gateway mints its own
+  # and passes it to codex through the environment instead.
+  # Checked without assert_not_contains on purpose: its failure output dumps the
+  # haystack, which here is the very text under suspicion of carrying a secret.
+  case "$launch" in
+    *FM_FOUNDRY_LUNA_SECRET=*)
+      fail "an admission secret is assigned on the launch command codex is started from (launch text withheld: it would carry the value)"
+      ;;
+  esac
+  if printf '%s' "$launch" | grep -Eq '[0-9a-f]{64}'; then
+    fail "the launch command carries a secret-shaped value it must not (launch text withheld)"
+  fi
+  pass "codex-foundry-luna keeps its gateway admission secret off the launch command entirely"
 }
 
 test_codex_foundry_luna_refuses_a_spawn_with_no_azure_cli() {
@@ -524,7 +522,7 @@ test_codex_foundry_luna_refuses_a_spawn_with_no_azure_cli() {
   read_case_record "$rec"
   rm -f "$FAKEBIN_DIR/az"
 
-  out=$(PATH="$(path_without_az)" run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" 2>&1)
+  out=$(PATH="$(fm_test_base_path_sans "$PATH" az)" run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" 2>&1)
   status=$?
   expect_code 1 "$status" "a codex-foundry-luna spawn must be refused when no az is on PATH"
   assert_contains "$out" "az executable not found on PATH" \
@@ -1336,6 +1334,7 @@ test_codex_threads_model_and_effort
 test_codex_omits_invalid_max_effort
 test_codex_foundry_luna_pins_the_deployment_and_threads_effort
 test_codex_foundry_luna_leaves_the_gateway_port_for_the_gateway_to_resolve
+test_codex_foundry_luna_keeps_the_gateway_secret_off_the_launch_command
 test_codex_foundry_luna_refuses_a_different_deployment_name
 test_codex_foundry_luna_refuses_a_spawn_with_no_azure_cli
 test_grok_threads_model_and_reasoning_effort
