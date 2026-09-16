@@ -643,6 +643,23 @@ test_qwen_is_refused_as_a_secondmate() {
   pass "qwen is refused as a secondmate because it has no primary supervision protocol"
 }
 
+test_codex_foundry_luna_is_refused_as_a_secondmate() {
+  local rec id=busy-cfl-3 out
+  # The configured harness is deliberately a different adapter, so only the
+  # bare positional name can produce the crewmate/scout refusal here.
+  rec=$(make_spawn_case codex-foundry-luna-secondmate claude "$id")
+  read_case_record "$rec"
+  out=$(GROK_HOME="$HOME_DIR/grok-home" \
+    fm_test_run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" --secondmate "$id" codex-foundry-luna) && {
+    fail "a codex-foundry-luna secondmate must be refused, it has no supervision mechanics of its own: $out"
+  }
+  assert_not_contains "$out" 'firstmate home does not exist' \
+    "the bare positional adapter name must not be parsed as a firstmate home: $out"
+  assert_contains "$out" 'crewmate/scout adapter only' \
+    "the bare positional adapter name must reach the crewmate/scout refusal: $out"
+  pass "codex-foundry-luna is refused as a secondmate through its own named refusal"
+}
+
 test_kimi_and_grok_install_no_unverified_wiring() {
   local state out
   state="$TMP_ROOT/gates/state"
@@ -678,6 +695,7 @@ test_qwen_spawn_refuses_off_linux
 test_qwen_failed_delivery_removes_private_settings
 test_qwen_launch_stays_interactive
 test_qwen_is_refused_as_a_secondmate
+test_codex_foundry_luna_is_refused_as_a_secondmate
 test_codex_unverified_until_a_semantic_source_exists
 
 echo "all fm-busy-adapter-wiring tests passed"
