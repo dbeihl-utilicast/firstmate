@@ -613,6 +613,9 @@ test_relaunch_reuses_a_verified_recorded_harness_without_an_explicit_one() {
   add_ship_task "$dir" rl45 codex-foundry-luna
   printf 'codex' > "$dir/fake/command"
   printf 'codex' > "$dir/fake/becomes"
+  # A codex-foundry-luna spawn preflights `command -v az`, so stub it rather
+  # than let this case pass or fail on the host's own tool inventory.
+  fm_fake_exit0 "$dir/fakebin" az
 
   out=$(run_control "$dir" rl45 relaunch --note "continue on the live runtime"); rc=$?
   expect_code 0 "$rc" "a bare relaunch of a verified recorded harness should succeed"$'\n'"$out"

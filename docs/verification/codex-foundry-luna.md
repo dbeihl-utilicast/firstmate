@@ -103,7 +103,7 @@ Streaming was proven against a fake chunked upstream rather than a live streamed
 Token refresh across a real expiry boundary was proven with a fake `az` that mints a distinct nonsecret value per call; no real token was held to expiry.
 A supervised fleet pane on this adapter has not been run.
 
-`bin/fm-quota-choose.sh`'s `provider_for_harness` has no `codex-foundry-luna` arm, and unlike a harness that is merely never selected, this makes its caller die on `unknown harness` and discard every OTHER candidate in the same call too, so a quota-array-dispatch profile naming a `codex-foundry-luna` candidate alongside others fails outright instead of falling back to it.
+`bin/fm-quota-choose.sh`'s `provider_for_harness` has no `codex-foundry-luna` arm, and unlike a harness that is merely never selected, this makes its caller die on `unknown harness` and discard every OTHER candidate in the same call too, so a quota-array-dispatch profile naming a `codex-foundry-luna` candidate alongside others fails outright instead of falling back to it - the same unmapped shape gemini, rovo and qwen already carry.
 
 ## Refreshing this record
 
