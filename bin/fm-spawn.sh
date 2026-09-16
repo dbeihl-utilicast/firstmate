@@ -2332,22 +2332,13 @@ if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
     exit 1
   fi
   # A local-model harness (bin/fm-harness.sh is-local-model, e.g. qwen) can
-  # satisfy an ordinary brief's instructions in form without substance. What
-  # is mechanical HERE is narrow: refuse the spawn unless the brief scaffolded
-  # with bin/fm-brief.sh --local-model-contract carries the
-  # "Local-model contract: enabled" marker and a "Red test:" line naming a
-  # failing test that actually exists in the project. This check reads brief
-  # text only; it never runs the named test. The worker's own captured
-  # red/green/revert files are its working evidence, not proof accepted here
-  # or anywhere else - bin/fm-local-model-verify.sh is the one mechanism that
-  # independently re-runs the named test against the worker's real committed
-  # code, and firstmate runs it after the worker reports done, before
-  # validation starts. This check is scoped to ship tasks, matching the
-  # captain's ask; it cannot and does not enforce the two accompanying scope
-  # rules that ride along with the contract - never route a local model onto
-  # a security or guard path, and never ask one whether an existing guard is
-  # too strict - which stay firstmate's own intake judgment (AGENTS.md
-  # section 7), applied here, at the point of choosing which harness to spawn.
+  # satisfy a brief in form without substance. Refuse a ship spawn unless the
+  # brief carries bin/fm-brief.sh --local-model-contract's marker and a Red
+  # test line naming a test that exists; this reads brief text only, never
+  # runs anything - bin/fm-local-model-verify.sh is the mechanism that does,
+  # run after done, before validation. The two accompanying scope rules
+  # (never route to a security/guard path, never ask if a guard is too
+  # strict) stay firstmate's own intake judgment (AGENTS.md section 7).
   if [ "$KIND" = ship ] && "$SCRIPT_DIR/fm-harness.sh" is-local-model "$HARNESS"; then
     if ! grep -q '^Local-model contract: enabled$' "$BRIEF"; then
       echo "error: $ID ships on local-model harness '$HARNESS' but $BRIEF carries no local-model red-first contract; re-scaffold with 'fm-brief.sh ... --mode $MODE --local-model-contract' before spawn" >&2

@@ -1,23 +1,16 @@
 #!/usr/bin/env bash
 # Independently verify a local-model ship task's red-first contract. Trusts
-# NOTHING the worker wrote about its own work - not a status line, not a PR
-# body, not its captured red-before.txt/green-after.txt/red-revert.txt - and
-# reads only the "Red test: <path>" line firstmate wrote into data/<id>/brief.md
-# (bin/fm-brief.sh --local-model-contract), which the worker's worktree can
-# never touch. Run this after a local-model worker reports done, before
-# validation (/no-mistakes or otherwise) starts.
+# nothing the worker wrote about its own work, only the "Red test: <path>"
+# line firstmate wrote into data/<id>/brief.md (bin/fm-brief.sh
+# --local-model-contract), which the worker's worktree can never touch. Run
+# after a local-model worker reports done, before validation starts.
 #
-# Requires exactly two things, in this order:
-#   1. On the worker's own worktree HEAD (read-only: no checkout, no reset,
-#      no mutation of that worktree in any way), the named test passes.
-#   2. In a throwaway linked git worktree - never the worker's own - every
-#      file the branch touched since it diverged from the project's default
-#      branch is restored to its pre-implementation content, EXCEPT the named
-#      test file itself, and the named test then fails.
-# If either does not hold, this refuses: a test that also passes with the
-# implementation reverted is not testing what it claims to (the pass-body
-# class this whole contract exists to reject), and a test that fails at HEAD
-# means the worker's own "done" report was wrong.
+# Requires, read-only against the worker's own worktree: the named test
+# passes at HEAD; then, in a throwaway linked worktree, the same test fails
+# once every file the branch touched (except the test itself) is reverted to
+# its pre-implementation content. A test that stays green on revert is not
+# testing what it claims to (the pass-body class this contract exists to
+# reject); a test that fails at HEAD means the worker's "done" report was wrong.
 #
 # Usage: fm-local-model-verify.sh <task-id>
 set -eu

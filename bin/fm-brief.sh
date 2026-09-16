@@ -35,24 +35,16 @@
 #   identify this repo. Briefs made without it carry a loud declaration so an
 #   omitted contract cannot be silent.
 #   --local-model-contract adds the local-model red-first contract (ship briefs
-#   only): a fixed "Local-model contract: enabled" marker, a "Red test: {RED_TEST}"
-#   placeholder to fill with the failing test's path (same two-step as {TASK} and
-#   {FIRSTMATE_SPEC}), and worker instructions for a narrow test-only acceptance
-#   scope and captured working evidence. Pass it only after a specific failing
-#   test already exists for the worker to turn green - this contract makes that
-#   test the acceptance mechanism, it does not write one. bin/fm-spawn.sh refuses
-#   a ship spawn on a harness bin/fm-harness.sh is-local-model reports true for
-#   (today: qwen only) unless the marker is present, the Red test line is filled,
-#   and the named file exists. What is mechanical stops there: bin/fm-spawn.sh
-#   checks the brief text, it does not run anything. The worker's own captured
-#   red/green/revert files are its working evidence, not proof firstmate trusts;
-#   bin/fm-local-model-verify.sh is the one mechanism that independently re-runs
-#   the named test against the worker's real committed code (once at HEAD, once
-#   with only the implementation reverted) and firstmate runs it after the
-#   worker reports done, before validation starts. Two further scope rules are
-#   firstmate's own intake judgment, not something any of this can verify from
-#   brief text: never route a local model onto a security or guard path, and
-#   never ask one whether an existing guard is too strict (AGENTS.md section 7).
+#   only): a "Local-model contract: enabled" marker and a "Red test: {RED_TEST}"
+#   placeholder to fill with an already-existing failing test's path (same
+#   fill-then-spawn-refuses-placeholders shape as {TASK}/{FIRSTMATE_SPEC}) -
+#   this contract makes that test the acceptance mechanism, it does not write
+#   one. bin/fm-spawn.sh owns the spawn-time brief-text check this marker and
+#   line satisfy; bin/fm-local-model-verify.sh owns the done-time independent
+#   re-run neither this flag nor that check ever runs itself. Two further
+#   scope rules stay firstmate's own intake judgment, unverifiable from brief
+#   text: never route a local model onto a security or guard path, and never
+#   ask one whether an existing guard is too strict (AGENTS.md section 7).
 # For ship tasks, --mode is REQUIRED and shapes the definition of done. Firstmate
 # resolves it per task at intake (AGENTS.md section 7); data/projects.md holds the
 # captain's standing posture as context, and this script never reads it:
