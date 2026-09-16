@@ -12,7 +12,6 @@ make_grok_probe() {
   cat > "$1/grok" <<'SH'
 #!/bin/sh
 printf '%s\n' "$GROK_HOME" > "$0.home"
-printf '%s\n' "${FM_GROK_RAW_SENTINEL:-}" > "$0.sentinel"
 SH
   chmod +x "$1/grok"
 }
@@ -101,11 +100,12 @@ EOF
   assert_absent "$wt/.fm-grok-turnend" "grok pointer survived teardown"
   assert_absent "$grok_home/hooks/fm-turn-end.d/$token" "grok auth token survived teardown"
   assert_absent "$home/state/$id.grok-turnend-token" "grok state token survived teardown"
+  assert_absent "$home/state/$id.grok-home" "grok resolved-home record survived teardown"
   pass "grok teardown removes pointer and token state"
 }
 
 # assert_grok_trusted <grok-home> <path> <msg>: the store has a trusted=true
-# block for <path>, immediately followed by its own trusted/decided_at lines.
+# block for <path>, immediately followed by its own trusted line.
 assert_grok_trusted() {
   awk -v want="[folders.\"$2\"]" '$0==want{f=1;next} f&&/trusted[ \t]*=[ \t]*true/{found=1} f&&/^\[/{f=0}
     END{exit found?0:1}' "$1/trusted_folders.toml" 2>/dev/null || fail "$3"
@@ -189,7 +189,7 @@ test_grok_secondmate_spawn_pretrusts_its_primary() {
 }
 
 test_grok_registration_uses_the_filtered_launch_environment() {
-  local policy rec case_dir home proj wt fakebin grok_home id pane_home selected out refused_id
+  local policy rec case_dir home proj wt fakebin grok_home id pane_home selected out refused_id token
   for policy in absent allowed excluded; do
     rec=$(make_spawn_case "launch-store-$policy")
     IFS='|' read -r case_dir home proj wt fakebin grok_home id <<EOF
@@ -210,6 +210,10 @@ EOF
     expect_code 0 $? "grok spawn with $policy launch policy should succeed: $out"
     assert_absent "$grok_home/trusted_folders.toml" "spawn registered trust in the invoking process's store"
     assert_grok_trusted "$selected" "$proj" "the worker's store was not registered synchronously"
+    assert_absent "$grok_home/hooks/fm-turn-end.sh" "the turn-end hook was installed in the invoking process's store"
+    token=$(sed -n 's/^token=//p' "$wt/.fm-grok-turnend")
+    assert_present "$selected/hooks/fm-turn-end.sh" "the worker's store did not receive the turn-end hook"
+    assert_present "$selected/hooks/fm-turn-end.d/$token" "the worker's store did not receive the turn-end registry entry"
     out=$(cd "$wt" && env -i HOME="$pane_home" GROK_HOME="$case_dir/grok-alias" \
       PATH="$fakebin:$PATH" /bin/sh "$home/launch.log")
     expect_code 0 $? "grok launch with $policy launch policy should succeed: $out"
@@ -233,56 +237,27 @@ EOF
   done
 }
 
-test_grok_raw_home_overrides_are_registered_synchronously() {
-  local kind rec case_dir home proj wt fakebin grok_home id pane_home selected raw out
-  for kind in literal quoted relative variable empty home; do
+test_grok_raw_home_overrides_are_refused() {
+  local kind rec case_dir home proj wt fakebin grok_home id out raw
+  for kind in grok-home user-home; do
     rec=$(make_spawn_case "raw-home-$kind")
     IFS='|' read -r case_dir home proj wt fakebin grok_home id <<EOF
 $rec
 EOF
-    pane_home="$case_dir/pane-home"
-    mkdir -p "$pane_home" "$case_dir/pane-grok"
-    : > "$home/config/launch-env-allowlist"
     case "$kind" in
-      literal) selected="$case_dir/raw-home"; raw="GROK_HOME=$selected grok --always-approve" ;;
-      quoted) selected="$case_dir/raw home"; raw="GROK_HOME='$selected' grok --always-approve" ;;
-      relative) selected="$case_dir/raw-home"; raw='GROK_HOME=../raw-home grok --always-approve' ;;
-      variable) selected="$pane_home/raw home"; raw="GROK_HOME=\"\$HOME/raw home\" grok --always-approve" ;;
-      empty) selected="$pane_home/.grok"; raw='GROK_HOME= grok --always-approve' ;;
-      home) selected="$case_dir/raw-user/.grok"; raw="HOME='$case_dir/raw-user' GROK_HOME= grok --always-approve" ;;
+      grok-home) raw="GROK_HOME=$case_dir/raw-home grok --always-approve" ;;
+      user-home) raw="HOME=$case_dir/raw-user grok --always-approve" ;;
     esac
-    raw="FM_GROK_RAW_SENTINEL=retained $raw"
     out=$(GROK_HOME="$grok_home" FM_FAKE_LAUNCH_LOG="$home/launch.log" \
-      FM_TEST_PANE_HOME="$pane_home" FM_TEST_PANE_GROK_HOME="$case_dir/pane-grok" \
-      fm_test_run_spawn "$home" "$wt" "$fakebin" "$id" "$proj" "$raw" --mode no-mistakes --yolo off)
-    expect_code 0 $? "a $kind raw Grok home override must dispatch: $out"
-    assert_grok_trusted "$selected" "$proj" "the raw command's store was not registered synchronously"
-    assert_absent "$grok_home/trusted_folders.toml" "raw launch registered the caller's store"
-    assert_absent "$case_dir/pane-grok/trusted_folders.toml" "raw launch registered the ambient pane store"
-    out=$(cd "$wt" && env -i HOME="$pane_home" GROK_HOME="$case_dir/changed-pane-store" \
-      PATH="$fakebin:$PATH" /bin/sh "$home/launch.log")
-    expect_code 0 $? "the emitted $kind raw launch must execute: $out"
-    [ "$(cat "$fakebin/grok.home")" = "$selected" ] || fail "a raw command changed the registered launch store"
-    [ "$(cat "$fakebin/grok.sentinel")" = retained ] || fail "raw launch lost another explicit environment assignment"
-    pass "grok registers and binds a $kind raw home override before dispatch"
+      fm_test_run_spawn "$home" "$wt" "$fakebin" "$id" "$proj" "$raw" --mode no-mistakes --yolo off 2>&1)
+    expect_code 1 $? "a raw $kind override must be refused: $out"
+    assert_contains "$out" "carries its own home override" "the refusal did not name the raw home override"
+    assert_absent "$grok_home/trusted_folders.toml" "a refused raw home override granted trust"
+    assert_absent "$home/state/$id.meta" "a refused raw home override published a task record"
+    [ ! -s "$home/launch.log" ] || fail "a refused raw home override delivered a worker command"
+    assert_absent "$fakebin/grok.home" "a refused raw home override started the worker"
+    pass "grok refuses a raw command carrying its own $kind override"
   done
-}
-
-test_grok_raw_home_substitutions_are_refused() {
-  local rec case_dir home proj wt fakebin grok_home id out raw
-  rec=$(make_spawn_case raw-substitution)
-  IFS='|' read -r case_dir home proj wt fakebin grok_home id <<EOF
-$rec
-EOF
-  raw="GROK_HOME=\$(touch '$case_dir/executed') grok --always-approve"
-  out=$(GROK_HOME="$grok_home" FM_FAKE_LAUNCH_LOG="$home/launch.log" \
-    fm_test_run_spawn "$home" "$wt" "$fakebin" "$id" "$proj" "$raw" --mode no-mistakes --yolo off 2>&1)
-  expect_code 1 $? "home resolution must refuse command substitutions: $out"
-  assert_absent "$case_dir/executed" "home resolution executed a command substitution"
-  assert_absent "$grok_home/trusted_folders.toml" "an unresolved home granted trust"
-  assert_absent "$home/state/$id.meta" "an unresolved home published a task record"
-  [ ! -s "$home/launch.log" ] || fail "an unresolved home delivered a worker command"
-  pass "grok refuses raw home command substitutions without executing them"
 }
 
 test_grok_failed_preflight_keeps_the_task_queued() {
@@ -313,6 +288,7 @@ SH
     case "$kind" in
       untrusted) printf '[folders."%s"]\ntrusted = false\n' "$proj" > "$grok_home/trusted_folders.toml" ;;
       symlink) printf 'untouched\n' > "$case_dir/alternate"; ln -s "$case_dir/alternate" "$grok_home/trusted_folders.toml" ;;
+      missing-probe) fm_test_fake_sleep_noop "$fakebin" ;;
     esac
     out=$(GROK_HOME="$grok_home" FM_FAKE_LAUNCH_LOG="$home/launch.log" TASKS_AXI_BACKEND=markdown \
       FM_TEST_GROK_PROBE_DROP="$([ "$kind" = missing-probe ] && echo 1 || echo 0)" \
@@ -354,7 +330,6 @@ test_grok_teardown_removes_pointer_and_token
 test_grok_spawn_pretrusts_the_project_not_the_worktree
 test_grok_secondmate_spawn_pretrusts_its_primary
 test_grok_registration_uses_the_filtered_launch_environment
-test_grok_raw_home_overrides_are_registered_synchronously
-test_grok_raw_home_substitutions_are_refused
+test_grok_raw_home_overrides_are_refused
 test_grok_failed_preflight_keeps_the_task_queued
 test_fm_lock_recognizes_grok_holder

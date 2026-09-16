@@ -1713,4 +1713,4 @@ This is why `bin/fm-grok-trust.sh` registers a project's primary checkout rather
 [`tests/fm-grok-trust.test.sh`](../../tests/fm-grok-trust.test.sh) pins the helper's primary-checkout scope, its refusals, and concurrent registrations against one store, and [`tests/fm-grok-harness.test.sh`](../../tests/fm-grok-harness.test.sh) pins that a spawn registers only the primary checkout, covers a secondmate launch, and refuses dispatch when registration fails.
 Re-run the probes above after a grok upgrade before trusting this evidence.
 
-The worker turn-end hook does not depend on this gate: it is a global hook under `~/.grok/hooks/`, which loads without folder trust, and [`harness-adapters`](../../.agents/skills/harness-adapters/references/harness/grok.md) owns that contract.
+The worker turn-end hook does not depend on this gate: it is a global hook, which loads without folder trust, and [`harness-adapters`](../../.agents/skills/harness-adapters/references/harness/grok.md) owns that contract.

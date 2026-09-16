@@ -140,7 +140,7 @@ const attempt = () => {
     throw new Error(`${target} already has an unrecognized trust entry in ${store}; refusing to touch it`);
   }
   const sep = text.length === 0 || text.endsWith("\n\n") ? "" : text.endsWith("\n") ? "\n" : "\n\n";
-  const block = `[folders."${escape(target)}"]\ntrusted = true\ndecided_at = ${Math.floor(Date.now() / 1000)}\n`;
+  const block = `[folders."${escape(target)}"]\ntrusted = true\n`;
   const next = text + sep + block;
   const unique = `${process.pid}.${crypto.randomBytes(8).toString("hex")}`;
   const tmp = path.join(path.dirname(store), `.trusted_folders.toml.fm-trust.${unique}`);

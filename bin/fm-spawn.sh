@@ -266,7 +266,7 @@
 # Verified per-harness turn-end hooks are installed automatically where enabled; some live outside the worktree.
 # Kimi uses one surgically installed Firstmate region in $HOME/.kimi-code/config.toml,
 # a firstmate-owned global hook and registry, and a gitignored per-task pointer.
-# grok uses a firstmate-owned global hook under ${GROK_HOME:-$HOME/.grok}/hooks
+# grok uses a firstmate-owned global hook under the pane-resolved Grok home
 # plus a gitignored .fm-grok-turnend worktree pointer and a state token.
 # muse installs no hook at all - its plugin engine is off in the default build - so
 # it writes state/<id>.muse-session to bind the pane to muse's own session event
@@ -1088,7 +1088,7 @@ spawn_herdr_presentation_order_lock_acquire() {
 }
 
 clear_relaunch_harness_wiring() {
-  local harness=$1 wt=$2 state=$3 id=$4 token_path token auth_path path
+  local harness=$1 wt=$2 state=$3 id=$4 token_path token auth_path path grok_home
   # The wiring arms above match on harness PREFIXES, because a task launched
   # from a raw command records that command's basename rather than the exact
   # adapter name. The retirement tables are keyed by the exact adapter, so the
@@ -1102,7 +1102,8 @@ clear_relaunch_harness_wiring() {
   if [ -n "$token_path" ] && [ -f "$token_path" ]; then
     IFS= read -r token < "$token_path" || [ -n "$token" ] || return 1
   fi
-  auth_path=$(fm_control_harness_turnend_auth_path "$harness" "$token") || return 1
+  grok_home=$(fm_control_grok_turnend_home "$state" "$id") || grok_home=
+  auth_path=$(fm_control_harness_turnend_auth_path "$harness" "$token" "$grok_home") || return 1
   if [ -n "$auth_path" ]; then
     rm -f -- "$auth_path" || return 1
   fi
@@ -1282,9 +1283,6 @@ PROJ=
 ARG3=
 FIRSTMATE_HOME=
 RAW_LAUNCH=0
-GROK_RAW_ENV=
-GROK_RAW_PREFIX=
-GROK_RAW_COMMAND=
 
 # --relaunch adoption: every identity axis comes from the task's own validated
 # durable record, never from the command line, so a relaunch can only ever
@@ -1655,42 +1653,23 @@ case "$ARG3" in
   *' '*)  # raw launch command (unverified-adapter escape hatch)
     RAW_LAUNCH=1
     LAUNCH=$ARG3
-    RAW_PARTS=$(node --input-type=module - "$SCRIPT_DIR/fm-arm-command-policy.mjs" "$LAUNCH" <<'JS'
-import { pathToFileURL } from "node:url";
-const { Lexer } = await import(pathToFileURL(process.argv[2]));
-const source = process.argv[3];
-const lexer = new Lexer(source);
-const assignments = [];
-let result = { harness: source.split(/\s/)[0], prefix: "", command: source, env: "" };
-while (lexer.index < source.length) {
-  while (/\s/.test(source[lexer.index] || "")) lexer.index++;
-  const start = lexer.index;
-  const word = lexer.readWord();
-  if (!word || lexer.error) break;
-  const name = word.value.match(/^([A-Za-z_][A-Za-z0-9_]*)=/)?.[1];
-  if (name) {
-    assignments.push({ name, word, raw: source.slice(start, lexer.index) });
-    continue;
-  }
-  result.harness = word.value.split("/").at(-1);
-  if (result.harness.startsWith("grok")) {
-    const homes = assignments.filter(({ name }) => name === "HOME" || name === "GROK_HOME");
-    if (homes.some(({ word }) => word.subs.length > 0)) {
-      throw new Error("Grok home overrides must not run command substitutions");
-    }
-    result.env = homes.map(({ raw }) => raw).join(" ");
-    result.prefix = assignments.filter(({ name }) => name !== "GROK_HOME").map(({ raw }) => raw).join(" ");
-    result.command = source.slice(start);
-  }
-  break;
-}
-process.stdout.write(JSON.stringify(result));
-JS
-    ) || exit 1
-    HARNESS=$(printf '%s' "$RAW_PARTS" | jq -r .harness)
-    GROK_RAW_ENV=$(printf '%s' "$RAW_PARTS" | jq -r .env)
-    GROK_RAW_PREFIX=$(printf '%s' "$RAW_PARTS" | jq -r .prefix)
-    GROK_RAW_COMMAND=$(printf '%s' "$RAW_PARTS" | jq -r .command)
+    HARNESS=""
+    RAW_HOME_ASSIGNMENT=""
+    for word in $LAUNCH; do
+      case "$word" in
+        HOME=*|GROK_HOME=*) RAW_HOME_ASSIGNMENT=$word; continue ;;
+        [A-Za-z_]*=*) continue ;;
+        *) HARNESS=$(basename "$word"); break ;;
+      esac
+    done
+    case "$HARNESS" in
+      grok*)
+        if [ -n "$RAW_HOME_ASSIGNMENT" ]; then
+          echo "error: raw grok launch carries its own home override ('$RAW_HOME_ASSIGNMENT'); firstmate resolves the Grok home from the destination pane and binds it to the worker, so drop the assignment or set that home in the pane before spawning" >&2
+          exit 1
+        fi
+        ;;
+    esac
     ;;
   '')
     # No explicit harness: resolve from config. A secondmate AGENT launches on the
@@ -3276,20 +3255,29 @@ case "$HARNESS" in
     GROK_PROBE_DIR=$(mktemp -d "$STATE/.grok-home-$ID.XXXXXXXX") || exit 1
     # shellcheck disable=SC2016
     GROK_PROBE_SCRIPT='set -eu; umask 077; store=${GROK_HOME:-${HOME:?}/.grok}; case $store in /*) ;; *) store=$PWD/$store ;; esac; printf "%s\000%s\000" "${HOME:-}" "$store" > "$1/value"; mv "$1/value" "$1/ready"'
-    GROK_PROBE_COMMAND="env $GROK_RAW_ENV /bin/sh -c $(shell_quote "$GROK_PROBE_SCRIPT") fm-grok-home $(shell_quote "$GROK_PROBE_DIR")"
+    GROK_PROBE_COMMAND="/bin/sh -c $(shell_quote "$GROK_PROBE_SCRIPT") fm-grok-home $(shell_quote "$GROK_PROBE_DIR")"
     GROK_PROBE_COMMAND=$(spawn_launch_environment "$GROK_PROBE_COMMAND") || exit 1
+    case "$BACKEND" in
+      orca) ;;
+      *)
+        for ((grok_settle_attempt = 0; grok_settle_attempt < 100; grok_settle_attempt++)); do
+          [ -n "$(spawn_current_path "$WT_TARGET" || true)" ] && break
+          sleep 0.1
+        done
+        ;;
+    esac
     if ! spawn_send_text_line "$T" "$GROK_PROBE_COMMAND"; then
       echo "error: could not query the Grok home in window $T; refusing to launch" >&2
       exit 1
     fi
-    for ((grok_probe_attempt = 0; grok_probe_attempt < 100; grok_probe_attempt++)); do
+    for ((grok_probe_attempt = 0; grok_probe_attempt < 600; grok_probe_attempt++)); do
       [ -f "$GROK_PROBE_DIR/ready" ] && break
       sleep 0.1
     done
     if [ ! -f "$GROK_PROBE_DIR/ready" ] || ! {
       IFS= read -r -d '' GROK_PANE_HOME && IFS= read -r -d '' GROK_TRUST_HOME
     } < "$GROK_PROBE_DIR/ready"; then
-      echo "error: could not resolve the Grok home in window $T; refusing to launch" >&2
+      echo "error: could not resolve the Grok home in window $T within 60s; refusing to launch a worker that would meet the folder-trust dialog. Bring that window to a shell prompt and respawn the task, or spawn it on another harness." >&2
       exit 1
     fi
     rm -rf -- "$GROK_PROBE_DIR"
@@ -3301,11 +3289,7 @@ case "$HARNESS" in
       exit 1
     fi
     GROK_TRUST_HOME=$(CDPATH='' cd -P -- "$GROK_TRUST_HOME" && pwd -P) || exit 1
-    if [ "$RAW_LAUNCH" = 1 ]; then
-      LAUNCH="env $GROK_RAW_PREFIX GROK_HOME=$(shell_quote "$GROK_TRUST_HOME") $GROK_RAW_COMMAND"
-    else
-      LAUNCH="GROK_HOME=$(shell_quote "$GROK_TRUST_HOME") $LAUNCH"
-    fi
+    LAUNCH="GROK_HOME=$(shell_quote "$GROK_TRUST_HOME") $LAUNCH"
     ;;
 esac
 
@@ -3664,7 +3648,7 @@ EOF
       # grok fires a Stop hook at every turn boundary; this uses a global hook
       # instead of a project one so it needs no per-worktree trust grant.
       # docs/verification/runtime-backends.md "Grok folder trust" owns why.
-      GROK_HOOKS_DIR="${GROK_HOME:-$HOME/.grok}/hooks"
+      GROK_HOOKS_DIR="$GROK_TRUST_HOME/hooks"
       GROK_AUTH_DIR="$GROK_HOOKS_DIR/fm-turn-end.d"
       mkdir -p "$GROK_AUTH_DIR"
       old_umask=$(umask)
@@ -3673,6 +3657,7 @@ EOF
       umask "$old_umask"
       printf '%s\n' "$TURNEND" > "$auth_file"
       printf '%s\n' "${auth_file##*/}" > "$STATE/$ID.grok-turnend-token"
+      printf '%s\n' "$GROK_TRUST_HOME" > "$STATE/$ID.grok-home"
       sq_grok_auth_dir=$(shell_quote "$GROK_AUTH_DIR")
       cat > "$GROK_HOOKS_DIR/fm-turn-end.sh" <<EOF
 #!/usr/bin/env bash

@@ -100,6 +100,7 @@ state/               runtime records and signals; gitignored
   <id>.turn-ended    touched by turn-end hooks
   <id>.progress      touched for observed native-harness activity inside one Pi turn; bin/fm-busy-event.sh owns its generation binding and bin/fm-watch.sh reads it beside turn-ended for the busy-age bound only, never as a completed turn
   <id>.grok-turnend-token   firstmate-owned grok hook registry token for the task; removed by teardown
+  <id>.grok-home     the Grok home fm-spawn resolved from the destination pane and installed that hook into; read by teardown and relaunch instead of re-guessing it, and removed by teardown
   <id>.kimi-turnend-token   firstmate-owned Kimi hook registry token for the task; removed by teardown
   <id>.gemini-settings.json  firstmate-owned per-task Gemini settings carrying the busy-state and turn-end hooks, reached through GEMINI_CLI_SYSTEM_SETTINGS_PATH so nothing is written into the project's own .gemini/; removed by teardown
   <id>.qwen-settings.json  firstmate-owned per-task Qwen Code settings carrying the busy-state and turn-end hooks, reached through QWEN_CODE_SYSTEM_SETTINGS_PATH so nothing is written into the project's own .qwen/; removed by teardown
