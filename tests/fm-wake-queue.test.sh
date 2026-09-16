@@ -32,7 +32,10 @@ test_concurrent_append_and_drain() {
     pids="$pids $!"
     i=$((i + 1))
   done
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out1" &
+  # Default presentation-lock bound (10s) is sized for an idle box, not for 40
+  # live appenders serialized on the same lock under real CPU starvation; widen
+  # it to the contention this case itself creates so every subprocess lands.
+  FM_STATE_OVERRIDE="$state" FM_STATUS_PRESENTATION_LOCK_TIMEOUT=120 "$DRAIN" > "$out1" &
   pids="$pids $!"
   for pid in $pids; do
     wait "$pid" || fail "concurrent append/drain subprocess failed"
