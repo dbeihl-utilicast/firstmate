@@ -68,6 +68,21 @@
 #   (av) a base branch with no queue rule says nothing about a merge queue
 #   (aw) a refusal built on the gh-axi view says the merge queue could not be
 #       observed, and judges that view's state like the queue-aware one
+#   (ax) --admin-bypass-review merges through gh pr merge with --admin, never
+#       hands --admin to gh-axi, and records the bypass marker; an ordinary
+#       merge carries no such marker
+#   (ay) --admin-bypass-review refuses a red or still-pending pull request
+#       before ever calling gh pr merge, because the bypass skips only the
+#       review requirement
+#   (az) an admin-bypass merge of an open unqueued PR still refuses, still
+#       records pr=, and records no bypass marker
+#   (ba) an admin-bypass merge without gh refuses and does not fall back to
+#       gh-axi
+#   (bb) GitLab --admin-bypass-review is refused before any state is recorded
+#   (bc) a raw --admin after -- is refused and names --admin-bypass-review as
+#       the one supported way in
+#   (bd) admin-bypass merges translate both wrapper --method forms for native gh
+#   (be) admin-bypass merges reject gh-native flags outside the gh-axi contract
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -113,6 +128,10 @@ make_case() {
     'base=main' > "$case_dir/github-outcome"
   : > "$case_dir/github-rules"
   : > "$case_dir/gh.log"
+  # Default admin-bypass precheck fixture: open, mergeable, no failing or
+  # pending checks. write_github_admin_precheck overrides for red-PR cases.
+  printf '%s\n' 'state=OPEN' 'mergeable=MERGEABLE' 'checks=0' \
+    > "$case_dir/github-admin-precheck"
   # No worktree/project on disk; fm-pr-check.sh tolerates a worktree it cannot
   # stat and simply skips the pr_head lookup via `gh` in that case, so give it
   # one that resolves for cases that want pr_head recorded.
@@ -142,7 +161,16 @@ case "\${1:-} \${2:-}" in
   "pr view")
     case " \$* " in
       *headRefOid*) printf '%s\n' '$head' ; exit 0 ;;
+      *statusCheckRollup*) cat "\$FM_TEST_GH_ADMIN_PRECHECK" ; exit 0 ;;
     esac
+    ;;
+  "pr merge")
+    for arg in "\$@"; do
+      case "\$arg" in
+        --method|--method=*) echo 'unknown flag: --method' >&2 ; exit 1 ;;
+      esac
+    done
+    exit 0
     ;;
   "api graphql")
     cat "\$FM_TEST_GH_OUTCOME"
@@ -363,6 +391,9 @@ run_pr_merge() {
   FM_TEST_GH_LOG="$case_dir/gh.log" \
   FM_TEST_GH_OUTCOME="$case_dir/github-outcome" \
   FM_TEST_GH_RULES="$case_dir/github-rules" \
+  FM_TEST_GH_ADMIN_PRECHECK="$case_dir/github-admin-precheck" \
+  FM_TEST_GH_ADMIN_PRECHECK_JSON="$case_dir/github-admin-precheck.json" \
+  FM_TEST_JQ_BIN="$JQ_BIN" \
   FM_TEST_META_AT_MERGE="$case_dir/meta-at-merge" \
   FM_TEST_REAL_MV="$REAL_MV" \
   FM_TEST_GLAB_LOG="$case_dir/glab.log" \
@@ -385,6 +416,14 @@ write_github_outcome() {
     "merged=$merged" \
     "queued=$queued" \
     "base=$base" > "$case_dir/github-outcome"
+}
+
+write_github_admin_precheck() {
+  local case_dir=$1 state=$2 mergeable=$3 checks=$4
+  printf '%s\n' \
+    "state=$state" \
+    "mergeable=$mergeable" \
+    "checks=$checks" > "$case_dir/github-admin-precheck"
 }
 
 test_verified_merge_records_pr_and_head() {
@@ -1787,6 +1826,399 @@ test_github_still_forwards_sha_arg() {
   pass "fm-pr-merge leaves GitHub extra-arg handling unchanged, including --sha"
 }
 
+test_github_admin_bypass_review_merges_and_records_marker() {
+  local case_dir rc
+  case_dir=$(make_case github-admin-bypass-marker)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" deadbeefcafefeed0000000000000000deadbeef
+  : > "$case_dir/gh-axi.log"
+  : > "$case_dir/gh.log"
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/81 \
+    --admin-bypass-review \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "github-admin-bypass-marker: an admin-bypass merge of a merged PR should succeed"
+  assert_grep 'verified: https://github.com/example/repo/pull/81 is merged with admin bypass' \
+    "$case_dir/stdout" "github-admin-bypass-marker: success was not reported with the bypass marker"
+  assert_grep 'the review requirement was bypassed, not satisfied' "$case_dir/stdout" \
+    "github-admin-bypass-marker: the printed outcome did not say the review requirement was bypassed"
+  assert_grep 'pr=https://github.com/example/repo/pull/81' "$case_dir/state/task-x1.meta" \
+    "github-admin-bypass-marker: pr= was not recorded"
+  assert_grep 'pr_head=deadbeefcafefeed0000000000000000deadbeef' "$case_dir/state/task-x1.meta" \
+    "github-admin-bypass-marker: pr_head= was not recorded"
+  assert_grep 'admin_bypass_review=true' "$case_dir/state/task-x1.meta" \
+    "github-admin-bypass-marker: the durable record does not state the review requirement was bypassed"
+  grep -qxF 'pr merge 81 --repo example/repo --squash --admin' "$case_dir/gh.log" \
+    || fail "github-admin-bypass-marker: gh did not receive pr merge 81 --repo example/repo --squash --admin"
+  assert_no_grep '--admin' "$case_dir/gh-axi.log" \
+    "github-admin-bypass-marker: gh-axi received --admin"
+  assert_no_grep 'pr merge' "$case_dir/gh-axi.log" \
+    "github-admin-bypass-marker: gh-axi performed the admin merge"
+  pass "fm-pr-merge merges an admin-bypass request through gh and records the bypass marker"
+}
+
+test_github_admin_bypass_review_ordinary_merge_carries_no_marker() {
+  local case_dir rc
+  case_dir=$(make_case github-admin-bypass-ordinary)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" 3030303030303030303030303030303030303030
+  : > "$case_dir/gh-axi.log"
+  : > "$case_dir/gh.log"
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/90 \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "github-admin-bypass-ordinary: an ordinary merge should succeed"
+  assert_no_grep 'admin_bypass_review' "$case_dir/state/task-x1.meta" \
+    "github-admin-bypass-ordinary: an ordinary merge recorded the bypass marker"
+  assert_no_grep 'admin bypass' "$case_dir/stdout" \
+    "github-admin-bypass-ordinary: an ordinary merge's outcome named the bypass"
+  pass "fm-pr-merge leaves no bypass marker on an ordinary merge"
+}
+
+test_github_admin_bypass_review_red_checks_refuses() {
+  local case_dir rc
+  case_dir=$(make_case github-admin-bypass-red)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" 4040404040404040404040404040404040404040
+  write_github_admin_precheck "$case_dir" OPEN MERGEABLE 2
+  : > "$case_dir/gh-axi.log"
+  : > "$case_dir/gh.log"
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/91 \
+    --admin-bypass-review \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "github-admin-bypass-red: an admin-bypass merge of a red PR must refuse"
+  assert_grep 'the bypass skips only the review requirement' "$case_dir/stderr" \
+    "github-admin-bypass-red: refusal did not name the bypass's own limit"
+  assert_grep '2 status check(s) are failing or still pending' "$case_dir/stderr" \
+    "github-admin-bypass-red: refusal did not name the failing or pending checks"
+  assert_grep 'pr=https://github.com/example/repo/pull/91' "$case_dir/state/task-x1.meta" \
+    "github-admin-bypass-red: the attempted admin-bypass merge lost its PR reference"
+  assert_no_grep 'admin_bypass_review' "$case_dir/state/task-x1.meta" \
+    "github-admin-bypass-red: a refused admin-bypass merge recorded the bypass marker"
+  assert_no_grep 'verified: ' "$case_dir/stdout" \
+    "github-admin-bypass-red: a refused admin-bypass merge was reported as verified"
+  assert_no_grep 'pr merge' "$case_dir/gh.log" \
+    "github-admin-bypass-red: gh pr merge was invoked despite the red pull request"
+  pass "fm-pr-merge refuses an admin-bypass merge of a red or pending pull request"
+}
+
+# The precheck's real --jq filter (not a hardcoded stand-in) runs against a
+# GraphQL-shaped payload mixing a legacy StatusContext (state only, no
+# conclusion field) with a CheckRun (conclusion only). Before the fix this
+# filter read only .conclusion, so the StatusContext's missing conclusion
+# field was miscounted as failing and the merge was wrongly refused.
+test_github_admin_bypass_review_legacy_status_context_checks_pass() {
+  local case_dir rc
+  case_dir=$(make_case github-admin-bypass-legacy-status-context)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" 5151515151515151515151515151515151515151
+  cat > "$case_dir/fakebin/gh" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "\$FM_TEST_GH_LOG"
+case "\${1:-} \${2:-}" in
+  "pr view")
+    case " \$* " in
+      *headRefOid*) printf '%s\n' '5151515151515151515151515151515151515151' ; exit 0 ;;
+      *statusCheckRollup*)
+        prev=""
+        filter=""
+        for a in "\$@"; do
+          [ "\$prev" = --jq ] && filter=\$a
+          prev=\$a
+        done
+        exec "\$FM_TEST_JQ_BIN" -r "\$filter" "\$FM_TEST_GH_ADMIN_PRECHECK_JSON"
+        ;;
+    esac
+    ;;
+  "pr merge") printf 'merged:\n  number: %s\n  status: ok\n' "\${3:-}" ; exit 0 ;;
+  "api graphql") cat "\$FM_TEST_GH_OUTCOME" ; exit 0 ;;
+  api\ *) cat "\$FM_TEST_GH_RULES" ; exit 0 ;;
+esac
+exit 0
+SH
+  chmod +x "$case_dir/fakebin/gh"
+  cat > "$case_dir/github-admin-precheck.json" <<'JSON'
+{"state":"OPEN","mergeable":"MERGEABLE","statusCheckRollup":[{"state":"SUCCESS"},{"conclusion":"SUCCESS"}]}
+JSON
+  : > "$case_dir/gh-axi.log"
+  : > "$case_dir/gh.log"
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/92 \
+    --admin-bypass-review \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" \
+    "github-admin-bypass-legacy-status-context: a fully green PR with a legacy status check must merge"
+  assert_grep 'pr merge 92 --repo example/repo --squash --admin' "$case_dir/gh.log" \
+    "github-admin-bypass-legacy-status-context: gh pr merge was never invoked"
+  assert_no_grep 'status check(s) are failing or still pending' "$case_dir/stderr" \
+    "github-admin-bypass-legacy-status-context: a passing legacy status check was miscounted as failing"
+  pass "fm-pr-merge's admin-bypass precheck treats a passing legacy status context as passing"
+}
+
+test_github_admin_bypass_review_open_unqueued_outcome_refuses() {
+  local case_dir rc
+  case_dir=$(make_case github-admin-bypass-unproved)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" 2020202020202020202020202020202020202020
+  write_github_outcome "$case_dir" OPEN false false main
+  : > "$case_dir/gh-axi.log"
+  : > "$case_dir/gh.log"
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/82 \
+    --admin-bypass-review \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "github-admin-bypass-unproved: an unproved admin-bypass merge must fail"
+  assert_grep 'state=OPEN, merged=false, isInMergeQueue=false' "$case_dir/stderr" \
+    "github-admin-bypass-unproved: refusal did not name the concrete observed state"
+  assert_grep 'pr=https://github.com/example/repo/pull/82' "$case_dir/state/task-x1.meta" \
+    "github-admin-bypass-unproved: the attempted admin-bypass merge lost its PR reference"
+  assert_present "$case_dir/state/task-x1.check.sh" \
+    "github-admin-bypass-unproved: the attempted admin-bypass merge did not leave its poll armed"
+  assert_no_grep 'verified: ' "$case_dir/stdout" \
+    "github-admin-bypass-unproved: an unproved admin-bypass merge was reported as verified"
+  assert_no_grep 'admin_bypass_review' "$case_dir/state/task-x1.meta" \
+    "github-admin-bypass-unproved: an unproved admin-bypass merge recorded the bypass marker"
+  grep -qxF 'pr merge 82 --repo example/repo --squash --admin' "$case_dir/gh.log" \
+    || fail "github-admin-bypass-unproved: gh did not receive the admin merge"
+  assert_no_grep '--admin' "$case_dir/gh-axi.log" \
+    "github-admin-bypass-unproved: gh-axi still received --admin"
+  pass "fm-pr-merge refuses an admin-bypass merge that leaves the PR open and unqueued"
+}
+
+test_github_admin_bypass_review_without_gh_refuses() {
+  local case_dir ghless_path rc
+  case_dir=$(make_case github-admin-bypass-without-gh)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" 4141414141414141414141414141414141414141
+  rm -f "$case_dir/fakebin/gh"
+  ghless_path="$case_dir/path-without-gh"
+  mirror_path_without "$ghless_path" gh "$case_dir/fakebin"
+  : > "$case_dir/gh-axi.log"
+
+  set +e
+  PATH="$ghless_path" run_pr_merge "$case_dir" task-x1 \
+    https://github.com/example/repo/pull/83 --admin-bypass-review \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "github-admin-bypass-without-gh: admin-bypass merge without gh must refuse"
+  assert_grep 'admin merge requires gh' "$case_dir/stderr" \
+    "github-admin-bypass-without-gh: refusal did not name that admin merge requires gh"
+  assert_no_grep 'verified: ' "$case_dir/stdout" \
+    "github-admin-bypass-without-gh: admin-bypass merge without gh was reported as verified"
+  assert_no_grep '--admin' "$case_dir/gh-axi.log" \
+    "github-admin-bypass-without-gh: admin-bypass merge without gh fell back to gh-axi"
+  assert_no_grep 'pr merge' "$case_dir/gh-axi.log" \
+    "github-admin-bypass-without-gh: admin-bypass merge without gh still invoked gh-axi pr merge"
+  assert_no_grep 'pr=https://github.com/example/repo/pull/83' "$case_dir/state/task-x1.meta" \
+    "github-admin-bypass-without-gh: pr= was recorded despite the missing gh"
+  pass "fm-pr-merge refuses an admin-bypass merge when gh is absent and does not fall back to gh-axi"
+}
+
+test_gitlab_admin_bypass_review_refuses_before_recording() {
+  local case_dir rc
+  case_dir=$(make_gitlab_case gitlab-admin-bypass)
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 "$MR_URL" --admin-bypass-review \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "gitlab-admin-bypass: GitLab --admin-bypass-review must refuse"
+  assert_grep '--admin-bypass-review is GitHub-only' "$case_dir/stderr" \
+    "gitlab-admin-bypass: refusal did not name --admin-bypass-review as GitHub-only"
+  assert_no_grep "pr=$MR_URL" "$case_dir/state/task-x1.meta" \
+    "gitlab-admin-bypass: GitLab --admin-bypass-review recorded pr= before refusing"
+  assert_absent "$case_dir/state/task-x1.check.sh" \
+    "gitlab-admin-bypass: GitLab --admin-bypass-review armed a merge poll"
+  if grep -F ' mr merge ' "$case_dir/glab.log" >/dev/null; then
+    fail "gitlab-admin-bypass: GitLab --admin-bypass-review still invoked glab mr merge"
+  fi
+  pass "fm-pr-merge refuses GitLab --admin-bypass-review before recording state"
+}
+
+test_raw_admin_after_separator_is_refused() {
+  local case_dir rc
+  case_dir=$(make_case raw-admin-refused)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" 5050505050505050505050505050505050505050
+  : > "$case_dir/gh-axi.log"
+  : > "$case_dir/gh.log"
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/92 -- --admin \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "raw-admin-refused: a raw --admin after -- must be refused"
+  assert_grep 'raw --admin is not accepted' "$case_dir/stderr" \
+    "raw-admin-refused: refusal did not name raw --admin as unaccepted"
+  assert_grep '--admin-bypass-review' "$case_dir/stderr" \
+    "raw-admin-refused: refusal did not name the supported flag"
+  assert_no_grep 'pr=https://github.com/example/repo/pull/92' "$case_dir/state/task-x1.meta" \
+    "raw-admin-refused: a raw --admin recorded pr= before refusing"
+  assert_no_grep 'pr merge' "$case_dir/gh.log" \
+    "raw-admin-refused: a raw --admin still invoked gh pr merge"
+  assert_no_grep 'pr merge' "$case_dir/gh-axi.log" \
+    "raw-admin-refused: a raw --admin still invoked gh-axi pr merge"
+  pass "fm-pr-merge refuses a raw --admin after -- and names the supported flag"
+}
+
+test_github_admin_bypass_review_explicit_method_not_overridden() {
+  local case_dir
+  case_dir=$(make_case github-admin-bypass-explicit-method)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" 7171717171717171717171717171717171717171
+  : > "$case_dir/gh-axi.log"
+  : > "$case_dir/gh.log"
+
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/85 \
+    --admin-bypass-review -- --merge \
+    > "$case_dir/stdout" 2> "$case_dir/stderr" \
+    || fail "github-admin-bypass-explicit-method: fm-pr-merge failed"
+
+  grep -qxF 'pr merge 85 --repo example/repo --merge --admin' "$case_dir/gh.log" \
+    || fail "github-admin-bypass-explicit-method: default --squash overrode the caller method"
+  assert_no_grep 'pr merge' "$case_dir/gh-axi.log" \
+    "github-admin-bypass-explicit-method: gh-axi performed the admin merge"
+  pass "fm-pr-merge keeps a caller merge method on the GitHub admin-bypass path"
+}
+
+test_github_admin_bypass_review_normalizes_wrapper_method_forms() {
+  local case_dir expected spelling
+  for spelling in equals separate; do
+    case_dir=$(make_case "github-admin-bypass-method-$spelling")
+    mkdir -p "$case_dir/wt"
+    add_gh_mocks "$case_dir" 9191919191919191919191919191919191919191
+    : > "$case_dir/gh-axi.log"
+    : > "$case_dir/gh.log"
+    if [ "$spelling" = equals ]; then
+      run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/87 \
+        --admin-bypass-review -- --method=squash \
+        > "$case_dir/stdout" 2> "$case_dir/stderr" \
+        || fail "github-admin-bypass-method-equals: fm-pr-merge failed"
+      expected='pr merge 87 --repo example/repo --squash --admin'
+    else
+      run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/87 \
+        --admin-bypass-review -- --method rebase \
+        > "$case_dir/stdout" 2> "$case_dir/stderr" \
+        || fail "github-admin-bypass-method-separate: fm-pr-merge failed"
+      expected='pr merge 87 --repo example/repo --rebase --admin'
+    fi
+    grep -qxF "$expected" "$case_dir/gh.log" \
+      || fail "github-admin-bypass-method-$spelling: gh did not receive a native method flag"
+    assert_no_grep '--method' "$case_dir/gh.log" \
+      "github-admin-bypass-method-$spelling: gh received a wrapper-only method flag"
+  done
+  pass "fm-pr-merge translates wrapper method forms for GitHub admin-bypass merges"
+}
+
+test_github_admin_bypass_review_rejects_native_only_flags() {
+  local arg case_dir rc
+  local -a value
+  for arg in --author-email --disable-auto --match-head-commit; do
+    case_dir=$(make_case "github-admin-bypass-native-${arg#--}")
+    mkdir -p "$case_dir/wt"
+    add_gh_mocks "$case_dir" 9292929292929292929292929292929292929292
+    : > "$case_dir/gh-axi.log"
+    : > "$case_dir/gh.log"
+    value=()
+    case "$arg" in
+      --author-email) value=(operator@example.com) ;;
+      --match-head-commit) value=(9292929292929292929292929292929292929292) ;;
+    esac
+
+    set +e
+    run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/88 \
+      --admin-bypass-review -- "$arg" "${value[@]}" \
+      > "$case_dir/stdout" 2> "$case_dir/stderr"
+    rc=$?
+    set -e
+
+    expect_code 1 "$rc" "github-admin-bypass-native-${arg#--}: native-only flag must refuse"
+    assert_grep "unsupported GitHub admin merge argument: $arg" "$case_dir/stderr" \
+      "github-admin-bypass-native-${arg#--}: refusal did not name the unsupported flag"
+    assert_no_grep 'pr merge' "$case_dir/gh.log" \
+      "github-admin-bypass-native-${arg#--}: unsupported flag reached gh pr merge"
+  done
+  pass "fm-pr-merge rejects gh-native flags outside the gh-axi contract"
+}
+
+test_github_admin_bypass_review_records_pr_before_the_forge_call() {
+  local case_dir rc
+  case_dir=$(make_case github-admin-bypass-records-ahead-of-forge)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" 8181818181818181818181818181818181818181
+  cat > "$case_dir/fakebin/gh" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$FM_TEST_GH_LOG"
+case "${1:-} ${2:-}" in
+  "pr view")
+    case " $* " in
+      *headRefOid*) printf '%s\n' '8181818181818181818181818181818181818181' ; exit 0 ;;
+      *statusCheckRollup*) cat "$FM_TEST_GH_ADMIN_PRECHECK" ; exit 0 ;;
+    esac
+    ;;
+  "pr merge")
+    cat "$FM_STATE_OVERRIDE/task-x1.meta" > "$FM_TEST_META_AT_MERGE"
+    printf 'merged:\n  number: %s\n  status: ok\n' "${3:-}"
+    exit 0
+    ;;
+  "api graphql")
+    cat "$FM_TEST_GH_OUTCOME"
+    exit 0
+    ;;
+  api\ *)
+    cat "$FM_TEST_GH_RULES"
+    exit 0
+    ;;
+esac
+exit 0
+SH
+  chmod +x "$case_dir/fakebin/gh"
+  : > "$case_dir/gh-axi.log"
+  : > "$case_dir/gh.log"
+  : > "$case_dir/meta-at-merge"
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/86 \
+    --admin-bypass-review \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "github-admin-bypass-records-ahead-of-forge: fm-pr-merge should succeed"
+  assert_grep 'pr merge 86 --repo example/repo --squash --admin' "$case_dir/gh.log" \
+    "github-admin-bypass-records-ahead-of-forge: gh pr merge was never invoked"
+  assert_grep 'pr=https://github.com/example/repo/pull/86' "$case_dir/meta-at-merge" \
+    "github-admin-bypass-records-ahead-of-forge: the admin merge ran before pr= was recorded"
+  pass "fm-pr-merge records pr= before the GitHub admin-bypass forge call"
+}
+
 # --- durable merge outcome ---------------------------------------------------
 # A merge that lands must leave a record outside the merging agent's memory.
 # bin/fm-merge-outcome-lib.sh owns where that record goes; these cases pin the
@@ -2124,6 +2556,18 @@ test_explicit_merge_method_not_overridden
 test_method_equals_merge_method_not_overridden
 test_parses_pr_url_for_gh_axi
 test_github_still_forwards_sha_arg
+test_github_admin_bypass_review_merges_and_records_marker
+test_github_admin_bypass_review_ordinary_merge_carries_no_marker
+test_github_admin_bypass_review_red_checks_refuses
+test_github_admin_bypass_review_legacy_status_context_checks_pass
+test_github_admin_bypass_review_open_unqueued_outcome_refuses
+test_github_admin_bypass_review_without_gh_refuses
+test_gitlab_admin_bypass_review_refuses_before_recording
+test_raw_admin_after_separator_is_refused
+test_github_admin_bypass_review_explicit_method_not_overridden
+test_github_admin_bypass_review_normalizes_wrapper_method_forms
+test_github_admin_bypass_review_rejects_native_only_flags
+test_github_admin_bypass_review_records_pr_before_the_forge_call
 test_gitlab_url_resolves_and_merges
 test_gitlab_host_comes_from_the_url
 test_gitlab_imposes_no_merge_method
