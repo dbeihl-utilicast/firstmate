@@ -560,7 +560,12 @@ fm_lock_claim() {
 fm_lock_try_create() {
   local lockdir=$1 allowed_steal_owner=${2:-} ownerdir
   FM_LOCK_OWNER_DIR=
-  ownerdir=$(fm_lock_owner_dir "$lockdir") || return 1
+  FM_LOCK_CREATE_FAILED=
+  ownerdir=$(fm_lock_owner_dir "$lockdir") || {
+    # shellcheck disable=SC2034 # Read by fm_lock_try_acquire after this call.
+    FM_LOCK_CREATE_FAILED=1
+    return 1
+  }
   if [ -e "$lockdir" ] || [ -L "$lockdir" ]; then
     fm_lock_discard_owner "$ownerdir"
     return 1
@@ -962,10 +967,11 @@ fm_lock_try_acquire() {
     return 0
   fi
   # Nothing to steal: recursing into "$lockdir.steal" would never bottom out
-  # while creation keeps failing (full disk, unwritable state directory).
-  if [ ! -e "$lockdir" ] && [ ! -L "$lockdir" ]; then
-    # shellcheck disable=SC2034 # Read by callers after fm_lock_try_acquire returns.
-    FM_LOCK_CREATE_FAILED=1
+  # while creation keeps failing (full disk, unwritable state directory). This
+  # checks the actual reason fm_lock_try_create failed rather than whether
+  # $lockdir now exists, since a swapped or raced boundary can leave $lockdir
+  # absent even though creation itself made real progress.
+  if [ -n "$FM_LOCK_CREATE_FAILED" ]; then
     return 1
   fi
 
