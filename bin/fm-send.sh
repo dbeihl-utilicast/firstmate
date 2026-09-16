@@ -827,7 +827,7 @@ else
     else
       case "$RESOLVE_ANSWER_TEXT" in
         /*) ;;
-        \$*) [ "$TARGET_HARNESS" = codex ] || INBOX_PLANE=1 ;;
+        \$*) case "$TARGET_HARNESS" in codex|codex-foundry-luna) ;; *) INBOX_PLANE=1 ;; esac ;;
         *) INBOX_PLANE=1 ;;
       esac
     fi
@@ -1049,7 +1049,7 @@ else
   case "$*" in
     /*) settle=1.2 ;;
     \$*)
-      if [ "$TARGET_HARNESS" = codex ]; then settle=1.2; else settle=0.3; fi
+      case "$TARGET_HARNESS" in codex|codex-foundry-luna) settle=1.2 ;; *) settle=0.3 ;; esac
       ;;
     *) settle=0.3 ;;
   esac

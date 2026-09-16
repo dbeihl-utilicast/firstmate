@@ -63,7 +63,7 @@ fm_control_verb_allowed() {  # <verb>
 # than guessed at, exactly as a spawn on it would be.
 fm_control_harness_supported() {  # <harness>
   case "${1-}" in
-    claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|qwen) return 0 ;;
+    claude|codex|codex-foundry-luna|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|qwen) return 0 ;;
   esac
   return 1
 }
@@ -106,7 +106,7 @@ fm_control_harness_supports_kind() {  # <harness> <kind>
   local harness=${1-} kind=${2-}
   fm_control_harness_supported "$harness" || return 1
   case "$harness" in
-    muse|gemini|rovo|qwen) [ "$kind" != secondmate ] || return 1 ;;
+    muse|gemini|rovo|qwen|codex-foundry-luna) [ "$kind" != secondmate ] || return 1 ;;
   esac
   return 0
 }
