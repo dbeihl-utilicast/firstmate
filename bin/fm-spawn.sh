@@ -14,6 +14,16 @@
 #   scaffolded before that line existed warns once and launches on the flag. A
 #   ship or scout spawn also refuses leftover `{TASK}` / `{FIRSTMATE_SPEC}`
 #   placeholders, an empty Task, or an incomplete pair of Task subsections.
+#   A ship spawn on a local-model harness (bin/fm-harness.sh is-local-model,
+#   e.g. qwen) additionally refuses unless the brief carries the local-model
+#   red-first contract from bin/fm-brief.sh --local-model-contract: the
+#   "Local-model contract: enabled" marker plus a "Red test:" line naming a
+#   failing test that exists in the project. This check reads brief text only
+#   and never runs the test; bin/fm-local-model-verify.sh independently
+#   re-runs it against the worker's real committed code after done is
+#   reported. Never route a local model onto a security or guard path, and
+#   never ask one whether an existing guard is too strict: those two scope
+#   rules are not checked here and remain firstmate's own intake judgment.
 #   Every ship or scout spawn renders `launch-brief.md`; for a no-mistakes ship
 #   it also carries the current `--intent` contract and the extracted captain
 #   intent. A legacy mixed Task is accepted there only under bin/fm-dod-lib.sh's
@@ -125,8 +135,15 @@
 #   profile consultation. A --secondmate spawn is exempt and resolves the SECONDMATE
 #   harness (config/secondmate-harness -> config/crew-harness -> own), so the
 #   secondmate-vs-crewmate split is DURABLE across every respawn (recovery,
-#   /updatefirstmate, restart). A bare adapter name (claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|qwen)
-#   overrides it for this spawn (either kind). A non-flag string containing
+#   /updatefirstmate, restart). A bare adapter name (claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|qwen|codex-foundry-luna)
+#   overrides it for this spawn (either kind). codex-foundry-luna is codex itself,
+#   repointed at the Azure AI Foundry `gpt-5.6-luna` deployment (aih-utilicast-ftiek)
+#   through a local per-task token-refreshing proxy (bin/fm-foundry-luna-proxy.py)
+#   instead of OpenAI's own API; it is crewmate/scout only (no secondmate: it carries
+#   no separate control/busy mechanics of its own and inherits codex's via the
+#   `codex*` family match in fm-control-lib.sh and fm-busy-lib.sh) and refuses a
+#   --model other than gpt-5.6-luna outright, since the account carries other
+#   deployments whose cost is not authorized for fleet dispatch. A non-flag string containing
 #   whitespace is treated as a RAW launch command - the escape hatch for verifying
 #   new adapters. For pi and pi-signed, fm-spawn resolves the selected executable
 #   name from PATH once, probes that concrete path with --help, and launches the
@@ -263,6 +280,9 @@
 #     __QWENBIN__   quoted concrete Qwen executable path resolved from PATH
 #     __QWENSETTINGS__ firstmate-owned per-task qwen settings file (busy-state hooks)
 #     __ROVOBIN__   resolved, rovo-verified executable for a rovo launch
+#     __FOUNDRYLUNAPROXY__ quoted path to bin/fm-foundry-luna-proxy.py, the codex-foundry-luna gateway
+#     __FOUNDRYLUNAPORT__ deliberately NOT replaced here: that gateway substitutes it in
+#                  codex's argv once it has bound the port it serves
 # Verified per-harness turn-end hooks are installed automatically where enabled; some live outside the worktree.
 # Kimi uses one surgically installed Firstmate region in $HOME/.kimi-code/config.toml,
 # a firstmate-owned global hook and registry, and a gitignored per-task pointer.
@@ -1367,7 +1387,7 @@ if [ "$RELAUNCH" -eq 1 ]; then
   }
 elif [ "$KIND" = secondmate ]; then
   case "${POS[1]:-}" in
-    ''|claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|qwen)
+    ''|claude|codex|codex-foundry-luna|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|qwen)
       ARG3=${POS[1]:-}
       ;;
     *' '*)
@@ -1485,6 +1505,21 @@ launch_template() {
       else
         printf '%s' 'codex __MODELFLAG____EFFORTFLAG__--dangerously-bypass-approvals-and-sandbox -c "notify=[\"bash\",\"-c\",\"touch __TURNEND__\"]" "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
       fi
+      ;;
+    # codex-foundry-luna: codex itself, repointed at the Azure AI Foundry
+    # gpt-5.6-luna deployment instead of OpenAI's own API. __FOUNDRYLUNAPROXY__
+    # (bin/fm-foundry-luna-proxy.py, `run -- <codex...>`) starts the local
+    # token-refreshing gateway first and runs codex as its child; that script's
+    # own header owns the refusal, port and token-refresh mechanics.
+    # __FOUNDRYLUNAPORT__ stays LITERAL: the gateway substitutes it in codex's
+    # argv once it has bound the port it serves, so nothing can take that port
+    # in between. codex's model/provider/base_url/wire_api are fixed with -c
+    # overrides rather than left to --model, per the captain's single-deployment
+    # authorization, and env_key names the variable the gateway puts its own
+    # minted admission secret in, so no secret rides this command text.
+    # Crewmate/scout only: see the secondmate refusal below.
+    codex-foundry-luna)
+      printf '%s' '__FOUNDRYLUNAPROXY__ run -- codex -c model=\"gpt-5.6-luna\" -c model_provider=\"fm_foundry_luna\" -c model_providers.fm_foundry_luna.name=\"Azure-AI-Foundry-gpt-5.6-luna\" -c model_providers.fm_foundry_luna.base_url=\"http://127.0.0.1:__FOUNDRYLUNAPORT__/openai/v1\" -c model_providers.fm_foundry_luna.wire_api=\"responses\" -c model_providers.fm_foundry_luna.env_key=\"FM_FOUNDRY_LUNA_SECRET\" __EFFORTFLAG__--dangerously-bypass-approvals-and-sandbox -c "notify=[\"bash\",\"-c\",\"touch __TURNEND__\"]" "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
       ;;
     opencode) printf '%s' 'OPENCODE_CONFIG_CONTENT='\''{"permission":{"*":"allow"}}'\'' opencode __MODELFLAG__--prompt "$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
     pi|pi-signed)
@@ -1724,6 +1759,25 @@ if [ "$KIND" = secondmate ] && [ "$HARNESS" = rovo ]; then
   exit 1
 fi
 
+# codex-foundry-luna carries no supervision mechanics of its own - it is codex,
+# and inherits codex's turn-end hook and busy detection via the `codex*` family
+# match in fm-control-lib.sh and fm-busy-lib.sh - but a secondmate is a firstmate
+# instance dispatching its OWN crew, which this adapter has never been verified
+# to run pointed at a single locked-down Foundry deployment. Refused rather than
+# guessed.
+if [ "$KIND" = secondmate ] && [ "$HARNESS" = codex-foundry-luna ]; then
+  echo "error: codex-foundry-luna is a verified crewmate/scout adapter only and cannot run a secondmate. Select a harness verified for secondmates." >&2
+  exit 1
+fi
+
+# gpt-5.6-luna is the only Foundry deployment the captain authorized for fleet
+# dispatch; other deployments on this account work but bill Azure without
+# authorization, so a caller cannot use --model to point this adapter at one.
+if [ "$HARNESS" = codex-foundry-luna ] && [ -n "$MODEL" ] && [ "$MODEL" != default ] && [ "$MODEL" != gpt-5.6-luna ]; then
+  echo "error: codex-foundry-luna dispatches the gpt-5.6-luna deployment only; refusing --model '$MODEL'" >&2
+  exit 1
+fi
+
 case "$HARNESS" in
   pi|pi-signed)
     PI_BIN=$(resolve_path_executable "$HARNESS") || {
@@ -1757,6 +1811,16 @@ case "$HARNESS" in
         fi
       fi
     fi
+    ;;
+  codex-foundry-luna)
+    # A PREFLIGHT rather than a rendered-screen check, for muse's reason: the
+    # gateway fetches its AAD token with `az account get-access-token`, and with
+    # az absent that failure is a silent 502 on every turn of a live pane, which
+    # supervision reads as a wedged worker rather than a missing credential.
+    command -v az >/dev/null 2>&1 || {
+      echo "error: az executable not found on PATH; the codex-foundry-luna gateway obtains its AAD token with 'az account get-access-token'. Install the Azure CLI and sign in to the tenant, or select a different verified harness" >&2
+      exit 1
+    }
     ;;
   omp)
     OMP_BIN=$(resolve_path_executable omp) || {
@@ -1931,10 +1995,11 @@ effort_flag_for_harness() {
         low|medium|high|xhigh|max) printf -- '--effort %s ' "$(shell_quote "$effort")" ;;
       esac
       ;;
-    codex)
+    codex|codex-foundry-luna)
       # The installed codex config schema uses model_reasoning_effort, and the
       # bundled model catalog advertises low|medium|high|xhigh. Omit max rather
-      # than passing an unsupported value.
+      # than passing an unsupported value. codex-foundry-luna is codex itself,
+      # so the same override applies.
       case "$effort" in
         low|medium|high|xhigh) printf -- '-c %s ' "$(shell_quote "model_reasoning_effort=\"$effort\"")" ;;
       esac
@@ -2281,6 +2346,34 @@ if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
   if ! fm_brief_task_content_valid "$BRIEF"; then
     echo "error: $BRIEF must contain nonempty ## Captain's intent and ## Firstmate spec subsections (or a nonempty legacy # Task body) before spawn" >&2
     exit 1
+  fi
+  # A local-model harness (bin/fm-harness.sh is-local-model, e.g. qwen) can
+  # satisfy a brief in form without substance. Refuse a ship spawn unless the
+  # brief carries bin/fm-brief.sh --local-model-contract's marker and a Red
+  # test line naming a test that exists; this reads brief text only, never
+  # runs anything - bin/fm-local-model-verify.sh is the mechanism that does,
+  # run after done, before validation. The two accompanying scope rules
+  # (never route to a security/guard path, never ask if a guard is too
+  # strict) stay firstmate's own intake judgment (AGENTS.md section 7).
+  if [ "$KIND" = ship ] && "$SCRIPT_DIR/fm-harness.sh" is-local-model "$HARNESS"; then
+    if ! grep -q '^Local-model contract: enabled$' "$BRIEF"; then
+      echo "error: $ID ships on local-model harness '$HARNESS' but $BRIEF carries no local-model red-first contract; re-scaffold with 'fm-brief.sh ... --mode $MODE --local-model-contract' before spawn" >&2
+      exit 1
+    fi
+    RED_TEST=$(sed -n 's/^Red test: //p' "$BRIEF" | head -n 1)
+    if [ -z "$RED_TEST" ]; then
+      echo "error: $ID ships on local-model harness '$HARNESS' but $BRIEF carries no 'Red test: <path>' line naming the failing test the worker must turn green; add one before spawn" >&2
+      exit 1
+    elif [ "$RED_TEST" = "{RED_TEST}" ]; then
+      echo "error: $ID ships on local-model harness '$HARNESS' but $BRIEF's 'Red test:' line is still the unfilled {RED_TEST} placeholder; name the actual failing test before spawn" >&2
+      exit 1
+    elif case "$RED_TEST" in /*|*..*) true ;; *) false ;; esac; then
+      echo "error: $ID ships on local-model harness '$HARNESS' but $BRIEF's 'Red test:' line '$RED_TEST' must be a project-relative path with no traversal" >&2
+      exit 1
+    elif [ ! -f "$PROJ_ABS/$RED_TEST" ]; then
+      echo "error: $ID ships on local-model harness '$HARNESS' but $BRIEF names a red test '$RED_TEST' that does not exist in $PROJ_ABS; write the failing test first, then point the brief at it" >&2
+      exit 1
+    fi
   fi
   if [ "$KIND" = ship ] && [ "$MODE" = no-mistakes ]; then
     if fm_brief_task_heading_present "$BRIEF" "## Captain's intent"; then
@@ -3979,6 +4072,9 @@ if [ "$HARNESS" = rovo ]; then
   }
   LAUNCH=${LAUNCH//__ROVOCONFIGOVERRIDE__/$ROVOCONFIGOVERRIDE}
 fi
+if [ "$HARNESS" = codex-foundry-luna ]; then
+  LAUNCH=${LAUNCH//__FOUNDRYLUNAPROXY__/"$(shell_quote "$FM_ROOT/bin/fm-foundry-luna-proxy.py")"}
+fi
 LAUNCH=${LAUNCH//__BRIEF__/$sq_brief}
 LAUNCH=${LAUNCH//__TURNEND__/$sq_turnend}
 LAUNCH=${LAUNCH//__PIEXT__/$sq_piext}
@@ -4001,7 +4097,7 @@ case "$HARNESS" in
 esac
 LAUNCH=${LAUNCH//__WORKTREE__/$sq_worktree}
 case "$HARNESS" in
-  claude|codex|opencode|pi|pi-signed|grok|kimi|gemini|muse|rovo|qwen)
+  claude|codex|codex-foundry-luna|opencode|pi|pi-signed|grok|kimi|gemini|muse|rovo|qwen)
     LAUNCH="env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI $LAUNCH"
     ;;
 esac
