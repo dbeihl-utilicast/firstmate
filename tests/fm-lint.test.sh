@@ -1371,6 +1371,87 @@ SH
   pass "seeded dispatcher, adapter, production-owner, and test-local diagnostics preserve parity"
 }
 
+# The default (no-args) lint owner also runs bin/fm-doc-audience-check.sh, the
+# only surviving control once the docs-only CI skip retires the behavior lanes.
+# The fixture repository starts with an unresolved link and passes once it resolves.
+test_default_path_catches_a_documentation_regression() {
+  local tmp repo fakebin log rc out
+  tmp=$(fm_test_tmproot fm-lint-doc-audience)
+  fakebin=$(fm_fakebin "$tmp")
+  log="$tmp/shellcheck.log"
+  repo="$tmp/repo"
+  mkdir -p "$repo/bin/backends" "$repo/tests" "$repo/docs"
+  cp "$LINT" "$repo/bin/fm-lint.sh"
+  cp "$ROOT/bin/fm-doc-audience-check.sh" "$repo/bin/fm-doc-audience-check.sh"
+  cat > "$repo/bin/fm-lint-workflows.sh" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+  cat > "$repo/bin/backends/noop.sh" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+  cat > "$repo/tests/noop.test.sh" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+  chmod +x "$repo/bin/fm-lint.sh" "$repo/bin/fm-doc-audience-check.sh" \
+    "$repo/bin/fm-lint-workflows.sh"
+  cat > "$repo/README.md" <<'MD'
+# Fixture
+
+[setup](docs/setup.md)
+MD
+  cat > "$repo/docs/setup.md" <<'MD'
+# Setup
+
+[owner](missing-page.md)
+MD
+  cat > "$repo/docs/documentation-audiences.json" <<'JSON'
+{
+  "version": 1,
+  "scope": {
+    "trackedPatterns": ["*.md", "*.mdx", "*.rst", "*.txt", "docs/examples/*"]
+  },
+  "allowedAudiences": ["operator"],
+  "setupAudiences": ["operator"],
+  "surfaces": [
+    { "path": "README.md", "audience": "operator" },
+    { "path": "docs/setup.md", "audience": "operator" }
+  ],
+  "readmeSetupTargets": ["docs/setup.md"],
+  "requiredOwnerPointers": [
+    { "source": "README.md", "target": "docs/setup.md" }
+  ]
+}
+JSON
+  git -C "$repo" init -q >/dev/null 2>&1 \
+    || fail "could not initialize the documentation fixture repository"
+  git -C "$repo" add -A >/dev/null 2>&1 \
+    || fail "could not stage the documentation fixture repository"
+  fm_lint_stub_shellcheck "$fakebin" "$log"
+
+  rc=0
+  out=$(CI=true PATH="$fakebin:$PATH" "$repo/bin/fm-lint.sh" 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "lint owner missed an unresolved documentation link"$'\n'"$out"
+  assert_contains "$out" "unresolved local link in docs/setup.md" \
+    "lint owner did not surface the documentation-audience failure"
+
+  cat > "$repo/docs/setup.md" <<'MD'
+# Setup
+
+[owner](../README.md)
+MD
+  git -C "$repo" add -A >/dev/null 2>&1 \
+    || fail "could not restage the documentation fixture repository"
+  rc=0
+  out=$(CI=true PATH="$fakebin:$PATH" "$repo/bin/fm-lint.sh" 2>&1) || rc=$?
+  [ "$rc" -eq 0 ] || fail "lint owner failed a clean documentation tree"$'\n'"$out"
+  assert_contains "$out" "fm-doc-audience-check: ok" \
+    "lint owner did not run the documentation-audience check on a clean tree"
+  pass "fm-lint.sh default path catches a documentation-audience regression"
+}
+
 test_help_reports_the_complete_interface
 test_list_files_reports_the_shell_inventory
 test_fast_mode_disables_extended_analysis
@@ -1389,6 +1470,7 @@ test_rejects_wrong_shellcheck_version
 test_catches_a_real_lint_defect
 test_rejects_direct_beads_cli_invocations
 test_rejects_direct_beads_cli_in_explicit_core_path
+test_default_path_catches_a_documentation_regression
 test_ignores_ambient_shellcheck_opts
 test_clean_fixture_passes
 test_jobs_are_deterministic_and_complete
