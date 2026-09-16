@@ -760,6 +760,80 @@ test_herdr_lab_contract_applies_to_scouts_but_not_secondmates() {
   pass "fm-brief.sh: Herdr lab contract covers scouts and rejects secondmate misuse"
 }
 
+# --local-model-contract is the worker half of the red-first contract
+# bin/fm-spawn.sh mechanically requires before dispatching a local-model
+# harness ship task. The marker line is what that spawn check greps for, so
+# it must render verbatim, and the three captured-proof artifacts must be
+# named so the worker cannot satisfy the contract in form without substance.
+test_local_model_contract_is_explicit_and_complete() {
+  local home id brief
+  home="$TMP_ROOT/local-model-home"
+  mkdir -p "$home/data"
+  id="brief-local-model-f1"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" firstmate --mode no-mistakes --local-model-contract >/dev/null 2>&1
+  brief="$home/data/$id/brief.md"
+  assert_present "$brief" "local-model-contract brief was not scaffolded"
+  assert_grep "# Local-model red-first contract" "$brief" \
+    "local-model brief missing its contract section"
+  grep -qx "Local-model contract: enabled" "$brief" \
+    || fail "local-model brief did not record its machine-readable marker line"
+  assert_grep "named test pass by changing only what is needed" "$brief" \
+    "local-model brief missing the narrow test-only acceptance scope"
+  assert_grep "capture its failing output verbatim to \`$home/data/$id/red-before.txt\`" "$brief" \
+    "local-model brief missing the mandatory red-proof artifact path"
+  assert_grep "capture the passing output to \`$home/data/$id/green-after.txt\`" "$brief" \
+    "local-model brief missing the green-proof artifact path"
+  assert_grep "capture that output to \`$home/data/$id/red-revert.txt\`" "$brief" \
+    "local-model brief missing the revert-check artifact path"
+  assert_grep "run a revert-check" "$brief" \
+    "local-model brief missing the revert-check instruction"
+  assert_grep "never fabricate or paraphrase it" "$brief" \
+    "local-model brief did not forbid fabricating the red proof"
+  pass "fm-brief.sh: --local-model-contract emits the complete red-first contract"
+}
+
+# The contract is optional per-task machinery, not a default every ship brief
+# carries - an ordinary brief scaffolded without the flag must stay free of
+# both the section and the marker line bin/fm-spawn.sh checks for.
+test_local_model_contract_absent_by_default() {
+  local home id brief
+  home="$TMP_ROOT/local-model-absent-home"
+  mkdir -p "$home/data"
+  id="brief-local-model-f2"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" firstmate --mode no-mistakes >/dev/null 2>&1
+  brief="$home/data/$id/brief.md"
+  assert_present "$brief" "ordinary ship brief was not scaffolded"
+  assert_no_grep "Local-model contract" "$brief" \
+    "an ordinary ship brief carried local-model contract text without the flag"
+  pass "fm-brief.sh: an ordinary ship brief carries no local-model contract by default"
+}
+
+# A scout's deliverable is a report and a secondmate charter is not a
+# delivery contract, so --local-model-contract must be refused there exactly
+# like --mode and --herdr-lab already are, never silently accepted and dropped.
+test_local_model_contract_applies_only_to_ship() {
+  local home out status
+  home="$TMP_ROOT/local-model-scope-home"
+  mkdir -p "$home/data"
+
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-local-model-f3 firstmate --scout --local-model-contract 2>&1)
+  status=$?
+  [ "$status" -ne 0 ] || fail "scout --local-model-contract should exit non-zero"
+  assert_contains "$out" "--local-model-contract applies only to ship briefs" \
+    "scout brief did not refuse --local-model-contract"
+  assert_absent "$home/data/brief-local-model-f3/brief.md" \
+    "rejected scout --local-model-contract still wrote a brief"
+
+  out=$(FM_HOME="$home" FM_SECONDMATE_CHARTER=ops "$ROOT/bin/fm-brief.sh" brief-local-model-f4 --secondmate firstmate --local-model-contract 2>&1)
+  status=$?
+  [ "$status" -ne 0 ] || fail "secondmate --local-model-contract should exit non-zero"
+  assert_contains "$out" "--local-model-contract applies only to ship briefs" \
+    "secondmate charter did not refuse --local-model-contract"
+  assert_absent "$home/data/brief-local-model-f4/brief.md" \
+    "rejected secondmate --local-model-contract still wrote a brief"
+  pass "fm-brief.sh: --local-model-contract is refused on scout and secondmate scaffolds"
+}
+
 test_pause_verb_override_renders_all_brief_scaffolds() {
   local home kind id brief
   home="$TMP_ROOT/pause-verb-home"
@@ -885,6 +959,9 @@ test_herdr_lab_contract_quotes_foreign_firstmate_path
 test_herdr_lab_omission_is_loud_for_ship_and_scout
 test_documented_global_replace_leaves_the_herdr_gate_intact
 test_herdr_lab_contract_applies_to_scouts_but_not_secondmates
+test_local_model_contract_is_explicit_and_complete
+test_local_model_contract_absent_by_default
+test_local_model_contract_applies_only_to_ship
 test_secondmate_no_projects_charter
 test_secondmate_marked_request_reporting_contract
 test_secondmate_directory_paths_are_absolute_and_output_is_stable

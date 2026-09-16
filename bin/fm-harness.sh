@@ -19,6 +19,11 @@
 #                                        codex-native/<id>. Other efforts retain
 #                                        their adapter's existing policy. Native
 #                                        Codex validates model support at startup.
+#        fm-harness.sh is-local-model <harness>
+#                                        Exit 0 when <harness> is verified to run on a
+#                                        free/local model by default (today: qwen only).
+#                                        Harness identity, not a --model guess; bin/fm-spawn.sh
+#                                        uses this to gate the local-model red-first contract.
 # config/secondmate-harness format: a single line "<harness> [<model>] [<effort>]",
 # whitespace-separated. A bare "<harness>" (today's format) behaves exactly as before:
 # harness only, no model/effort. Only the first non-empty, non-comment line is parsed.
@@ -310,8 +315,27 @@ validate_native_effort() {
   return 1
 }
 
+# True (exit 0) when <harness> is verified to run on a free/local model by
+# default, never a hosted frontier model behind a paid API. This is a fact
+# about the HARNESS's verified default credential path, not a guess at any
+# spawn's actual --model value: "Model selection" in
+# ../.agents/skills/harness-adapters/references/harness/qwen.md is explicit
+# that harness identity is independent of the model provider. qwen's only
+# verified non-interactive auth path (that file's "Auth" section) is an
+# OpenAI-compatible endpoint, with local Ollama as the documented example
+# provider; no other verified adapter in this file documents a local-model
+# default. Add a harness here only after its own adapter reference documents
+# the same default, never from a model-name guess at spawn time.
+harness_is_local_model() {
+  case "${1:-}" in
+    qwen) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 case "${1:-}" in
   validate-native-effort) shift; validate_native_effort "$@" ;;
+  is-local-model) harness_is_local_model "${2:-}" ;;
   crew) resolve_crew ;;
   secondmate) resolve_secondmate ;;
   secondmate-model) resolve_secondmate_model ;;

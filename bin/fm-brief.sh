@@ -34,6 +34,18 @@
 #   after scaffolding and the caller-supplied repo string cannot reliably
 #   identify this repo. Briefs made without it carry a loud declaration so an
 #   omitted contract cannot be silent.
+#   --local-model-contract adds the local-model red-first contract (ship briefs
+#   only): a fixed "Local-model contract: enabled" marker plus worker instructions
+#   requiring a captured red-proof artifact before implementation, a narrow
+#   test-only acceptance scope, and a post-green revert-check. bin/fm-spawn.sh
+#   refuses a ship spawn on a harness bin/fm-harness.sh is-local-model reports
+#   true for (today: qwen only) unless this marker is present. Pass it only when
+#   ## Firstmate spec already names a specific failing test for the worker to
+#   turn green - this contract makes that test the acceptance mechanism, it does
+#   not write one. Two further scope rules are firstmate's own intake judgment,
+#   not something this flag or bin/fm-spawn.sh's check can verify from brief
+#   text: never route a local model onto a security or guard path, and never ask
+#   one whether an existing guard is too strict (AGENTS.md section 7).
 # For ship tasks, --mode is REQUIRED and shapes the definition of done. Firstmate
 # resolves it per task at intake (AGENTS.md section 7); data/projects.md holds the
 # captain's standing posture as context, and this script never reads it:
@@ -119,6 +131,7 @@ fi
 KIND=ship
 HERDR_LAB=0
 NO_PROJECTS=0
+LOCAL_MODEL_CONTRACT=0
 MODE=
 MODE_SET=0
 POS=()
@@ -140,6 +153,7 @@ for a in "$@"; do
     --secondmate) KIND=secondmate ;;
     --herdr-lab) HERDR_LAB=1 ;;
     --no-projects) NO_PROJECTS=1 ;;
+    --local-model-contract) LOCAL_MODEL_CONTRACT=1 ;;
     --mode) want_value=mode ;;
     --mode=*) MODE=${a#--mode=}; MODE_SET=1 ;;
     # yolo never reaches the worker: it is firstmate's merge authority, not a
@@ -178,6 +192,11 @@ fi
 
 if [ "$NO_PROJECTS" -eq 1 ] && [ "$KIND" != secondmate ]; then
   echo "error: --no-projects applies only to --secondmate charters" >&2
+  exit 1
+fi
+
+if [ "$LOCAL_MODEL_CONTRACT" -eq 1 ] && [ "$KIND" != ship ]; then
+  echo "error: --local-model-contract applies only to ship briefs; a scout delivers a report and a secondmate charter is not a delivery contract" >&2
   exit 1
 fi
 
@@ -440,12 +459,28 @@ case "$MODE" in
 esac
 DOD=$(fm_dod_block "$MODE" "$ID") || exit 1
 
+LOCAL_MODEL_SECTION=""
+if [ "$LOCAL_MODEL_CONTRACT" -eq 1 ]; then
+IFS= read -r -d '' LOCAL_MODEL_SECTION <<EOF || true
+# Local-model red-first contract
+Local-model contract: enabled
+\`## Firstmate spec\` above names a specific failing test. Acceptance is decided before you start, not by your own judgment: your job is narrowly to make that named test pass by changing only what is needed to do so - no redesign, no touching unrelated tests, no editing the named test itself, no weakening or skipping it. If you believe the named test is wrong, stop and report \`needs-decision\` rather than changing it.
+Before writing any implementation change, run the named test exactly as instructed and capture its failing output verbatim to \`$DATA/$ID/red-before.txt\`. This red proof is mandatory: reaching \`done\` without it is rejected regardless of what you report, so never fabricate or paraphrase it - it must be a real command's captured output.
+After your change makes the test pass, capture the passing output to \`$DATA/$ID/green-after.txt\`.
+Then run a revert-check: undo only your implementation change (keep the test itself), rerun the named test and capture that output to \`$DATA/$ID/red-revert.txt\` to confirm it fails again, then reapply your change. If the test does not return to red on revert, it is not testing what it claims to - stop and report \`needs-decision\` instead of \`done\`.
+Reference all three captured files by path in your \`done:\` line, and paste the \`red-before.txt\` contents verbatim into the PR body as the red proof.
+EOF
+LOCAL_MODEL_SECTION=${LOCAL_MODEL_SECTION%$'\n'}
+fi
+
 cat > "$BRIEF" <<EOF
 You are a crewmate: an autonomous worker agent managed by firstmate. Work on your own; do not wait for a human.
 
 $TASK_SECTION
 
 $HERDR_SECTION
+
+$LOCAL_MODEL_SECTION
 
 # Setup
 You are in a disposable git worktree of $REPO, at a detached HEAD on a clean default branch.
@@ -506,4 +541,8 @@ Keep it proportionate: skip \`AGENTS.md\` edits for trivial tasks that produced 
 
 $DOD
 EOF
-echo "scaffolded: $BRIEF (ship, mode=$MODE; replace {TASK} and {FIRSTMATE_SPEC})"
+if [ "$LOCAL_MODEL_CONTRACT" -eq 1 ]; then
+  echo "scaffolded: $BRIEF (ship, mode=$MODE, local-model-contract; replace {TASK} and {FIRSTMATE_SPEC})"
+else
+  echo "scaffolded: $BRIEF (ship, mode=$MODE; replace {TASK} and {FIRSTMATE_SPEC})"
+fi
