@@ -2024,7 +2024,12 @@ if ! fm_lock_try_acquire "$WATCH_LOCK"; then
     fi
   fi
   if [ -n "$staleness" ]; then
-    if ! evict_stale_watcher "$held_pid" "$staleness"; then
+    evict_stale_watcher "$held_pid" "$staleness"
+    evict_status=$?
+    # A sibling's identity recheck can beat ours to evicting $held_pid, so only
+    # escalate while it is still alive; a dead target falls through to the
+    # reacquire loop, which reports a live winner as benign.
+    if [ "$evict_status" -ne 0 ] && fm_pid_alive "$held_pid"; then
       echo "watcher: lock held by live pid $held_pid but $staleness, and it could not be proven to be this home's watcher or did not stop; inspect or stop that watcher before re-arming." >&2
       exit 1
     fi

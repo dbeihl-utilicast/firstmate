@@ -1382,6 +1382,73 @@ test_watch_reports_benign_race_loss_after_own_eviction_succeeds() {
   pass "watch reports a benign already-running exit after losing the follow-up acquisition to its own eviction's live winner"
 }
 
+test_watch_evict_race_between_two_real_watchers_never_falsely_fails() {
+  # Two real fm-watch.sh processes contend to evict the same live, stale-beacon
+  # holder; the loser's own recheck can lose that race to the winner's. It must
+  # settle on a benign "already running pid <winner>" exit 0, not escalate.
+  local dir state fakebin out1 out2 holder identity i pid1 pid2 live status winner loser winner_out loser_out
+  dir=$(make_case watch-real-evict-race)
+  state="$dir/state"
+  fakebin="$dir/fakebin"
+  out1="$dir/watch-one.out"
+  out2="$dir/watch-two.out"
+
+  (bash -c 'trap "" TERM; while :; do :; done' & printf '%s\n' "$!" > "$dir/holder.pid"; wait) 2>/dev/null &
+  i=0
+  while [ "$i" -lt 50 ] && [ ! -s "$dir/holder.pid" ]; do sleep 0.02; i=$((i + 1)); done
+  holder=$(cat "$dir/holder.pid")
+  identity=$(FM_STATE_OVERRIDE="$state" bash -c '. "$1"; fm_pid_identity "$2"' _ "$LIB" "$holder")
+  mkdir "$state/.watch.lock"
+  printf '%s\n' "$holder" > "$state/.watch.lock/pid"
+  printf '%s\n' "$dir" > "$state/.watch.lock/fm-home"
+  printf '%s\n' "$WATCH" > "$state/.watch.lock/watcher-path"
+  printf '%s\n' "$identity" > "$state/.watch.lock/pid-identity"
+  touch -t 200001010000 "$state/.last-watcher-beat" "$state/.watch.lock"
+
+  PATH="$fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$state" FM_WATCHER_EVICT_WAIT=1 FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out1" 2>&1 &
+  pid1=$!
+  PATH="$fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$state" FM_WATCHER_EVICT_WAIT=1 FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out2" 2>&1 &
+  pid2=$!
+
+  i=0
+  live=2
+  while [ "$i" -lt 100 ]; do
+    live=0
+    is_live_non_zombie "$pid1" && live=$((live + 1))
+    is_live_non_zombie "$pid2" && live=$((live + 1))
+    [ "$live" -eq 1 ] && break
+    sleep 0.1
+    i=$((i + 1))
+  done
+  [ "$live" -eq 1 ] || {
+    kill "$pid1" "$pid2" 2>/dev/null || true
+    wait "$pid1" "$pid2" 2>/dev/null || true
+    kill -KILL "$holder" 2>/dev/null || true
+    fail "expected exactly one real watcher to survive the eviction race, got $live: $(cat "$out1") / $(cat "$out2")"
+  }
+
+  if is_live_non_zombie "$pid1"; then
+    winner=$pid1; winner_out=$out1; loser=$pid2; loser_out=$out2
+  else
+    winner=$pid2; winner_out=$out2; loser=$pid1; loser_out=$out1
+  fi
+  wait_for_exit "$loser" 50
+  status=$?
+
+  kill "$winner" 2>/dev/null || true
+  wait "$winner" 2>/dev/null || true
+  kill -KILL "$holder" 2>/dev/null || true
+
+  [ "$status" -eq 0 ] || fail "the losing watcher did not exit 0 after losing the eviction race (status $status): $(cat "$loser_out")"
+  grep -F "watcher: already running pid $winner" "$loser_out" >/dev/null \
+    || fail "the losing watcher did not report the winner as a benign already-running pid: $(cat "$loser_out")"
+  grep -F 'could not be proven' "$loser_out" >/dev/null \
+    && fail "the losing watcher falsely escalated a race it actually recovered from: $(cat "$loser_out")"
+  grep -F 'could not be proven' "$winner_out" >/dev/null \
+    && fail "the winning watcher falsely escalated: $(cat "$winner_out")"
+  pass "two real watchers racing to evict the same stale holder never produce a false FAILED escalation"
+}
+
 test_cycle_exit_ledger_links_successor_and_stays_bounded() {
   local dir state fakebin armout check_file first_arm successor_arm successor_pid i size iteration
   dir=$(make_case cycle-ledger)
@@ -1694,5 +1761,6 @@ test_arm_waits_for_peer_beacon_after_child_stands_down
 test_arm_fails_loud_when_no_fresh_watcher_confirmable
 test_arm_evicts_live_holder_with_stale_beacon
 test_watch_reports_benign_race_loss_after_own_eviction_succeeds
+test_watch_evict_race_between_two_real_watchers_never_falsely_fails
 test_cycle_exit_ledger_links_successor_and_stays_bounded
 test_stopped_watcher_is_live_but_stale_then_exit_is_classified
