@@ -951,6 +951,11 @@ fm_lock_try_acquire() {
   if fm_lock_try_create "$lockdir"; then
     return 0
   fi
+  # Nothing to steal: recursing into "$lockdir.steal" would never bottom out
+  # while creation keeps failing (full disk, unwritable state directory).
+  if [ ! -e "$lockdir" ] && [ ! -L "$lockdir" ]; then
+    return 1
+  fi
 
   fm_current_pid current || return 1
   pid=$(cat "$lockdir/pid" 2>/dev/null || true)

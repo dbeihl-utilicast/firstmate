@@ -755,6 +755,21 @@ test_lock_empty_pid_uses_minimum_grace() {
   pass "empty mid-acquire lock keeps a minimum grace"
 }
 
+test_lock_uncreatable_returns_promptly() {
+  local dir state lockdir pid status
+  dir=$(make_case lock-uncreatable)
+  state="$dir/state"
+  lockdir="$state/missing/.contend.lock"
+  FM_STATE_OVERRIDE="$state" bash -c '. "$1"; fm_lock_try_acquire "$2"' _ "$LIB" "$lockdir" > /dev/null 2>&1 &
+  pid=$!
+  wait_for_exit "$pid" 50
+  status=$?
+  [ "$status" -ne 124 ] || fail "lock acquisition kept recursing when the lock could not be created"
+  [ "$status" -eq 1 ] || fail "uncreatable lock acquisition did not report failure (status $status)"
+  [ ! -e "$lockdir.steal" ] || fail "uncreatable lock acquisition left a steal lock"
+  pass "uncreatable lock fails promptly instead of recursing into steal locks"
+}
+
 test_lock_late_claim_loses_after_recreate() {
   local dir state lockdir out
   dir=$(make_case lock-late-claim)
@@ -1234,6 +1249,56 @@ test_arm_fails_loud_when_no_fresh_watcher_confirmable() {
   pass "arm reports FAILED and exits non-zero when no fresh watcher can be confirmed"
 }
 
+test_arm_evicts_live_holder_with_stale_beacon() {
+  # A hung watcher: a TERM-ignoring busy loop bound by the identity a watcher
+  # records. The arm path must evict it and surface recovery; a holder bound to
+  # another home must never be signalled.
+  local row dir state fakebin armout armpid reaper holder identity lock_home i status holder_alive
+  for row in own-home foreign-home; do
+    dir=$(make_case "arm-evict-$row")
+    state="$dir/state"
+    fakebin="$dir/fakebin"
+    armout="$dir/arm.out"
+    # A waiting parent reaps the holder, as the arm reaps a real watcher.
+    (bash -c 'trap "" TERM; while :; do :; done' & printf '%s\n' "$!" > "$dir/holder.pid"; wait) 2>/dev/null &
+    reaper=$!
+    i=0
+    while [ "$i" -lt 50 ] && [ ! -s "$dir/holder.pid" ]; do sleep 0.02; i=$((i + 1)); done
+    holder=$(cat "$dir/holder.pid")
+    identity=$(FM_STATE_OVERRIDE="$state" bash -c '. "$1"; fm_pid_identity "$2"' _ "$LIB" "$holder")
+    lock_home=$dir
+    [ "$row" = foreign-home ] && lock_home="$dir/other-home"
+    mkdir "$state/.watch.lock"
+    printf '%s\n' "$holder" > "$state/.watch.lock/pid"
+    printf '%s\n' "$lock_home" > "$state/.watch.lock/fm-home"
+    printf '%s\n' "$WATCH" > "$state/.watch.lock/watcher-path"
+    printf '%s\n' "$identity" > "$state/.watch.lock/pid-identity"
+    touch -t 200001010000 "$state/.last-watcher-beat" "$state/.watch.lock"
+    PATH="$fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$state" FM_WATCHER_EVICT_WAIT=1 FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_ARM_CONFIRM_TIMEOUT=3 "$WATCH_ARM" > "$armout" 2>&1 &
+    armpid=$!
+    wait_for_exit "$armpid" 200
+    status=$?
+    holder_alive=0
+    is_live_non_zombie "$holder" && holder_alive=1
+    kill -KILL "$holder" 2>/dev/null || true
+    wait "$reaper" 2>/dev/null || true
+    if [ "$row" = foreign-home ]; then
+      [ "$holder_alive" -eq 1 ] || fail "arm killed a live lock holder bound to another home"
+      [ "$status" -ne 0 ] || fail "arm exited zero behind a foreign-home stale holder"
+      grep -F 'watcher: FAILED' "$armout" >/dev/null || fail "foreign-home holder did not produce a typed FAILED line"
+      continue
+    fi
+    [ "$status" -ne 124 ] || fail "arm never recovered from a live holder with a stale beacon: $(cat "$armout")"
+    [ "$holder_alive" -eq 0 ] || fail "live holder with a stale beacon was not evicted: $(cat "$armout")"
+    [ "$status" -eq 0 ] || fail "arm did not recover after evicting the stale holder (status $status): $(cat "$armout")"
+    grep -F 'check: rearm-resurface' "$armout" >/dev/null \
+      || fail "eviction did not surface a recovery wake: $(cat "$armout")"
+    grep -F "evicted live watcher pid $holder" "$state/.watch-triage.log" >/dev/null \
+      || fail "eviction was not recorded in the triage log"
+  done
+  pass "arm evicts this home's live watcher with a stale beacon and never another home's"
+}
+
 test_cycle_exit_ledger_links_successor_and_stays_bounded() {
   local dir state fakebin armout check_file first_arm successor_arm successor_pid i size iteration
   dir=$(make_case cycle-ledger)
@@ -1530,6 +1595,7 @@ test_lock_stale_steal_single_winner_under_concurrency
 test_lock_live_steal_mutex_is_not_reclaimed
 test_lock_does_not_steal_live_lock
 test_lock_empty_pid_uses_minimum_grace
+test_lock_uncreatable_returns_promptly
 test_lock_late_claim_loses_after_recreate
 test_lock_paused_mid_acquire_claim_fails_during_steal
 test_watch_restart_rejects_reused_pid
@@ -1543,5 +1609,6 @@ test_arm_hup_cleans_child_and_temp_output
 test_arm_propagates_immediate_wake_before_confirmation
 test_arm_waits_for_peer_beacon_after_child_stands_down
 test_arm_fails_loud_when_no_fresh_watcher_confirmable
+test_arm_evicts_live_holder_with_stale_beacon
 test_cycle_exit_ledger_links_successor_and_stays_bounded
 test_stopped_watcher_is_live_but_stale_then_exit_is_classified
