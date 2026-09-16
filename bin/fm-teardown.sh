@@ -2652,7 +2652,7 @@ preflight_descendant_treehouse_slots() {
     }
     held=0
     [ "$TREEHOUSE_PROJECT_LOCK_HELD" != 1 ] || [ "$TREEHOUSE_PROJECT_LOCK" != "$lock_path" ] || held=1
-    for target in "${DESCENDANT_TREEHOUSE_LOCK_PATHS[@]}"; do
+    for target in "${DESCENDANT_TREEHOUSE_LOCK_PATHS[@]+"${DESCENDANT_TREEHOUSE_LOCK_PATHS[@]}"}"; do
       [ "$target" != "$lock_path" ] || held=1
     done
     if [ "$held" = 0 ]; then
@@ -3349,6 +3349,7 @@ rm -f "$STATE/$ID.turn-ended" "$STATE/$ID.progress" \
   "$STATE/$ID.control-relaunch" "$STATE/$ID.control-relaunch.meta-prior" \
   "$STATE/$ID.control-relaunch.brief-prior" "$STATE/$ID.control-relaunch.note" \
   "$STATE/$ID.reconcile-nudged" "$STATE/$ID.gemini-settings.json" \
+  "$STATE/$ID.qwen-settings.json" \
   "$STATE/.$ID.branch-outcome-index" "$STATE/$ID.pr-refresh-state" \
   "$STATE/$ID.pr-refresh-refused"
 # The steering inbox (bin/fm-task-inbox-lib.sh) is runtime state for the

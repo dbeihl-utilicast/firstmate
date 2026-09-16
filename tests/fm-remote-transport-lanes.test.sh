@@ -106,6 +106,11 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 shift 2
+if [ -n "${FM_FAKE_SSH_PID_FILE:-}" ]; then
+  printf '%s\n' "$$" > "$FM_FAKE_SSH_PID_FILE"
+  "$FM_FAKE_REMOTE_ENTRYPOINT" "$@"
+  exit
+fi
 exec "$FM_FAKE_REMOTE_ENTRYPOINT" "$@"
 SH
 chmod +x "$FAKEBIN/fake-ssh"
@@ -272,7 +277,9 @@ fm_remote_job_stage "$ACCOUNT_HOME" "$REMOTE_ROOT" "$HOME_A" fm-mark-job.sh hold
 HOLD2=$FM_REMOTE_JOB_ID
 wait_for_state "$HOLD2" running || fail "the cancellation fixture's lane holder did not begin running"
 QUEUED_EFFECT="$TMP_ROOT/queued-cancel-effect"
-fm_on ios fm-touch-job.sh "$QUEUED_EFFECT" > /dev/null 2>&1 &
+env FM_HOME="$LOCAL_HOME" FM_ROOT_OVERRIDE="$REMOTE_ROOT" FM_SSH_BIN="$FAKEBIN/fake-ssh" \
+  FM_FAKE_REMOTE_ENTRYPOINT="$REMOTE_ROOT/bin/fm-remote-entrypoint.sh" \
+  "$ROOT/bin/fm-on.sh" ios fm-touch-job.sh "$QUEUED_EFFECT" > /dev/null 2>&1 &
 QUEUED_CALLER=$!
 QUEUED_JOB=
 for _ in $(seq 1 200); do
@@ -303,7 +310,9 @@ pass "a caller killed mid-wait cancels its queued job before execution"
 # group instead of letting it run to completion for nobody.
 RUN_START="$TMP_ROOT/running-cancel-start"
 RUN_FINISH="$TMP_ROOT/running-cancel-finish"
-fm_on build fm-two-phase-job.sh "$RUN_START" "$RUN_FINISH" 8 > /dev/null 2>&1 &
+env FM_HOME="$LOCAL_HOME" FM_ROOT_OVERRIDE="$REMOTE_ROOT" FM_SSH_BIN="$FAKEBIN/fake-ssh" \
+  FM_FAKE_REMOTE_ENTRYPOINT="$REMOTE_ROOT/bin/fm-remote-entrypoint.sh" \
+  "$ROOT/bin/fm-on.sh" build fm-two-phase-job.sh "$RUN_START" "$RUN_FINISH" 8 > /dev/null 2>&1 &
 RUNNING_CALLER=$!
 for _ in $(seq 1 200); do
   [ -f "$RUN_START" ] && break
@@ -325,21 +334,24 @@ sleep 2
 assert_absent "$RUN_FINISH" "a cancelled running job's process group ran to completion"
 pass "a caller killed mid-wait stops its running job's process group"
 
-# T3c: a caller whose parent exits WITHOUT delivering any signal - the shape a
-# dead ssh channel leaves behind - still cancels through the entrypoint's
-# parent-liveness probe.
+# T3c: an entrypoint whose ssh channel dies WITHOUT delivering any signal - its
+# parent simply vanishes - still cancels through its parent-liveness probe.
 ORPHAN_START="$TMP_ROOT/orphan-cancel-start"
 ORPHAN_FINISH="$TMP_ROOT/orphan-cancel-finish"
-# shellcheck disable=SC2016 # Expansion is deliberately deferred to the child shell.
+ORPHAN_SSH_PID="$TMP_ROOT/orphan-cancel-ssh.pid"
 env FM_HOME="$LOCAL_HOME" FM_ROOT_OVERRIDE="$REMOTE_ROOT" \
-  FM_SSH_BIN="$FAKEBIN/fake-ssh" \
+  FM_SSH_BIN="$FAKEBIN/fake-ssh" FM_FAKE_SSH_PID_FILE="$ORPHAN_SSH_PID" \
   FM_FAKE_REMOTE_ENTRYPOINT="$REMOTE_ROOT/bin/fm-remote-entrypoint.sh" \
   FM_REMOTE_JOB_STATE_ROOT="$STATE_ROOT" FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux \
-  bash -c '
-    "$1/bin/fm-on.sh" build fm-two-phase-job.sh "$2" "$3" 12 >/dev/null 2>&1 &
-    while [ ! -f "$2" ]; do sleep 0.1; done
-  ' _ "$ROOT" "$ORPHAN_START" "$ORPHAN_FINISH"
+  "$ROOT/bin/fm-on.sh" build fm-two-phase-job.sh "$ORPHAN_START" "$ORPHAN_FINISH" 12 >/dev/null 2>&1 &
+ORPHAN_CALLER=$!
+for _ in $(seq 1 200); do
+  [ -f "$ORPHAN_START" ] && break
+  sleep 0.05
+done
 assert_present "$ORPHAN_START" "the orphan-cancellation fixture never started"
+kill -KILL "$(cat "$ORPHAN_SSH_PID")"
+wait "$ORPHAN_CALLER" 2>/dev/null || true
 ORPHAN_BEGAN=$(date +%s)
 for _ in $(seq 1 300); do
   ls "$STATE_ROOT"/jobs/job-* >/dev/null 2>&1 || break

@@ -346,7 +346,7 @@ The full cmux home label also includes a short hash of the resolved `FM_ROOT` pa
 
 ## Harness support
 
-claude, codex, opencode, pi, pi-signed, grok, kimi, cursor, and omp are empirically verified for crewmate and secondmate launches; gemini is verified for crewmate and scout launches only, and [README requirements](../README.md#requirements) own the set supported for the primary session.
+claude, codex, opencode, pi, pi-signed, grok, kimi, cursor, and omp are empirically verified for crewmate and secondmate launches; gemini, muse, rovo, and qwen are verified for crewmate and scout launches only, and [README requirements](../README.md#requirements) own the set supported for the primary session.
 A cursor secondmate or primary runs the tracked project-scope `.cursor/hooks.json` in its own home and must be launched with `--trust`, or no project hook loads; [`docs/supervision-protocols/cursor.md`](supervision-protocols/cursor.md) owns its supervision protocol.
 Cursor typed-submit confirmation is verified on tmux and Herdr only.
 On Zellij, cmux, and Orca a typed-plane Cursor send (a harness-native invocation or an explicit backend target; ordinary text steers ride the durable inbox and exit 0 at enqueue) lands, but `fm-send` reports delivery unconfirmed and exits non-zero because their shared submit core does not consult the busy footer; [runtime backend verification](verification/runtime-backends.md#cursor-agent-cli) owns the evidence and transcript-state boundary.
@@ -354,6 +354,7 @@ muse is verified for crewmate and scout launches ONLY, and `fm-spawn.sh` refuses
 muse also needs a worker-reachable credential before spawning, and the portable fleet path is the `<config>/muse/auth.json` credential stored by `muse login`, because a caller-only `META_API_KEY` does not cross a long-lived backend daemon.
 gemini is likewise refused for secondmates because it has no primary supervision protocol; [its adapter reference](../.agents/skills/harness-adapters/references/harness/gemini.md) owns the credential precondition, canonical-launch wiring, and raw-launch limitations.
 rovo is likewise verified for crewmate and scout launches ONLY, refused for a secondmate for the same reason - no turn-end hook and no primary supervision protocol; [`docs/verification/rovo.md`](verification/rovo.md) owns that evidence, including the OAuth token's silent background refresh from a stored refresh token and both tmux and herdr pane liveness (herdr placement is verified live, with a Herdr-side agent-detection gap left open for recovery classification).
+qwen is likewise verified for crewmate and scout launches ONLY, on Linux ONLY, refused for a secondmate because it has no primary supervision protocol and refused on any non-Linux host as `qwen-platform-unsupported`; [`docs/verification/qwen.md`](verification/qwen.md) owns that evidence, including the Stop-hook busy source and the independent-test arbiter that stays red even when the worker is asked to claim success.
 New harnesses get verified through a supervised trial task before joining the set.
 The verified adapter evidence - each harness's busy-state source, interrupt and exit behavior, skill-invocation syntax, and per-harness quirks - lives in the skill tree rooted at [`.agents/skills/harness-adapters/SKILL.md`](../.agents/skills/harness-adapters/SKILL.md).
 The executable interrupt and exit mechanics live in [`bin/fm-control-lib.sh`](../bin/fm-control-lib.sh), and [`docs/agent-control.md`](agent-control.md) owns their lifecycle-control architecture.
@@ -439,7 +440,8 @@ Every claude launch's inline `--settings` JSON also carries `"attribution":{"com
 
 ## Host Claude Code plugins (config/host-plugins.json)
 
-The optional local, gitignored `config/host-plugins.json` names the Claude Code marketplaces and plugins a remote second-mate host must carry.
+The optional local, gitignored `config/host-plugins.json` is the exact allowlist of Claude Code plugins on a remote second-mate host, with the marketplaces they resolve from: the remote readiness check registers the named marketplaces and installs and enables the named plugins at user scope, and refuses a remote second-mate launch while any reported plugin it does not name is installed at any scope.
+User-scope Claude Code plugins belong to the host's account rather than to one Firstmate home, so one list governs every home and every Claude worker on that host, not only the home holding the copy.
 It is inherited into secondmate homes under the [primary-authoritative configuration contract](../.agents/skills/secondmate-provisioning/SKILL.md).
 `bin/fm-remote-doctor.sh` reads the copy in the remote home and converges that account's user-scope Claude Code plugins as one more readiness check; its header owns the exact check, repair, and operator-action lines.
 A registered marketplace must match the configured source, not only the name.

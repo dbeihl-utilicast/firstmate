@@ -1155,6 +1155,7 @@ empty ordinary_models is refused^.ordinary_models = []^exact^CREW_DISPATCH: inva
 astra remains top-tier when ordinary_models is present^.ordinary_models = ["gpt-5.6-terra"] | .rules[0].use[0].model = "gpt-6-astra"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 profile.model_class does not match model: gpt-6-astra
 ordinary model cannot claim astra class^.rules[0].use[0].model_class = "astra"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 profile.model_class does not match model: gpt-5.6-terra
 unverified v2 harness is refused^.rules[0].use[0].harness = "spaceship"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 unverified harness: spaceship
+qwen is accepted as a verified harness^.rules[0].use[0].harness = "qwen"^empty^
 unsupported v2 effort is refused^.rules[0].use[0].effort = "max"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 invalid effort: codex:max
 native astra cannot claim ordinary class^.rules[0].use[0].harness = "pi" | .rules[0].use[0].model = "codex-native/gpt-6-astra" | .rules[0].use[0].effort = "ultra"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 profile.model_class does not match model: codex-native/gpt-6-astra
 astra cannot claim ordinary class^.rules[0].use[0].model = "gpt-6-astra"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 profile.model_class does not match model: gpt-6-astra
