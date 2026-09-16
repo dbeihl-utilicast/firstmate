@@ -42,6 +42,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.path + "\t" + self.headers.get("Authorization", "") + "\t"
                 + req_body.decode("utf-8", "replace").replace("\n", " ") + "\n"
             )
+        if self.path != "/openai/v1/responses":
+            body = b'{"error":{"message":"unserved route"}}'
+            self.send_response(404)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if b'"stream": true' in req_body or b'"stream":true' in req_body:
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
@@ -157,7 +165,7 @@ test_refuses_every_unauthorized_deployment_name() {
 
   for name in gpt-5.6-terra gpt-5.6-sol claude-sonnet-5 claude-opus-5; do
     body=$(curl -sS -o "$TMP_ROOT/refuse-body" -w '%{http_code}' \
-      -X POST "http://127.0.0.1:$proxy_port/openai/v1/chat/completions" \
+      -X POST "http://127.0.0.1:$proxy_port/openai/v1/responses" \
       -H 'Content-Type: application/json' \
       -d "{\"model\":\"$name\",\"messages\":[]}")
     status=$body
@@ -196,13 +204,13 @@ test_refresh_path_obtains_a_new_token_per_request_when_expired() {
   proxy_port=${proxy_info##* }
 
   status=$(curl -sS -o "$TMP_ROOT/req1-body" -w '%{http_code}' \
-    -X POST "http://127.0.0.1:$proxy_port/openai/v1/chat/completions" \
+    -X POST "http://127.0.0.1:$proxy_port/openai/v1/responses" \
     -H 'Content-Type: application/json' \
     -d '{"model":"gpt-5.6-luna","messages":[]}')
   expect_code 200 "$status" "first authorized request must be forwarded"
 
   status=$(curl -sS -o "$TMP_ROOT/req2-body" -w '%{http_code}' \
-    -X POST "http://127.0.0.1:$proxy_port/openai/v1/chat/completions" \
+    -X POST "http://127.0.0.1:$proxy_port/openai/v1/responses" \
     -H 'Content-Type: application/json' \
     -d '{"model":"gpt-5.6-luna","messages":[]}')
   expect_code 200 "$status" "second authorized request must be forwarded"
@@ -240,13 +248,13 @@ test_caches_a_still_valid_token_across_requests() {
   proxy_port=${proxy_info##* }
 
   status=$(curl -sS -o /dev/null -w '%{http_code}' \
-    -X POST "http://127.0.0.1:$proxy_port/openai/v1/chat/completions" \
+    -X POST "http://127.0.0.1:$proxy_port/openai/v1/responses" \
     -H 'Content-Type: application/json' \
     -d '{"model":"gpt-5.6-luna","messages":[]}')
   expect_code 200 "$status" "first authorized request must be forwarded"
 
   status=$(curl -sS -o /dev/null -w '%{http_code}' \
-    -X POST "http://127.0.0.1:$proxy_port/openai/v1/chat/completions" \
+    -X POST "http://127.0.0.1:$proxy_port/openai/v1/responses" \
     -H 'Content-Type: application/json' \
     -d '{"model":"gpt-5.6-luna","messages":[]}')
   expect_code 200 "$status" "second authorized request must be forwarded"
@@ -257,6 +265,50 @@ test_caches_a_still_valid_token_across_requests() {
   assert_equals "1" "$(cat "$calls")" \
     "a still-valid cached token must not be refetched on every request"
   pass "fm-foundry-luna-proxy: a still-valid cached token is reused instead of refetched"
+}
+
+test_refuses_a_deployment_scoped_route_for_an_unauthorized_deployment() {
+  local az_dir calls upstream_info upstream_pid upstream_port upstream_log
+  local proxy_info proxy_pid proxy_port status route
+
+  az_dir="$TMP_ROOT/az-route"
+  calls="$TMP_ROOT/az-route-calls"
+  fm_write_fake_az "$az_dir" "$calls"
+
+  upstream_log="$TMP_ROOT/upstream-route.log"
+  : > "$upstream_log"
+  upstream_info=$(fm_start_fake_upstream "$upstream_log")
+  upstream_pid=${upstream_info%% *}
+  upstream_port=${upstream_info##* }
+
+  proxy_info=$(fm_start_proxy "$az_dir" "$upstream_port")
+  proxy_pid=${proxy_info%% *}
+  proxy_port=${proxy_info##* }
+
+  # Foundry names the deployment in the URL as well as the body, so an
+  # authorized body model on a deployment-scoped route must still be refused.
+  for route in \
+    "/openai/deployments/gpt-5.6-terra/chat/completions?api-version=2025-04-01-preview" \
+    "/openai/v1/chat/completions" \
+    "/openai/deployments/gpt-5.6-luna/responses"; do
+    status=$(curl -sS -o "$TMP_ROOT/route-body" -w '%{http_code}' \
+      -X POST "http://127.0.0.1:$proxy_port$route" \
+      -H 'Content-Type: application/json' \
+      -d '{"model":"gpt-5.6-luna","input":[]}')
+    if [ "$status" -lt 400 ]; then
+      kill "$proxy_pid" "$upstream_pid" 2>/dev/null
+      fail "route '$route' was relayed instead of refused: got HTTP $status"
+    fi
+    assert_contains "$(cat "$TMP_ROOT/route-body")" "is not authorized" \
+      "refusal body for route '$route' names the reason"
+  done
+
+  kill "$proxy_pid" "$upstream_pid" 2>/dev/null
+  wait "$proxy_pid" "$upstream_pid" 2>/dev/null
+
+  [ ! -s "$upstream_log" ] || fail "an unauthorized route reached the fake upstream: $(cat "$upstream_log")"
+  [ ! -s "$calls" ] || fail "an unauthorized route triggered a token fetch"
+  pass "fm-foundry-luna-proxy: refuses a deployment-scoped route before any token is fetched"
 }
 
 test_streams_a_chunked_reply_through_with_usable_framing() {
@@ -308,7 +360,7 @@ test_refuses_a_non_loopback_upstream_override() {
 
   [ "$status" -ne 0 ] \
     || fail "the proxy must refuse to start rather than attach an AAD token for a non-loopback host"
-  assert_contains "$out" "loopback address" "the refusal names the constraint it enforced"
+  assert_contains "$out" "must be 127.0.0.1" "the refusal names the constraint it enforced"
   pass "fm-foundry-luna-proxy: refuses a non-loopback upstream override instead of forwarding a token to it"
 }
 
@@ -336,7 +388,7 @@ test_run_subcommand_serves_while_the_child_runs_then_stops() {
 set -u
 port=$1
 curl -sS -o /dev/null -w '%{http_code}' \
-  -X POST "http://127.0.0.1:$port/openai/v1/chat/completions" \
+  -X POST "http://127.0.0.1:$port/openai/v1/responses" \
   -H 'Content-Type: application/json' \
   -d '{"model":"gpt-5.6-luna","messages":[]}' > "$2"
 exit 42
@@ -362,7 +414,7 @@ SH
   status=$(cat "$port_probe")
   expect_code 200 "$status" "the wrapped command could reach the gateway while it ran"
   assert_contains "$(cat "$upstream_log")" "Bearer FAKE-TOKEN-1" "the request the child made was really forwarded with a fetched token"
-  ! curl -sS -o /dev/null --max-time 1 "http://127.0.0.1:$port_probe_val/openai/v1/chat/completions" 2>/dev/null \
+  ! curl -sS -o /dev/null --max-time 1 "http://127.0.0.1:$port_probe_val/openai/v1/responses" 2>/dev/null \
     || fail "the gateway must stop listening once the wrapped command exits"
   pass "fm-foundry-luna-proxy: 'run' serves the wrapped command and stops the gateway when it exits"
 }
@@ -370,6 +422,7 @@ SH
 test_refuses_every_unauthorized_deployment_name
 test_refresh_path_obtains_a_new_token_per_request_when_expired
 test_caches_a_still_valid_token_across_requests
+test_refuses_a_deployment_scoped_route_for_an_unauthorized_deployment
 test_streams_a_chunked_reply_through_with_usable_framing
 test_refuses_a_non_loopback_upstream_override
 test_run_subcommand_serves_while_the_child_runs_then_stops

@@ -616,6 +616,9 @@ relaunch_rollback() {
 resolve_relaunch_profile() {
   PRIOR_HARNESS=$HARNESS
   PRIOR_RECORDED_HARNESS=$RECORDED_HARNESS
+  if fm_control_harness_supported "$PRIOR_RECORDED_HARNESS"; then
+    PRIOR_HARNESS=$PRIOR_RECORDED_HARNESS
+  fi
   PRIOR_MODEL=$(fm_meta_get "$META" model)
   PRIOR_EFFORT=$(fm_meta_get "$META" effort)
   [ -n "$PRIOR_MODEL" ] || PRIOR_MODEL=default

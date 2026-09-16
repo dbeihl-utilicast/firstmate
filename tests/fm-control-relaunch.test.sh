@@ -607,6 +607,24 @@ test_prefixed_recorded_harness_requires_explicit_replacement() {
   pass "fm-control relaunch: a prefixed command requires an explicit replacement harness"
 }
 
+test_relaunch_reuses_a_verified_recorded_harness_without_an_explicit_one() {
+  local dir out rc
+  dir=$(new_case foundryluna rl45)
+  add_ship_task "$dir" rl45 codex-foundry-luna
+  printf 'codex' > "$dir/fake/command"
+  printf 'codex' > "$dir/fake/becomes"
+
+  out=$(run_control "$dir" rl45 relaunch --note "continue on the live runtime"); rc=$?
+  expect_code 0 "$rc" "a bare relaunch of a verified recorded harness should succeed"$'\n'"$out"
+  assert_contains "$out" "harness=codex-foundry-luna from=codex-foundry-luna" \
+    "the relaunch must stay on the recorded adapter rather than its control family"
+  [ "$(meta_field "$dir" rl45 harness)" = codex-foundry-luna ] \
+    || fail "the record must keep the recorded adapter, got '$(meta_field "$dir" rl45 harness)'"
+  assert_grep "fm-foundry-luna-proxy.py" "$dir/fake/literal" \
+    "the replacement launch must be the recorded adapter's own launch command"
+  pass "fm-control relaunch: a verified recorded harness relaunches without an explicit --harness"
+}
+
 test_same_harness_relaunch_keeps_the_profile_axes() {
   local dir out rc
   dir=$(new_case keepprofile rl6)
@@ -1648,6 +1666,7 @@ test_harness_switch_moves_the_record_and_clears_prior_wiring
 test_harness_switch_does_not_carry_the_old_profile_axes
 test_harness_switch_resolves_a_prefixed_recorded_harness
 test_prefixed_recorded_harness_requires_explicit_replacement
+test_relaunch_reuses_a_verified_recorded_harness_without_an_explicit_one
 test_same_harness_relaunch_keeps_the_profile_axes
 test_native_ultra_relaunch_preserves_profile_and_rejects_before_stop
 test_explicit_model_wins_over_the_recorded_one

@@ -14,9 +14,11 @@
 # token attached. No credential value is ever read from argv, written to a
 # file, or logged; only HTTP status codes are logged.
 #
-# It also carries the deployment allowlist: any request naming a model other
-# than `gpt-5.6-luna` is refused locally and never reaches Azure, so an
-# unauthorized deployment on this account cannot rack up cost.
+# It also carries the deployment allowlist. Foundry names the deployment in two
+# places - the JSON body's `model` and the deployment-scoped URL - so both are
+# pinned: only the single route the configured base_url produces is relayed, and
+# only `gpt-5.6-luna` in the body. Anything else is refused locally before a
+# token is fetched, so an unauthorized deployment cannot rack up Azure cost.
 import datetime
 import http.client
 import http.server
@@ -28,12 +30,12 @@ import threading
 import time
 
 ALLOWED_MODEL = "gpt-5.6-luna"
+ALLOWED_PATH = "/openai/v1/responses"
 FOUNDRY_HOST = "aih-utilicast-ftiek.services.ai.azure.com"
 SUBSCRIPTION_ID = "201f9be2-2f49-47d4-9f16-f2ab8a9cd1a2"
 TOKEN_RESOURCE = "https://cognitiveservices.azure.com"
 REFRESH_MARGIN_SECONDS = 300
 
-LOOPBACK_HOSTS = ("127.0.0.1", "::1")
 HOP_BY_HOP_HEADERS = (
     "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
     "te", "trailers", "transfer-encoding", "upgrade",
@@ -48,15 +50,11 @@ def resolve_upstream(override):
     """
     if not override:
         return FOUNDRY_HOST, "https"
-    host = override
-    if host.startswith("[") and "]" in host:
-        host = host[1:host.index("]")]
-    elif ":" in host:
-        host = host.split(":", 1)[0]
-    if host not in LOOPBACK_HOSTS:
+    if override.split(":", 1)[0] != "127.0.0.1":
         sys.exit(
-            "fm-foundry-luna-proxy: FM_FOUNDRY_LUNA_TEST_UPSTREAM_HOST must name a "
-            "loopback address; refusing to attach an AAD token for a request to %r" % host
+            "fm-foundry-luna-proxy: FM_FOUNDRY_LUNA_TEST_UPSTREAM_HOST must be "
+            "127.0.0.1 or 127.0.0.1:<port>; refusing to attach an AAD token for "
+            "a request to %r" % override
         )
     return override, "http"
 
@@ -115,6 +113,13 @@ def make_handler(token_cache, upstream_host=UPSTREAM_HOST, upstream_scheme=UPSTR
             sys.stderr.write("fm-foundry-luna-proxy: " + (fmt % args) + "\n")
 
         def do_POST(self):
+            if self.path != ALLOWED_PATH:
+                self._reject(
+                    403,
+                    "route %r is not authorized; only %r may be relayed"
+                    % (self.path, ALLOWED_PATH),
+                )
+                return
             length = int(self.headers.get("Content-Length", "0"))
             body = self.rfile.read(length) if length else b""
             try:

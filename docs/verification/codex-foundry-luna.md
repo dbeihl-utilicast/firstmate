@@ -1,0 +1,92 @@
+# Verification: the codex-foundry-luna crewmate/scout adapter
+
+Active empirical evidence for firstmate's codex-foundry-luna adapter, which is codex itself repointed at the Azure AI Foundry `gpt-5.6-luna` deployment through the local token-refreshing gateway `bin/fm-foundry-luna-proxy.py`.
+The skill tree rooted at [`.agents/skills/harness-adapters/references/harness/codex.md`](../../.agents/skills/harness-adapters/references/harness/codex.md) owns the operating facts; this record owns how they were established and what is still unproven.
+
+## Subject
+
+| Field | Value |
+|---|---|
+| Version | codex-cli `0.153.4` |
+| Verified | 2026-09-16 |
+| Binary | `codex`, launched as a child of `bin/fm-foundry-luna-proxy.py run --port <n> --` |
+| Platform | Linux, Python 3 standard library only |
+| Model host | Azure AI Foundry account `aih-utilicast-ftiek`, deployment `gpt-5.6-luna` |
+| Auth | AAD bearer, audience `https://cognitiveservices.azure.com/.default`, fetched inline by the gateway with `az account get-access-token` |
+
+The live section below ran against the real account with a real az-issued token, in a throwaway scratch directory, with no fleet pane involved.
+No credential value was read, printed, copied, or stored at any point, and the gateway logs request lines only.
+The subscription id and tenant live in `bin/fm-foundry-luna-proxy.py` and are not restated here.
+
+## The route the dispatched worker actually uses
+
+The launch template in `bin/fm-spawn.sh` pins `model_providers.fm_foundry_luna.base_url` to `http://127.0.0.1:<port>/openai/v1` and `wire_api` to `responses`.
+Captured against a local recording server, codex 0.153.4 with that configuration issues exactly two routes:
+
+```text
+POST /openai/v1/responses
+GET  /openai/v1/models?client_version=0.153.4
+```
+
+`POST /openai/v1/responses` is the only route the gateway relays.
+The user intent's proven-facts block covered `<host>/openai/v1/chat/completions` and the versioned deployments path, which is the route codex cannot use: `wire_api = "chat"` fails config load on 0.153.4 with "no longer supported".
+The Responses route was therefore unverified against this deployment until the live run below, and is now verified.
+
+## Live end-to-end run
+
+A real `bin/fm-foundry-luna-proxy.py run --port <n> -- codex ...` invocation carrying the launch template's exact `model`, `model_provider`, `model_providers.fm_foundry_luna.name`, `base_url`, `wire_api`, and `model_reasoning_effort` values, against the real account, with a real az-issued AAD token:
+
+```text
+$ fm-foundry-luna-proxy.py run --port <port> -- codex -c model=\"gpt-5.6-luna\" -c model_provider=\"fm_foundry_luna\" -c model_providers.fm_foundry_luna.name=\"Azure-AI-Foundry-gpt-5.6-luna\" -c model_providers.fm_foundry_luna.base_url=\"http://127.0.0.1:<port>/openai/v1\" -c model_providers.fm_foundry_luna.wire_api=\"responses\" -c model_reasoning_effort=\"high\" --dangerously-bypass-approvals-and-sandbox exec --skip-git-repo-check "<one-line prompt>"
+[exit 0]
+```
+
+The gateway's access log recorded exactly one relayed request:
+
+```text
+fm-foundry-luna-proxy: "POST /openai/v1/responses HTTP/1.1" 200 -
+```
+
+codex reported `model: gpt-5.6-luna`, `provider: fm_foundry_luna`, `reasoning effort: high`, completed the turn with a non-empty assistant reply of 4 characters, and printed a token-usage total.
+Neither the gateway's stderr nor codex's stdout contained a bearer token, an `accessToken` field, or a JWT-shaped string.
+Reply text, request headers, and response bodies are deliberately not recorded here.
+
+## The deployment allowlist
+
+The captain authorizes `gpt-5.6-luna` only, and Foundry names the deployment in two independent places.
+
+`bin/fm-foundry-luna-proxy.py` pins both.
+The JSON body's `model` must be exactly `gpt-5.6-luna`.
+The request path must be exactly `/openai/v1/responses`, so a deployment-scoped URL such as `/openai/deployments/gpt-5.6-terra/chat/completions?api-version=...` carrying an authorized body model is refused locally, before a token is fetched and before any byte leaves the host.
+`bin/fm-spawn.sh` refuses a `--model` other than `gpt-5.6-luna` at spawn time as well.
+
+`tests/fm-foundry-luna-proxy.test.sh` drives the real gateway against a fake `az` and a fake upstream for every one of these.
+Its fake upstream serves `/openai/v1/responses` and answers 404 on any other path, so a gateway that relayed a different route turns the suite red.
+
+## Supervision and control
+
+codex-foundry-luna carries no supervision mechanics of its own.
+It inherits codex's turn-end hook and busy detection through the `codex*` family match in `bin/fm-control-lib.sh` and `bin/fm-busy-lib.sh`.
+It is the first adapter whose recorded harness name differs from its control family, so `bin/fm-control.sh` resolves a relaunch target from the recorded name whenever that name is itself a verified adapter, and keeps the explicit-`--harness` refusal for a genuine raw-command basename such as `grok-2`.
+The pane runs the gateway as the foreground process with codex as its child in the same process group, so tmux agent-liveness still classifies the pane through codex's own process identity.
+
+## Not verified
+
+codex-foundry-luna as a primary or secondmate runtime is unverified, and `bin/fm-spawn.sh` refuses `--secondmate` on it.
+The gateway serves POST only.
+codex's startup `GET /openai/v1/models` therefore returns 501 and codex logs a non-fatal `failed to refresh available models` error before proceeding; the turn completes normally and the model catalog is not used by the pinned single-deployment configuration.
+Relaying that route is deliberately not implemented, because widening the gateway's relayed surface is what the single-deployment allowlist exists to prevent.
+Streaming was proven against a fake chunked upstream rather than a live streamed Foundry turn.
+Token refresh across a real expiry boundary was proven with a fake `az` that mints a distinct nonsecret value per call; no real token was held to expiry.
+A supervised fleet pane on this adapter has not been run.
+
+## Refreshing this record
+
+```
+bin/fm-test-run.sh tests/fm-foundry-luna-proxy.test.sh tests/fm-spawn-dispatch-profile.test.sh tests/fm-control-relaunch.test.sh
+az account get-access-token --subscription <id> --resource https://cognitiveservices.azure.com -o none
+bin/fm-foundry-luna-proxy.py run --port <port> -- codex -c model=\"gpt-5.6-luna\" -c model_provider=\"fm_foundry_luna\" -c model_providers.fm_foundry_luna.name=\"Azure-AI-Foundry-gpt-5.6-luna\" -c model_providers.fm_foundry_luna.base_url=\"http://127.0.0.1:<port>/openai/v1\" -c model_providers.fm_foundry_luna.wire_api=\"responses\" --dangerously-bypass-approvals-and-sandbox exec --skip-git-repo-check "<one-line prompt>"
+```
+
+The live step needs an in-tenant az login with access to the account and bills the turn to Azure.
+The portable counterparts run in ordinary CI with a fake `az` and a fake upstream, and never touch the real account.
