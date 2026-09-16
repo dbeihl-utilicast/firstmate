@@ -892,6 +892,17 @@ test_refuses_to_start_when_the_foundry_config_is_missing_or_invalid() {
     assert_contains "$out" "'host'" "the refusal for host '$host' names the invalid field"
   done
 
+  # Python's $ in a regex matches just before a trailing newline even under
+  # .match, so a value carrying one must be checked with a real end-anchored
+  # match (fullmatch), not just a leading-anchored one.
+  printf '{"host":"fixture-account.services.ai.azure.com\\n","subscription_id":"00000000-0000-0000-0000-000000000000"}' \
+    > "$bad_dir/trailing-newline-host.json"
+  out=$(FM_FOUNDRY_LUNA_CONFIG="$bad_dir/trailing-newline-host.json" timeout 5 python3 "$PROXY" serve 0 2>&1)
+  status=$?
+  [ "$status" -ne 0 ] \
+    || fail "the proxy must refuse a host carrying a trailing newline instead of accepting it as the bare hostname"
+  assert_contains "$out" "'host'" "the refusal for a trailing-newline host names the invalid field"
+
   for subscription in "not-a-guid" "00000000-0000-0000-0000-00000000000" "00000000-0000-0000-0000-0000000000gg"; do
     printf '{"host":"fixture-account.services.ai.azure.com","subscription_id":"%s"}' "$subscription" \
       > "$bad_dir/non-guid-subscription.json"
@@ -901,6 +912,14 @@ test_refuses_to_start_when_the_foundry_config_is_missing_or_invalid() {
       || fail "the proxy must refuse a non-GUID subscription_id '$subscription'"
     assert_contains "$out" "'subscription_id'" "the refusal for subscription_id '$subscription' names the invalid field"
   done
+
+  printf '{"host":"fixture-account.services.ai.azure.com","subscription_id":"00000000-0000-0000-0000-000000000000\\n"}' \
+    > "$bad_dir/trailing-newline-subscription.json"
+  out=$(FM_FOUNDRY_LUNA_CONFIG="$bad_dir/trailing-newline-subscription.json" timeout 5 python3 "$PROXY" serve 0 2>&1)
+  status=$?
+  [ "$status" -ne 0 ] \
+    || fail "the proxy must refuse a subscription_id carrying a trailing newline instead of accepting it as the bare GUID"
+  assert_contains "$out" "'subscription_id'" "the refusal for a trailing-newline subscription_id names the invalid field"
 
   pass "fm-foundry-luna-proxy: refuses to start when the Foundry config is missing, malformed, names a non-Azure host, or names a non-GUID subscription id"
 }

@@ -109,7 +109,7 @@ def resolve_foundry_config():
         )
     host = data.get("host") if isinstance(data, dict) else None
     subscription = data.get("subscription_id") if isinstance(data, dict) else None
-    if not isinstance(host, str) or not FOUNDRY_HOST_RE.match(host):
+    if not isinstance(host, str) or not FOUNDRY_HOST_RE.fullmatch(host):
         sys.exit(
             "fm-foundry-luna-proxy: config file at %r has an invalid or "
             "missing 'host'; it must be exactly one DNS label plus %r "
@@ -117,7 +117,7 @@ def resolve_foundry_config():
             "deliberately invalid until filled in)"
             % (path, FOUNDRY_HOST_SUFFIX)
         )
-    if not isinstance(subscription, str) or not SUBSCRIPTION_ID_RE.match(subscription):
+    if not isinstance(subscription, str) or not SUBSCRIPTION_ID_RE.fullmatch(subscription):
         sys.exit(
             "fm-foundry-luna-proxy: config file at %r has an invalid or "
             "missing 'subscription_id'; it must be a GUID" % path
