@@ -1690,13 +1690,13 @@ case "$ARG3" in
     LAUNCH=$ARG3
     HARNESS=""
     RAW_HOME_ASSIGNMENT=""
-    for word in $LAUNCH; do
+    while IFS= read -r word; do
       case "$word" in
         HOME=*|GROK_HOME=*) RAW_HOME_ASSIGNMENT=$word; continue ;;
         [A-Za-z_]*=*) continue ;;
         *) HARNESS=$(basename "$word"); break ;;
       esac
-    done
+    done < <(xargs -n1 <<<"$LAUNCH" 2>/dev/null)
     case "$HARNESS" in
       grok*)
         if [ -n "$RAW_HOME_ASSIGNMENT" ]; then
