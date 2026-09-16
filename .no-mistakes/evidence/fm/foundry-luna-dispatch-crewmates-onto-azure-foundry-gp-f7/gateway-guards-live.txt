@@ -1,0 +1,19 @@
+## argv scan while gateway+child live
+/tmp/fl-argv.sh: 3: cannot open /proc/1419032/cmdline: No such file
+/tmp/fl-argv.sh: 3: cannot open /proc/1419097/cmdline: No such file
+/tmp/fl-argv.sh: 3: cannot open /proc/1419098/cmdline: No such file
+/tmp/fl-argv.sh: 3: cannot open /proc/1419099/cmdline: No such file
+/tmp/fl-argv.sh: 3: cannot open /proc/1419279/cmdline: No such file
+/tmp/fl-argv.sh: 3: cannot open /proc/1419290/cmdline: No such file
+/tmp/fl-argv.sh: 3: cannot open /proc/1419298/cmdline: No such file
+/tmp/fl-argv.sh: 3: cannot open /proc/1419316/cmdline: No such file
+processes whose argv contains the admission secret: 0
+gateway (parent) argv: python3 /home/dbeihl/.no-mistakes/worktrees/4962ffbf57ea/01M2MPRAC0TDGM9AR7D3AYEVNR/bin/fm-foundry-luna-proxy.py run -- sh /tmp/fl-argv.sh 
+exit=0
+## az absent from PATH: gateway refuses to start, silent on tty
+exit=70 output-bytes=0
+## wrapped command missing: nonzero, no traceback
+exit=70 output-bytes=0
+## non-loopback test upstream override refused
+fm-foundry-luna-proxy: FM_FOUNDRY_LUNA_TEST_UPSTREAM_HOST must be 127.0.0.1 or 127.0.0.1:<port>; refusing to attach an AAD token for a request to 'evil.example.com'
+exit=1

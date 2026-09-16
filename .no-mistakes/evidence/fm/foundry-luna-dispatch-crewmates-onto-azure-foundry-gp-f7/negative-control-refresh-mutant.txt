@@ -1,0 +1,2 @@
+ok - fm-foundry-luna-proxy: refuses every unauthorized deployment name before reaching Azure
+not ok - an already-expired cached token must be refreshed on every request, never reused (expected '3', got '1')

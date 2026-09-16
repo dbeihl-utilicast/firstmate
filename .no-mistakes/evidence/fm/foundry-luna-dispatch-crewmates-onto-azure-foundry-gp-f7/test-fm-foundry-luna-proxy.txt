@@ -1,0 +1,14 @@
+ok - fm-foundry-luna-proxy: refuses every unauthorized deployment name before reaching Azure
+ok - fm-foundry-luna-proxy: an expired cached token is refreshed, never reused stale, on every request
+ok - fm-foundry-luna-proxy: a still-valid cached token is reused instead of refetched
+ok - fm-foundry-luna-proxy: refuses a deployment-scoped route before any token is fetched
+ok - fm-foundry-luna-proxy: a chunked streamed reply is relayed with framing the client can end on
+ok - fm-foundry-luna-proxy: refuses a non-loopback upstream override instead of forwarding a token to it
+ok - fm-foundry-luna-proxy: run mode is silent on the error path too, unless FM_FOUNDRY_LUNA_LOG names a file
+ok - fm-foundry-luna-proxy: 'run' serves the wrapped command on the port it resolves for it, and stops when the command exits
+ok - fm-foundry-luna-proxy: two gateways alive at once each serve the port they bound themselves
+ok - fm-foundry-luna-proxy: 'run' mints its own admission secret and hands it only to its child's environment
+ok - fm-foundry-luna-proxy: a wrapped command that cannot start is reported, never as a pane traceback
+ok - fm-foundry-luna-proxy: refuses a local caller that does not hold this task's gateway secret
+ok - fm-foundry-luna-proxy: refuses to start without this task's gateway secret
+ok - fm-foundry-luna-proxy: refuses to serve at all when the first token fetch fails

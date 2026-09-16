@@ -1,0 +1,9 @@
+child sees secret env: True len 64
+child argv contains secret: False
+[authorized] status 200 model gpt-5.6-luna text 'PONG'
+[unauthorized deployment gpt-4o] status 403 {"error": {"message": "deployment 'gpt-4o' is not authorized; only 'gpt-5.6-luna' may be dispatched"}}
+[unauthorized deployment gpt-5.6] status 403 {"error": {"message": "deployment 'gpt-5.6' is not authorized; only 'gpt-5.6-luna' may be dispatched"}}
+[deployment-scoped other route] status 403 {"error": {"message": "route '/openai/deployments/gpt-4o/chat/completions?api-version=2024-10-21' is not authorized; only '/openai/v1/responses' may be relayed"
+[chat completions route] status 403 {"error": {"message": "route '/openai/v1/chat/completions' is not authorized; only '/openai/v1/responses' may be relayed"}}
+[no admission secret] status 401 {"error": {"message": "caller is not authorized to use this gateway"}}
+exit=0

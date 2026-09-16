@@ -1,0 +1,26 @@
+╭─────────────────────────────────────────────────╮
+│ ✨ Update available! 0.153.4 -> 0.154.0         │
+│ Run npm install -g @openai/codex to update.     │
+│                                                 │
+│ See full release notes:                         │
+│ https://github.com/openai/codex/releases/latest │
+╰─────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.153.4)                       │
+│                                                  │
+│ model:       gpt-5.6-luna low   /model to change │
+│ directory:   /tmp/fl-live/work                   │
+│ permissions: YOLO mode                           │
+╰──────────────────────────────────────────────────╯
+  Tip: Use /side to start a side conversation in a temporary fork without polluting the main thread.
+› ⁣FIRSTMATE_OP: v1 launch-brief: Create a file named luna-proof.txt in the current directory containing exactly the text: dispatched-on-foundry-luna. Then reply with the single word FINISHED and
+  stop.
+⚠ Skill descriptions were shortened to fit the skills context budget. Codex can still see every skill, but some descriptions are shorter. Disable unused skills or plugins to leave more room for the
+  rest.
+• Ran printf '%s' 'dispatched-on-foundry-luna' > luna-proof.txt
+  └ (no output)
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+• FINISHED
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+› Ask Codex to do anything
+  gpt-5.6-luna low · /tmp/fl-live/work

@@ -1,0 +1,4 @@
+live gateway/codex processes: 4
+codex process environment carries a secret (value withheld): True length 64
+processes on host whose world-readable argv contains it: 0
+gateway process environment carries it: False

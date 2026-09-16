@@ -1,0 +1,42 @@
+Reading additional input from stdin...
+OpenAI Codex v0.153.4
+--------
+workdir: /tmp/tmp.imY80W3L3g
+model: gpt-5.6-luna
+provider: fm_foundry_luna
+approval: never
+sandbox: danger-full-access
+reasoning effort: low
+reasoning summaries: none
+session id: 01a0a96d-eaf3-78e1-ab65-02e493d238e3
+--------
+user
+Run the shell command 'echo foundry-luna-ok > proof.txt', then reply with the single word DONE.
+hook: SessionStart
+hook: SessionStart
+hook: SessionStart
+hook: SessionStart Completed
+hook: SessionStart Completed
+hook: SessionStart Completed
+2026-09-16T08:55:51.320393Z ERROR codex_models_manager::manager: failed to refresh available models: unexpected status 501 Not Implemented: <!DOCTYPE HTML>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <title>Error response</title>
+    </head>
+    <body>
+        <h1>Error response</h1>
+        <p>Error code: 501</p>
+        <p>Message: Unsupported method ('GET').</p>
+        <p>Error code explanation: 501 - Server does not support this operation.</p>
+    </body>
+</html>, url: http://127.0.0.1:38031/openai/v1/models?client_version=0.153.4
+exec
+/bin/bash -lc 'echo foundry-luna-ok > proof.txt' in /tmp/tmp.imY80W3L3g
+ succeeded in 0ms:
+codex
+DONE
+tokens used
+27,739
+DONE
+exit=0
