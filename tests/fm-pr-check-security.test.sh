@@ -881,6 +881,38 @@ test_static_poll_contract() {
   pass "static poll detects branch ancestry independently of merge readiness and remains watcher-bounded"
 }
 
+# The safety net bin/fm-watch.sh's task_finished_awaiting_merge relies on:
+# absorbing a finished, registered worker's stale wakes (fm-watch-triage.test.sh)
+# must never hide the one wake that actually matters - the merge poll's own
+# "check: merge landed" delivery. The check block (evaluated before the stale
+# scan, bin/fm-watch.sh's main loop) and the stale/wedge ladder are independent
+# code paths in production; this proves it end to end through the real watcher
+# rather than by code inspection.
+test_finished_awaiting_merge_still_receives_merge_landed_wake() {
+  local dir id url rc
+  dir=$(make_case finished-awaiting-merge-wake)
+  id=task-a
+  url=https://github.com/o/r/pull/1
+  write_task_meta "$dir" "$id"
+  # The exact terminal ready line + registered PR poll that suppresses this
+  # worker's stale wakes (bin/fm-watch.sh's task_finished_awaiting_merge).
+  printf 'done: PR %s checks green\n' "$url" > "$dir/home/state/$id.status"
+  write_poll_meta "$dir/home/state" "$id" "$url"
+  fm_pr_poll_prepare "$dir/home/state" "$id" github "$url" github.com o/r 1 "$POLL" \
+    || fail "could not prepare a registered PR poll for the finished worker"
+  fm_pr_poll_publish_prepared || fail "could not publish the registered PR poll"
+  fm_pr_poll_artifacts_valid "$dir/home/state" "$id" "$POLL" \
+    || fail "published poll was not structurally valid"
+
+  FM_TEST_GH_STATE=MERGED run_watcher_bounded "$dir/home" "$dir/fakebin" \
+    > "$dir/watch.out" 2> "$dir/watch.err"
+  rc=$?
+  [ "$rc" -eq 0 ] || fail "watcher did not complete for a finished worker's merged poll: $(cat "$dir/watch.err")"
+  grep -qF "check: merge landed: $id $url" "$dir/home/state/.wake-queue" \
+    || fail "a finished, registered worker's merge landed wake did not reach the durable queue: $(cat "$dir/home/state/.wake-queue" 2>/dev/null)"
+  pass "a finished worker with a registered PR poll still receives the merge poll's check: merge landed wake"
+}
+
 enable_pr_refresh() {  # <dir>
   : > "$1/home/config/pr-refresh"
 }
@@ -3292,6 +3324,7 @@ test_invalid_entrypoints_have_zero_side_effects
 test_valid_recording_and_merge_derivation
 test_rejected_metacharacter_bytes_are_inert
 test_static_poll_contract
+test_finished_awaiting_merge_still_receives_merge_landed_wake
 test_static_poll_base_ref_encoding
 test_branch_currency_blocked_head_dispatch
 test_branch_currency_cooldown_survives_head_changes
