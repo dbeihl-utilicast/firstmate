@@ -850,7 +850,7 @@ fm_procevent_path_normalize() {
       *) normalized+=("$part") ;;
     esac
   done
-  printf '/%s\n' "$(IFS=/; printf '%s' "${normalized[*]}")"
+  printf '/%s\n' "$(IFS=/; printf '%s' "${normalized[*]+"${normalized[*]}"}")"
 }
 
 fm_procevent_directory_owned_by_current_user() {

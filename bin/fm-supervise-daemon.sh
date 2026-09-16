@@ -558,7 +558,7 @@ sync_pause_markers_from_signal() {  # <state> <signal files>
   local state=$1 paths=$2 f last task win
   local -a files
   read -r -a files <<<"$paths"
-  for f in "${files[@]}"; do
+  for f in "${files[@]+"${files[@]}"}"; do
     case "$f" in *.status) ;; *) continue ;; esac
     [ -e "$f" ] || continue
     last=$(last_status_line "$f")
@@ -930,10 +930,10 @@ wedge_alarm_notify() {  # <summary> <marker>
     [ -n "$ch" ] || continue
     channels+=("$ch")
   done < <(wedge_alarm_configured_channels)
-  for ch in "${channels[@]}"; do
+  for ch in "${channels[@]+"${channels[@]}"}"; do
     [ "$ch" = off ] && return 0
   done
-  for ch in "${channels[@]}"; do
+  for ch in "${channels[@]+"${channels[@]}"}"; do
     case "$ch" in auto|default) ch=$(wedge_alarm_platform_default) ;; esac
     case "$ch" in
       '') log "wedge alarm: no OS-level alert channel on $(uname); durable marker $marker is the only signal - set config/wedge-alarm (e.g. a command: directive)" ;;
