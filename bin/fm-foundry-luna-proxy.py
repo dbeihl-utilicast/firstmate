@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
 # fm-foundry-luna-proxy.py - local token-refreshing gateway for the Azure AI
 # Foundry `gpt-5.6-luna` deployment, the only deployment the captain has
-# authorized for fleet dispatch (aih-utilicast-ftiek / rg-utilicast-convert /
-# subscription 201f9be2-2f49-47d4-9f16-f2ab8a9cd1a2).
+# authorized for fleet dispatch. The Foundry account host and subscription id
+# are private operational data (this fork is public), so neither is
+# hard-coded here: both are read from the local, gitignored config file named
+# by FM_FOUNDRY_LUNA_CONFIG, which bin/fm-spawn.sh resolves from the
+# launching home's own config/foundry-luna.json (inherited into secondmate
+# homes by bin/fm-config-inherit-lib.sh so a secondmate's own crewmates can
+# reach it too). Absent, unreadable, malformed, or non-Azure config refuses
+# to start rather than falling back to any built-in host.
 #
 # Why this exists: an AAD access token expires in about an hour and an
 # overnight worker outlives it, but the OpenAI-compatible CLI this proxy sits
@@ -28,6 +34,7 @@ import http.client
 import http.server
 import json
 import os
+import re
 import secrets
 import subprocess
 import sys
@@ -37,18 +44,86 @@ import traceback
 
 ALLOWED_MODEL = "gpt-5.6-luna"
 ALLOWED_PATH = "/openai/v1/responses"
-FOUNDRY_HOST = "aih-utilicast-ftiek.services.ai.azure.com"
-SUBSCRIPTION_ID = "201f9be2-2f49-47d4-9f16-f2ab8a9cd1a2"
+FOUNDRY_HOST_SUFFIX = ".services.ai.azure.com"
+# Exactly one DNS label (RFC 1123: alnum, interior hyphens, 1-63 chars) plus
+# the literal Foundry suffix - no extra subdomain labels, no path, no port,
+# and no placeholder-shaped value such as docs/examples/foundry-luna.json's
+# own "<foundry-account>..." (angle brackets are not a valid label character).
+FOUNDRY_HOST_RE = re.compile(
+    r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?" + re.escape(FOUNDRY_HOST_SUFFIX) + r"$",
+    re.IGNORECASE,
+)
+SUBSCRIPTION_ID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
 TOKEN_RESOURCE = "https://cognitiveservices.azure.com"
 REFRESH_MARGIN_SECONDS = 300
 
 ACCESS_LOG_PATH = os.environ.get("FM_FOUNDRY_LUNA_LOG", "")
 CLIENT_SECRET_ENV = "FM_FOUNDRY_LUNA_SECRET"
+CONFIG_PATH_ENV = "FM_FOUNDRY_LUNA_CONFIG"
 PORT_PLACEHOLDER = "__FOUNDRYLUNAPORT__"
 HOP_BY_HOP_HEADERS = (
     "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
     "te", "trailers", "transfer-encoding", "upgrade",
 )
+
+_foundry_config = None
+
+
+def resolve_foundry_config():
+    """Reads and validates (host, subscription_id) from FM_FOUNDRY_LUNA_CONFIG.
+
+    Never falls back to a built-in host: absent, unreadable, malformed JSON,
+    a missing field, or a host that is not a genuine Foundry hostname all
+    refuse to start with a message naming the concrete problem, so a
+    misconfigured or malicious config file cannot redirect the real AAD
+    bearer token to an arbitrary host. Memoized because it is consulted from
+    more than one call site in a single process lifetime.
+    """
+    global _foundry_config
+    if _foundry_config is not None:
+        return _foundry_config
+    path = os.environ.get(CONFIG_PATH_ENV, "")
+    if not path:
+        sys.exit(
+            "fm-foundry-luna-proxy: %s is not set; the launching home's "
+            "config/foundry-luna.json path is required to resolve the "
+            "Foundry endpoint" % CONFIG_PATH_ENV
+        )
+    try:
+        with open(path, "r") as fh:
+            raw = fh.read()
+    except OSError as exc:
+        sys.exit(
+            "fm-foundry-luna-proxy: config file named by %s is missing or "
+            "unreadable at %r: %s" % (CONFIG_PATH_ENV, path, exc)
+        )
+    try:
+        data = json.loads(raw)
+    except ValueError as exc:
+        sys.exit(
+            "fm-foundry-luna-proxy: config file at %r is not valid JSON: %s"
+            % (path, exc)
+        )
+    host = data.get("host") if isinstance(data, dict) else None
+    subscription = data.get("subscription_id") if isinstance(data, dict) else None
+    if not isinstance(host, str) or not FOUNDRY_HOST_RE.fullmatch(host):
+        sys.exit(
+            "fm-foundry-luna-proxy: config file at %r has an invalid or "
+            "missing 'host'; it must be exactly one DNS label plus %r "
+            "(docs/examples/foundry-luna.json's own placeholder value is "
+            "deliberately invalid until filled in)"
+            % (path, FOUNDRY_HOST_SUFFIX)
+        )
+    if not isinstance(subscription, str) or not SUBSCRIPTION_ID_RE.fullmatch(subscription):
+        sys.exit(
+            "fm-foundry-luna-proxy: config file at %r has an invalid or "
+            "missing 'subscription_id'; it must be a GUID" % path
+        )
+    _foundry_config = (host, subscription)
+    return _foundry_config
 
 
 def resolve_upstream(override):
@@ -58,7 +133,8 @@ def resolve_upstream(override):
     an arbitrary host, so it is refused loudly rather than honored or ignored.
     """
     if not override:
-        return FOUNDRY_HOST, "https"
+        host, _ = resolve_foundry_config()
+        return host, "https"
     if override.split(":", 1)[0] != "127.0.0.1":
         sys.exit(
             "fm-foundry-luna-proxy: FM_FOUNDRY_LUNA_TEST_UPSTREAM_HOST must be "
@@ -89,12 +165,20 @@ class TokenCache:
             return self._token
 
 
-def fetch_az_token(subscription=SUBSCRIPTION_ID, resource=TOKEN_RESOURCE):
+def fetch_az_token(subscription=None, resource=TOKEN_RESOURCE):
     """Runs `az account get-access-token` and returns (token, epoch_expiry).
 
     Never logs or returns anything but the two values the caller needs; the
     token itself is handed straight to the caller and never printed here.
+    An `expires_on` that is missing, cannot be read as a number, or is
+    already at or before now is never guessed at or used: that is a failed
+    refresh, raised as ValueError/KeyError so every caller's existing
+    refusal path handles it the same way a broken `az` invocation already
+    does, and the caller never caches or forwards a token with no real
+    remaining expiry attached.
     """
+    if subscription is None:
+        _, subscription = resolve_foundry_config()
     proc = subprocess.run(
         [
             "az", "account", "get-access-token",
@@ -105,7 +189,15 @@ def fetch_az_token(subscription=SUBSCRIPTION_ID, resource=TOKEN_RESOURCE):
         capture_output=True, text=True, check=True,
     )
     data = json.loads(proc.stdout)
-    return data["accessToken"], float(data["expires_on"])
+    try:
+        expires_at = float(data["expires_on"])
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "az reported a token with an unreadable expires_on value"
+        ) from exc
+    if expires_at <= time.time():
+        raise ValueError("az reported a token that is already expired")
+    return data["accessToken"], expires_at
 
 
 def make_handler(token_cache, client_secret, upstream_host=UPSTREAM_HOST, upstream_scheme=UPSTREAM_SCHEME):

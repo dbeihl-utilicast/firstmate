@@ -16,7 +16,11 @@
 # config/trace-context is copied at the launch convergence point as part of the
 # default-off W3C trace-context setup, while live convergence leaves it unchanged.
 # Primary config/host-plugins.json is the optional Claude Code marketplace and
-# plugin catalogue the remote readiness doctor converges on that host.
+# plugin catalogue the remote readiness doctor converges on that host. Primary
+# config/foundry-luna.json is the optional Azure AI Foundry host and
+# subscription id (no secrets) the codex-foundry-luna crewmate/scout adapter's
+# gateway needs to resolve its endpoint, so a secondmate's own crewmates can
+# dispatch onto it too.
 # The primary passes its frozen home-session decision into a newly launched
 # Secondmate; see docs/trace-context.md.
 # It also pushes
@@ -66,7 +70,7 @@ FM_SHARED_CAPTAIN_MODE="444"
 # The declared inheritable set (space-separated, config-dir-relative item paths).
 # Extend here to inherit more of the primary's local config; override via the
 # environment only in tests. Items must not contain whitespace.
-FM_INHERITABLE_CONFIG="${FM_INHERITABLE_CONFIG:-crew-dispatch.json crew-harness backlog-backend backend herdr-presentation-spaces startup-memory-budget trace-context launch-env-allowlist host-plugins.json}"
+FM_INHERITABLE_CONFIG="${FM_INHERITABLE_CONFIG:-crew-dispatch.json crew-harness backlog-backend backend herdr-presentation-spaces startup-memory-budget trace-context launch-env-allowlist host-plugins.json foundry-luna.json}"
 
 # Items whose value is a home-SESSION enablement decision rather than durable
 # local configuration. They are inherited at the launch convergence point, where

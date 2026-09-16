@@ -616,6 +616,11 @@ test_relaunch_reuses_a_verified_recorded_harness_without_an_explicit_one() {
   # A codex-foundry-luna spawn preflights `command -v az`, so stub it rather
   # than let this case pass or fail on the host's own tool inventory.
   fm_fake_exit0 "$dir/fakebin" az
+  # It also preflights this home's own config/foundry-luna.json
+  # (docs/configuration.md "Foundry Luna endpoint"); write an obviously fake one.
+  mkdir -p "$dir/home/config"
+  printf '{"host":"fixture-account.services.ai.azure.com","subscription_id":"00000000-0000-0000-0000-000000000000"}\n' \
+    > "$dir/home/config/foundry-luna.json"
 
   out=$(run_control "$dir" rl45 relaunch --note "continue on the live runtime"); rc=$?
   expect_code 0 "$rc" "a bare relaunch of a verified recorded harness should succeed"$'\n'"$out"

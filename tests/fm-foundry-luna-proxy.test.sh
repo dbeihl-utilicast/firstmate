@@ -18,6 +18,17 @@ set -u
 PROXY="$ROOT/bin/fm-foundry-luna-proxy.py"
 TMP_ROOT=$(fm_test_tmproot fm-foundry-luna-proxy)
 
+# The real code path resolves the Foundry host and subscription id from
+# FM_FOUNDRY_LUNA_CONFIG rather than a built-in default, so every case in this
+# suite needs a fixture config present - exported once here rather than
+# per-test, since it is ordinary environment inheritance, not launch-command
+# text. Values are obviously fake; only tests that specifically exercise
+# config resolution itself override this.
+FOUNDRY_LUNA_FIXTURE_CONFIG="$TMP_ROOT/fixture-foundry-luna.json"
+printf '{"host":"fixture-account.services.ai.azure.com","subscription_id":"00000000-0000-0000-0000-000000000000"}\n' \
+  > "$FOUNDRY_LUNA_FIXTURE_CONFIG"
+export FM_FOUNDRY_LUNA_CONFIG="$FOUNDRY_LUNA_FIXTURE_CONFIG"
+
 # The secret a foreground `serve` gateway admits, for the cases that drive it
 # with curl rather than through a wrapped child. A nonsecret fixture string that
 # resembles no real credential; `run` mints its own and hands it to its child.
@@ -113,9 +124,12 @@ fm_start_proxy() {
 }
 
 # fm_write_fake_az <dir> <calls-file>
-# Mints "FAKE-TOKEN-<n>" on the n'th invocation and always reports it as
-# already expired, so callers always take the refresh path with no need to
-# fake wall-clock time. Never touches a real credential.
+# Mints "FAKE-TOKEN-<n>" on the n'th invocation, reporting an expiry 30
+# seconds in the future - comfortably not-yet-expired at fetch time (the
+# proxy now refuses an already-expired token outright) but still deep inside
+# REFRESH_MARGIN_SECONDS (300s), so callers always take the refresh path on
+# their NEXT request with no need to fake wall-clock time. Never touches a
+# real credential.
 fm_write_fake_az() {
   local dir=$1 calls_file=$2
   mkdir -p "$dir"
@@ -125,7 +139,7 @@ fm_write_fake_az() {
 set -u
 n=\$(( \$(cat "$calls_file") + 1 ))
 echo "\$n" > "$calls_file"
-printf '{"accessToken":"FAKE-TOKEN-%s","expires_on":1}\n' "\$n"
+printf '{"accessToken":"FAKE-TOKEN-%s","expires_on":%s}\n' "\$n" "\$(( \$(date +%s) + 30 ))"
 SH
   chmod +x "$dir/az"
 }
@@ -330,6 +344,7 @@ test_refuses_a_deployment_scoped_route_for_an_unauthorized_deployment() {
   for route in \
     "/openai/deployments/gpt-5.6-terra/chat/completions?api-version=2025-04-01-preview" \
     "/openai/v1/chat/completions" \
+    "/openai/v1/models" \
     "/openai/deployments/gpt-5.6-luna/responses"; do
     status=$(curl -sS -o "$TMP_ROOT/route-body" -w '%{http_code}' \
       -X POST "http://127.0.0.1:$proxy_port$route" \
@@ -826,6 +841,138 @@ test_refuses_to_serve_without_a_gateway_secret() {
   pass "fm-foundry-luna-proxy: refuses to start without this task's gateway secret"
 }
 
+test_refuses_to_start_when_the_foundry_config_is_missing_or_invalid() {
+  local out status bad_dir host
+
+  out=$(env -u FM_FOUNDRY_LUNA_CONFIG timeout 5 python3 "$PROXY" serve 0 2>&1)
+  status=$?
+  [ "$status" -ne 0 ] || fail "the proxy must refuse to start with no Foundry config path set"
+  assert_contains "$out" "FM_FOUNDRY_LUNA_CONFIG" "the refusal names the missing config variable"
+
+  out=$(FM_FOUNDRY_LUNA_CONFIG="$TMP_ROOT/does-not-exist.json" timeout 5 python3 "$PROXY" serve 0 2>&1)
+  status=$?
+  [ "$status" -ne 0 ] || fail "the proxy must refuse to start when the named config file is missing"
+  assert_contains "$out" "missing or unreadable" "the refusal names the missing config file"
+
+  bad_dir="$TMP_ROOT/bad-foundry-config"
+  mkdir -p "$bad_dir"
+
+  printf 'not json at all' > "$bad_dir/malformed.json"
+  out=$(FM_FOUNDRY_LUNA_CONFIG="$bad_dir/malformed.json" timeout 5 python3 "$PROXY" serve 0 2>&1)
+  status=$?
+  [ "$status" -ne 0 ] || fail "the proxy must refuse to start when the config file is not valid JSON"
+  assert_contains "$out" "not valid JSON" "the refusal names the malformed JSON"
+
+  printf '{"subscription_id":"00000000-0000-0000-0000-000000000000"}' > "$bad_dir/no-host.json"
+  out=$(FM_FOUNDRY_LUNA_CONFIG="$bad_dir/no-host.json" timeout 5 python3 "$PROXY" serve 0 2>&1)
+  status=$?
+  [ "$status" -ne 0 ] || fail "the proxy must refuse to start when the config file has no 'host'"
+  assert_contains "$out" "'host'" "the refusal names the missing host field"
+
+  printf '{"host":"fixture-account.services.ai.azure.com"}' > "$bad_dir/no-subscription.json"
+  out=$(FM_FOUNDRY_LUNA_CONFIG="$bad_dir/no-subscription.json" timeout 5 python3 "$PROXY" serve 0 2>&1)
+  status=$?
+  [ "$status" -ne 0 ] || fail "the proxy must refuse to start when the config file has no 'subscription_id'"
+  assert_contains "$out" "'subscription_id'" "the refusal names the missing subscription id field"
+
+  for host in \
+    "evil.example.com" \
+    "fixture-account.services.ai.azure.com.evil.example.com" \
+    ".services.ai.azure.com" \
+    "evil.example/.services.ai.azure.com" \
+    "a.b.services.ai.azure.com" \
+    "fixture-account.services.ai.azure.com:443" \
+    "<foundry-account>.services.ai.azure.com"; do
+    printf '{"host":"%s","subscription_id":"00000000-0000-0000-0000-000000000000"}' "$host" \
+      > "$bad_dir/non-azure-host.json"
+    out=$(FM_FOUNDRY_LUNA_CONFIG="$bad_dir/non-azure-host.json" timeout 5 python3 "$PROXY" serve 0 2>&1)
+    status=$?
+    [ "$status" -ne 0 ] \
+      || fail "the proxy must refuse a non-Azure-Foundry host '$host' instead of attaching an AAD token for it"
+    assert_contains "$out" "'host'" "the refusal for host '$host' names the invalid field"
+  done
+
+  # Python's $ in a regex matches just before a trailing newline even under
+  # .match, so a value carrying one must be checked with a real end-anchored
+  # match (fullmatch), not just a leading-anchored one.
+  printf '{"host":"fixture-account.services.ai.azure.com\\n","subscription_id":"00000000-0000-0000-0000-000000000000"}' \
+    > "$bad_dir/trailing-newline-host.json"
+  out=$(FM_FOUNDRY_LUNA_CONFIG="$bad_dir/trailing-newline-host.json" timeout 5 python3 "$PROXY" serve 0 2>&1)
+  status=$?
+  [ "$status" -ne 0 ] \
+    || fail "the proxy must refuse a host carrying a trailing newline instead of accepting it as the bare hostname"
+  assert_contains "$out" "'host'" "the refusal for a trailing-newline host names the invalid field"
+
+  for subscription in "not-a-guid" "00000000-0000-0000-0000-00000000000" "00000000-0000-0000-0000-0000000000gg"; do
+    printf '{"host":"fixture-account.services.ai.azure.com","subscription_id":"%s"}' "$subscription" \
+      > "$bad_dir/non-guid-subscription.json"
+    out=$(FM_FOUNDRY_LUNA_CONFIG="$bad_dir/non-guid-subscription.json" timeout 5 python3 "$PROXY" serve 0 2>&1)
+    status=$?
+    [ "$status" -ne 0 ] \
+      || fail "the proxy must refuse a non-GUID subscription_id '$subscription'"
+    assert_contains "$out" "'subscription_id'" "the refusal for subscription_id '$subscription' names the invalid field"
+  done
+
+  printf '{"host":"fixture-account.services.ai.azure.com","subscription_id":"00000000-0000-0000-0000-000000000000\\n"}' \
+    > "$bad_dir/trailing-newline-subscription.json"
+  out=$(FM_FOUNDRY_LUNA_CONFIG="$bad_dir/trailing-newline-subscription.json" timeout 5 python3 "$PROXY" serve 0 2>&1)
+  status=$?
+  [ "$status" -ne 0 ] \
+    || fail "the proxy must refuse a subscription_id carrying a trailing newline instead of accepting it as the bare GUID"
+  assert_contains "$out" "'subscription_id'" "the refusal for a trailing-newline subscription_id names the invalid field"
+
+  pass "fm-foundry-luna-proxy: refuses to start when the Foundry config is missing, malformed, names a non-Azure host, or names a non-GUID subscription id"
+}
+
+test_refuses_to_serve_when_the_token_expiry_is_unreadable() {
+  local scenario az_dir body out_file err_file status log loud_err
+
+  for scenario in missing non-numeric past; do
+    az_dir="$TMP_ROOT/az-unreadable-expiry-$scenario"
+    mkdir -p "$az_dir"
+    case "$scenario" in
+      missing) body='{"accessToken":"FAKE-TOKEN-NO-EXPIRY"}' ;;
+      non-numeric) body='{"accessToken":"FAKE-TOKEN-NULL-EXPIRY","expires_on":null}' ;;
+      # A real, parseable, already-elapsed epoch - what az would report for a
+      # token that is dead on arrival. This must never be cached or forwarded
+      # either: the earlier fm_write_fake_az fixture used exactly this shape
+      # (expires_on=1) purely as a "force the next refresh" trick, which is
+      # why that fixture now mints a near-future expiry instead.
+      past) body='{"accessToken":"FAKE-TOKEN-PAST-EXPIRY","expires_on":1}' ;;
+    esac
+    cat > "$az_dir/az" <<SH
+#!/usr/bin/env bash
+printf '%s\n' '$body'
+SH
+    chmod +x "$az_dir/az"
+
+    out_file="$TMP_ROOT/expiry-$scenario-stdout"
+    err_file="$TMP_ROOT/expiry-$scenario-stderr"
+    PATH="$az_dir:$PATH" FM_FOUNDRY_LUNA_TEST_SECRET="$GATEWAY_SECRET" \
+      timeout 5 python3 "$PROXY" serve 0 > "$out_file" 2>"$err_file"
+    status=$?
+
+    [ "$status" -ne 0 ] \
+      || fail "the proxy must refuse to serve when az reports an expires_on that is $scenario"
+    [ ! -s "$out_file" ] \
+      || fail "an unreadable expires_on ($scenario) must not print to the pane's stdout, got: $(cat "$out_file")"
+    [ ! -s "$err_file" ] \
+      || fail "an unreadable expires_on ($scenario) must not print a raw traceback to the pane's stderr, got: $(cat "$err_file")"
+
+    log="$TMP_ROOT/expiry-$scenario-access.log"
+    loud_err="$TMP_ROOT/expiry-$scenario-loud-stderr"
+    PATH="$az_dir:$PATH" FM_FOUNDRY_LUNA_TEST_SECRET="$GATEWAY_SECRET" FM_FOUNDRY_LUNA_LOG="$log" \
+      timeout 5 python3 "$PROXY" serve 0 > /dev/null 2>"$loud_err"
+    [ ! -s "$loud_err" ] \
+      || fail "a named access log must replace stderr for an unreadable expiry ($scenario) too, got: $(cat "$loud_err")"
+    [ -s "$log" ] \
+      || fail "a named access log must record why the gateway refused to serve for an unreadable expiry ($scenario)"
+    assert_not_contains "$(cat "$log")" "FAKE-TOKEN" \
+      "the refusal log for an unreadable expiry ($scenario) must never record the token value"
+  done
+  pass "fm-foundry-luna-proxy: refuses to serve when az reports a token with an unreadable expires_on, never crashing with a raw traceback"
+}
+
 test_refuses_every_unauthorized_deployment_name
 test_refresh_path_obtains_a_new_token_per_request_when_expired
 test_caches_a_still_valid_token_across_requests
@@ -840,3 +987,5 @@ test_run_reports_a_wrapped_command_it_cannot_start_without_a_traceback
 test_refuses_a_caller_without_this_tasks_secret
 test_refuses_to_serve_without_a_gateway_secret
 test_refuses_to_serve_when_the_first_token_fetch_fails
+test_refuses_to_start_when_the_foundry_config_is_missing_or_invalid
+test_refuses_to_serve_when_the_token_expiry_is_unreadable

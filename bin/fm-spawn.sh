@@ -137,7 +137,9 @@
 #   secondmate-vs-crewmate split is DURABLE across every respawn (recovery,
 #   /updatefirstmate, restart). A bare adapter name (claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|qwen|codex-foundry-luna)
 #   overrides it for this spawn (either kind). codex-foundry-luna is codex itself,
-#   repointed at the Azure AI Foundry `gpt-5.6-luna` deployment (aih-utilicast-ftiek)
+#   repointed at the Azure AI Foundry `gpt-5.6-luna` deployment, named by this
+#   home's local config/foundry-luna.json (docs/configuration.md "Foundry Luna
+#   endpoint"; never a value baked into this script, since this fork is public),
 #   through a local per-task token-refreshing proxy (bin/fm-foundry-luna-proxy.py)
 #   instead of OpenAI's own API; it is crewmate/scout only (no secondmate: it carries
 #   no separate control/busy mechanics of its own and inherits codex's via the
@@ -283,6 +285,7 @@
 #     __FOUNDRYLUNAPROXY__ quoted path to bin/fm-foundry-luna-proxy.py, the codex-foundry-luna gateway
 #     __FOUNDRYLUNAPORT__ deliberately NOT replaced here: that gateway substitutes it in
 #                  codex's argv once it has bound the port it serves
+#     __FOUNDRYLUNACONFIG__ quoted absolute path to this home's config/foundry-luna.json
 # Verified per-harness turn-end hooks are installed automatically where enabled; some live outside the worktree.
 # Kimi uses one surgically installed Firstmate region in $HOME/.kimi-code/config.toml,
 # a firstmate-owned global hook and registry, and a gitignored per-task pointer.
@@ -1508,15 +1511,20 @@ launch_template() {
     # (bin/fm-foundry-luna-proxy.py, `run -- <codex...>`) starts the local
     # token-refreshing gateway first and runs codex as its child; that script's
     # own header owns the refusal, port and token-refresh mechanics.
-    # __FOUNDRYLUNAPORT__ stays LITERAL: the gateway substitutes it in codex's
-    # argv once it has bound the port it serves, so nothing can take that port
-    # in between. codex's model/provider/base_url/wire_api are fixed with -c
-    # overrides rather than left to --model, per the captain's single-deployment
-    # authorization, and env_key names the variable the gateway puts its own
-    # minted admission secret in, so no secret rides this command text.
+    # FM_FOUNDRY_LUNA_CONFIG=__FOUNDRYLUNACONFIG__ names the launching home's
+    # own config/foundry-luna.json (docs/configuration.md "Foundry Luna
+    # endpoint"), which the gateway reads its Foundry host and subscription id
+    # from - never a value baked into this template, since the account is
+    # private operational data in a public fork. __FOUNDRYLUNAPORT__ stays
+    # LITERAL: the gateway substitutes it in codex's argv once it has bound
+    # the port it serves, so nothing can take that port in between. codex's
+    # model/provider/base_url/wire_api are fixed with -c overrides rather than
+    # left to --model, per the captain's single-deployment authorization, and
+    # env_key names the variable the gateway puts its own minted admission
+    # secret in, so no secret rides this command text.
     # Crewmate/scout only: see the secondmate refusal below.
     codex-foundry-luna)
-      printf '%s' '__FOUNDRYLUNAPROXY__ run -- codex -c model=\"gpt-5.6-luna\" -c model_provider=\"fm_foundry_luna\" -c model_providers.fm_foundry_luna.name=\"Azure-AI-Foundry-gpt-5.6-luna\" -c model_providers.fm_foundry_luna.base_url=\"http://127.0.0.1:__FOUNDRYLUNAPORT__/openai/v1\" -c model_providers.fm_foundry_luna.wire_api=\"responses\" -c model_providers.fm_foundry_luna.env_key=\"FM_FOUNDRY_LUNA_SECRET\" __EFFORTFLAG__--dangerously-bypass-approvals-and-sandbox -c "notify=[\"bash\",\"-c\",\"touch __TURNEND__\"]" "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
+      printf '%s' 'FM_FOUNDRY_LUNA_CONFIG=__FOUNDRYLUNACONFIG__ __FOUNDRYLUNAPROXY__ run -- codex -c model=\"gpt-5.6-luna\" -c model_provider=\"fm_foundry_luna\" -c model_providers.fm_foundry_luna.name=\"Azure-AI-Foundry-gpt-5.6-luna\" -c model_providers.fm_foundry_luna.base_url=\"http://127.0.0.1:__FOUNDRYLUNAPORT__/openai/v1\" -c model_providers.fm_foundry_luna.wire_api=\"responses\" -c model_providers.fm_foundry_luna.env_key=\"FM_FOUNDRY_LUNA_SECRET\" __EFFORTFLAG__--dangerously-bypass-approvals-and-sandbox -c "notify=[\"bash\",\"-c\",\"touch __TURNEND__\"]" "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
       ;;
     opencode) printf '%s' 'OPENCODE_CONFIG_CONTENT='\''{"permission":{"*":"allow"}}'\'' opencode __MODELFLAG__--prompt "$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
     pi|pi-signed)
@@ -1803,6 +1811,16 @@ case "$HARNESS" in
     # supervision reads as a wedged worker rather than a missing credential.
     command -v az >/dev/null 2>&1 || {
       echo "error: az executable not found on PATH; the codex-foundry-luna gateway obtains its AAD token with 'az account get-access-token'. Install the Azure CLI and sign in to the tenant, or select a different verified harness" >&2
+      exit 1
+    }
+    # This home's own private endpoint config, never a value baked into this
+    # script (this fork is public). The gateway owns deep validation (host
+    # shape, JSON schema); this preflight only proves the file is present, so a
+    # secondmate that never inherited it refuses before a worktree or task
+    # record is even created, the same fail-fast shape as the az check above.
+    FOUNDRY_LUNA_CONFIG="$CONFIG/foundry-luna.json"
+    [ -f "$FOUNDRY_LUNA_CONFIG" ] || {
+      echo "error: config/foundry-luna.json not found at $FOUNDRY_LUNA_CONFIG; the codex-foundry-luna gateway needs this home's inherited Foundry endpoint config (host + subscription id) to resolve gpt-5.6-luna. See docs/configuration.md 'Foundry Luna endpoint'" >&2
       exit 1
     }
     ;;
@@ -4003,6 +4021,7 @@ if [ "$HARNESS" = rovo ]; then
 fi
 if [ "$HARNESS" = codex-foundry-luna ]; then
   LAUNCH=${LAUNCH//__FOUNDRYLUNAPROXY__/"$(shell_quote "$FM_ROOT/bin/fm-foundry-luna-proxy.py")"}
+  LAUNCH=${LAUNCH//__FOUNDRYLUNACONFIG__/"$(shell_quote "$FOUNDRY_LUNA_CONFIG")"}
 fi
 LAUNCH=${LAUNCH//__BRIEF__/$sq_brief}
 LAUNCH=${LAUNCH//__TURNEND__/$sq_turnend}
