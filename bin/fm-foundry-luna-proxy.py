@@ -12,14 +12,15 @@
 # a fresh AAD token via `az account get-access-token` on demand, caches it only
 # in memory until shortly before expiry, and forwards to Foundry with that
 # token attached. No credential value is ever read from argv, written to a
-# file, or logged; only HTTP status codes are logged.
+# file, or logged. The gateway is silent on stdout and stderr, because in a
+# dispatched pane it shares a tty with the worker's TUI; naming a file in
+# FM_FOUNDRY_LUNA_LOG appends each request's status line there instead.
 #
 # It also carries the deployment allowlist. Foundry names the deployment in two
 # places - the JSON body's `model` and the deployment-scoped URL - so both are
 # pinned: only the single route the configured base_url produces is relayed, and
 # only `gpt-5.6-luna` in the body. Anything else is refused locally before a
 # token is fetched, so an unauthorized deployment cannot rack up Azure cost.
-import datetime
 import http.client
 import http.server
 import json
@@ -36,6 +37,7 @@ SUBSCRIPTION_ID = "201f9be2-2f49-47d4-9f16-f2ab8a9cd1a2"
 TOKEN_RESOURCE = "https://cognitiveservices.azure.com"
 REFRESH_MARGIN_SECONDS = 300
 
+ACCESS_LOG_PATH = os.environ.get("FM_FOUNDRY_LUNA_LOG", "")
 HOP_BY_HOP_HEADERS = (
     "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
     "te", "trailers", "transfer-encoding", "upgrade",
@@ -96,13 +98,7 @@ def fetch_az_token(subscription=SUBSCRIPTION_ID, resource=TOKEN_RESOURCE):
         capture_output=True, text=True, check=True,
     )
     data = json.loads(proc.stdout)
-    if "expires_on" in data:
-        expires_at = float(data["expires_on"])
-    else:
-        expires_at = datetime.datetime.strptime(
-            data["expiresOn"], "%Y-%m-%d %H:%M:%S.%f"
-        ).timestamp()
-    return data["accessToken"], expires_at
+    return data["accessToken"], float(data["expires_on"])
 
 
 def make_handler(token_cache, upstream_host=UPSTREAM_HOST, upstream_scheme=UPSTREAM_SCHEME):
@@ -110,7 +106,10 @@ def make_handler(token_cache, upstream_host=UPSTREAM_HOST, upstream_scheme=UPSTR
         protocol_version = "HTTP/1.1"
 
         def log_message(self, fmt, *args):
-            sys.stderr.write("fm-foundry-luna-proxy: " + (fmt % args) + "\n")
+            if not ACCESS_LOG_PATH:
+                return
+            with open(ACCESS_LOG_PATH, "a") as fh:
+                fh.write("fm-foundry-luna-proxy: " + (fmt % args) + "\n")
 
         def do_POST(self):
             if self.path != ALLOWED_PATH:

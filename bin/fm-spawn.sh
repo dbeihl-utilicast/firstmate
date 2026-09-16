@@ -1371,7 +1371,7 @@ if [ "$RELAUNCH" -eq 1 ]; then
   }
 elif [ "$KIND" = secondmate ]; then
   case "${POS[1]:-}" in
-    ''|claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|qwen)
+    ''|claude|codex|codex-foundry-luna|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|qwen)
       ARG3=${POS[1]:-}
       ;;
     *' '*)

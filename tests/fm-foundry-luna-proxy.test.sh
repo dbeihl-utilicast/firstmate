@@ -364,6 +364,66 @@ test_refuses_a_non_loopback_upstream_override() {
   pass "fm-foundry-luna-proxy: refuses a non-loopback upstream override instead of forwarding a token to it"
 }
 
+test_run_mode_is_silent_unless_an_access_log_file_is_named() {
+  local az_dir calls upstream_info upstream_pid upstream_port upstream_log
+  local child_script quiet_port loud_port quiet_err loud_err access_log probe
+
+  az_dir="$TMP_ROOT/az-quiet"
+  calls="$TMP_ROOT/az-quiet-calls"
+  fm_write_fake_az "$az_dir" "$calls"
+
+  upstream_log="$TMP_ROOT/upstream-quiet.log"
+  : > "$upstream_log"
+  upstream_info=$(fm_start_fake_upstream "$upstream_log")
+  upstream_pid=${upstream_info%% *}
+  upstream_port=${upstream_info##* }
+
+  # A stand-in "codex" that relays one request through the gateway it is
+  # wrapped by, so the run-mode stdio the pane would see is the real thing.
+  child_script="$TMP_ROOT/quiet-child.sh"
+  cat > "$child_script" <<'SH'
+#!/usr/bin/env bash
+set -u
+curl -sS -o /dev/null -w '%{http_code}' \
+  -X POST "http://127.0.0.1:$1/openai/v1/responses" \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"gpt-5.6-luna","input":[]}' > "$2"
+SH
+  chmod +x "$child_script"
+
+  probe="$TMP_ROOT/quiet-probe"
+  quiet_err="$TMP_ROOT/quiet-stderr"
+  quiet_port=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
+  PATH="$az_dir:$PATH" \
+    FM_FOUNDRY_LUNA_TEST_UPSTREAM_HOST="127.0.0.1:$upstream_port" \
+    python3 "$PROXY" run --port "$quiet_port" -- "$child_script" "$quiet_port" "$probe" \
+    > "$TMP_ROOT/quiet-stdout" 2>"$quiet_err"
+  expect_code 200 "$(cat "$probe")" "the wrapped command's request must still be relayed"
+  [ ! -s "$quiet_err" ] \
+    || fail "run mode must write nothing to the pane's stderr by default, got: $(cat "$quiet_err")"
+  [ ! -s "$TMP_ROOT/quiet-stdout" ] \
+    || fail "run mode must write nothing to the pane's stdout by default, got: $(cat "$TMP_ROOT/quiet-stdout")"
+
+  access_log="$TMP_ROOT/quiet-access.log"
+  loud_err="$TMP_ROOT/loud-stderr"
+  loud_port=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
+  PATH="$az_dir:$PATH" \
+    FM_FOUNDRY_LUNA_TEST_UPSTREAM_HOST="127.0.0.1:$upstream_port" \
+    FM_FOUNDRY_LUNA_LOG="$access_log" \
+    python3 "$PROXY" run --port "$loud_port" -- "$child_script" "$loud_port" "$probe" \
+    > /dev/null 2>"$loud_err"
+  expect_code 200 "$(cat "$probe")" "the wrapped command's request must still be relayed with logging on"
+
+  kill "$upstream_pid" 2>/dev/null
+  wait "$upstream_pid" 2>/dev/null
+
+  assert_contains "$(cat "$access_log")" 'POST /openai/v1/responses HTTP/1.1" 200' \
+    "a named access log must receive the relayed request's status line"
+  [ ! -s "$loud_err" ] \
+    || fail "a named access log must replace stderr, not add to it, got: $(cat "$loud_err")"
+  pass "fm-foundry-luna-proxy: run mode is silent unless FM_FOUNDRY_LUNA_LOG names a file"
+}
+
 test_run_subcommand_serves_while_the_child_runs_then_stops() {
   local az_dir calls upstream_info upstream_pid upstream_port upstream_log
   local child_script status port_probe run_status
@@ -425,4 +485,5 @@ test_caches_a_still_valid_token_across_requests
 test_refuses_a_deployment_scoped_route_for_an_unauthorized_deployment
 test_streams_a_chunked_reply_through_with_usable_framing
 test_refuses_a_non_loopback_upstream_override
+test_run_mode_is_silent_unless_an_access_log_file_is_named
 test_run_subcommand_serves_while_the_child_runs_then_stops
