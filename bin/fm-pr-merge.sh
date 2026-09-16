@@ -787,7 +787,7 @@ github_admin_verify_reviewless_mergeable() {
     --json state,mergeable,statusCheckRollup \
     --jq '"state=" + (.state // ""),
       "mergeable=" + (.mergeable // ""),
-      "checks=" + (([(.statusCheckRollup // [])[] | select(.conclusion != "SUCCESS" and .conclusion != "NEUTRAL" and .conclusion != "SKIPPED")]) | length | tostring)' \
+      "checks=" + (([(.statusCheckRollup // [])[] | select((.conclusion // .state // "") as $s | $s != "SUCCESS" and $s != "NEUTRAL" and $s != "SKIPPED")]) | length | tostring)' \
     2>/dev/null) || [ -z "$fields" ]; then
     echo "error: could not read the GitHub pull request's mergeable state and status checks before an admin-bypass merge" >&2
     return 1
