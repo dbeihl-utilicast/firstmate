@@ -394,7 +394,7 @@ jobs:
       - tests-portable-parallel-2
       - tests-portable-serial
       - tests-herdr
-    if: always() && needs.changes.outputs.docs_only != 'true'
+    if: ${{ !cancelled() && needs.changes.outputs.docs_only != 'true' }}
     steps:
       - uses: actions/checkout@v6
       - name: Download lane timing artifacts
