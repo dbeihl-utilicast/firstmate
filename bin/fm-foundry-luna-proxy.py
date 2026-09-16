@@ -232,7 +232,9 @@ def start_server(port):
     """Binds the listening socket. The bound port is the ONE the gateway serves.
 
     Refuses to start without this task's shared secret rather than opening an
-    unauthenticated broker for the operator's AAD token to every local process.
+    unauthenticated broker for the operator's AAD token to every local process,
+    and takes the first token BEFORE binding, so an unusable credential is a
+    launch that fails instead of a live pane that 502s silently on every turn.
     """
     if not CLIENT_SECRET:
         sys.exit(
@@ -240,6 +242,11 @@ def start_server(port):
             "gateway secret; refusing to serve an unauthenticated AAD token broker"
         )
     token_cache = TokenCache(fetch_az_token)
+    try:
+        token_cache.get()
+    except (subprocess.CalledProcessError, OSError, ValueError, KeyError):
+        log_silently("initial AAD token fetch failed; refusing to serve")
+        raise SystemExit(70)
     server = Gateway(("127.0.0.1", port), make_handler(token_cache))
     return server
 

@@ -178,7 +178,7 @@ SH
 
 test_refuses_every_unauthorized_deployment_name() {
   local az_dir calls upstream_info upstream_pid upstream_port upstream_log
-  local proxy_info proxy_pid proxy_port name status body
+  local proxy_info proxy_pid proxy_port name status body baseline
 
   az_dir="$TMP_ROOT/az-refuse"
   calls="$TMP_ROOT/az-refuse-calls"
@@ -193,6 +193,7 @@ test_refuses_every_unauthorized_deployment_name() {
   proxy_info=$(fm_start_proxy "$az_dir" "$upstream_port")
   proxy_pid=${proxy_info%% *}
   proxy_port=${proxy_info##* }
+  baseline=$(cat "$calls")
 
   for name in gpt-5.6-terra gpt-5.6-sol claude-sonnet-5 claude-opus-5; do
     body=$(curl -sS -o "$TMP_ROOT/refuse-body" -w '%{http_code}' \
@@ -213,13 +214,14 @@ test_refuses_every_unauthorized_deployment_name() {
   wait "$proxy_pid" "$upstream_pid" 2>/dev/null
 
   [ ! -s "$upstream_log" ] || fail "an unauthorized deployment name reached the fake upstream: $(cat "$upstream_log")"
-  [ ! -s "$calls" ] || fail "an unauthorized deployment name triggered a token fetch"
+  assert_equals "$baseline" "$(cat "$calls")" \
+    "an unauthorized deployment name must trigger no token fetch beyond the gateway's startup one"
   pass "fm-foundry-luna-proxy: refuses every unauthorized deployment name before reaching Azure"
 }
 
 test_refresh_path_obtains_a_new_token_per_request_when_expired() {
   local az_dir calls upstream_info upstream_pid upstream_port upstream_log
-  local proxy_info proxy_pid proxy_port status body line1 line2
+  local proxy_info proxy_pid proxy_port status body line1 line2 baseline
 
   az_dir="$TMP_ROOT/az-refresh"
   calls="$TMP_ROOT/az-refresh-calls"
@@ -234,6 +236,7 @@ test_refresh_path_obtains_a_new_token_per_request_when_expired() {
   proxy_info=$(fm_start_proxy "$az_dir" "$upstream_port")
   proxy_pid=${proxy_info%% *}
   proxy_port=${proxy_info##* }
+  baseline=$(cat "$calls")
 
   status=$(curl -sS -o "$TMP_ROOT/req1-body" -w '%{http_code}' \
     -X POST "http://127.0.0.1:$proxy_port/openai/v1/responses" \
@@ -252,13 +255,13 @@ test_refresh_path_obtains_a_new_token_per_request_when_expired() {
   kill "$proxy_pid" "$upstream_pid" 2>/dev/null
   wait "$proxy_pid" "$upstream_pid" 2>/dev/null
 
-  assert_equals "2" "$(cat "$calls")" \
+  assert_equals "$((baseline + 2))" "$(cat "$calls")" \
     "an already-expired cached token must be refreshed on every request, never reused"
 
   line1=$(sed -n '1p' "$upstream_log")
   line2=$(sed -n '2p' "$upstream_log")
-  assert_contains "$line1" "Bearer FAKE-TOKEN-1" "first forwarded request carries the first fresh token"
-  assert_contains "$line2" "Bearer FAKE-TOKEN-2" "second forwarded request carries a newly refreshed token, not the first one"
+  assert_contains "$line1" "Bearer FAKE-TOKEN-$((baseline + 1))" "first forwarded request carries the first fresh token"
+  assert_contains "$line2" "Bearer FAKE-TOKEN-$((baseline + 2))" "second forwarded request carries a newly refreshed token, not the first one"
   assert_not_equals "$line1" "$line2" "the proxy must not forward the same stale token twice after it expired"
   pass "fm-foundry-luna-proxy: an expired cached token is refreshed, never reused stale, on every request"
 }
@@ -305,7 +308,7 @@ test_caches_a_still_valid_token_across_requests() {
 
 test_refuses_a_deployment_scoped_route_for_an_unauthorized_deployment() {
   local az_dir calls upstream_info upstream_pid upstream_port upstream_log
-  local proxy_info proxy_pid proxy_port status route
+  local proxy_info proxy_pid proxy_port status route baseline
 
   az_dir="$TMP_ROOT/az-route"
   calls="$TMP_ROOT/az-route-calls"
@@ -320,6 +323,7 @@ test_refuses_a_deployment_scoped_route_for_an_unauthorized_deployment() {
   proxy_info=$(fm_start_proxy "$az_dir" "$upstream_port")
   proxy_pid=${proxy_info%% *}
   proxy_port=${proxy_info##* }
+  baseline=$(cat "$calls")
 
   # Foundry names the deployment in the URL as well as the body, so an
   # authorized body model on a deployment-scoped route must still be refused.
@@ -344,7 +348,8 @@ test_refuses_a_deployment_scoped_route_for_an_unauthorized_deployment() {
   wait "$proxy_pid" "$upstream_pid" 2>/dev/null
 
   [ ! -s "$upstream_log" ] || fail "an unauthorized route reached the fake upstream: $(cat "$upstream_log")"
-  [ ! -s "$calls" ] || fail "an unauthorized route triggered a token fetch"
+  assert_equals "$baseline" "$(cat "$calls")" \
+    "an unauthorized route must trigger no token fetch beyond the gateway's startup one"
   pass "fm-foundry-luna-proxy: refuses a deployment-scoped route before any token is fetched"
 }
 
@@ -517,7 +522,7 @@ test_run_subcommand_serves_while_the_child_runs_then_stops() {
   served_port=$(cat "$TMP_ROOT/run-port-seen")
   [ "$served_port" != "__FOUNDRYLUNAPORT__" ] \
     || fail "run must replace __FOUNDRYLUNAPORT__ in the wrapped command's argv with the port it bound"
-  assert_contains "$(cat "$upstream_log")" "Bearer FAKE-TOKEN-1" "the request the child made was really forwarded with a fetched token"
+  assert_contains "$(cat "$upstream_log")" "Bearer FAKE-TOKEN-" "the request the child made was really forwarded with a fetched token"
   ! curl -sS -o /dev/null --max-time 1 "http://127.0.0.1:$served_port/openai/v1/responses" 2>/dev/null \
     || fail "the gateway must stop listening once the wrapped command exits"
   pass "fm-foundry-luna-proxy: 'run' serves the wrapped command on the port it resolves for it, and stops when the command exits"
@@ -597,7 +602,7 @@ SH
 
 test_refuses_a_caller_without_this_tasks_secret() {
   local az_dir calls upstream_info upstream_pid upstream_port upstream_log
-  local proxy_info proxy_pid proxy_port status
+  local proxy_info proxy_pid proxy_port status baseline
 
   az_dir="$TMP_ROOT/az-secret"
   calls="$TMP_ROOT/az-secret-calls"
@@ -612,6 +617,7 @@ test_refuses_a_caller_without_this_tasks_secret() {
   proxy_info=$(fm_start_proxy "$az_dir" "$upstream_port")
   proxy_pid=${proxy_info%% *}
   proxy_port=${proxy_info##* }
+  baseline=$(cat "$calls")
 
   status=$(curl -sS -o "$TMP_ROOT/secret-body" -w '%{http_code}' \
     -X POST "http://127.0.0.1:$proxy_port/openai/v1/responses" \
@@ -629,7 +635,8 @@ test_refuses_a_caller_without_this_tasks_secret() {
     "the refusal must never echo the value it was offered"
 
   [ ! -s "$upstream_log" ] || fail "an unauthenticated caller reached the fake upstream: $(cat "$upstream_log")"
-  [ ! -s "$calls" ] || fail "an unauthenticated caller triggered a token fetch"
+  assert_equals "$baseline" "$(cat "$calls")" \
+    "an unauthenticated caller must trigger no token fetch beyond the gateway's startup one"
 
   status=$(curl -sS -o /dev/null -w '%{http_code}' \
     -X POST "http://127.0.0.1:$proxy_port/openai/v1/responses" \
@@ -641,11 +648,74 @@ test_refuses_a_caller_without_this_tasks_secret() {
   kill "$proxy_pid" "$upstream_pid" 2>/dev/null
   wait "$proxy_pid" "$upstream_pid" 2>/dev/null
 
-  assert_contains "$(cat "$upstream_log")" "Bearer FAKE-TOKEN-1" \
+  assert_contains "$(cat "$upstream_log")" "Bearer FAKE-TOKEN-" \
     "the relayed request carries the gateway's own fetched token, not the caller's secret"
   assert_not_contains "$(cat "$upstream_log")" "$GATEWAY_SECRET" \
     "the caller's gateway secret must never be forwarded upstream"
   pass "fm-foundry-luna-proxy: refuses a local caller that does not hold this task's gateway secret"
+}
+
+test_refuses_to_serve_when_the_first_token_fetch_fails() {
+  local az_dir calls child_script ran out status log
+
+  # az on PATH but unusable, the aged-out-login shape: without a token taken at
+  # startup this becomes a live pane that answers 502 on every turn instead of a
+  # launch that fails, which supervision reads as a wedged worker.
+  az_dir="$TMP_ROOT/az-broken"
+  calls="$TMP_ROOT/az-broken-calls"
+  mkdir -p "$az_dir"
+  : > "$calls"
+  cat > "$az_dir/az" <<SH
+#!/usr/bin/env bash
+echo "\$(( \$(cat "$calls") + 1 ))" > "$calls"
+echo "fake az: please run 'az login' to setup account" >&2
+exit 1
+SH
+  chmod +x "$az_dir/az"
+
+  ran="$TMP_ROOT/broken-child-ran"
+  rm -f "$ran"
+  child_script="$TMP_ROOT/broken-child.sh"
+  printf '#!/usr/bin/env bash\ntouch "$1"\n' > "$child_script"
+  chmod +x "$child_script"
+
+  PATH="$az_dir:$PATH" \
+    FM_FOUNDRY_LUNA_SECRET="$GATEWAY_SECRET" \
+    python3 "$PROXY" run -- "$child_script" "$ran" \
+    > "$TMP_ROOT/broken-stdout" 2>"$TMP_ROOT/broken-stderr"
+  status=$?
+
+  [ "$status" -ne 0 ] \
+    || fail "the gateway must exit non-zero when it cannot obtain a token, instead of serving"
+  [ ! -e "$ran" ] \
+    || fail "the wrapped command must never start when the gateway could not obtain a token"
+  [ ! -s "$TMP_ROOT/broken-stderr" ] \
+    || fail "a failed startup token fetch must not write to the pane's stderr, got: $(cat "$TMP_ROOT/broken-stderr")"
+  [ ! -s "$TMP_ROOT/broken-stdout" ] \
+    || fail "a failed startup token fetch must not write to the pane's stdout, got: $(cat "$TMP_ROOT/broken-stdout")"
+  assert_equals "1" "$(cat "$calls")" \
+    "the gateway must take exactly one token at launch, not one per turn"
+
+  log="$TMP_ROOT/broken-access.log"
+  PATH="$az_dir:$PATH" \
+    FM_FOUNDRY_LUNA_SECRET="$GATEWAY_SECRET" \
+    FM_FOUNDRY_LUNA_LOG="$log" \
+    python3 "$PROXY" run -- "$child_script" "$ran" \
+    > /dev/null 2>"$TMP_ROOT/broken-loud-stderr"
+  status=$?
+  [ "$status" -ne 0 ] || fail "a named access log must not turn a failed startup fetch into a success"
+  [ ! -s "$TMP_ROOT/broken-loud-stderr" ] \
+    || fail "a named access log must replace stderr on the startup path too, got: $(cat "$TMP_ROOT/broken-loud-stderr")"
+  [ -s "$log" ] \
+    || fail "a named access log must record why the gateway refused to serve, and nothing was written"
+
+  out=$(PATH="$az_dir:$PATH" FM_FOUNDRY_LUNA_SECRET="$GATEWAY_SECRET" \
+    timeout 10 python3 "$PROXY" serve 0 2>"$TMP_ROOT/broken-serve-stderr")
+  status=$?
+  [ "$status" -ne 0 ] || fail "serve must exit non-zero rather than listen without a usable credential"
+  [ -z "$out" ] \
+    || fail "serve must never announce a port it cannot serve requests on, got: $out"
+  pass "fm-foundry-luna-proxy: refuses to serve at all when the first token fetch fails"
 }
 
 test_refuses_to_serve_without_a_gateway_secret() {
@@ -673,3 +743,4 @@ test_run_subcommand_serves_while_the_child_runs_then_stops
 test_two_live_gateways_never_share_a_port
 test_refuses_a_caller_without_this_tasks_secret
 test_refuses_to_serve_without_a_gateway_secret
+test_refuses_to_serve_when_the_first_token_fetch_fails

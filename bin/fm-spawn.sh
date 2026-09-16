@@ -1786,6 +1786,16 @@ case "$HARNESS" in
       fi
     fi
     ;;
+  codex-foundry-luna)
+    # A PREFLIGHT rather than a rendered-screen check, for muse's reason: the
+    # gateway fetches its AAD token with `az account get-access-token`, and with
+    # az absent that failure is a silent 502 on every turn of a live pane, which
+    # supervision reads as a wedged worker rather than a missing credential.
+    command -v az >/dev/null 2>&1 || {
+      echo "error: az executable not found on PATH; the codex-foundry-luna gateway obtains its AAD token with 'az account get-access-token'. Install the Azure CLI and sign in to the tenant, or select a different verified harness" >&2
+      exit 1
+    }
+    ;;
   omp)
     OMP_BIN=$(resolve_path_executable omp) || {
       echo "error: omp executable not found on PATH; install Oh My Pi or select a different verified harness" >&2

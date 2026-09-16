@@ -60,6 +60,12 @@ The gateway holds the operator's own AAD token, so a loopback bind alone would l
 The gateway refuses to start at all without that variable, and answers 401 to any request whose `Authorization` header is not exactly this task's secret, before a route check, a deployment check, or a token fetch.
 The secret never leaves the host: `_forward` strips the caller's `Authorization` header and replaces it with the gateway's own fetched token.
 
+## Getting a token at all
+
+`bin/fm-spawn.sh` refuses a codex-foundry-luna spawn when no `az` is on PATH, and the gateway takes its first AAD token before it binds a port, exiting non-zero without serving anything if that fetch fails.
+Between them a missing or aged-out credential is a launch that fails loudly at the operator rather than a live pane whose every turn answers a silent 502, which supervision would read as a wedged worker.
+That startup fetch is one per launch, not one per turn; the cache then serves every turn until shortly before expiry.
+
 ## The deployment allowlist
 
 The captain authorizes `gpt-5.6-luna` only, and Foundry names the deployment in two independent places.
@@ -94,6 +100,8 @@ Both changes are covered by `tests/fm-foundry-luna-proxy.test.sh` against a fake
 Streaming was proven against a fake chunked upstream rather than a live streamed Foundry turn.
 Token refresh across a real expiry boundary was proven with a fake `az` that mints a distinct nonsecret value per call; no real token was held to expiry.
 A supervised fleet pane on this adapter has not been run.
+
+`bin/fm-quota-choose.sh`'s `provider_for_harness` has no `codex-foundry-luna` arm, and unlike a harness that is merely never selected, this makes its caller die on `unknown harness` and discard every OTHER candidate in the same call too, so a quota-array-dispatch profile naming a `codex-foundry-luna` candidate alongside others fails outright instead of falling back to it.
 
 ## Refreshing this record
 

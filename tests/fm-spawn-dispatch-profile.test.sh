@@ -32,7 +32,10 @@ SH
 
 make_spawn_fakebin() {
   local dir=$1 fakebin
-  fakebin=$(fm_test_make_spawn_fakebin "$dir")
+  # az stands in for the Azure CLI a codex-foundry-luna spawn preflights for, so
+  # the suite asserts the same thing on a host that has one and a host that does
+  # not; the no-az case removes it again and hides any real one from PATH.
+  fakebin=$(fm_test_make_spawn_fakebin "$dir" az)
   cat > "$fakebin/timeout" <<'SH'
 #!/usr/bin/env bash
 shift
@@ -500,6 +503,37 @@ test_codex_foundry_luna_leaves_the_gateway_port_for_the_gateway_to_resolve() {
   assert_not_equals "$secret_a" "$secret_b" \
     "each task's gateway secret must be minted fresh, never shared across spawns"
   pass "codex-foundry-luna leaves the gateway port to the gateway and mints a fresh secret per task"
+}
+
+# Every PATH entry that does not carry an executable az, so the refusal below
+# reproduces a host without the Azure CLI rather than the developer's own.
+path_without_az() {
+  local dir out=
+  local IFS=:
+  for dir in $PATH; do
+    [ -x "$dir/az" ] && continue
+    out="${out:+$out:}$dir"
+  done
+  printf '%s\n' "$out"
+}
+
+test_codex_foundry_luna_refuses_a_spawn_with_no_azure_cli() {
+  local rec id out status
+  id=profile-foundry-luna-noaz-za
+  rec=$(make_spawn_case profile-foundry-luna-noaz codex-foundry-luna "$id")
+  read_case_record "$rec"
+  rm -f "$FAKEBIN_DIR/az"
+
+  out=$(PATH="$(path_without_az)" run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" 2>&1)
+  status=$?
+  expect_code 1 "$status" "a codex-foundry-luna spawn must be refused when no az is on PATH"
+  assert_contains "$out" "az executable not found on PATH" \
+    "the refusal names the missing binary the gateway needs for its token"
+  [ ! -e "$HOME_DIR/state/$id.meta" ] \
+    || fail "a refused spawn must not leave a task record behind"
+  [ ! -s "$LAUNCH_LOG" ] \
+    || fail "a refused spawn must never reach a launch: $(cat "$LAUNCH_LOG")"
+  pass "codex-foundry-luna refuses a spawn with no Azure CLI instead of dispatching a worker that cannot get a token"
 }
 
 test_codex_foundry_luna_refuses_a_different_deployment_name() {
@@ -1303,6 +1337,7 @@ test_codex_omits_invalid_max_effort
 test_codex_foundry_luna_pins_the_deployment_and_threads_effort
 test_codex_foundry_luna_leaves_the_gateway_port_for_the_gateway_to_resolve
 test_codex_foundry_luna_refuses_a_different_deployment_name
+test_codex_foundry_luna_refuses_a_spawn_with_no_azure_cli
 test_grok_threads_model_and_reasoning_effort
 test_grok_omits_invalid_max_reasoning_effort
 test_grok_omits_invalid_xhigh_reasoning_effort
