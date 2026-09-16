@@ -330,11 +330,10 @@ test_streams_a_chunked_reply_through_with_usable_framing() {
   proxy_port=${proxy_info##* }
 
   headers="$TMP_ROOT/stream-headers"
-  status=$(curl -sS --max-time 8 -D "$headers" -o "$TMP_ROOT/stream-body" -w '%{http_code}' \
+  if ! status=$(curl -sS --max-time 8 -D "$headers" -o "$TMP_ROOT/stream-body" -w '%{http_code}' \
     -X POST "http://127.0.0.1:$proxy_port/openai/v1/responses" \
     -H 'Content-Type: application/json' \
-    -d '{"model":"gpt-5.6-luna","stream":true,"input":[]}')
-  if [ $? -ne 0 ]; then
+    -d '{"model":"gpt-5.6-luna","stream":true,"input":[]}'); then
     kill "$proxy_pid" "$upstream_pid" 2>/dev/null
     fail "a streamed reply must terminate for the client instead of hanging until the socket times out"
   fi
@@ -384,10 +383,10 @@ test_run_mode_is_silent_unless_an_access_log_file_is_named() {
   cat > "$child_script" <<'SH'
 #!/usr/bin/env bash
 set -u
-curl -sS -o /dev/null -w '%{http_code}' \
+curl -s -o /dev/null -w '%{http_code}' \
   -X POST "http://127.0.0.1:$1/openai/v1/responses" \
   -H 'Content-Type: application/json' \
-  -d '{"model":"gpt-5.6-luna","input":[]}' > "$2"
+  -d '{"model":"gpt-5.6-luna","input":[]}' 2>/dev/null > "$2"
 SH
   chmod +x "$child_script"
 
@@ -421,7 +420,37 @@ SH
     "a named access log must receive the relayed request's status line"
   [ ! -s "$loud_err" ] \
     || fail "a named access log must replace stderr, not add to it, got: $(cat "$loud_err")"
-  pass "fm-foundry-luna-proxy: run mode is silent unless FM_FOUNDRY_LUNA_LOG names a file"
+
+  # The error path (an exception escaping the handler, e.g. an upstream
+  # connection failure) must be silenced the same way, not just the ordinary
+  # access log: point at a loopback port nothing listens on so conn.request()
+  # in _forward raises ConnectionRefusedError before any response is sent.
+  local error_quiet_port error_quiet_err error_loud_port error_loud_err error_log error_probe
+  error_probe="$TMP_ROOT/error-probe"
+  error_quiet_err="$TMP_ROOT/error-quiet-stderr"
+  error_quiet_port=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
+  PATH="$az_dir:$PATH" \
+    FM_FOUNDRY_LUNA_TEST_UPSTREAM_HOST="127.0.0.1:1" \
+    python3 "$PROXY" run --port "$error_quiet_port" -- "$child_script" "$error_quiet_port" "$error_probe" \
+    > "$TMP_ROOT/error-quiet-stdout" 2>"$error_quiet_err"
+  [ ! -s "$error_quiet_err" ] \
+    || fail "an error escaping the handler must not write to the pane's stderr by default, got: $(cat "$error_quiet_err")"
+  [ ! -s "$TMP_ROOT/error-quiet-stdout" ] \
+    || fail "an error escaping the handler must not write to the pane's stdout by default, got: $(cat "$TMP_ROOT/error-quiet-stdout")"
+
+  error_log="$TMP_ROOT/error-access.log"
+  error_loud_err="$TMP_ROOT/error-loud-stderr"
+  error_loud_port=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
+  PATH="$az_dir:$PATH" \
+    FM_FOUNDRY_LUNA_TEST_UPSTREAM_HOST="127.0.0.1:1" \
+    FM_FOUNDRY_LUNA_LOG="$error_log" \
+    python3 "$PROXY" run --port "$error_loud_port" -- "$child_script" "$error_loud_port" "$error_probe" \
+    > /dev/null 2>"$error_loud_err"
+  [ ! -s "$error_loud_err" ] \
+    || fail "a named access log must catch an escaping error too, not just leave it on stderr, got: $(cat "$error_loud_err")"
+  [ -s "$error_log" ] \
+    || fail "a named access log must record the error path when the handler raises, and nothing was written"
+  pass "fm-foundry-luna-proxy: run mode is silent on the error path too, unless FM_FOUNDRY_LUNA_LOG names a file"
 }
 
 test_run_subcommand_serves_while_the_child_runs_then_stops() {

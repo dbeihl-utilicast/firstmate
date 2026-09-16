@@ -12,9 +12,10 @@
 # a fresh AAD token via `az account get-access-token` on demand, caches it only
 # in memory until shortly before expiry, and forwards to Foundry with that
 # token attached. No credential value is ever read from argv, written to a
-# file, or logged. The gateway is silent on stdout and stderr, because in a
-# dispatched pane it shares a tty with the worker's TUI; naming a file in
-# FM_FOUNDRY_LUNA_LOG appends each request's status line there instead.
+# file, or logged. The gateway is silent on stdout and stderr - including its
+# error path (a client disconnect mid-relay, an upstream network failure) -
+# because in a dispatched pane it shares a tty with the worker's TUI; naming a
+# file in FM_FOUNDRY_LUNA_LOG appends each request's status line there instead.
 #
 # It also carries the deployment allowlist. Foundry names the deployment in two
 # places - the JSON body's `model` and the deployment-scoped URL - so both are
@@ -29,6 +30,7 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 
 ALLOWED_MODEL = "gpt-5.6-luna"
 ALLOWED_PATH = "/openai/v1/responses"
@@ -198,9 +200,24 @@ def make_handler(token_cache, upstream_host=UPSTREAM_HOST, upstream_scheme=UPSTR
     return Handler
 
 
+class Gateway(http.server.ThreadingHTTPServer):
+    """Silent by default on the error path too: an exception escaping a
+    request handler (a client disconnect mid-relay, an upstream network
+    error) must never print a traceback to the pane's tty, the same
+    invariant Handler.log_message already holds for the ordinary access log.
+    """
+
+    def handle_error(self, request, client_address):
+        if not ACCESS_LOG_PATH:
+            return
+        with open(ACCESS_LOG_PATH, "a") as fh:
+            fh.write("fm-foundry-luna-proxy: error handling request from %s\n" % (client_address,))
+            traceback.print_exc(file=fh)
+
+
 def start_server(port):
     token_cache = TokenCache(fetch_az_token)
-    server = http.server.ThreadingHTTPServer(("127.0.0.1", port), make_handler(token_cache))
+    server = Gateway(("127.0.0.1", port), make_handler(token_cache))
     return server
 
 
