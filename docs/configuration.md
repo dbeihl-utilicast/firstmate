@@ -35,6 +35,7 @@ bin/                 helper scripts, committed; read each script's header before
 config/crew-harness  crewmate harness override; LOCAL, gitignored; absent or "default" = same as firstmate. Inherited as the literal file: a concrete primary adapter value also controls a secondmate home's own crewmates (AGENTS.md section 4)
 config/crew-dispatch.json  optional crewmate dispatch profiles; LOCAL, gitignored; firstmate-maintained but human-editable natural-language rules that choose a per-task harness/model/effort profile (AGENTS.md section 4). Inherited by secondmate homes
 config/host-plugins.json  optional exact allowlist of the Claude Code plugins on a second-mate host, with the marketplaces they resolve from; the remote readiness check registers the named marketplaces and installs and enables the named plugins at user scope, and refuses a remote second-mate launch while any reported plugin it does not name is installed at any scope; host-wide because user-scope plugins belong to the host account, so it governs every home and Claude worker on that host, not only the home holding the copy; LOCAL, gitignored; inherited by secondmate homes; absent means the check is not applicable. Schema: "Host Claude Code plugins" below
+config/foundry-luna.json  Azure AI Foundry host and subscription id (no secrets) the codex-foundry-luna crewmate/scout adapter's local token-refreshing gateway needs to resolve the `gpt-5.6-luna` endpoint; LOCAL, gitignored; inherited by secondmate homes so their own crewmates can dispatch onto it too; absent or malformed refuses the codex-foundry-luna launch rather than falling back to any built-in host. Schema: "Foundry Luna endpoint" below
 config/secondmate-harness  harness the PRIMARY uses to launch SECONDMATE agents, optionally followed by a model and effort token on the same line ("<harness> [<model>] [<effort>]"; AGENTS.md section 4); LOCAL, gitignored; absent or "default" harness falls back to config/crew-harness then firstmate's own. The primary's own setting; NOT inherited into secondmate homes (secondmates do not spawn secondmates)
 config/backlog-backend  backlog backend override; LOCAL, gitignored; absent or "tasks-axi" = the configured tasks-axi backend, "manual" = force routine backlog updates to hand-editing; inherited by secondmate homes (AGENTS.md section 10)
 config/backend  runtime session-provider backend override for new tasks; LOCAL, gitignored; absent = falls through to runtime auto-detection (the runtime firstmate itself is executing inside), then tmux; tmux is the verified reference backend (docs/tmux-backend.md), herdr has its own required CI lane (docs/herdr-backend.md), while zellij, orca, and cmux remain experimental with no dedicated real-backend CI lane (docs/zellij-backend.md, docs/orca-backend.md, docs/cmux-backend.md) - herdr and cmux can also be selected by runtime auto-detection, zellij and orca never are (always explicit), and codex-app is not accepted; see docs/codex-app-backend.md; inherited by secondmate homes under the primary-authoritative contract in secondmate-provisioning
@@ -580,6 +581,27 @@ The file is a JSON object with two arrays.
 See [`docs/examples/host-plugins.json`](examples/host-plugins.json) for a copyable starting point.
 Proof of readiness is a named skill resolving from `claude plugin details` for each configured plugin, not an install reporting success.
 Claude Code plugins reach Claude Code sessions only; workers on other harnesses still do not see these skills.
+
+## Foundry Luna endpoint (config/foundry-luna.json)
+
+The codex-foundry-luna crewmate/scout adapter's local token-refreshing gateway ([`bin/fm-foundry-luna-proxy.py`](../bin/fm-foundry-luna-proxy.py)) resolves the Azure AI Foundry `gpt-5.6-luna` deployment's host and subscription id from the local, gitignored `config/foundry-luna.json` named by `FM_FOUNDRY_LUNA_CONFIG` rather than from any value baked into the tracked repository - this fork is public, and those identifiers are private operational data.
+`bin/fm-spawn.sh` refuses a codex-foundry-luna spawn before it creates a task at all when this home's copy is missing, naming the expected path; the gateway itself refuses to start, with no built-in fallback host, when the file is absent, unreadable, not valid JSON, or missing either field.
+It is inherited into secondmate homes under the same [primary-authoritative configuration contract](../.agents/skills/secondmate-provisioning/SKILL.md) as `config/host-plugins.json`, so a secondmate's own crewmates can dispatch onto `gpt-5.6-luna` too.
+
+The file is a JSON object with two string fields.
+`host` must be a non-empty hostname ending in `.services.ai.azure.com` - the gateway refuses any other shape, including a host that merely contains that suffix elsewhere in the string, so a malformed or malicious config cannot redirect the gateway's real AAD bearer token to an arbitrary host.
+`subscription_id` is the Azure subscription id `az account get-access-token` resolves the token against.
+Neither field, nor anything else in this file, is a secret: the AAD token itself is fetched inline by `az` at the point of use and is never read from this file, written to it, or logged.
+
+```json
+{
+  "host": "<foundry-account>.services.ai.azure.com",
+  "subscription_id": "00000000-0000-0000-0000-000000000000"
+}
+```
+
+See [`docs/examples/foundry-luna.json`](examples/foundry-luna.json) for a copyable starting point.
+`docs/verification/codex-foundry-luna.md` records the empirical evidence for the adapter as a whole; it does not restate the real account values either.
 
 ## Crew dispatch profiles (config/crew-dispatch.json)
 

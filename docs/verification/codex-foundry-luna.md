@@ -11,12 +11,12 @@ The skill tree rooted at [`.agents/skills/harness-adapters/references/harness/co
 | Verified | 2026-09-16 |
 | Binary | `codex`, launched as a child of `bin/fm-foundry-luna-proxy.py run --` |
 | Platform | Linux, Python 3 standard library only |
-| Model host | Azure AI Foundry account `aih-utilicast-ftiek`, deployment `gpt-5.6-luna` |
+| Model host | Azure AI Foundry account named by this home's `config/foundry-luna.json`, deployment `gpt-5.6-luna` |
 | Auth | AAD bearer, audience `https://cognitiveservices.azure.com/.default`, fetched inline by the gateway with `az account get-access-token` |
 
 The live section below ran against the real account with a real az-issued token, in a throwaway scratch directory, with no fleet pane involved.
 No credential value was read, printed, copied, or stored at any point, and the only thing the gateway ever writes is a request status line, to the file `FM_FOUNDRY_LUNA_LOG` names.
-The subscription id and tenant live in `bin/fm-foundry-luna-proxy.py` and are not restated here.
+The subscription id and account host live in this home's private, gitignored `config/foundry-luna.json` (docs/configuration.md "Foundry Luna endpoint") and are not restated here; this fork is public.
 
 ## The route the dispatched worker actually uses
 
@@ -110,10 +110,10 @@ A supervised fleet pane on this adapter has not been run.
 ```
 bin/fm-test-run.sh tests/fm-foundry-luna-proxy.test.sh tests/fm-spawn-dispatch-profile.test.sh tests/fm-control-relaunch.test.sh
 az account get-access-token --subscription <id> --resource https://cognitiveservices.azure.com -o none
-FM_FOUNDRY_LUNA_LOG=<access-log-path> bin/fm-foundry-luna-proxy.py run -- codex -c model=\"gpt-5.6-luna\" -c model_provider=\"fm_foundry_luna\" -c model_providers.fm_foundry_luna.name=\"Azure-AI-Foundry-gpt-5.6-luna\" -c model_providers.fm_foundry_luna.base_url=\"http://127.0.0.1:__FOUNDRYLUNAPORT__/openai/v1\" -c model_providers.fm_foundry_luna.wire_api=\"responses\" --dangerously-bypass-approvals-and-sandbox exec --skip-git-repo-check "<one-line prompt>"
+FM_FOUNDRY_LUNA_CONFIG=config/foundry-luna.json FM_FOUNDRY_LUNA_LOG=<access-log-path> bin/fm-foundry-luna-proxy.py run -- codex -c model=\"gpt-5.6-luna\" -c model_provider=\"fm_foundry_luna\" -c model_providers.fm_foundry_luna.name=\"Azure-AI-Foundry-gpt-5.6-luna\" -c model_providers.fm_foundry_luna.base_url=\"http://127.0.0.1:__FOUNDRYLUNAPORT__/openai/v1\" -c model_providers.fm_foundry_luna.wire_api=\"responses\" --dangerously-bypass-approvals-and-sandbox exec --skip-git-repo-check "<one-line prompt>"
 ```
 
-The live step needs an in-tenant az login with access to the account and bills the turn to Azure.
+The live step needs an in-tenant az login with access to the account and bills the turn to Azure, and a real `config/foundry-luna.json` in this home (docs/configuration.md "Foundry Luna endpoint").
 `FM_FOUNDRY_LUNA_LOG` is what makes the relayed status line observable; without it the gateway relays silently.
 `run` mints its own admission secret and hands it to codex, so nothing about it belongs on that command line.
 The portable counterparts run in ordinary CI with a fake `az` and a fake upstream, and never touch the real account.

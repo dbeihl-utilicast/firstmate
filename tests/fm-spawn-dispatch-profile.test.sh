@@ -65,11 +65,24 @@ make_spawn_case() {
   launchlog="$case_dir/launch.log"
   fakebin=$(make_spawn_fakebin "$case_dir/fake")
   fm_test_spawn_home "$home" "$harness"
+  write_foundry_luna_config "$home"
   fm_git_worktree "$proj" "$wt" "wt-$name"
   for id in "$@"; do
     fm_test_spawn_brief "$home" "$id"
   done
   printf '%s\n' "$case_dir|$home|$proj|$wt|$fakebin|$launchlog"
+}
+
+# write_foundry_luna_config <home>
+# The codex-foundry-luna preflight requires this home's own config/foundry-luna.json
+# (docs/configuration.md "Foundry Luna endpoint"); written unconditionally like
+# make_spawn_fakebin's az stub so every case in this suite has one, the same
+# convention the az preflight already uses. Values are obviously fake.
+write_foundry_luna_config() {
+  local home=$1
+  mkdir -p "$home/config"
+  printf '{"host":"fixture-account.services.ai.azure.com","subscription_id":"00000000-0000-0000-0000-000000000000"}\n' \
+    > "$home/config/foundry-luna.json"
 }
 
 enable_dispatch_profile() {
@@ -546,6 +559,62 @@ test_codex_foundry_luna_refuses_a_different_deployment_name() {
   assert_contains "$out" "gpt-5.6-luna deployment only" "refusal names the one authorized deployment"
   [ ! -e "$HOME_DIR/state/$id.meta" ] || fail "a refused spawn must not leave a task record behind"
   pass "codex-foundry-luna refuses --model naming any deployment other than gpt-5.6-luna"
+}
+
+test_codex_foundry_luna_refuses_a_spawn_with_no_foundry_config() {
+  local rec id out status
+  id=profile-foundry-luna-noconfig-zb
+  rec=$(make_spawn_case profile-foundry-luna-noconfig codex-foundry-luna "$id")
+  read_case_record "$rec"
+  rm -f "$HOME_DIR/config/foundry-luna.json"
+
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" 2>&1)
+  status=$?
+  expect_code 1 "$status" "a codex-foundry-luna spawn must be refused when this home has no config/foundry-luna.json"
+  assert_contains "$out" "config/foundry-luna.json not found" \
+    "the refusal names the missing Foundry endpoint config"
+  [ ! -e "$HOME_DIR/state/$id.meta" ] \
+    || fail "a refused spawn must not leave a task record behind"
+  [ ! -s "$LAUNCH_LOG" ] \
+    || fail "a refused spawn must never reach a launch: $(cat "$LAUNCH_LOG")"
+  pass "codex-foundry-luna refuses a spawn when this home never resolved a Foundry endpoint config"
+}
+
+test_codex_foundry_luna_config_inherited_by_secondmate_resolves_the_endpoint() {
+  local rec id sm out status launch2 launch
+  id=foundry-config-secondmate
+
+  # A primary home with its own config/foundry-luna.json (written by
+  # make_spawn_case, like every other case in this suite) and a freshly seeded
+  # secondmate home that starts with NO copy of its own - exactly the gap
+  # finding 1 closes: before this config item was declared inheritable, a
+  # secondmate's own crewmates had no way to resolve the Foundry endpoint.
+  rec=$(make_spawn_case foundry-config-secondmate codex "$id")
+  read_case_record "$rec"
+  sm="$CASE_DIR/secondmate-home"
+  make_seeded_secondmate_home "$sm" "$id"
+  [ ! -e "$sm/config/foundry-luna.json" ] \
+    || fail "test setup bug: the fresh secondmate home must start with no Foundry config"
+
+  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$sm" --secondmate)
+  status=$?
+  expect_code 0 "$status" "secondmate spawn should succeed: $out"
+  cmp -s "$HOME_DIR/config/foundry-luna.json" "$sm/config/foundry-luna.json" \
+    || fail "secondmate did not inherit the Foundry Luna endpoint config through the real spawn convergence point"
+
+  # Now dispatch a codex-foundry-luna CREWMATE from that secondmate's OWN
+  # home (codex-foundry-luna cannot itself be a secondmate), proving the
+  # inherited copy - not the primary's - is what actually resolves.
+  launch2="$CASE_DIR/crew-launch.log"
+  id=foundry-config-crew
+  fm_test_spawn_brief "$sm" "$id"
+  out=$(run_ship_spawn "$sm" "$WT_DIR" "$FAKEBIN_DIR" "$launch2" "$id" "$PROJ_DIR" --harness codex-foundry-luna 2>&1)
+  status=$?
+  expect_code 0 "$status" "a codex-foundry-luna crewmate spawned from the secondmate home should succeed: $out"
+  launch=$(cat "$launch2")
+  assert_contains "$launch" "FM_FOUNDRY_LUNA_CONFIG='$sm/config/foundry-luna.json' " \
+    "the crewmate launch must resolve THIS secondmate's own inherited config, not the primary's"
+  pass "codex-foundry-luna's config/foundry-luna.json is carried into a secondmate home through the real inheritance path and resolves from there"
 }
 
 test_grok_threads_model_and_reasoning_effort() {
@@ -1044,7 +1113,7 @@ test_launch_environment_allowlist() {
     rec=$(make_spawn_case "$id" codex "$id")
     read_case_record "$rec"
     case "$setting" in
-      missing-config) rm "$HOME_DIR/config/crew-harness"; rmdir "$HOME_DIR/config" ;;
+      missing-config) rm "$HOME_DIR/config/crew-harness" "$HOME_DIR/config/foundry-luna.json"; rmdir "$HOME_DIR/config" ;;
       enabled) printf '# Synthetic credential name\nFM_TEST_ALLOWED\nFM_TEST_EMPTY\nFM_TEST_UNSET\n' > "$HOME_DIR/config/launch-env-allowlist" ;;
       empty) : > "$HOME_DIR/config/launch-env-allowlist" ;;
     esac
@@ -1337,6 +1406,8 @@ test_codex_foundry_luna_leaves_the_gateway_port_for_the_gateway_to_resolve
 test_codex_foundry_luna_keeps_the_gateway_secret_off_the_launch_command
 test_codex_foundry_luna_refuses_a_different_deployment_name
 test_codex_foundry_luna_refuses_a_spawn_with_no_azure_cli
+test_codex_foundry_luna_refuses_a_spawn_with_no_foundry_config
+test_codex_foundry_luna_config_inherited_by_secondmate_resolves_the_endpoint
 test_grok_threads_model_and_reasoning_effort
 test_grok_omits_invalid_max_reasoning_effort
 test_grok_omits_invalid_xhigh_reasoning_effort
