@@ -195,6 +195,17 @@ status_is_captain_held() {  # <status-line>
   [ "$verb" = "${FM_CLASSIFY_CAPTAIN_HELD_VERB:-$FM_CLASSIFY_CAPTAIN_HELD_VERB_DEFAULT}" ]
 }
 
+# 0 if a status line's leading verb is the terminal `done:` verb. Since
+# last_status_line already returns the newest line, a done: line found there
+# is by construction newer than any working/needs-decision/blocked line that
+# preceded it - the structural half of "verified finished" fm-watch.sh's
+# task_finished_awaiting_merge pairs with a registered PR-poll check.
+status_is_done() {  # <status-line>
+  local line=$1
+  [ -n "$line" ] || return 1
+  [ "$(status_line_verb "$line")" = "done" ]
+}
+
 # 0 if a status line declares either an external-wait pause or a verified
 # captain-held transfer.
 # Both declarations can intentionally leave a crew's endpoint idle, so both

@@ -182,6 +182,24 @@ record_pi_busy() {  # <state-dir> <id>
     --source pi-ext --event agent-start
 }
 
+# A structurally valid state/<id>.pr-poll-registration fixture, in the exact
+# fm-pr-poll-registration-v2 shape fm_pr_poll_registration_parse requires
+# (bin/fm-pr-lib.sh). The hash/identity fields need only be well-formed, not
+# traceable to real poll artifacts, since task_finished_awaiting_merge
+# (bin/fm-watch.sh) only parses and id-matches this record - it never runs
+# fm_pr_poll_artifacts_valid's deeper cross-check against a live check script.
+make_pr_poll_registration() {  # <state-dir> <id> [url]
+  local state=$1 id=$2 url=${3:-https://github.com/dbeihl-utilicast/firstmate/pull/999} \
+    fake_hash
+  if command -v sha256sum >/dev/null 2>&1; then
+    fake_hash=$(printf '%s' "$id" | sha256sum | cut -d' ' -f1)
+  else
+    fake_hash=$(printf '%s' "$id" | shasum -a 256 | cut -d' ' -f1)
+  fi
+  printf 'fm-pr-poll-registration-v2\n%s\ngithub\n%s\ngithub.com\ndbeihl-utilicast/firstmate\n999\n%s\n%s\n1:1000000\n1:1000000\n' \
+    "$id" "$url" "$fake_hash" "$fake_hash" > "$state/$id.pr-poll-registration"
+}
+
 reap() { kill "$1" 2>/dev/null || true; wait "$1" 2>/dev/null || true; }
 
 # --- pure classifier predicates (fm-classify-lib.sh) ------------------------
@@ -1936,6 +1954,196 @@ test_nonterminal_stale_provably_working_absorbed_then_escalated() {
   FM_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after the wedge escalation failed"
   grep "$(printf '\tstale\t')" "$drain_out" | grep -F "$window" >/dev/null || fail "wedge escalation was not queued"
   pass "provably-working non-terminal stale is absorbed on first sight, then wedge-escalated past the threshold"
+}
+
+# --- finished and registered for the merge poll: no repeated stale alarm ----
+# A worker that reported its terminal ready line and is registered for the
+# merge poll (state/<id>.pr-poll-registration, bin/fm-pr-check.sh) has handed
+# its wait off to pr_refresh_dispatch's "check: merge landed" exactly as a
+# captain-held worker hands its wait off to the captain (the comparison
+# fixtures above/below this section), so it takes the same bounded cadence
+# instead of the wedge ladder - never a pane-text heuristic, so an
+# in-progress worker, a superseded ready line, and an unregistered PR all
+# keep alarming exactly as before (tests 2/3/5). Two divergent code paths
+# produced this pane in production evidence and both are covered: the
+# immediate first-sight alarm on a stale terminal status
+# (stale_is_terminal's branch), and a wedge timer armed earlier while CI was
+# still running (crew_is_provably_working was legitimately true then) that
+# never re-reads crew state and so would otherwise escalate forever once the
+# run finished on the same unchanged pane hash.
+
+test_finished_worker_with_registered_pr_poll_does_not_alarm() {
+  local dir state fakebin out capture_file window key pane_hash sig round
+  dir=$(make_case finished-awaiting-merge); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"
+  window="test:fm-finished"
+  printf 'idle prompt, nothing pending' > "$capture_file"
+  printf 'window=%s\nkind=ship\n' "$window" > "$state/finished.meta"
+  printf 'done: PR https://github.com/dbeihl-utilicast/firstmate/pull/999 checks green\n' \
+    > "$state/finished.status"
+  sig=$(seen_sig "$state/finished.status"); printf '%s' "$sig" > "$state/.seen-finished_status"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  pane_hash=$(hash_text "idle prompt, nothing pending")
+  printf '%s' "$pane_hash" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+  make_pr_poll_registration "$state" finished
+  export FM_FAKE_CREW_STATE='state: done · source: run-step · checks green: PR ready for review (still monitoring for merge/close)'
+
+  # First sight of the terminal status: RED on the code before this fix, which
+  # surfaces "stale: $window" unconditionally here (no bound exists for a
+  # finished-and-registered worker, unlike an open captain call). One
+  # continuous watcher process is driven through several poll cycles, so a
+  # relaunch's own recovery-generation handshake (check: rearm-resurface)
+  # never masquerades as a stale-wake regression.
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_STALE_ESCALATE_SECS=999 \
+    FM_POLL="$WATCH_TEST_POLL" FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  round=1
+  while [ "$round" -le 3 ]; do
+    if ! wait_poll_cycle "$state" "$pid"; then
+      reap "$pid"; fail "round $round: a finished worker with a registered PR poll raised a stale wake ($(cat "$out"))"
+    fi
+    [ ! -s "$out" ] || fail "round $round: a finished worker with a registered PR poll printed a wake reason: $(cat "$out")"
+    round=$((round + 1))
+  done
+  reap "$pid"
+  unset FM_FAKE_CREW_STATE
+  pass "a finished worker with a registered PR poll produces no stale wake across several watcher cycles"
+}
+
+test_finished_worker_wedge_timer_armed_before_done_does_not_escalate() {
+  local dir state fakebin out capture_file window key pane_hash sig round
+  dir=$(make_case finished-race); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"
+  window="test:fm-finished-race"
+  printf 'idle prompt' > "$capture_file"
+  printf 'window=%s\nkind=ship\n' "$window" > "$state/finished.meta"
+  printf 'done: PR https://github.com/dbeihl-utilicast/firstmate/pull/999 checks green\n' \
+    > "$state/finished.status"
+  sig=$(seen_sig "$state/finished.status"); printf '%s' "$sig" > "$state/.seen-finished_status"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  pane_hash=$(hash_text "idle prompt")
+  printf '%s' "$pane_hash" > "$state/.hash-$key"
+  printf '2\n' > "$state/.count-$key"
+  # Simulate a wedge timer armed earlier, while CI was still validating (the
+  # legitimate crew_is_provably_working=true window bin/fm-crew-state.sh
+  # documents at bin/fm-crew-state.sh:707-708), on a pane hash that never
+  # changed once the run finished.
+  printf '%s' "$pane_hash" > "$state/.stale-$key"
+  echo $(( $(date +%s) - 300 )) > "$state/.stale-since-$key"
+  make_pr_poll_registration "$state" finished
+  export FM_FAKE_CREW_STATE='state: done · source: run-step · checks green: PR ready for review (still monitoring for merge/close)'
+
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_STALE_ESCALATE_SECS=240 \
+    FM_POLL="$WATCH_TEST_POLL" FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  round=1
+  while [ "$round" -le 3 ]; do
+    if ! wait_poll_cycle "$state" "$pid"; then
+      reap "$pid"
+      fail "round $round: a wedge timer armed before the run finished still escalated ($(cat "$out"))"
+    fi
+    grep -qF "possible wedge" "$out" \
+      && fail "round $round: a finished, registered worker was flagged a possible wedge: $(cat "$out")"
+    round=$((round + 1))
+  done
+  reap "$pid"
+  unset FM_FAKE_CREW_STATE
+  [ "$(cat "$state/.wedge-escalations-$key" 2>/dev/null || echo 0)" = 0 ] \
+    || fail "the wedge-escalation counter advanced for a finished, registered worker"
+  pass "a wedge timer armed before the run finished does not escalate once the worker is verified finished and registered"
+}
+
+test_inprogress_worker_with_registered_pr_poll_still_alarms() {
+  local dir state fakebin out capture_file window key pane_hash sig
+  dir=$(make_case inprogress-registered); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"
+  window="test:fm-inprogress"
+  printf 'idle prompt, mid-build' > "$capture_file"
+  printf 'window=%s\nkind=ship\n' "$window" > "$state/inprogress.meta"
+  printf 'working: still building\n' > "$state/inprogress.status"
+  sig=$(seen_sig "$state/inprogress.status"); printf '%s' "$sig" > "$state/.seen-inprogress_status"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  pane_hash=$(hash_text "idle prompt, mid-build")
+  printf '%s' "$pane_hash" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+  # A registered PR poll alone must never be enough - task_finished_awaiting_merge
+  # requires the ready line too (status_is_done), never pane text or the poll
+  # registration alone.
+  make_pr_poll_registration "$state" inprogress
+  export FM_FAKE_CREW_STATE='state: none · source: none · fake default'
+
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_STALE_ESCALATE_SECS=999 \
+    FM_POLL="$WATCH_TEST_POLL" FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_exit "$pid" 100 \
+    || { reap "$pid"; fail "an in-progress worker with a registered PR poll was absorbed instead of alarming"; }
+  grep -qF "stale: $window" "$out" \
+    || fail "an in-progress worker with a registered PR poll did not raise its stale wake: $(cat "$out")"
+  unset FM_FAKE_CREW_STATE
+  pass "an in-progress worker (no ready line) with a registered PR poll still raises its stale wake"
+}
+
+test_ready_line_superseded_by_newer_line_still_alarms() {
+  local dir state fakebin out capture_file window key pane_hash sig
+  dir=$(make_case ready-then-needs-decision); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"
+  window="test:fm-superseded"
+  printf 'idle prompt' > "$capture_file"
+  printf 'window=%s\nkind=ship\n' "$window" > "$state/superseded.meta"
+  printf 'done: PR https://github.com/dbeihl-utilicast/firstmate/pull/999 checks green\nneeds-decision [key=q1]: which environment?\n' \
+    > "$state/superseded.status"
+  sig=$(seen_sig "$state/superseded.status"); printf '%s' "$sig" > "$state/.seen-superseded_status"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  pane_hash=$(hash_text "idle prompt")
+  printf '%s' "$pane_hash" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+  make_pr_poll_registration "$state" superseded
+  export FM_FAKE_CREW_STATE='state: done · source: run-step · checks green: PR ready for review (still monitoring for merge/close)'
+
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_STALE_ESCALATE_SECS=999 \
+    FM_POLL="$WATCH_TEST_POLL" FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_exit "$pid" 100 \
+    || { reap "$pid"; fail "a needs-decision line newer than the ready line was absorbed instead of alarming"; }
+  grep -qF "stale: $window" "$out" \
+    || fail "a needs-decision line newer than the ready line did not raise its stale wake: $(cat "$out")"
+  unset FM_FAKE_CREW_STATE
+  pass "a ready line superseded by a newer needs-decision line is no longer treated as finished and still alarms"
+}
+
+test_ready_line_without_registered_pr_poll_still_alarms() {
+  local dir state fakebin out capture_file window key pane_hash sig
+  dir=$(make_case ready-unregistered); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"
+  window="test:fm-unregistered"
+  printf 'idle prompt' > "$capture_file"
+  printf 'window=%s\nkind=ship\n' "$window" > "$state/unregistered.meta"
+  printf 'done: PR https://github.com/dbeihl-utilicast/firstmate/pull/999 checks green\n' \
+    > "$state/unregistered.status"
+  sig=$(seen_sig "$state/unregistered.status"); printf '%s' "$sig" > "$state/.seen-unregistered_status"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  pane_hash=$(hash_text "idle prompt")
+  printf '%s' "$pane_hash" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+  # Deliberately no state/unregistered.pr-poll-registration: an unregistered PR
+  # is not silently parked.
+  export FM_FAKE_CREW_STATE='state: done · source: run-step · checks green: PR ready for review (still monitoring for merge/close)'
+
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_STALE_ESCALATE_SECS=999 \
+    FM_POLL="$WATCH_TEST_POLL" FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_exit "$pid" 100 \
+    || { reap "$pid"; fail "a ready line with no registered PR poll was absorbed instead of alarming"; }
+  grep -qF "stale: $window" "$out" \
+    || fail "a ready line with no registered PR poll did not raise its stale wake: $(cat "$out")"
+  unset FM_FAKE_CREW_STATE
+  pass "a ready line with no registered PR poll still alarms, so an unregistered PR is not silently parked"
 }
 
 # --- non-terminal stale, crew NOT provably working: surfaced immediately ------
@@ -4950,6 +5158,11 @@ test_permission_recovery_surfaces_preserved_status
 test_terminal_stale_surfaced
 test_stale_terminal_status_overridden_by_active_run
 test_nonterminal_stale_provably_working_absorbed_then_escalated
+test_finished_worker_with_registered_pr_poll_does_not_alarm
+test_finished_worker_wedge_timer_armed_before_done_does_not_escalate
+test_inprogress_worker_with_registered_pr_poll_still_alarms
+test_ready_line_superseded_by_newer_line_still_alarms
+test_ready_line_without_registered_pr_poll_still_alarms
 test_wedge_escalation_marks_demand_deep_inspection_after_threshold
 test_wedge_escalation_resets_when_pane_becomes_active
 test_busy_pane_below_turn_age_bound_is_absorbed

@@ -922,6 +922,19 @@ wedge_timer_check() {  # <window> <since-file> <triage-label> <escalation-count-
     *)
       age=$(( $(date +%s) - since ))
       if [ "$age" -ge "$STALE_ESCALATE_SECS" ]; then
+        if task_finished_awaiting_merge "$task"; then
+          # This timer can have armed BEFORE the run finished (e.g. while CI
+          # was still running and crew_is_provably_working was legitimately
+          # true) and this function never re-reads crew state, so a task that
+          # has since become finished and registered for the merge poll must
+          # be caught here too or it would escalate forever on an unchanged
+          # hash. Same bounded cadence a declared pause uses, never the wedge
+          # ladder; check: merge landed still arrives independently.
+          resurface_absorbed "$win" "$STATE/.paused-resurfaced-$(window_key "$win")" "$age" \
+            "stale: $win (idle ${age}s, finished and awaiting merge - rechecked on a long cadence not a wedge; the merge poll owns this wait)"
+          triage_log "absorbed $label (finished, PR poll registered, awaiting merge, idle ${age}s): $win"
+          return 0
+        fi
         if crew_worktree_written_since "$task" "$STATE" "$since_file"; then
           wedge_defer_writing "$win" "$since_file" "$label" "$age"
           return 0
@@ -1254,6 +1267,25 @@ captain_call_stale_bound() {  # <window-key> <task>
   STALE_WAIT_DECLARATION=$(captain_call_declaration "$task" "$CAPTAIN_CALL_IDENTITY")
   afk_record_present && return 0
   stale_wait_throttled "$key" "$STALE_WAIT_DECLARATION"
+}
+
+# 0 when <task>'s last status line is a verified-finished `done:` line (so
+# nothing newer supersedes it - status_is_done reads last_status_line, which
+# is by construction the newest line there is) AND a structurally valid
+# PR-poll registration exists for it (fm_pr_poll_registration_parse, the same
+# parser bin/fm-pr-check.sh trusts). A worker in this state has handed its
+# wait off to the merge poll (pr_refresh_dispatch's "check: merge landed")
+# exactly as a captain-held worker hands its wait off to the captain, so both
+# bound the stale ladder through the same shared cadence rather than a second
+# mechanism. Never a pane-text or free-text heuristic: an unregistered PR
+# still alarms, and a newer working/needs-decision/blocked line still alarms
+# since status_is_done reads the true last line, never a remembered one.
+task_finished_awaiting_merge() {  # <task>
+  local task=$1
+  [ -n "$task" ] || return 1
+  status_is_done "$(last_status_line "$STATE/$task.status")" || return 1
+  fm_pr_poll_registration_parse "$STATE/$task.pr-poll-registration" || return 1
+  [ "$FM_PR_REG_ID" = "$task" ]
 }
 
 # Surface a stale pane no classifier could resolve, so firstmate inspects it: it
@@ -2646,6 +2678,16 @@ EOF
               rm -f "$ssf"
               clear_write_tracking "$key"
               triage_log "absorbed stale (open captain call already surfaced for this status): $w"
+            elif task_finished_awaiting_merge "$task"; then
+              # Verified finished and registered for the merge poll: the same
+              # "already surfaced, nothing new to say" shape as an open
+              # captain call, except the wait is owned by pr_refresh_dispatch
+              # rather than the captain. check: merge landed still arrives
+              # (task_finished_awaiting_merge does not touch the PR poll).
+              printf '%s' "$h" > "$sf"
+              rm -f "$ssf"
+              clear_write_tracking "$key"
+              triage_log "absorbed stale (finished, PR poll registered, awaiting merge): $w"
             else
               fm_wake_append stale "$w" "stale: $w" || exit 1
               stale_wait_record "$key"
