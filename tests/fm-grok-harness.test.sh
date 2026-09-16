@@ -239,7 +239,7 @@ EOF
 
 test_grok_raw_home_overrides_are_refused() {
   local kind rec case_dir home proj wt fakebin grok_home id out raw
-  for kind in grok-home user-home; do
+  for kind in grok-home user-home quoted-with-space; do
     rec=$(make_spawn_case "raw-home-$kind")
     IFS='|' read -r case_dir home proj wt fakebin grok_home id <<EOF
 $rec
@@ -247,6 +247,7 @@ EOF
     case "$kind" in
       grok-home) raw="GROK_HOME=$case_dir/raw-home grok --always-approve" ;;
       user-home) raw="HOME=$case_dir/raw-user grok --always-approve" ;;
+      quoted-with-space) raw="HOME=\"$case_dir/raw home\" grok --always-approve" ;;
     esac
     out=$(GROK_HOME="$grok_home" FM_FAKE_LAUNCH_LOG="$home/launch.log" \
       fm_test_run_spawn "$home" "$wt" "$fakebin" "$id" "$proj" "$raw" --mode no-mistakes --yolo off 2>&1)
@@ -258,6 +259,24 @@ EOF
     assert_absent "$fakebin/grok.home" "a refused raw home override started the worker"
     pass "grok refuses a raw command carrying its own $kind override"
   done
+}
+
+test_grok_raw_launch_unparseable_quoting_fails_loud() {
+  local rec case_dir home proj wt fakebin grok_home id out raw
+  rec=$(make_spawn_case raw-launch-unparseable-quote)
+  IFS='|' read -r case_dir home proj wt fakebin grok_home id <<EOF
+$rec
+EOF
+  raw="HOME=$case_dir/o'brien-home grok --always-approve"
+  out=$(GROK_HOME="$grok_home" FM_FAKE_LAUNCH_LOG="$home/launch.log" \
+    fm_test_run_spawn "$home" "$wt" "$fakebin" "$id" "$proj" "$raw" --mode no-mistakes --yolo off 2>&1)
+  expect_code 1 $? "a raw launch with unparseable quoting must fail loud: $out"
+  assert_contains "$out" "unparseable quoting" "the failure did not name the unparseable quoting"
+  assert_absent "$grok_home/trusted_folders.toml" "unparseable raw-launch quoting granted trust"
+  assert_absent "$home/state/$id.meta" "unparseable raw-launch quoting published a task record"
+  [ ! -s "$home/launch.log" ] || fail "unparseable raw-launch quoting delivered a worker command"
+  assert_absent "$fakebin/grok.home" "unparseable raw-launch quoting started the worker"
+  pass "grok raw launch fails loud on unparseable HOME override quoting"
 }
 
 test_grok_failed_preflight_keeps_the_task_queued() {
@@ -331,5 +350,6 @@ test_grok_spawn_pretrusts_the_project_not_the_worktree
 test_grok_secondmate_spawn_pretrusts_its_primary
 test_grok_registration_uses_the_filtered_launch_environment
 test_grok_raw_home_overrides_are_refused
+test_grok_raw_launch_unparseable_quoting_fails_loud
 test_grok_failed_preflight_keeps_the_task_queued
 test_fm_lock_recognizes_grok_holder
