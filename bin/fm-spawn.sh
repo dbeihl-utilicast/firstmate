@@ -1078,7 +1078,7 @@ spawn_abort_cleanup() {
     fm_lock_release "$SPAWN_CONTROL_LOCK" || true
   fi
   [ -z "$SPAWN_META_TMP" ] || rm -f "$SPAWN_META_TMP" 2>/dev/null || true
-  [ -z "$GROK_PROBE_DIR" ] || rm -rf -- "$GROK_PROBE_DIR"
+  [ -z "$GROK_PROBE_DIR" ] || rm -rf -- "$GROK_PROBE_DIR" || true
   if [ "$CONFIG_INHERIT_LOCK_HELD" = 1 ]; then
     CONFIG_INHERIT_LOCK_HELD=0
     fm_lock_release "$CONFIG_INHERIT_LOCK" || true
