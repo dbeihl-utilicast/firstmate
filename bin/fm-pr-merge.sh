@@ -783,11 +783,13 @@ github_admin_verify_reviewless_mergeable() {
   local fields line total=0 named=0
   local state='' mergeable='' failing_checks=''
   local refusals=''
+  # shellcheck disable=SC2016 # jq expression, not shell; $s is jq's own variable syntax.
+  local jq_filter='"state=" + (.state // ""),
+    "mergeable=" + (.mergeable // ""),
+    "checks=" + (([(.statusCheckRollup // [])[] | select((.conclusion // .state // "") as $s | $s != "SUCCESS" and $s != "NEUTRAL" and $s != "SKIPPED")]) | length | tostring)'
   if ! fields=$(gh pr view "$PR_NUMBER" --repo "$PR_OWNER/$PR_REPO" \
     --json state,mergeable,statusCheckRollup \
-    --jq '"state=" + (.state // ""),
-      "mergeable=" + (.mergeable // ""),
-      "checks=" + (([(.statusCheckRollup // [])[] | select((.conclusion // .state // "") as $s | $s != "SUCCESS" and $s != "NEUTRAL" and $s != "SKIPPED")]) | length | tostring)' \
+    --jq "$jq_filter" \
     2>/dev/null) || [ -z "$fields" ]; then
     echo "error: could not read the GitHub pull request's mergeable state and status checks before an admin-bypass merge" >&2
     return 1
