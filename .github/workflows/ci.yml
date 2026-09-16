@@ -21,11 +21,12 @@ concurrency:
 
 jobs:
   # Classifies the diff so a documentation-only pull request can skip the heavy
-  # behavior lanes below. Those lanes drop the implicit success() gate on this
-  # job, so a failed classification runs them instead of skipping them green.
+  # behavior lanes below. Only a pull request can classify, and those lanes drop
+  # the implicit success() gate, so a skipped or failed classifier still runs them.
   changes:
     name: Detect change scope
     runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
     outputs:
       docs_only: ${{ steps.filter.outputs.docs_only }}
     steps:
@@ -35,7 +36,6 @@ jobs:
       - name: Classify changed paths
         id: filter
         env:
-          EVENT_NAME: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -eu
@@ -44,13 +44,11 @@ jobs:
           # repository's own change-to-test map decides, and anything it cannot
           # classify falls through as not documentation-only.
           docs_only=false
-          if [ "$EVENT_NAME" = pull_request ]; then
-            changed=$(git diff --name-only "${BASE_SHA}...HEAD")
-            printf '%s\n' "$changed"
-            if [ -n "$changed" ] && ! printf '%s\n' "$changed" | grep -qvE '\.md$'; then
-              if selected=$(bin/fm-test-run.sh --list --changed --base "$BASE_SHA"); then
-                [ -n "$selected" ] || docs_only=true
-              fi
+          changed=$(git diff --name-only "${BASE_SHA}...HEAD")
+          printf '%s\n' "$changed"
+          if [ -n "$changed" ] && ! printf '%s\n' "$changed" | grep -qvE '\.md$'; then
+            if selected=$(bin/fm-test-run.sh --list --changed --base "$BASE_SHA"); then
+              [ -n "$selected" ] || docs_only=true
             fi
           fi
           echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
