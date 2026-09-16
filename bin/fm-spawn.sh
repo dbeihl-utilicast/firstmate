@@ -289,7 +289,7 @@
 # Verified per-harness turn-end hooks are installed automatically where enabled; some live outside the worktree.
 # Kimi uses one surgically installed Firstmate region in $HOME/.kimi-code/config.toml,
 # a firstmate-owned global hook and registry, and a gitignored per-task pointer.
-# grok uses a firstmate-owned global hook under ${GROK_HOME:-$HOME/.grok}/hooks
+# grok uses a firstmate-owned global hook under the pane-resolved Grok home
 # plus a gitignored .fm-grok-turnend worktree pointer and a state token.
 # muse installs no hook at all - its plugin engine is off in the default build - so
 # it writes state/<id>.muse-session to bind the pane to muse's own session event
@@ -918,6 +918,7 @@ SPAWN_CONTROL_LOCK=
 SPAWN_CONTROL_LOCK_HELD=0
 SPAWN_CONTROL_PARENT=0
 SPAWN_META_TMP=
+GROK_PROBE_DIR=
 SPAWN_META_LOCK=
 SPAWN_META_LOCK_HELD=0
 SPAWN_META_PUBLISH_STARTED=0
@@ -1080,6 +1081,7 @@ spawn_abort_cleanup() {
     fm_lock_release "$SPAWN_CONTROL_LOCK" || true
   fi
   [ -z "$SPAWN_META_TMP" ] || rm -f "$SPAWN_META_TMP" 2>/dev/null || true
+  [ -z "$GROK_PROBE_DIR" ] || rm -rf -- "$GROK_PROBE_DIR" || true
   if [ "$CONFIG_INHERIT_LOCK_HELD" = 1 ]; then
     CONFIG_INHERIT_LOCK_HELD=0
     fm_lock_release "$CONFIG_INHERIT_LOCK" || true
@@ -1109,7 +1111,7 @@ spawn_herdr_presentation_order_lock_acquire() {
 }
 
 clear_relaunch_harness_wiring() {
-  local harness=$1 wt=$2 state=$3 id=$4 token_path token auth_path path
+  local harness=$1 wt=$2 state=$3 id=$4 token_path token auth_path path grok_home
   # The wiring arms above match on harness PREFIXES, because a task launched
   # from a raw command records that command's basename rather than the exact
   # adapter name. The retirement tables are keyed by the exact adapter, so the
@@ -1123,7 +1125,8 @@ clear_relaunch_harness_wiring() {
   if [ -n "$token_path" ] && [ -f "$token_path" ]; then
     IFS= read -r token < "$token_path" || [ -n "$token" ] || return 1
   fi
-  auth_path=$(fm_control_harness_turnend_auth_path "$harness" "$token") || return 1
+  grok_home=$(fm_control_grok_turnend_home "$state" "$id") || grok_home=
+  auth_path=$(fm_control_harness_turnend_auth_path "$harness" "$token" "$grok_home") || return 1
   if [ -n "$auth_path" ]; then
     rm -f -- "$auth_path" || return 1
   fi
@@ -1694,9 +1697,26 @@ case "$ARG3" in
     RAW_LAUNCH=1
     LAUNCH=$ARG3
     HARNESS=""
-    for word in $LAUNCH; do
-      case "$word" in [A-Za-z_]*=*) continue ;; *) HARNESS=$(basename "$word"); break ;; esac
-    done
+    RAW_HOME_ASSIGNMENT=""
+    RAW_LAUNCH_TOKENS=$(xargs -n1 <<<"$LAUNCH" 2>&1) || {
+      echo "error: raw launch command has unparseable quoting ('$LAUNCH'): $RAW_LAUNCH_TOKENS" >&2
+      exit 1
+    }
+    while IFS= read -r word; do
+      case "$word" in
+        HOME=*|GROK_HOME=*) RAW_HOME_ASSIGNMENT=$word; continue ;;
+        [A-Za-z_]*=*) continue ;;
+        *) HARNESS=$(basename "$word"); break ;;
+      esac
+    done <<<"$RAW_LAUNCH_TOKENS"
+    case "$HARNESS" in
+      grok*)
+        if [ -n "$RAW_HOME_ASSIGNMENT" ]; then
+          echo "error: raw grok launch carries its own home override ('$RAW_HOME_ASSIGNMENT'); firstmate resolves the Grok home from the destination pane and binds it to the worker, so drop the assignment or set that home in the pane before spawning" >&2
+          exit 1
+        fi
+        ;;
+    esac
     ;;
   '')
     # No explicit harness: resolve from config. A secondmate AGENT launches on the
@@ -3035,6 +3055,28 @@ spawn_send_text_line() {  # <target> <text>
     cmux) fm_backend_cmux_send_text_line "$1" "$2" "$W" ;;
   esac
 }
+spawn_launch_environment() {
+  local command=$1 prefix='/usr/bin/env -i' env_name env_arg
+  if [ "$LAUNCH_ENV_ENABLED" != 1 ]; then
+    printf '%s' "$command"
+    return
+  fi
+  for env_name in HOME PATH USER LOGNAME SHELL TERM COLORTERM LANG LC_ALL LC_CTYPE \
+    TMPDIR TMP TEMP GOTMPDIR TMUX TMUX_PANE HERDR_ENV HERDR_SESSION HERDR_SOCKET_PATH \
+    HERDR_PANE_ID CMUX_WORKSPACE_ID CMUX_SURFACE_ID CMUX_TAB_ID CMUX_PANEL_ID \
+    CMUX_SOCKET_PATH ZELLIJ ZELLIJ_SESSION_NAME ZELLIJ_PANE_ID FM_ZELLIJ_SESSION \
+    FM_TASK_ID \
+    $LAUNCH_ENV_NAMES; do
+    # shellcheck disable=SC2016
+    printf -v env_arg '${%s+"%s=$%s"}' "$env_name" "$env_name" "$env_name"
+    prefix="$prefix $env_arg"
+  done
+  if [ -n "${SPAWN_TRACEPARENT:-}" ]; then
+    # shellcheck disable=SC2016
+    prefix="$prefix "'${TRACEPARENT+"TRACEPARENT=$TRACEPARENT"}'
+  fi
+  printf '%s /bin/sh -c %s' "$prefix" "$(shell_quote "$command")"
+}
 spawn_current_path() {  # <target>
   case "$BACKEND" in
     tmux) fm_backend_tmux_current_path "$1" ;;
@@ -3322,6 +3364,49 @@ if [ "$KIND" != secondmate ]; then
       ;;
   esac
 fi
+
+case "$HARNESS" in
+  grok*)
+    GROK_PROBE_DIR=$(mktemp -d "$STATE/.grok-home-$ID.XXXXXXXX") || exit 1
+    # shellcheck disable=SC2016
+    GROK_PROBE_SCRIPT='set -eu; umask 077; store=${GROK_HOME:-${HOME:?}/.grok}; case $store in /*) ;; *) store=$PWD/$store ;; esac; printf "%s\000%s\000" "${HOME:-}" "$store" > "$1/value"; mv "$1/value" "$1/ready"'
+    GROK_PROBE_COMMAND="/bin/sh -c $(shell_quote "$GROK_PROBE_SCRIPT") fm-grok-home $(shell_quote "$GROK_PROBE_DIR")"
+    GROK_PROBE_COMMAND=$(spawn_launch_environment "$GROK_PROBE_COMMAND") || exit 1
+    case "$BACKEND" in
+      orca) ;;
+      *)
+        for ((grok_settle_attempt = 0; grok_settle_attempt < 100; grok_settle_attempt++)); do
+          [ -n "$(spawn_current_path "$WT_TARGET" || true)" ] && break
+          sleep 0.1
+        done
+        ;;
+    esac
+    if ! spawn_send_text_line "$T" "$GROK_PROBE_COMMAND"; then
+      echo "error: could not query the Grok home in window $T; refusing to launch" >&2
+      exit 1
+    fi
+    for ((grok_probe_attempt = 0; grok_probe_attempt < 600; grok_probe_attempt++)); do
+      [ -f "$GROK_PROBE_DIR/ready" ] && break
+      sleep 0.1
+    done
+    if [ ! -f "$GROK_PROBE_DIR/ready" ] || ! {
+      IFS= read -r -d '' GROK_PANE_HOME && IFS= read -r -d '' GROK_TRUST_HOME
+    } < "$GROK_PROBE_DIR/ready"; then
+      echo "error: could not resolve the Grok home in window $T within 60s; refusing to launch a worker that would meet the folder-trust dialog. Bring that window to a shell prompt and respawn the task, or spawn it on another harness." >&2
+      exit 1
+    fi
+    rm -rf -- "$GROK_PROBE_DIR"
+    GROK_PROBE_DIR=
+    GROK_TRUST_HOME=$(resolve_directory_input GROK_HOME "$GROK_TRUST_HOME") || exit 1
+    if ! HOME="$GROK_PANE_HOME" GROK_HOME="$GROK_TRUST_HOME" \
+      "$FM_ROOT/bin/fm-grok-trust.sh" "$PROJ_ABS" >/dev/null; then
+      echo "error: could not pre-register Grok folder trust for $PROJ_ABS; refusing to launch; inspect window $T" >&2
+      exit 1
+    fi
+    GROK_TRUST_HOME=$(CDPATH='' cd -P -- "$GROK_TRUST_HOME" && pwd -P) || exit 1
+    LAUNCH="GROK_HOME=$(shell_quote "$GROK_TRUST_HOME") $LAUNCH"
+    ;;
+esac
 
 # Per-task temp root: /tmp/fm-<id>/ with Go's build temp nested at gotmp/. Go won't
 # create GOTMPDIR, so mkdir before it is used; fm-teardown removes the whole root.
@@ -3675,21 +3760,10 @@ EOF
       # the launch command via -c notify=[...] and __TURNEND__.
       ;;
     grok*)
-      # grok fires a Stop hook at every turn boundary (verified, grok 0.2.73), the
-      # clean equivalent of codex's notify= and pi's turn_end. But grok only loads
-      # PROJECT hooks (<worktree>/.grok/hooks/, <worktree>/.claude/settings.local.json)
-      # after the folder is granted hook-trust, which is not automatic and which
-      # firstmate cannot establish at launch without editing grok's own managed
-      # trust store (a high-blast-radius write). GLOBAL hooks in ~/.grok/hooks/ are
-      # always trusted and load on first launch with no gate. So the turn-end hook
-      # lives OUTSIDE the worktree as a single firstmate-owned global hook that is a
-      # guarded no-op for every non-firstmate grok session: it fires only when the
-      # current workspace holds a .fm-grok-turnend token pointer that matches the
-      # firstmate-owned hook registry. firstmate then drops that per-task pointer
-      # (gitignored, like the other harnesses' worktree hook files).
-      # Result: the hook is outside the worktree, needs no trust grant, and never
-      # touches grok's managed config - only firstmate-owned files.
-      GROK_HOOKS_DIR="${GROK_HOME:-$HOME/.grok}/hooks"
+      # grok fires a Stop hook at every turn boundary; this uses a global hook
+      # instead of a project one so it needs no per-worktree trust grant.
+      # docs/verification/runtime-backends.md "Grok folder trust" owns why.
+      GROK_HOOKS_DIR="$GROK_TRUST_HOME/hooks"
       GROK_AUTH_DIR="$GROK_HOOKS_DIR/fm-turn-end.d"
       mkdir -p "$GROK_AUTH_DIR"
       old_umask=$(umask)
@@ -3698,6 +3772,7 @@ EOF
       umask "$old_umask"
       printf '%s\n' "$TURNEND" > "$auth_file"
       printf '%s\n' "${auth_file##*/}" > "$STATE/$ID.grok-turnend-token"
+      printf '%s\n' "$GROK_TRUST_HOME" > "$STATE/$ID.grok-home"
       sq_grok_auth_dir=$(shell_quote "$GROK_AUTH_DIR")
       cat > "$GROK_HOOKS_DIR/fm-turn-end.sh" <<EOF
 #!/usr/bin/env bash
@@ -4141,26 +4216,7 @@ if [ -n "$SPAWN_TRACEPARENT" ]; then
     LAUNCH="unset TRACEPARENT; $LAUNCH"
   fi
 fi
-if [ "$LAUNCH_ENV_ENABLED" = 1 ]; then
-  LAUNCH_ENV_PREFIX='/usr/bin/env -i'
-  for env_name in HOME PATH USER LOGNAME SHELL TERM COLORTERM LANG LC_ALL LC_CTYPE \
-    TMPDIR TMP TEMP GOTMPDIR TMUX TMUX_PANE HERDR_ENV HERDR_SESSION HERDR_SOCKET_PATH \
-    HERDR_PANE_ID CMUX_WORKSPACE_ID CMUX_SURFACE_ID CMUX_TAB_ID CMUX_PANEL_ID \
-    CMUX_SOCKET_PATH ZELLIJ ZELLIJ_SESSION_NAME ZELLIJ_PANE_ID FM_ZELLIJ_SESSION \
-    FM_TASK_ID \
-    $LAUNCH_ENV_NAMES; do
-    # Only validated names enter shell syntax. Values expand once, quoted, in
-    # the pane shell and never become source text or spawn-process snapshots.
-    # shellcheck disable=SC2016
-    printf -v env_arg '${%s+"%s=$%s"}' "$env_name" "$env_name" "$env_name"
-    LAUNCH_ENV_PREFIX="$LAUNCH_ENV_PREFIX $env_arg"
-  done
-  if [ -n "$SPAWN_TRACEPARENT" ]; then
-    # shellcheck disable=SC2016
-    LAUNCH_ENV_PREFIX="$LAUNCH_ENV_PREFIX "'${TRACEPARENT+"TRACEPARENT=$TRACEPARENT"}'
-  fi
-  LAUNCH="$LAUNCH_ENV_PREFIX /bin/sh -c $(shell_quote "$LAUNCH")"
-fi
+LAUNCH=$(spawn_launch_environment "$LAUNCH") || exit 1
 sleep 0.3
 spawn_send_literal "$T" "$LAUNCH"
 sleep 0.3

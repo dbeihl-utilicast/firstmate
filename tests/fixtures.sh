@@ -121,6 +121,16 @@ case "${1:-}" in
     ;;
   has-session|new-session|new-window|kill-window|set-window-option) exit 0 ;;
   send-keys)
+    case "${4:-}" in
+      *' fm-grok-home '*)
+        [ "${FM_TEST_GROK_PROBE_DROP:-0}" = 0 ] || exit 0
+        [ "${FM_TEST_GROK_PROBE_REJECT:-0}" = 0 ] || exit 1
+        cd "${FM_FAKE_PANE_PATH:?}" || exit 1
+        env -i HOME="${FM_TEST_PANE_HOME:-$HOME}" GROK_HOME="${FM_TEST_PANE_GROK_HOME-${GROK_HOME:-}}" \
+          PATH="$PATH" /bin/sh -c "$4"
+        exit $?
+        ;;
+    esac
     prev=
     literal=0
     for a in "$@"; do

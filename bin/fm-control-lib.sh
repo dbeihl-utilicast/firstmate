@@ -229,6 +229,7 @@ fm_control_harness_wiring_paths() {  # <harness> <worktree> <state-dir> <id>
     grok)
       printf '%s\n' "$wt/.fm-grok-turnend"
       printf '%s\n' "$state/$id.grok-turnend-token"
+      printf '%s\n' "$state/$id.grok-home"
       ;;
     kimi)
       printf '%s\n' "$wt/.fm-kimi-turnend"
@@ -266,12 +267,25 @@ fm_control_harness_turnend_token_path() {  # <harness> <state-dir> <id>
   esac
 }
 
-fm_control_harness_turnend_auth_path() {  # <harness> <token>
-  local harness=${1-} token=${2-}
+fm_control_harness_turnend_auth_path() {  # <harness> <token> [grok-home]
+  local harness=${1-} token=${2-} grok_home=${3-}
   case "$token" in ''|*[!A-Za-z0-9._-]*) return 0 ;; esac
   case "$harness" in
-    grok) printf '%s\n' "${GROK_HOME:-$HOME/.grok}/hooks/fm-turn-end.d/$token" ;;
+    grok)
+      [ -n "$grok_home" ] || grok_home=${GROK_HOME:-$HOME/.grok}
+      printf '%s\n' "$grok_home/hooks/fm-turn-end.d/$token"
+      ;;
     kimi) printf '%s\n' "$HOME/.kimi-code/fm-turn-end.d/$token" ;;
     *) return 0 ;;
   esac
+}
+
+# The Grok home fm-spawn resolved from the DESTINATION pane, recorded beside the
+# token because a pane's home can differ from the invoking process's.
+fm_control_grok_turnend_home() {  # <state-dir> <id>
+  local state=${1-} id=${2-} home=''
+  [ -n "$state" ] && [ -n "$id" ] || return 1
+  [ -f "$state/$id.grok-home" ] || return 0
+  IFS= read -r home < "$state/$id.grok-home" || home=''
+  case $home in /*) printf '%s\n' "$home" ;; esac
 }
