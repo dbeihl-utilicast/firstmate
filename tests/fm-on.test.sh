@@ -106,6 +106,38 @@ case "${FM_FAKE_SSH_MODE:-normal}" in
     "$FM_FAKE_REMOTE_ENTRYPOINT" "$@"
     exit 255
     ;;
+  # A live but unresponsive remote: the peer answered (this process exists and
+  # never exits on its own), so ServerAlive dead-peer detection cannot fire,
+  # and it produces no output before being killed - indistinguishable from a
+  # remote that is simply still working, except that it never finishes.
+  hang)
+    [ -z "${FM_TEST_HANG_PID:-}" ] || printf '%s\n' "$$" > "$FM_TEST_HANG_PID"
+    exec sleep 999999
+    ;;
+  stop) kill -STOP "$$"; exit 0 ;;
+  noisy)
+    printf 'Warning: Permanently added remote-mac to the list of known hosts.\n' >&2
+    printf 'result-line\n'
+    exit 0
+    ;;
+  pgrp) ps -o pgid= -p "$$" | tr -d '[:space:]'; exit 0 ;;
+  leak)
+    sleep "$FM_TEST_LEAK_SECONDS" &
+    printf '%s\n' "$!" > "$FM_TEST_LEAK_PID"
+    printf 'relayed before exit\n'
+    exit 0
+    ;;
+  cancel)
+    [ "${FM_TEST_NO_BASHPID:-0}" != 1 ] || unset BASHPID
+    printf '%s\n' "$$" > "$FM_TEST_CANCEL_SSH_PID"
+    trap '' HUP INT TERM
+    (
+      trap '' HUP INT TERM
+      printf '%s\n' "${BASHPID:-$(exec sh -c 'printf "%s\n" "$PPID"')}" > "$FM_TEST_CANCEL_CHILD_PID"
+      while :; do sleep 1; done
+    ) &
+    wait
+    ;;
   *) exec "$FM_FAKE_REMOTE_ENTRYPOINT" "$@" ;;
 esac
 SH
@@ -168,6 +200,31 @@ if grep -q 'stdin:' "$TMP_ROOT/stdout-default"; then
   fail "caller stdin crossed the transport without --stdin: $(cat "$TMP_ROOT/stdout-default")"
 fi
 pass "fm-on defaults the remote command's stdin to /dev/null"
+
+# The 2026-09-15 wedge: ssh exits, but a process it left behind still holds
+# the caller's command-substitution pipe, so the caller blocks in read with no
+# children. The bound is far above the leak, so it cannot be what passes this.
+LEAK_START=$SECONDS
+set +e
+LEAK_OUT=$(FM_FAKE_SSH_MODE=leak FM_TEST_LEAK_SECONDS=30 FM_TEST_LEAK_PID="$TMP_ROOT/leak.pid" \
+  FM_ON_TIMEOUT=120 fm_on ios fm-mutate.sh "$REMOTE_HOME/leak-mutation" 2>&1)
+LEAK_RC=$?
+set -e
+LEAK_ELAPSED=$((SECONDS - LEAK_START))
+kill "$(cat "$TMP_ROOT/leak.pid" 2>/dev/null)" 2>/dev/null || true
+[ "$LEAK_RC" -eq 0 ] || fail "a leaked ssh descendant changed the exit status (got $LEAK_RC): $LEAK_OUT"
+[ "$LEAK_ELAPSED" -lt 10 ] \
+  || fail "a process left behind by ssh held the caller's capture pipe open for ${LEAK_ELAPSED}s"
+assert_contains "$LEAK_OUT" 'relayed before exit' "ssh output was not relayed after ssh exited"
+pass "a process left behind by ssh cannot hold a caller's capture pipe open (${LEAK_ELAPSED}s elapsed)"
+
+NOISY_MERGED=$(FM_FAKE_SSH_MODE=noisy fm_on ios fm-mutate.sh "$REMOTE_HOME/noisy-mutation" 2>&1)
+[ "${NOISY_MERGED%%$'\n'*}" = 'Warning: Permanently added remote-mac to the list of known hosts.' ] \
+  || fail "merged ssh stderr lost its place ahead of stdout: $NOISY_MERGED"
+[ "${NOISY_MERGED##*$'\n'}" = result-line ] || fail "the result was not the last merged line: $NOISY_MERGED"
+NOISY_SPLIT=$(FM_FAKE_SSH_MODE=noisy fm_on ios fm-mutate.sh "$REMOTE_HOME/noisy-mutation" 2>/dev/null)
+[ "$NOISY_SPLIT" = result-line ] || fail "separately captured stdout picked up ssh stderr: $NOISY_SPLIT"
+pass "fm-on relays merged ssh output in write order and keeps separate streams separate"
 
 # A vanished remote peer must become a bounded ssh failure instead of an
 # indefinite hang on a half-open TCP connection, so the existing no-result ->
@@ -516,5 +573,156 @@ set -e
 [ "$(cat "$SSH_COUNT")" -eq 1 ] || fail "ambiguous completion was retried"
 [ "$(grep -c mutation "$REMOTE_HOME/mutations")" -eq 1 ] || fail "ambiguous mutation did not execute exactly once"
 pass "unreachable and ambiguous transport failures are surfaced without retry"
+
+# A wedge indistinguishable from slow work is the real defect this transport
+# must never reproduce: ServerAlive only detects a dead peer, never a live one
+# whose remote command stopped making progress (a hung remote job, a stale
+# worker, a pre-migration host with no bounded job queue at all). The whole
+# ssh call must fail loudly, naming the host, within a hard bound instead of
+# blocking its caller forever. FM_ON_TIMEOUT is overridden small here so the
+# assertion is fast and deterministic; fm-on.sh's own default (900s) is
+# documented in its header.
+: > "$SSH_COUNT"
+HANG_START=$SECONDS
+set +e
+HANG_OUT=$(FM_FAKE_SSH_MODE=hang FM_ON_TIMEOUT=2 fm_on ios fm-mutate.sh "$REMOTE_HOME/hang-mutation" 2>&1)
+HANG_RC=$?
+set -e
+HANG_ELAPSED=$((SECONDS - HANG_START))
+[ "$HANG_RC" -eq 255 ] || fail "a hung remote did not fail with the unknown-completion exit status (got $HANG_RC): $HANG_OUT"
+[ "$HANG_ELAPSED" -le 15 ] \
+  || fail "a hung remote was not bounded: took ${HANG_ELAPSED}s against a 2s FM_ON_TIMEOUT"
+assert_contains "$HANG_OUT" 'did not complete within 2s' "the timeout diagnostic did not name its bound"
+assert_contains "$HANG_OUT" 'talking to remote-mac' "the timeout diagnostic did not name the host it was talking to"
+assert_absent "$REMOTE_HOME/hang-mutation" "a bounded-out hung remote still ran the mutation"
+pass "a live but unresponsive remote fails loudly, naming the host, within FM_ON_TIMEOUT instead of hanging (${HANG_ELAPSED}s elapsed)"
+
+assert_cancelled_pid_gone() {
+  local path=$1 label=$2 pid i=0
+  pid=$(cat "$path")
+  while [ "$i" -lt 50 ]; do
+    kill -0 "$pid" 2>/dev/null || return 0
+    sleep 0.05
+    i=$((i + 1))
+  done
+  fail "$label survived cancellation (pid $pid)"
+}
+
+test_fallback_cancellation() {
+  local mechanism=$1 fm_pid rc=0 i=0 ssh_pid child_pid no_bashpid=0 override=$1
+  ssh_pid="$TMP_ROOT/$mechanism-ssh.pid"
+  child_pid="$TMP_ROOT/$mechanism-child.pid"
+  [ "$mechanism" != bash ] || no_bashpid=1
+  [ "$mechanism" != timeout ] || override=
+  FM_HOME="$LOCAL_HOME" FM_ROOT_OVERRIDE="$REMOTE_ROOT" FM_SSH_BIN="$FAKEBIN/fake-ssh" \
+    FM_FAKE_SSH_COUNT="$SSH_COUNT" FM_FAKE_SSH_LOG="$SSH_LOG" \
+    FM_FAKE_REMOTE_ENTRYPOINT="$REMOTE_ROOT/bin/fm-remote-entrypoint.sh" \
+    FM_FAKE_SSH_MODE=cancel FM_TEST_CANCEL_SSH_PID="$ssh_pid" \
+    FM_TEST_CANCEL_CHILD_PID="$child_pid" FM_TIMEOUT_MECHANISM_OVERRIDE="$override" \
+    FM_TEST_NO_BASHPID="$no_bashpid" FM_ON_TIMEOUT=60 \
+    bash -c 'script=$1; shift; [ "${FM_TEST_NO_BASHPID:-0}" != 1 ] || unset BASHPID; . "$script"' \
+    _ "$ROOT/bin/fm-on.sh" ios fm-mutate.sh "$REMOTE_HOME/cancel-mutation" \
+    > "$TMP_ROOT/$mechanism-cancel.out" 2> "$TMP_ROOT/$mechanism-cancel.err" &
+  fm_pid=$!
+  while [ "$i" -lt 100 ] && { [ ! -s "$ssh_pid" ] || [ ! -s "$child_pid" ]; }; do
+    kill -0 "$fm_pid" 2>/dev/null || fail "$mechanism fallback exited before its cancellation fixture started"
+    sleep 0.05
+    i=$((i + 1))
+  done
+  [ -s "$ssh_pid" ] && [ -s "$child_pid" ] || fail "$mechanism fallback did not start its full command tree"
+  kill -TERM "$fm_pid"
+  wait "$fm_pid" || rc=$?
+  [ "$rc" -eq 143 ] || fail "$mechanism fallback cancellation returned $rc instead of 143"
+  assert_cancelled_pid_gone "$ssh_pid" "$mechanism fallback SSH process"
+  if [ "$mechanism" = timeout ]; then
+    kill -KILL "$(cat "$child_pid")" 2>/dev/null || true
+    pass "timeout cancellation kills its TERM-resistant foreground ssh"
+    return
+  fi
+  assert_cancelled_pid_gone "$child_pid" "$mechanism fallback SSH descendant"
+  pass "$mechanism fallback cancellation tears down its TERM-resistant command tree"
+}
+
+! command -v timeout >/dev/null 2>&1 || test_fallback_cancellation timeout
+test_fallback_cancellation bash
+test_fallback_cancellation perl
+
+test_fallback_success_releases_capture() {
+  local mechanism=$1 start elapsed out rc=0
+  start=$SECONDS
+  out=$(FM_TIMEOUT_MECHANISM_OVERRIDE="$mechanism" FM_ON_TIMEOUT=30 \
+    fm_on --stdin ios fm-probe-one.sh "$REMOTE_HOME/argv-$mechanism-success.bin" 0 'captured' \
+    < "$TMP_ROOT/stdin" 2>&1) || rc=$?
+  elapsed=$((SECONDS - start))
+  [ "$rc" -eq 0 ] || fail "$mechanism fallback success returned $rc: $out"
+  assert_contains "$out" 'stdin: payload one' "$mechanism fallback lost caller stdin under --stdin"
+  [ "$elapsed" -lt 15 ] \
+    || fail "$mechanism fallback held the captured output open for ${elapsed}s after the command succeeded"
+  pass "$mechanism fallback success releases a captured pipe without waiting out FM_ON_TIMEOUT (${elapsed}s)"
+}
+
+test_fallback_success_releases_capture bash
+test_fallback_success_releases_capture perl
+
+# ssh prompts need the terminal: timeout keeps ssh in the caller's process group,
+# and the fallbacks, which cannot, must fail fast naming the host.
+if command -v timeout >/dev/null 2>&1; then
+  CALLER_PGID=$(ps -o pgid= -p $$ | tr -d '[:space:]')
+  PGRP_OUT=$(FM_FAKE_SSH_MODE=pgrp fm_on ios fm-mutate.sh "$REMOTE_HOME/pgrp-mutation" 2>/dev/null)
+  [ "$PGRP_OUT" = "$CALLER_PGID" ] \
+    || fail "timeout ran ssh outside the caller's process group (ssh $PGRP_OUT, caller $CALLER_PGID)"
+  pass "timeout keeps ssh in the caller's foreground process group so prompts reach the terminal"
+fi
+
+test_fallback_terminal_and_bound() {
+  local mechanism=$1 start elapsed out rc=0 override=$1 hang_pid="$TMP_ROOT/$1-hang.pid"
+  if [ "$mechanism" = timeout ]; then
+    override=
+  else
+    start=$SECONDS
+    out=$(FM_TIMEOUT_MECHANISM_OVERRIDE="$override" FM_FAKE_SSH_MODE=stop FM_ON_TIMEOUT=60 \
+      fm_on ios fm-mutate.sh "$REMOTE_HOME/stop-mutation" 2>&1) || rc=$?
+    elapsed=$((SECONDS - start))
+    [ "$rc" -eq 255 ] || fail "$mechanism fallback did not fail a terminal-stopped ssh with 255 (got $rc): $out"
+    [ "$elapsed" -lt 15 ] || fail "$mechanism fallback silently waited ${elapsed}s on a terminal-stopped ssh"
+    assert_contains "$out" 'terminal prompt' "$mechanism fallback did not say ssh needed the terminal"
+    assert_contains "$out" 'talking to remote-mac' "$mechanism fallback did not name the host for a stopped ssh"
+  fi
+
+  rc=0
+  start=$SECONDS
+  out=$(FM_TIMEOUT_MECHANISM_OVERRIDE="$override" FM_FAKE_SSH_MODE=hang FM_ON_TIMEOUT=2 \
+    FM_TEST_HANG_PID="$hang_pid" fm_on ios fm-mutate.sh "$REMOTE_HOME/hang-mutation" 2>&1) || rc=$?
+  elapsed=$((SECONDS - start))
+  [ "$rc" -eq 255 ] || fail "$mechanism did not bound a hung ssh with 255 (got $rc): $out"
+  [ "$elapsed" -le 15 ] || fail "$mechanism took ${elapsed}s against a 2s bound"
+  assert_contains "$out" 'did not complete within 2s talking to remote-mac' "$mechanism bound was not loud"
+  assert_cancelled_pid_gone "$hang_pid" "$mechanism hung SSH process after the bound fired"
+  pass "$mechanism fails loudly on a stopped or hung ssh, naming the host, and leaves no ssh behind"
+}
+
+! command -v timeout >/dev/null 2>&1 || test_fallback_terminal_and_bound timeout
+test_fallback_terminal_and_bound bash
+test_fallback_terminal_and_bound perl
+
+# A caller's own perl bound must TERM before KILL so fm-on can tear down its
+# inner bounded ssh instead of orphaning it and its capture directory.
+NESTED_TMP="$TMP_ROOT/nested-tmp"
+mkdir -p "$NESTED_TMP"
+NESTED_RC=0
+TMPDIR="$NESTED_TMP" FM_TIMEOUT_MECHANISM_OVERRIDE=perl \
+  FM_HOME="$LOCAL_HOME" FM_ROOT_OVERRIDE="$REMOTE_ROOT" FM_SSH_BIN="$FAKEBIN/fake-ssh" \
+  FM_FAKE_SSH_COUNT="$SSH_COUNT" FM_FAKE_SSH_LOG="$SSH_LOG" \
+  FM_FAKE_REMOTE_ENTRYPOINT="$REMOTE_ROOT/bin/fm-remote-entrypoint.sh" \
+  FM_FAKE_SSH_MODE=cancel FM_TEST_CANCEL_SSH_PID="$TMP_ROOT/nested-ssh.pid" \
+  FM_TEST_CANCEL_CHILD_PID="$TMP_ROOT/nested-child.pid" FM_ON_TIMEOUT=60 \
+  bash -c '. "$1"; shift; fm_run_timed 3 "$@"' _ "$ROOT/bin/fm-timeout-lib.sh" \
+  "$ROOT/bin/fm-on.sh" ios fm-mutate.sh "$REMOTE_HOME/nested-mutation" > /dev/null 2>&1 || NESTED_RC=$?
+[ "$NESTED_RC" -eq 124 ] || fail "the outer perl bound did not fire around fm-on (got $NESTED_RC)"
+[ -s "$TMP_ROOT/nested-ssh.pid" ] || fail "the nested fm-on never started its ssh"
+assert_cancelled_pid_gone "$TMP_ROOT/nested-ssh.pid" "ssh under a caller's perl bound"
+assert_cancelled_pid_gone "$TMP_ROOT/nested-child.pid" "ssh descendant under a caller's perl bound"
+[ -z "$(find "$NESTED_TMP" -name 'fm-on.*' -print -quit)" ] || fail "fm-on leaked its capture directory under a caller's perl bound"
+pass "a caller's perl bound lets fm-on tear down its inner ssh and capture directory"
 
 echo "ALL TESTS PASSED"

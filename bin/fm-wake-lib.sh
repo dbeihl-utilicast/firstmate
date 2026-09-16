@@ -134,11 +134,12 @@ fm_path_age() {
 }
 
 # fm_poll_derived_grace [poll-seconds]
-# Default guard-grace derivation: max(300, poll + 60). A watcher touches its
-# liveness beacon once per poll cycle, so a fixed 300s grace stops correctly
-# bounding staleness once the poll cadence reaches or exceeds it; growing the
-# default with the cadence while keeping the historical 300s floor for the
-# common short-poll case fixes that without a caller-specific constant.
+# Default guard-grace derivation: max(300, poll + 60). A watcher's terminal
+# wait can age its liveness beacon by a full poll interval, so a fixed 300s
+# grace stops correctly bounding staleness once the poll cadence reaches or
+# exceeds it; growing the default with the cadence while keeping the historical
+# 300s floor for the common short-poll case fixes that without a caller-specific
+# constant.
 # Defaults to $FM_POLL (fm-watch.sh's own poll env var) when no argument is
 # given, so a caller with no independent notion of the poll cadence still
 # derives the same default fm-watch.sh itself would use.
@@ -150,6 +151,15 @@ fm_poll_derived_grace() {
   derived=$((poll + margin))
   [ "$derived" -ge 300 ] || derived=300
   printf '%s\n' "$derived"
+}
+
+# Seconds a starting watcher waits after each of TERM and KILL when evicting a
+# hung holder; the arm reads the same value to size its confirmation window.
+fm_watcher_evict_wait() {
+  case "${FM_WATCHER_EVICT_WAIT:-}" in
+    ''|*[!0-9]*|0) printf '5\n' ;;
+    *) printf '%s\n' "$FM_WATCHER_EVICT_WAIT" ;;
+  esac
 }
 
 # fm_watcher_lock_unheld <state>
@@ -550,7 +560,12 @@ fm_lock_claim() {
 fm_lock_try_create() {
   local lockdir=$1 allowed_steal_owner=${2:-} ownerdir
   FM_LOCK_OWNER_DIR=
-  ownerdir=$(fm_lock_owner_dir "$lockdir") || return 1
+  FM_LOCK_CREATE_FAILED=
+  ownerdir=$(fm_lock_owner_dir "$lockdir") || {
+    # shellcheck disable=SC2034 # Read by fm_lock_try_acquire after this call.
+    FM_LOCK_CREATE_FAILED=1
+    return 1
+  }
   if [ -e "$lockdir" ] || [ -L "$lockdir" ]; then
     fm_lock_discard_owner "$ownerdir"
     return 1
@@ -946,9 +961,18 @@ fm_lock_try_acquire() {
   FM_LOCK_HELD_PID=
   FM_LOCK_OWNER_DIR=
   FM_LOCK_RECOVERED_PID=
+  FM_LOCK_CREATE_FAILED=
 
   if fm_lock_try_create "$lockdir"; then
     return 0
+  fi
+  # Nothing to steal: recursing into "$lockdir.steal" would never bottom out
+  # while creation keeps failing (full disk, unwritable state directory). This
+  # checks the actual reason fm_lock_try_create failed rather than whether
+  # $lockdir now exists, since a swapped or raced boundary can leave $lockdir
+  # absent even though creation itself made real progress.
+  if [ -n "$FM_LOCK_CREATE_FAILED" ]; then
+    return 1
   fi
 
   fm_current_pid current || return 1

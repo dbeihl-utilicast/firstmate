@@ -9,7 +9,50 @@ on:
 permissions:
   contents: read
 
+# Cancel a superseded pull_request run so a fix-round push does not let all 11
+# jobs finish against a head the pipeline has already replaced. Push events
+# (merges to main) key on the unique commit SHA instead of the shared ref, so
+# a merge run is never grouped with, and never cancels or is cancelled by,
+# another run; cancel-in-progress is also forced off for push so a main run
+# is never a cancellation target even if two pushes ever shared a group.
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  # Classifies the diff so a documentation-only pull request can skip the heavy
+  # behavior lanes below. Only a pull request can classify, and those lanes drop
+  # the implicit success() gate, so a skipped or failed classifier still runs them.
+  changes:
+    name: Detect change scope
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    outputs:
+      docs_only: ${{ steps.filter.outputs.docs_only }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Classify changed paths
+        id: filter
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -eu
+          # Prose extension alone is not evidence of inertness: docs/ also holds
+          # test fixtures, and several tracked *.md files are runtime input. The
+          # repository's own change-to-test map decides, and anything it cannot
+          # classify falls through as not documentation-only.
+          docs_only=false
+          changed=$(git diff --name-only "${BASE_SHA}...HEAD")
+          printf '%s\n' "$changed"
+          if [ -n "$changed" ] && ! printf '%s\n' "$changed" | grep -qvE '\.md$'; then
+            if selected=$(bin/fm-test-run.sh --list --changed --base "$BASE_SHA"); then
+              [ -n "$selected" ] || docs_only=true
+            fi
+          fi
+          echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
@@ -47,6 +90,8 @@ jobs:
   tests-portable-parallel-1:
     name: Behavior portable parallel 1
     runs-on: ubuntu-latest
+    needs: [changes]
+    if: ${{ !cancelled() && needs.changes.outputs.docs_only != 'true' }}
     # This cap is intended as a hang tripwire, but the previous lane 1 reached
     # it; the former "~1 min of serial sum" estimate no longer applies.
     # Compare it with the derived hints from fm-test-run.sh --check-coverage
@@ -97,6 +142,8 @@ jobs:
   tests-portable-parallel-2:
     name: Behavior portable parallel 2
     runs-on: ubuntu-latest
+    needs: [changes]
+    if: ${{ !cancelled() && needs.changes.outputs.docs_only != 'true' }}
     # Same timeout rationale as portable parallel shard 1 above.
     timeout-minutes: 10
     steps:
@@ -141,6 +188,8 @@ jobs:
   tests-portable-serial:
     name: Behavior portable serial ${{ matrix.shard }}
     runs-on: ubuntu-latest
+    needs: [changes]
+    if: ${{ !cancelled() && needs.changes.outputs.docs_only != 'true' }}
     # Current runners can take ~20 min for a balanced shard. This 30-minute cap
     # preserves the timeout as a hang tripwire while allowing runner-speed and
     # job-setup margin; it is not the expected healthy end of the lane.
@@ -215,6 +264,8 @@ jobs:
   tests-herdr:
     name: Behavior tests (Herdr)
     runs-on: ubuntu-latest
+    needs: [changes]
+    if: ${{ !cancelled() && needs.changes.outputs.docs_only != 'true' }}
     # Healthy runs finish around 7 minutes. This job cap is a last-resort hang
     # tripwire, not the expected end of the lane. The family-run step owns the
     # tighter bound so a wedged suite fails fast with always() cleanup and
@@ -336,11 +387,12 @@ jobs:
     name: Behavior timing aggregate
     runs-on: ubuntu-latest
     needs:
+      - changes
       - tests-portable-parallel-1
       - tests-portable-parallel-2
       - tests-portable-serial
       - tests-herdr
-    if: always()
+    if: ${{ !cancelled() && needs.changes.outputs.docs_only != 'true' }}
     steps:
       - uses: actions/checkout@v6
       - name: Download lane timing artifacts
@@ -373,6 +425,8 @@ jobs:
   macos-stock-bash:
     name: Stock macOS Bash snapshot compatibility
     runs-on: macos-latest
+    needs: [changes]
+    if: ${{ !cancelled() && needs.changes.outputs.docs_only != 'true' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
@@ -427,6 +481,29 @@ jobs:
           pf_count=$(printf '%s\n' "$pf_output" | grep -c '^ok - ')
           [ "$pf_count" -eq 1 ] || {
             echo "::error::expected 1 public-followup bash 3.2 register regression, got $pf_count"
+            exit 1
+          }
+
+          # Forced teardown of a secondmate whose descendants hold no shared
+          # pool lock yet: the empty lock-path array must not abort under
+          # nounset on stock macOS Bash 3.2.
+          td_output=$(FM_TEST_ONLY=test_forced_secondmate_teardown_succeeds_when_no_descendant_holds_a_pool_lock \
+            /bin/bash tests/fm-teardown.test.sh)
+          printf '%s\n' "$td_output"
+          td_count=$(printf '%s\n' "$td_output" | grep -c '^ok - ')
+          [ "$td_count" -eq 1 ] || {
+            echo "::error::expected 1 teardown bash 3.2 empty-descendant-pool-lock regression, got $td_count"
+            exit 1
+          }
+
+          # Resume of an itemless remote outbox: KEYS stays empty after list_keys
+          # and must not abort under nounset on stock macOS Bash 3.2.
+          rec_output=$(FM_TEST_ONLY=test_itemless_outbox_receive_succeeds_under_bash32 \
+            /bin/bash tests/fm-remote-backlog-handoff.test.sh)
+          printf '%s\n' "$rec_output"
+          rec_count=$(printf '%s\n' "$rec_output" | grep -c '^ok - ')
+          [ "$rec_count" -eq 1 ] || {
+            echo "::error::expected 1 itemless-outbox bash 3.2 receive regression, got $rec_count"
             exit 1
           }
 

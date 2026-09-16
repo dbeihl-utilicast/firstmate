@@ -6,6 +6,26 @@ This record contains reusable version-scoped evidence for active runtime guarant
 The backend guides own current setup, safety boundaries, and limitations.
 Exact task chronology, branch names, temporary homes, local paths, process ids, thread ids, and delivery transcripts remain in private reports or PR evidence.
 
+## One-shot Antigravity print
+
+The [`agy-print` skill](../../.agents/skills/agy-print/SKILL.md) owns the non-worker boundary for this path.
+The live `status` and `structured_output` envelope fields used by the helper were verified on 2026-09-11 with agy 1.2.1, model `gemini-3.8-flash-low`, and explicit low effort.
+
+```sh
+FM_AGY_PRINT_LIVE_E2E=1 bin/fm-test-run.sh tests/fm-agy-print-live-e2e.test.sh
+```
+
+Observed bounded output:
+
+```text
+ok - agy 1.2.1 plain JSON envelope passed with gemini-3.8-flash-low at low effort
+ok - agy 1.2.1 schema output passed with gemini-3.8-flash-low at low effort
+```
+
+The opt-in guard invokes `bin/fm-agy-print.sh` from separate isolated directories for plain and schema-constrained prompts.
+It requires agy to emit a `SUCCESS` JSON envelope for the plain prompt and the requested non-empty `structured_output` object for the schema prompt.
+Run it after an agy upgrade before refreshing this evidence.
+
 ## tmux
 
 Foreground-process behavior was verified on 2026-07-07 with tmux 3.6a on macOS.
@@ -89,8 +109,12 @@ The real-harness drift guard spends no model tokens, so under the policy in `.ag
 Run the live guard after any harness upgrade and before trusting or refreshing the table above:
 
 ```sh
+bin/fm-test-run.sh tests/fm-tmux-agent-liveness.test.sh
 FM_HARNESS_LIVENESS_DRIFT=1 bin/fm-test-run.sh tests/fm-harness-liveness-drift-live-e2e.test.sh
 ```
+
+The portable guard runs a real Node process whose script argument is named `qwen` and asserts through `fm_backend_tmux_agent_state` that it is alive even though the pane title, foreground `comm`, and `argv[0]` are all interpreter identities.
+The installed-harness guard includes Qwen so a vendor change to that Node-bundle shape is checked without model traffic.
 
 ### 2026-09-06 default-on drift refresh, and the Cursor editor CLI collision
 
@@ -568,6 +592,14 @@ teardown gm2 complete; state/gm2.gemini-settings.json removed
 
 Gemini as a PRIMARY or SECONDMATE runtime is unverified and is refused by `bin/fm-spawn.sh`: no wake protocol exists under `docs/supervision-protocols/` and no turn-end guard adapter was built or exercised.
 No reasoning-effort axis was found; `gemini --help` on 0.58.0 exposes no effort, reasoning, or thinking flag, so the record-and-omit contract applies.
+
+## Qwen Code
+
+The Qwen Code crewmate/scout adapter was verified on 2026-09-15 with qwen 0.23.0 (hooks, detection) and re-verified the same day on 0.23.4 (supervised TUI dispatch) on Linux, Node v26.7.0, Ollama 0.32.14.
+[`qwen.md`](qwen.md) owns the dated commands, hook evidence, supervised-dispatch proof, model context measurements, and the false-success negative (the model did not claim; the independent gate stayed red), and [its refresh section](qwen.md#refreshing-this-record) owns the rerun commands.
+
+Qwen as a primary or secondmate runtime is unverified and is refused by `bin/fm-spawn.sh`.
+The adapter is Linux-only; a non-Linux spawn or relaunch refuses as `qwen-platform-unsupported`.
 
 ## Herdr
 

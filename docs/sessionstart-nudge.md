@@ -1,6 +1,6 @@
 # Native session-start adapters
 
-AGENTS.md section 3 is the authoritative behavioral contract for session start.
+[`session-start-recovery`](../.agents/skills/session-start-recovery/SKILL.md) is the authoritative behavioral contract for session start, triggered by `AGENTS.md` section 3.
 This file owns how the tracked native session-open adapters deliver it, and the compatibility limits that force two tiers rather than one.
 
 Firstmate ships two session-open tiers, and the tier is a property of the harness surface, not of the home.

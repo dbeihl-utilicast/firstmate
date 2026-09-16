@@ -607,6 +607,32 @@ test_prefixed_recorded_harness_requires_explicit_replacement() {
   pass "fm-control relaunch: a prefixed command requires an explicit replacement harness"
 }
 
+test_relaunch_reuses_a_verified_recorded_harness_without_an_explicit_one() {
+  local dir out rc
+  dir=$(new_case foundryluna rl45)
+  add_ship_task "$dir" rl45 codex-foundry-luna
+  printf 'codex' > "$dir/fake/command"
+  printf 'codex' > "$dir/fake/becomes"
+  # A codex-foundry-luna spawn preflights `command -v az`, so stub it rather
+  # than let this case pass or fail on the host's own tool inventory.
+  fm_fake_exit0 "$dir/fakebin" az
+  # It also preflights this home's own config/foundry-luna.json
+  # (docs/configuration.md "Foundry Luna endpoint"); write an obviously fake one.
+  mkdir -p "$dir/home/config"
+  printf '{"host":"fixture-account.services.ai.azure.com","subscription_id":"00000000-0000-0000-0000-000000000000"}\n' \
+    > "$dir/home/config/foundry-luna.json"
+
+  out=$(run_control "$dir" rl45 relaunch --note "continue on the live runtime"); rc=$?
+  expect_code 0 "$rc" "a bare relaunch of a verified recorded harness should succeed"$'\n'"$out"
+  assert_contains "$out" "harness=codex-foundry-luna from=codex-foundry-luna" \
+    "the relaunch must stay on the recorded adapter rather than its control family"
+  [ "$(meta_field "$dir" rl45 harness)" = codex-foundry-luna ] \
+    || fail "the record must keep the recorded adapter, got '$(meta_field "$dir" rl45 harness)'"
+  assert_grep "fm-foundry-luna-proxy.py" "$dir/fake/literal" \
+    "the replacement launch must be the recorded adapter's own launch command"
+  pass "fm-control relaunch: a verified recorded harness relaunches without an explicit --harness"
+}
+
 test_same_harness_relaunch_keeps_the_profile_axes() {
   local dir out rc
   dir=$(new_case keepprofile rl6)
@@ -845,6 +871,85 @@ test_secondmate_relaunch_onto_a_crewmate_only_adapter_refuses_before_stop() {
   [ "$(meta_field "$dir" sm7 harness)" = claude ] \
     || fail "a refused relaunch must leave the durable record on the recorded harness"
   pass "fm-control relaunch: an adapter unverified for this task kind refuses before the agent is stopped"
+}
+
+test_qwen_relaunch_without_auth_refuses_before_stop() {
+  local dir out rc before
+  dir=$(new_case qwenauth rl42)
+  add_ship_task "$dir" rl42 claude
+  before="$dir/meta-before"
+  cp "$dir/home/state/rl42.meta" "$before"
+
+  out=$(QWEN_DEFAULT_AUTH_TYPE='' OPENAI_API_KEY='' OPENAI_BASE_URL='' \
+    run_control "$dir" rl42 relaunch --harness qwen --note "continue on qwen")
+  rc=$?
+  expect_code 1 "$rc" "a qwen relaunch without auth should refuse"
+  assert_contains "$out" "qwen-auth-unavailable" \
+    "the refusal should name the missing Qwen auth contract"
+  [ "$(cat "$dir/fake/command")" = claude ] \
+    || fail "the Qwen auth refusal stopped the running agent"
+  [ ! -s "$dir/fake/literal" ] || fail "the Qwen auth refusal sent lifecycle input"
+  cmp -s "$before" "$dir/home/state/rl42.meta" \
+    || fail "the Qwen auth refusal changed task metadata"
+  assert_absent "$dir/home/state/rl42.control-relaunch" \
+    "the Qwen auth refusal began a relaunch transaction"
+  pass "fm-control relaunch: Qwen auth refuses before the running agent is touched"
+}
+
+test_qwen_relaunch_without_executable_refuses_before_stop() {
+  local dir out rc before path_without_qwen
+  dir=$(new_case qwenbin rl43)
+  add_ship_task "$dir" rl43 claude
+  before="$dir/meta-before"
+  cp "$dir/home/state/rl43.meta" "$before"
+  path_without_qwen=$(fm_test_base_path_sans "$PATH" qwen)
+  ln -s /usr/bin/env "$dir/fakebin/env"
+
+  out=$(PATH="$dir/fakebin:$path_without_qwen" QWEN_DEFAULT_AUTH_TYPE=openai \
+    OPENAI_API_KEY=ollama OPENAI_BASE_URL=http://127.0.0.1:11434/v1 \
+    run_control "$dir" rl43 relaunch --harness qwen --note "continue on qwen")
+  rc=$?
+  expect_code 1 "$rc" "a qwen relaunch without its executable should refuse"$'\n'"$out"
+  assert_contains "$out" "qwen-executable-unavailable" \
+    "the refusal should name the missing Qwen executable"
+  [ "$(cat "$dir/fake/command")" = claude ] \
+    || fail "the Qwen executable refusal stopped the running agent"
+  [ ! -s "$dir/fake/literal" ] || fail "the Qwen executable refusal sent lifecycle input"
+  cmp -s "$before" "$dir/home/state/rl43.meta" \
+    || fail "the Qwen executable refusal changed task metadata"
+  assert_absent "$dir/home/state/rl43.control-relaunch" \
+    "the Qwen executable refusal began a relaunch transaction"
+  pass "fm-control relaunch: a missing Qwen executable refuses before stop"
+}
+
+test_qwen_relaunch_off_linux_refuses_before_stop() {
+  local dir out rc before
+  dir=$(new_case qwenos rl44)
+  add_ship_task "$dir" rl44 claude
+  before="$dir/meta-before"
+  cp "$dir/home/state/rl44.meta" "$before"
+  cat > "$dir/fakebin/uname" <<'SH'
+#!/usr/bin/env bash
+[ "$*" = -s ] && { echo Darwin; exit 0; }
+exec /usr/bin/env -u PATH PATH=/usr/bin:/bin uname "$@"
+SH
+  chmod +x "$dir/fakebin/uname"
+
+  out=$(PATH="$dir/fakebin:$PATH" QWEN_DEFAULT_AUTH_TYPE=openai \
+    OPENAI_API_KEY=ollama OPENAI_BASE_URL=http://127.0.0.1:11434/v1 \
+    run_control "$dir" rl44 relaunch --harness qwen --note "continue on qwen")
+  rc=$?
+  expect_code 1 "$rc" "a qwen relaunch off Linux should refuse"$'\n'"$out"
+  assert_contains "$out" "qwen-platform-unsupported" \
+    "the refusal should name the Linux-only Qwen adapter"
+  [ "$(cat "$dir/fake/command")" = claude ] \
+    || fail "the Qwen platform refusal stopped the running agent"
+  [ ! -s "$dir/fake/literal" ] || fail "the Qwen platform refusal sent lifecycle input"
+  cmp -s "$before" "$dir/home/state/rl44.meta" \
+    || fail "the Qwen platform refusal changed task metadata"
+  assert_absent "$dir/home/state/rl44.control-relaunch" \
+    "the Qwen platform refusal began a relaunch transaction"
+  pass "fm-control relaunch: a non-Linux host refuses Qwen before stop"
 }
 
 test_explicit_secondmate_harness_ignores_configured_profile_axes() {
@@ -1569,6 +1674,7 @@ test_harness_switch_moves_the_record_and_clears_prior_wiring
 test_harness_switch_does_not_carry_the_old_profile_axes
 test_harness_switch_resolves_a_prefixed_recorded_harness
 test_prefixed_recorded_harness_requires_explicit_replacement
+test_relaunch_reuses_a_verified_recorded_harness_without_an_explicit_one
 test_same_harness_relaunch_keeps_the_profile_axes
 test_native_ultra_relaunch_preserves_profile_and_rejects_before_stop
 test_explicit_model_wins_over_the_recorded_one
@@ -1579,6 +1685,9 @@ test_turnend_auth_paths_are_owned_by_the_control_adapter
 test_secondmate_relaunch_picks_up_the_configured_harness_pin
 test_secondmate_relaunch_ignores_invalid_configured_effort_before_stop
 test_secondmate_relaunch_onto_a_crewmate_only_adapter_refuses_before_stop
+test_qwen_relaunch_without_auth_refuses_before_stop
+test_qwen_relaunch_without_executable_refuses_before_stop
+test_qwen_relaunch_off_linux_refuses_before_stop
 test_explicit_secondmate_harness_ignores_configured_profile_axes
 test_ship_relaunch_ignores_the_crew_harness_config
 test_spawn_relaunch_without_a_harness_reuses_the_recorded_one

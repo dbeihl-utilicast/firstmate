@@ -1,13 +1,7 @@
 {
   "version": 1,
   "scope": {
-    "trackedPatterns": [
-      "*.md",
-      "*.mdx",
-      "*.rst",
-      "*.txt",
-      "docs/examples/*"
-    ],
+    "trackedPatterns": ["*.md", "*.mdx", "*.rst", "*.txt", "docs/examples/*"],
     "description": "Tracked Markdown-like prose, including symlinked aliases, plus copyable documentation examples. Script headers, executable configuration, generated JSON evidence, and legal text keep their existing code/config/legal owners."
   },
   "allowedAudiences": [
@@ -18,11 +12,7 @@
     "maintainer-verification",
     "agent-runtime"
   ],
-  "setupAudiences": [
-    "public-product",
-    "operator-current",
-    "operator-example"
-  ],
+  "setupAudiences": ["public-product", "operator-current", "operator-example"],
   "readmeSetupTargets": [
     "docs/configuration.md",
     "docs/wedge-alarm.md",
@@ -113,11 +103,19 @@
       "audience": "agent-runtime"
     },
     {
+      "path": ".agents/skills/agy-print/SKILL.md",
+      "audience": "agent-runtime"
+    },
+    {
       "path": ".agents/skills/ahoy/SKILL.md",
       "audience": "agent-runtime"
     },
     {
       "path": ".agents/skills/ask-user-authority/SKILL.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": ".agents/skills/backlog-management/SKILL.md",
       "audience": "agent-runtime"
     },
     {
@@ -150,6 +148,14 @@
     },
     {
       "path": ".agents/skills/firstmate-orca/SKILL.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": ".agents/skills/firstmate-validation/SKILL.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": ".agents/skills/fleet-supervision/SKILL.md",
       "audience": "agent-runtime"
     },
     {
@@ -217,7 +223,19 @@
       "audience": "agent-runtime"
     },
     {
+      "path": ".agents/skills/harness-adapters/references/harness/qwen.md",
+      "audience": "agent-runtime"
+    },
+    {
       "path": ".agents/skills/harness-adapters/references/harness/rovo.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": ".agents/skills/investigation-intake/SKILL.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": ".agents/skills/pr-landing-and-cleanup/SKILL.md",
       "audience": "agent-runtime"
     },
     {
@@ -237,6 +255,10 @@
       "audience": "agent-runtime"
     },
     {
+      "path": ".agents/skills/session-start-recovery/SKILL.md",
+      "audience": "agent-runtime"
+    },
+    {
       "path": ".agents/skills/stow/SKILL.md",
       "audience": "agent-runtime"
     },
@@ -245,7 +267,15 @@
       "audience": "agent-runtime"
     },
     {
+      "path": ".agents/skills/task-briefing/SKILL.md",
+      "audience": "agent-runtime"
+    },
+    {
       "path": ".agents/skills/updatefirstmate/SKILL.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": ".agents/skills/worker-handoff/SKILL.md",
       "audience": "agent-runtime"
     },
     {
@@ -334,6 +364,14 @@
     },
     {
       "path": "docs/examples/process-event-extension/firstmate-extension.json",
+      "audience": "operator-example"
+    },
+    {
+      "path": "docs/examples/host-plugins.json",
+      "audience": "operator-example"
+    },
+    {
+      "path": "docs/examples/foundry-luna.json",
       "audience": "operator-example"
     },
     {
@@ -433,6 +471,10 @@
       "audience": "operator-current"
     },
     {
+      "path": "docs/verification/codex-foundry-luna.md",
+      "audience": "maintainer-verification"
+    },
+    {
       "path": "docs/verification/dispatch-auth.md",
       "audience": "maintainer-verification"
     },
@@ -450,6 +492,10 @@
     },
     {
       "path": "docs/verification/public-followup.md",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "docs/verification/qwen.md",
       "audience": "maintainer-verification"
     },
     {

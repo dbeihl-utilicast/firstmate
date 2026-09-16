@@ -2,7 +2,7 @@
 # Check, and optionally repair, one remote account's second-mate readiness.
 #
 # Usage:
-#   bin/fm-on.sh <secondmate-id|ssh-alias> fm-remote-doctor.sh [--fix]
+#   bin/fm-on.sh <secondmate-id|ssh-alias> fm-remote-doctor.sh [--fix] [--skip-check host-plugins]
 #
 # Run it through fm-on.sh so the fixed entrypoint invokes this readiness owner
 # over its plain SSH bootstrap. The command reports the same filesystem-composed
@@ -47,11 +47,16 @@
 #
 # --fix is idempotent and closes only automatable gaps: it writes and reloads
 # both Firstmate-owned Aqua agents, starts the Linux workers where no Aqua agent
-# applies, recreates the entrypoint symlink, and may add an owned ~/.local/bin
-# wrapper for a required tool it can discover under nvm, asdf, or mise. It never
-# installs packages, creates a login session, writes an auto-login password,
-# changes FileVault, stores an account password, or replaces a non-Firstmate
-# wrapper; those remain reported gaps.
+# applies, recreates the entrypoint symlink, may add an owned ~/.local/bin
+# wrapper for a required tool it can discover under nvm, asdf, or mise, and may
+# directly request only the Claude Code marketplaces and plugins named in the
+# optional gitignored config/host-plugins.json catalogue (schema:
+# docs/configuration.md). Claude may auto-install a dependency outside that
+# catalogue; the final inventory refuses launch but leaves it installed until
+# the operator removes or catalogues it. It never installs Claude Code itself,
+# supplies credentials, installs required-tool packages, creates a login
+# session, writes an auto-login password, changes FileVault, stores an account
+# password, or replaces a non-Firstmate wrapper; those remain reported gaps.
 set -eu
 
 # Resolve this script's directory with builtins only: a host missing a required
@@ -84,17 +89,23 @@ ENTRYPOINT_LINK="${HOME:-}/.local/bin/fm-remote-entrypoint.sh"
 usage() { sed -n '2,5p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 
 MODE=check
-case "${1:-}" in
-  '') ;;
-  --fix) MODE=fix; shift ;;
-  --worker-tool-probe)
-    [ "${FM_REMOTE_JOB_ACTIVE:-}" = 1 ] || { printf 'error: worker tool probe requires the remote job worker\n' >&2; exit 64; }
-    MODE='worker-tool-probe'
-    shift
-    ;;
-  *) usage ;;
-esac
-[ "$#" -eq 0 ] || usage
+SKIP_HOST_PLUGINS=0
+if [ "${1:-}" = --worker-tool-probe ]; then
+  [ "${FM_REMOTE_JOB_ACTIVE:-}" = 1 ] || { printf 'error: worker tool probe requires the remote job worker\n' >&2; exit 64; }
+  MODE='worker-tool-probe'
+  shift
+fi
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --fix) MODE=fix; shift ;;
+    --skip-check)
+      [ "${2:-}" = host-plugins ] || usage
+      SKIP_HOST_PLUGINS=1
+      shift 2
+      ;;
+    *) usage ;;
+  esac
+done
 
 PLATFORM=$(fm_remote_job_platform)
 UID_NUM=$(id -u 2>/dev/null) || UID_NUM=
@@ -718,6 +729,836 @@ check_entrypoint_link() {
     "rerun this command with --fix to create it"
 }
 
+# Optional Claude Code plugin catalogue from gitignored config/host-plugins.json.
+# Absent, unreadable-as-absent, or empty of work is skip/ok; the schema is owned
+# by docs/configuration.md. HOST_PLUGINS_AUTH_ITEMS remembers marketplace names
+# or plugin@marketplace ids whose --fix clone or install failed on authentication
+# so the post-repair re-check reports a human gap instead of a loop of fixable.
+HOST_PLUGINS_AUTH_ITEMS=
+HOST_PLUGINS_DEPENDENCY_GAP=
+
+host_plugins_config_path() {
+  if [ -n "${FM_CONFIG_OVERRIDE:-}" ]; then
+    printf '%s/host-plugins.json' "${FM_CONFIG_OVERRIDE%/}"
+    return 0
+  fi
+  [ -n "${FM_HOME:-}" ] || return 1
+  printf '%s/config/host-plugins.json' "${FM_HOME%/}"
+}
+
+host_plugins_auth_failure() { # <text>
+  printf '%s' "$1" | grep -qiE 'auth(enticat|orization)|permission denied|could not read (username|password)|terminal prompts disabled|denied \(publickey\)|(^|[[:space:]])(401|403)([[:space:]]|$)'
+}
+
+host_plugins_in_auth_items() { # <id>
+  local id=$1 item
+  for item in $HOST_PLUGINS_AUTH_ITEMS; do
+    [ "$item" = "$id" ] && return 0
+  done
+  return 1
+}
+
+host_plugins_note_auth() { # <id>
+  host_plugins_in_auth_items "$1" && return 0
+  HOST_PLUGINS_AUTH_ITEMS="${HOST_PLUGINS_AUTH_ITEMS:+$HOST_PLUGINS_AUTH_ITEMS }$1"
+}
+
+host_plugins_parse_catalogue() { # <path>
+  python3 - "$1" <<'PY'
+import json, sys
+from urllib.parse import urlsplit
+path = sys.argv[1]
+try:
+    with open(path, "r", encoding="utf-8") as handle:
+        data = json.load(handle)
+except Exception as exc:
+    print("ERROR cannot parse JSON: %s" % exc)
+    sys.exit(0)
+if not isinstance(data, dict):
+    print("ERROR catalogue must be a JSON object")
+    sys.exit(0)
+if "marketplaces" not in data or "plugins" not in data:
+    print("ERROR catalogue must contain marketplaces and plugins arrays")
+    sys.exit(0)
+if not isinstance(data["marketplaces"], list) or not isinstance(data["plugins"], list):
+    print("ERROR marketplaces and plugins must be arrays")
+    sys.exit(0)
+seen_mp = set()
+for index, marketplace in enumerate(data["marketplaces"]):
+    if not isinstance(marketplace, dict):
+        print("ERROR marketplaces[%d] must be an object" % index)
+        sys.exit(0)
+    name = marketplace.get("name")
+    source = marketplace.get("source")
+    if not isinstance(name, str) or not name.strip() or not isinstance(source, str) or not source.strip():
+        print("ERROR marketplaces[%d] needs nonempty name and source strings" % index)
+        sys.exit(0)
+    name = name.strip()
+    source = source.strip()
+    if any(char in name or char in source for char in "\n\r\t"):
+        print("ERROR marketplaces[%d] name or source contains a control character" % index)
+        sys.exit(0)
+    try:
+        source_url = urlsplit(source)
+        has_credentials = source_url.username is not None or source_url.password is not None
+    except ValueError:
+        source_url = None
+        has_credentials = False
+    if has_credentials:
+        print("ERROR marketplaces[%d] source must not contain credentials" % index)
+        sys.exit(0)
+    if source_url is None or source_url.scheme != "https" or not source_url.hostname \
+            or not source_url.path.endswith(".git") or source_url.query or source_url.fragment:
+        print("ERROR marketplaces[%d] source must be a canonical HTTPS Git URL ending in .git" % index)
+        sys.exit(0)
+    if name in seen_mp:
+        print("ERROR duplicate marketplace name: %s" % name)
+        sys.exit(0)
+    seen_mp.add(name)
+    print("MARKETPLACE\t%s\t%s" % (name, source))
+seen_plugin = set()
+for index, plugin in enumerate(data["plugins"]):
+    if not isinstance(plugin, str):
+        print("ERROR plugins[%d] must be a plugin@marketplace string" % index)
+        sys.exit(0)
+    plugin = plugin.strip()
+    if plugin.count("@") != 1:
+        print("ERROR plugins[%d] must be plugin@marketplace" % index)
+        sys.exit(0)
+    name, marketplace = plugin.split("@", 1)
+    if not name or not marketplace:
+        print("ERROR plugins[%d] must be plugin@marketplace" % index)
+        sys.exit(0)
+    if marketplace not in seen_mp:
+        print("ERROR plugin %s names marketplace %s which is not in marketplaces" % (plugin, marketplace))
+        sys.exit(0)
+    if plugin in seen_plugin:
+        print("ERROR duplicate plugin: %s" % plugin)
+        sys.exit(0)
+    seen_plugin.add(plugin)
+    print("PLUGIN\t%s\t%s" % (name, marketplace))
+print("OK")
+PY
+}
+
+# CLAUDE_CONFIG_DIR must be absolute when set; otherwise HOME is used.
+host_plugins_config_dir() {
+  case ${CLAUDE_CONFIG_DIR:-} in
+    '')
+      [ -n "${HOME:-}" ] || return 1
+      printf '%s\n' "$HOME"
+      ;;
+    /*)
+      printf '%s\n' "$CLAUDE_CONFIG_DIR"
+      ;;
+    *)
+      return 2
+      ;;
+  esac
+}
+
+host_plugins_claude() {
+  local dir rc
+  dir=$(host_plugins_config_dir)
+  rc=$?
+  [ "$rc" -eq 0 ] || return 1
+  if [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then
+    CLAUDE_CONFIG_DIR=$dir GIT_TERMINAL_PROMPT=0 command claude "$@" </dev/null
+  else
+    GIT_TERMINAL_PROMPT=0 command claude "$@" </dev/null
+  fi
+}
+
+host_plugins_marketplace_rows() {
+  python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+if not isinstance(data, list):
+    sys.exit(1)
+for item in data:
+    if not isinstance(item, dict):
+        continue
+    name = item.get("name") or ""
+    if not name:
+        continue
+    url = item.get("url")
+    source = item.get("source")
+    location = item.get("installLocation")
+    bound = ""
+    if isinstance(url, str) and url.strip():
+        bound = url.strip()
+    elif isinstance(source, str) and source.strip() and "://" in source:
+        bound = source.strip()
+    if not isinstance(location, str):
+        location = ""
+    print("%s\t%s\t%s" % (name, bound, location.strip()))
+'
+}
+
+host_plugins_source_matches() { # <configured> <bound>
+  local configured=$1 bound=$2
+  [ -n "$bound" ] && [ "$configured" = "$bound" ]
+}
+
+host_plugins_registered_source() { # <name> <rows> -> bound source or empty
+  local name=$1 rows=$2 line row_name rest
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    row_name=${line%%$'\t'*}
+    [ "$row_name" = "$name" ] || continue
+    rest=${line#*$'\t'}
+    printf '%s\n' "${rest%%$'\t'*}"
+    return 0
+  done <<EOF
+$rows
+EOF
+  return 1
+}
+
+host_plugins_dependency_audit() { # <catalogue-path> <marketplace-json> <plugin-json> <stage-missing:0|1>
+  FM_HOST_PLUGIN_MARKETPLACES_JSON=$2 \
+    FM_HOST_PLUGIN_LIST_JSON=$3 \
+    FM_HOST_PLUGIN_STAGE_MISSING=$4 \
+    python3 - "$1" <<'PY'
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+
+
+class AuditError(Exception):
+    pass
+
+
+def source_bound(item):
+    url = item.get("url")
+    source = item.get("source")
+    if isinstance(url, str) and url.strip():
+        return url.strip()
+    if isinstance(source, str) and source.strip() and "://" in source:
+        return source.strip()
+    return ""
+
+
+def source_matches(configured, bound):
+    return bool(bound) and configured == bound
+
+
+def load_json(path, label):
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            return json.load(handle)
+    except Exception as exc:
+        raise AuditError("%s is not usable JSON: %s" % (label, exc)) from exc
+
+
+def marketplace_root(item, name):
+    location = item.get("installLocation")
+    if not isinstance(location, str) or not location.strip():
+        raise AuditError("marketplace %s has no resolved installLocation" % name)
+    location_path = Path(location)
+    if not location_path.is_absolute():
+        raise AuditError("marketplace %s installLocation is not absolute" % name)
+    root = location_path.resolve()
+    if not root.is_dir():
+        raise AuditError("marketplace %s installLocation is not a directory" % name)
+    return root
+
+
+def child_path(root, relative, label):
+    candidate = (root / relative).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError as exc:
+        raise AuditError("%s escapes its marketplace checkout" % label) from exc
+    return candidate
+
+
+catalogue_path = Path(sys.argv[1])
+stage_missing = os.environ.get("FM_HOST_PLUGIN_STAGE_MISSING") == "1"
+try:
+    catalogue = load_json(catalogue_path, "host plugin catalogue")
+    current = json.loads(os.environ["FM_HOST_PLUGIN_MARKETPLACES_JSON"])
+    installed = json.loads(os.environ["FM_HOST_PLUGIN_LIST_JSON"])
+    if not isinstance(current, list):
+        raise AuditError("Claude marketplace list is not an array")
+    if not isinstance(installed, list):
+        raise AuditError("Claude plugin list is not an array")
+except AuditError as exc:
+    print("ERROR %s" % exc)
+    sys.exit(0)
+except Exception as exc:
+    print("ERROR Claude plugin metadata is not usable JSON: %s" % exc)
+    sys.exit(0)
+
+marketplaces = {item["name"]: item["source"] for item in catalogue["marketplaces"]}
+configured_plugins = set(catalogue["plugins"])
+current_by_name = {
+    item.get("name"): item
+    for item in current
+    if isinstance(item, dict) and isinstance(item.get("name"), str)
+}
+installed_by_id = {
+    item.get("id"): item
+    for item in installed
+    if isinstance(item, dict) and item.get("scope") == "user" and isinstance(item.get("id"), str)
+}
+
+try:
+    with tempfile.TemporaryDirectory(prefix="fm-host-plugin-audit.") as probe_dir:
+        roots = {}
+        for index, (name, source) in enumerate(marketplaces.items()):
+            item = current_by_name.get(name)
+            if item is not None:
+                if source_matches(source, source_bound(item)):
+                    roots[name] = marketplace_root(item, name)
+                continue
+            if not stage_missing:
+                continue
+            git = shutil.which("git")
+            if not git:
+                raise AuditError("git does not resolve while staging marketplace %s" % name)
+            destination = Path(probe_dir) / ("marketplace-%d" % index)
+            env = os.environ.copy()
+            env["GIT_TERMINAL_PROMPT"] = "0"
+            cloned = subprocess.run(
+                [git, "clone", "--depth", "1", "--", source, str(destination)],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=env,
+                check=False,
+            )
+            if cloned.returncode != 0:
+                raise AuditError("marketplace %s could not be staged with git" % name)
+            roots[name] = destination.resolve()
+
+        marketplace_entries = {}
+        for name, root in roots.items():
+            marketplace_manifest = child_path(root, ".claude-plugin/marketplace.json", "marketplace %s manifest" % name)
+            if not marketplace_manifest.is_file():
+                raise AuditError("marketplace %s has no .claude-plugin/marketplace.json" % name)
+            manifest = load_json(marketplace_manifest, "marketplace %s manifest" % name)
+            manifest_name = manifest.get("name") if isinstance(manifest, dict) else None
+            if manifest_name != name:
+                raise AuditError("marketplace %s manifest name does not match its configured name" % name)
+            entries = manifest.get("plugins")
+            if not isinstance(entries, list):
+                raise AuditError("marketplace %s manifest has no plugins array" % name)
+            marketplace_entries[name] = entries
+
+        uncatalogued = set()
+        for plugin_id in sorted(configured_plugins):
+            plugin, marketplace = plugin_id.rsplit("@", 1)
+            installed_item = installed_by_id.get(plugin_id)
+            if installed_item is not None:
+                install_path = installed_item.get("installPath")
+                if not isinstance(install_path, str) or not install_path.strip():
+                    raise AuditError("%s has no resolved installPath" % plugin_id)
+                install_path = Path(install_path)
+                if not install_path.is_absolute():
+                    raise AuditError("%s installPath is not absolute" % plugin_id)
+                plugin_root = install_path.resolve()
+                if not plugin_root.is_dir():
+                    raise AuditError("%s installPath is not a directory" % plugin_id)
+            else:
+                root = roots.get(marketplace)
+                if root is None:
+                    continue
+                entries = marketplace_entries[marketplace]
+                matches = [entry for entry in entries if isinstance(entry, dict) and entry.get("name") == plugin]
+                if len(matches) != 1:
+                    raise AuditError("%s does not resolve to exactly one marketplace entry" % plugin_id)
+                plugin_source = matches[0].get("source")
+                if not isinstance(plugin_source, str) or not plugin_source.strip():
+                    raise AuditError("%s has no local marketplace source" % plugin_id)
+                plugin_root = child_path(root, plugin_source, plugin_id)
+            plugin_manifest = child_path(plugin_root, ".claude-plugin/plugin.json", "%s manifest" % plugin_id)
+            if not plugin_manifest.is_file():
+                raise AuditError("%s has no .claude-plugin/plugin.json" % plugin_id)
+            plugin_data = load_json(plugin_manifest, "%s manifest" % plugin_id)
+            if not isinstance(plugin_data, dict) or plugin_data.get("name") != plugin:
+                raise AuditError("%s manifest name does not match its marketplace entry" % plugin_id)
+            dependencies = plugin_data.get("dependencies", [])
+            if not isinstance(dependencies, list):
+                raise AuditError("%s dependencies must be an array" % plugin_id)
+            for dependency in dependencies:
+                if not isinstance(dependency, str) or not dependency.strip() or dependency.count("@") > 1 \
+                        or any(character in dependency for character in "\n\r\t"):
+                    raise AuditError("%s has an invalid dependency declaration" % plugin_id)
+                dependency = dependency.strip()
+                dependency_id = dependency if "@" in dependency else "%s@%s" % (dependency, marketplace)
+                if dependency_id not in configured_plugins:
+                    uncatalogued.add((plugin_id, dependency_id))
+        if uncatalogued:
+            print("UNCATALOGUED " + ", ".join("%s requires %s" % item for item in sorted(uncatalogued)))
+        else:
+            print("OK")
+except AuditError as exc:
+    print("ERROR %s" % exc)
+PY
+}
+
+host_plugins_record_dependency_gap() { # <audit-result>
+  case "$1" in
+    UNCATALOGUED*)
+      record host-plugins "human: configured plugin dependency is not named in the host plugin catalogue (${1#UNCATALOGUED })" \
+        "add every authorized dependency to config/host-plugins.json or remove the dependency from its plugin manifest, then rerun this command with --fix"
+      ;;
+    *)
+      record host-plugins "human: configured plugin dependencies could not be verified (${1#ERROR })" \
+        "repair access to the named marketplace source or its plugin manifest, then rerun this command with --fix"
+      ;;
+  esac
+}
+
+host_plugins_plugin_rows() {
+  python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+if not isinstance(data, list):
+    sys.exit(1)
+for item in data:
+    if not isinstance(item, dict):
+        continue
+    pid = item.get("id") or ""
+    if not pid:
+        continue
+    enabled = "1" if item.get("enabled") is True else "0"
+    scope = item.get("scope") or ""
+    errors = item.get("errors")
+    error_json = json.dumps(errors, ensure_ascii=True, sort_keys=True, separators=(",", ":")) if errors else ""
+    print("%s\t%s\t%s\t%s" % (pid, enabled, scope, error_json))
+'
+}
+
+host_plugins_first_skill() {
+  python3 -c '
+import re, sys
+text = sys.stdin.read()
+match = re.search(r"(?im)^\s*Skills\s*\((\d+)\)\s*(.*)$", text)
+if not match or int(match.group(1)) < 1:
+    sys.exit(1)
+names = [name.strip() for name in match.group(2).split(",") if name.strip()]
+if not names:
+    sys.exit(1)
+print(names[0])
+'
+}
+
+host_plugins_user_plugin_state() { # <plugin@marketplace> <rows> -> prints enabled|disabled|missing
+  local id=$1 rows=$2 line pid rest enabled scope
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    pid=${line%%$'\t'*}
+    rest=${line#*$'\t'}
+    enabled=${rest%%$'\t'*}
+    rest=${rest#*$'\t'}
+    scope=${rest%%$'\t'*}
+    [ "$pid" = "$id" ] || continue
+    [ "$scope" = user ] || continue
+    if [ "$enabled" = 1 ]; then
+      printf 'enabled\n'
+    else
+      printf 'disabled\n'
+    fi
+    return 0
+  done <<EOF
+$rows
+EOF
+  printf 'missing\n'
+}
+
+host_plugins_user_plugin_errors() { # <plugin@marketplace> <rows>
+  local id=$1 rows=$2 line pid rest scope errors
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    pid=${line%%$'\t'*}
+    rest=${line#*$'\t'}
+    rest=${rest#*$'\t'}
+    scope=${rest%%$'\t'*}
+    case "$rest" in
+      *$'\t'*) errors=${rest#*$'\t'} ;;
+      *) errors= ;;
+    esac
+    [ "$pid" = "$id" ] || continue
+    [ "$scope" = user ] || continue
+    [ -n "$errors" ] || continue
+    printf '%s\n' "$errors"
+    return 0
+  done <<EOF
+$rows
+EOF
+  return 1
+}
+
+check_host_plugins() {
+  local path parsed line name source plugin marketplace claude_bin rest id
+  local mp_json mp_rows plugin_json plugin_rows state details i bound host_plugins_dir_rc dependency_audit
+  local row_pid configured seen candidate load_error
+  local missing_mp=() mismatched_mp=() missing_plugin=() disabled_plugin=() unresolved=() auth_human=() unexpected_plugin=() load_errors=()
+  local -a marketplaces_n=() marketplaces_s=() plugins_n=() plugins_m=()
+  local ready_mp=()
+  if ! path=$(host_plugins_config_path); then
+    record host-plugins "skip: no host plugin catalogue is configured"
+    return 0
+  fi
+  if [ ! -e "$path" ] && [ ! -L "$path" ]; then
+    record host-plugins "skip: no host plugin catalogue is configured"
+    return 0
+  fi
+  if [ -L "$path" ] || [ ! -f "$path" ]; then
+    record host-plugins "human: $path exists but is not a regular file" \
+      "replace it with a regular config/host-plugins.json; Firstmate never follows a symlink there"
+    return 0
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    record host-plugins "human: python3 does not resolve, so the host plugin catalogue cannot be read" \
+      "install python3 on that account, then rerun this command"
+    return 0
+  fi
+  parsed=$(host_plugins_parse_catalogue "$path") || parsed="ERROR cannot parse the host plugin catalogue"
+  case "$parsed" in
+    ERROR*)
+      record host-plugins "human: $path is not a usable host plugin catalogue (${parsed#ERROR })" \
+        "correct config/host-plugins.json against docs/configuration.md, then rerun this command"
+      return 0
+      ;;
+  esac
+  case "$parsed" in
+    OK|*$'\n'OK) ;;
+    *)
+      record host-plugins "human: $path is not a usable host plugin catalogue" \
+        "correct config/host-plugins.json against docs/configuration.md, then rerun this command"
+      return 0
+      ;;
+  esac
+  while IFS= read -r line; do
+    case "$line" in
+      MARKETPLACE$'\t'*)
+        rest=${line#MARKETPLACE$'\t'}
+        name=${rest%%$'\t'*}
+        source=${rest#*$'\t'}
+        marketplaces_n+=("$name")
+        marketplaces_s+=("$source")
+        ;;
+      PLUGIN$'\t'*)
+        rest=${line#PLUGIN$'\t'}
+        plugin=${rest%%$'\t'*}
+        marketplace=${rest#*$'\t'}
+        plugins_n+=("$plugin")
+        plugins_m+=("$marketplace")
+        ;;
+    esac
+  done <<EOF
+$parsed
+EOF
+  claude_bin=$(command -v claude 2>/dev/null || true)
+  if [ -z "$claude_bin" ] || [ ! -x "$claude_bin" ]; then
+    record host-plugins "human: the claude CLI does not resolve, so the configured plugin catalogue cannot be checked" \
+      "install Claude Code on that account so its plugin CLI is on PATH; Firstmate does not install Claude Code"
+    return 0
+  fi
+  host_plugins_dir_rc=0
+  host_plugins_config_dir >/dev/null || host_plugins_dir_rc=$?
+  if [ "$host_plugins_dir_rc" -eq 2 ]; then
+    record host-plugins "human: CLAUDE_CONFIG_DIR is a relative path, so the Claude config store cannot be located consistently" \
+      "set CLAUDE_CONFIG_DIR to an absolute path, then rerun this command"
+    return 0
+  fi
+  if ! mp_json=$(host_plugins_claude plugin marketplace list --json 2>/dev/null); then
+    record host-plugins "human: claude plugin marketplace list --json failed, so configured marketplaces cannot be checked" \
+      "repair the claude CLI on that account, then rerun this command"
+    return 0
+  fi
+  if ! mp_rows=$(printf '%s' "$mp_json" | host_plugins_marketplace_rows); then
+    record host-plugins "human: claude plugin marketplace list --json was not usable JSON" \
+      "repair the claude CLI on that account, then rerun this command"
+    return 0
+  fi
+  if ! plugin_json=$(host_plugins_claude plugin list --json 2>/dev/null); then
+    record host-plugins "human: claude plugin list --json failed, so configured plugins cannot be checked" \
+      "repair the claude CLI on that account, then rerun this command"
+    return 0
+  fi
+  if ! plugin_rows=$(printf '%s' "$plugin_json" | host_plugins_plugin_rows); then
+    record host-plugins "human: claude plugin list --json was not usable JSON" \
+      "repair the claude CLI on that account, then rerun this command"
+    return 0
+  fi
+  if [ -n "$HOST_PLUGINS_DEPENDENCY_GAP" ]; then
+    host_plugins_record_dependency_gap "$HOST_PLUGINS_DEPENDENCY_GAP"
+    return 0
+  fi
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    row_pid=${line%%$'\t'*}
+    case "$row_pid" in *@*) ;; *) continue ;; esac
+    configured=0
+    i=0
+    while [ "$i" -lt "${#plugins_n[@]}" ]; do
+      [ "$row_pid" = "${plugins_n[$i]}@${plugins_m[$i]}" ] && configured=1
+      i=$((i + 1))
+    done
+    [ "$configured" -eq 0 ] || continue
+    seen=0
+    for candidate in ${unexpected_plugin[@]+"${unexpected_plugin[@]}"}; do
+      [ "$candidate" = "$row_pid" ] && seen=1
+    done
+    [ "$seen" -eq 0 ] && unexpected_plugin+=("$row_pid")
+  done <<EOF
+$plugin_rows
+EOF
+  if [ "${#unexpected_plugin[@]}" -gt 0 ]; then
+    record host-plugins "human: installed or enabled plugin is not named in the host plugin catalogue (${unexpected_plugin[*]+"${unexpected_plugin[*]}"})" \
+      "add each named plugin to config/host-plugins.json if it is authorized, or remove it from the Claude plugin store, then rerun this command"
+    return 0
+  fi
+  i=0
+  while [ "$i" -lt "${#plugins_n[@]}" ]; do
+    id="${plugins_n[$i]}@${plugins_m[$i]}"
+    if load_error=$(host_plugins_user_plugin_errors "$id" "$plugin_rows"); then
+      load_errors+=("$id: $load_error")
+    fi
+    i=$((i + 1))
+  done
+  dependency_audit=$(host_plugins_dependency_audit "$path" "$mp_json" "$plugin_json" 0) \
+    || dependency_audit="ERROR dependency audit could not run"
+  if [ "$dependency_audit" != OK ]; then
+    host_plugins_record_dependency_gap "$dependency_audit"
+    return 0
+  fi
+  i=0
+  while [ "$i" -lt "${#marketplaces_n[@]}" ]; do
+    name=${marketplaces_n[$i]}
+    source=${marketplaces_s[$i]}
+    if bound=$(host_plugins_registered_source "$name" "$mp_rows"); then
+      if host_plugins_source_matches "$source" "$bound"; then
+        ready_mp+=("$name")
+      elif host_plugins_in_auth_items "$name"; then
+        auth_human+=("marketplace $name")
+      else
+        mismatched_mp+=("$name")
+      fi
+    elif host_plugins_in_auth_items "$name"; then
+      auth_human+=("marketplace $name")
+    else
+      missing_mp+=("$name")
+    fi
+    i=$((i + 1))
+  done
+  i=0
+  while [ "$i" -lt "${#plugins_n[@]}" ]; do
+    plugin=${plugins_n[$i]}
+    marketplace=${plugins_m[$i]}
+    id="$plugin@$marketplace"
+    seen=0
+    for candidate in ${ready_mp[@]+"${ready_mp[@]}"}; do
+      [ "$candidate" = "$marketplace" ] && seen=1
+    done
+    if [ "$seen" -eq 0 ]; then
+      i=$((i + 1))
+      continue
+    fi
+    state=$(host_plugins_user_plugin_state "$id" "$plugin_rows")
+    case "$state" in
+      missing)
+        if host_plugins_in_auth_items "$id"; then
+          auth_human+=("plugin $id")
+        else
+          missing_plugin+=("$id")
+        fi
+        ;;
+      disabled) disabled_plugin+=("$id") ;;
+      enabled)
+        if details=$(host_plugins_claude plugin details -- "$id" 2>/dev/null) &&
+          printf '%s' "$details" | host_plugins_first_skill >/dev/null; then
+          :
+        else
+          unresolved+=("$id")
+        fi
+        ;;
+    esac
+    i=$((i + 1))
+  done
+  if [ "${#auth_human[@]}" -gt 0 ]; then
+    record host-plugins "human: configured Claude Code plugins could not be registered because git authentication failed (${auth_human[*]+"${auth_human[*]}"})" \
+      "authenticate git access to the configured marketplace source on that account without supplying credentials to Firstmate, then rerun this command with --fix"
+    return 0
+  fi
+  if [ "${#missing_mp[@]}" -gt 0 ]; then
+    record host-plugins "fixable: configured marketplace is not registered (${missing_mp[*]+"${missing_mp[*]}"})" \
+      "rerun this command with --fix to register the configured marketplace"
+    return 0
+  fi
+  if [ "${#mismatched_mp[@]}" -gt 0 ]; then
+    record host-plugins "human: configured marketplace is registered from a different source (${mismatched_mp[*]+"${mismatched_mp[*]}"})" \
+      "unregister the mismatched marketplace on that account, then rerun this command with --fix so only the configured source is registered"
+    return 0
+  fi
+  if [ "${#missing_plugin[@]}" -gt 0 ]; then
+    record host-plugins "fixable: configured plugin is not installed (${missing_plugin[*]+"${missing_plugin[*]}"})" \
+      "rerun this command with --fix to install the configured plugin"
+    return 0
+  fi
+  if [ "${#disabled_plugin[@]}" -gt 0 ]; then
+    record host-plugins "fixable: configured plugin is installed but disabled (${disabled_plugin[*]+"${disabled_plugin[*]}"})" \
+      "rerun this command with --fix to enable the configured plugin"
+    return 0
+  fi
+  if [ "${#load_errors[@]}" -gt 0 ]; then
+    record host-plugins "human: configured plugin failed to load (${load_errors[*]+"${load_errors[*]}"})" \
+      "repair each named Claude plugin load error on that account, then rerun this command"
+    return 0
+  fi
+  if [ "${#unresolved[@]}" -gt 0 ]; then
+    record host-plugins "human: configured plugin is installed but no skill resolves (${unresolved[*]+"${unresolved[*]}"}); a skill present but not resolving is the same as absent" \
+      "inspect claude plugin details for each named plugin on that account; Firstmate does not treat install success as proof"
+    return 0
+  fi
+  record host-plugins "ok: configured Claude Code plugins resolve on this host"
+}
+
+fix_host_plugins() {
+  local path parsed line name source plugin marketplace id out rc i rest dependency_audit candidate seen
+  local mp_json mp_rows plugin_json plugin_rows state
+  local -a marketplaces_n=() marketplaces_s=() plugins_n=() plugins_m=()
+  path=$(host_plugins_config_path) || return 0
+  [ -f "$path" ] && [ ! -L "$path" ] || return 0
+  command -v python3 >/dev/null 2>&1 || return 0
+  command -v claude >/dev/null 2>&1 || return 0
+  parsed=$(host_plugins_parse_catalogue "$path") || return 0
+  case "$parsed" in OK|*$'\n'OK) ;; *) return 0 ;; esac
+  while IFS= read -r line; do
+    case "$line" in
+      MARKETPLACE$'\t'*)
+        rest=${line#MARKETPLACE$'\t'}
+        name=${rest%%$'\t'*}
+        source=${rest#*$'\t'}
+        marketplaces_n+=("$name")
+        marketplaces_s+=("$source")
+        ;;
+      PLUGIN$'\t'*)
+        rest=${line#PLUGIN$'\t'}
+        plugin=${rest%%$'\t'*}
+        marketplace=${rest#*$'\t'}
+        plugins_n+=("$plugin")
+        plugins_m+=("$marketplace")
+        ;;
+    esac
+  done <<EOF
+$parsed
+EOF
+  if ! mp_json=$(host_plugins_claude plugin marketplace list --json 2>/dev/null); then
+    fix_report host-plugins failed "claude plugin marketplace list --json failed"
+    return 1
+  fi
+  if ! mp_rows=$(printf '%s' "$mp_json" | host_plugins_marketplace_rows); then
+    fix_report host-plugins failed "claude plugin marketplace list --json was not usable JSON"
+    return 1
+  fi
+  if ! plugin_json=$(host_plugins_claude plugin list --json 2>/dev/null); then
+    fix_report host-plugins failed "claude plugin list --json failed"
+    return 1
+  fi
+  if ! plugin_rows=$(printf '%s' "$plugin_json" | host_plugins_plugin_rows); then
+    fix_report host-plugins failed "claude plugin list --json was not usable JSON"
+    return 1
+  fi
+  dependency_audit=$(host_plugins_dependency_audit "$path" "$mp_json" "$plugin_json" 1) \
+    || dependency_audit="ERROR dependency audit could not run"
+  if [ "$dependency_audit" != OK ]; then
+    HOST_PLUGINS_DEPENDENCY_GAP=$dependency_audit
+    fix_report host-plugins failed "plugin dependency preflight refused every mutation: ${dependency_audit#* }"
+    return 1
+  fi
+  local i=0 bound
+  local -a ready_mp=()
+  while [ "$i" -lt "${#marketplaces_n[@]}" ]; do
+    name=${marketplaces_n[$i]}
+    source=${marketplaces_s[$i]}
+    i=$((i + 1))
+    if bound=$(host_plugins_registered_source "$name" "$mp_rows") \
+      && host_plugins_source_matches "$source" "$bound"; then
+      ready_mp+=("$name")
+      continue
+    fi
+    if host_plugins_registered_source "$name" "$mp_rows" >/dev/null; then
+      continue
+    fi
+    set +e
+    out=$(host_plugins_claude plugin marketplace add -- "$source" 2>&1)
+    rc=$?
+    set -e
+    if [ "$rc" -eq 0 ]; then
+      ready_mp+=("$name")
+      fix_report host-plugins applied "registered marketplace $name"
+      continue
+    fi
+    if host_plugins_auth_failure "$out"; then
+      host_plugins_note_auth "$name"
+      fix_report host-plugins failed "registering marketplace $name failed on authentication; authenticate git access to the configured source on that account without supplying credentials to Firstmate, then rerun this command with --fix"
+      continue
+    fi
+    fix_report host-plugins failed "registering marketplace $name failed; inspect the named marketplace with the claude CLI, then rerun this command with --fix"
+  done
+  if ! plugin_json=$(host_plugins_claude plugin list --json 2>/dev/null); then
+    fix_report host-plugins failed "claude plugin list --json failed"
+    return 1
+  fi
+  if ! plugin_rows=$(printf '%s' "$plugin_json" | host_plugins_plugin_rows); then
+    fix_report host-plugins failed "claude plugin list --json was not usable JSON"
+    return 1
+  fi
+  i=0
+  while [ "$i" -lt "${#plugins_n[@]}" ]; do
+    plugin=${plugins_n[$i]}
+    marketplace=${plugins_m[$i]}
+    id="$plugin@$marketplace"
+    i=$((i + 1))
+    seen=0
+    for candidate in ${ready_mp[@]+"${ready_mp[@]}"}; do
+      [ "$candidate" = "$marketplace" ] && seen=1
+    done
+    [ "$seen" -eq 1 ] || continue
+    state=$(host_plugins_user_plugin_state "$id" "$plugin_rows")
+    case "$state" in
+      enabled) continue ;;
+      disabled)
+        set +e
+        out=$(host_plugins_claude plugin enable --scope user -- "$id" 2>&1)
+        rc=$?
+        set -e
+        if [ "$rc" -eq 0 ]; then
+          fix_report host-plugins applied "enabled $id"
+        else
+          fix_report host-plugins failed "enabling $id failed; inspect the named plugin with the claude CLI, then rerun this command with --fix"
+        fi
+        continue
+        ;;
+    esac
+    set +e
+    out=$(host_plugins_claude plugin install --scope user -- "$id" 2>&1)
+    rc=$?
+    set -e
+    if [ "$rc" -eq 0 ]; then
+      plugin_rows="$plugin_rows"$'\n'"$id"$'\t'"1"$'\t'"user"$'\t'
+      fix_report host-plugins applied "installed $id"
+      continue
+    fi
+    if host_plugins_auth_failure "$out"; then
+      host_plugins_note_auth "$id"
+      fix_report host-plugins failed "installing $id failed on authentication; authenticate git access for that marketplace on that account without supplying credentials to Firstmate, then rerun this command with --fix"
+      continue
+    fi
+    fix_report host-plugins failed "installing $id failed; inspect the named plugin with the claude CLI, then rerun this command with --fix"
+  done
+}
+
 run_checks() { # <resolved-login-shell>
   local shell=$1
   CHECK_NAMES=()
@@ -729,6 +1570,11 @@ run_checks() { # <resolved-login-shell>
   check_launch_agent "$shell"
   check_herdr_server
   check_entrypoint_link
+  if [ "$SKIP_HOST_PLUGINS" -eq 1 ]; then
+    record host-plugins "skip: plugin catalogue is checked after inherited config lands"
+  else
+    check_host_plugins
+  fi
 }
 
 # --- repairs ----------------------------------------------------------------
@@ -873,6 +1719,7 @@ apply_fixes() { # <resolved-login-shell>
         start_herdr_server || true
         ;;
       entrypoint-link) link_entrypoint || true ;;
+      host-plugins) fix_host_plugins || true ;;
     esac
   done
 }

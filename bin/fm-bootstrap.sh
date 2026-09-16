@@ -14,6 +14,7 @@
 #                 "HOME_SUMMARY: <ledger never published|not republished since
 #                 <stamp>>; <n> failed attempt(s) ... last: <recorded failure>",
 #                 "BACKLOG_RECONCILE: <id>: <what this home could not reconcile>",
+#                 "ORIGIN_PUSH_GUARD: <hook installation skip or failure>",
 #                 "TANGLE: <remediation>",
 #                 "SECONDMATE_SYNC: secondmate <id>: skipped: <reason>",
 #                 "NUDGE_SECONDMATES: secondmate <id>: send failed: <reason>",
@@ -63,7 +64,7 @@
 #          tasks-axi and quota-axi are required bootstrap tools (same class as
 #          lavish-axi). A compatible tasks-axi default backend is silent.
 #          quota-axi is required for the agent-owned dispatch-profile array
-#          procedure in AGENTS.md section 4 and
+#          procedure owned by
 #          .agents/skills/quota-array-dispatch/SKILL.md.
 #          On a primary home, the locked mutable path materializes the visible
 #          default config/startup-memory-budget=7500 when absent. It never
@@ -97,7 +98,7 @@
 #          Set FM_BOOTSTRAP_DETECT_ONLY=1 to skip the six MUTATING sweeps
 #          (backlog_record_reconcile, secondmate_sync,
 #          secondmate_liveness_sweep, secondmate_handoff_resume, x_mode_setup,
-#          fleet_sync) while still
+#          fleet_sync) and the origin-push-guard hook install while still
 #          printing every read-only detect line
 #          above; the TANGLE line switches to advisory-only wording with no
 #          checkout command. Used by
@@ -105,8 +106,11 @@
 #          the fleet lock, so a second concurrent session never race-mutates
 #          secondmate homes, pending handoff outboxes and receiver wakes,
 #          X-mode artifacts, project clones, or repair instructions.
-#          Unset/0 (the default) runs all six sweeps - this flag is purely
-#          additive.
+#          Unset/0 (the default) runs all six sweeps and the origin-push-guard
+#          hook install - this flag is purely additive.
+#          bin/fm-origin-push-guard.sh owns that local pre-push refusal; this
+#          script only invokes its installer against FM_ROOT on a mutable
+#          local-phase run.
 #          Set FM_BOOTSTRAP_NETWORK to split this run by whether a step talks to
 #          the network, so a session start can print its digest from local reads
 #          alone and run the network half off the digest's blocking path:
@@ -354,7 +358,7 @@ secondmate_sync() {
   # (bin/fm-remote-secondmate-control.sh); this side still fetches nothing.
   # Startup sends reread nudges only for RUNNING secondmates whose instruction
   # surface (AGENTS.md, bin/, or .agents/skills/) actually changed, so a secondmate already on the primary's
-  # version is never disturbed (AGENTS.md bootstrap + supervision). Unlike
+  # version is never disturbed (secondmate-provisioning skill). Unlike
   # /updatefirstmate, startup owns the live-convergence send itself because it is
   # a deterministic locked sweep and can report success as BOOTSTRAP_INFO while
   # preserving failed sends as NUDGE_SECONDMATES retry markers.
@@ -722,7 +726,7 @@ secondmate_liveness_one() {  # <meta> <id>
   remote_host=$(fm_meta_get "$meta" remote_host)
   if [ -n "$remote_host" ]; then
     remote_rc=0
-    fm_remote_readiness_ensure "$SCRIPT_DIR" "$id" || remote_rc=$?
+    fm_remote_readiness_ensure "$SCRIPT_DIR" "$id" --skip-check host-plugins || remote_rc=$?
     if [ "$remote_rc" -eq 255 ]; then
       echo "SECONDMATE_LIVENESS: secondmate $id: skipped: remote host unavailable or endpoint state unknown; route preserved on $remote_host"
       return 0
@@ -1104,13 +1108,13 @@ crew_dispatch_validate() {
     return 0
   fi
   err=$(jq -r '
-    def verified($h): ["claude","codex","opencode","pi","pi-signed","grok","kimi","cursor","muse","rovo","omp"] | index($h);
+    def verified($h): ["claude","codex","codex-foundry-luna","opencode","pi","pi-signed","grok","kimi","cursor","muse","rovo","omp","qwen"] | index($h);
     def effort_ok($h; $m; $e):
       if $e == null then true
       elif ($e | type) != "string" then false
       elif $e == "ultra" then (($h == "pi" or $h == "pi-signed") and (($m | type) == "string") and ($m | startswith("codex-native/")) and ($m | length) > 13)
       elif $h == "claude" then (["low","medium","high","xhigh","max"] | index($e))
-      elif $h == "codex" then (["low","medium","high","xhigh"] | index($e))
+      elif $h == "codex" or $h == "codex-foundry-luna" then (["low","medium","high","xhigh"] | index($e))
       elif $h == "grok" then (["low","medium","high"] | index($e))
       elif $h == "pi" or $h == "pi-signed" or $h == "omp" then (["low","medium","high","xhigh","max"] | index($e))
       elif $h == "muse" then (["low","medium","high","xhigh","max"] | index($e))
@@ -1118,53 +1122,253 @@ crew_dispatch_validate() {
       elif $h == "opencode" or $h == "kimi" or $h == "cursor" then false
       else true
       end;
-    def profiles($value):
-      if ($value | type) == "array" then $value
-      elif ($value | type) == "object" then [$value]
-      else []
+    def nonempty_string: type == "string" and length > 0;
+    def v2_fail($message): error("v2 " + $message);
+    def v2_fields($label; $allowed; $required):
+      . as $value
+      | if ($value | type) != "object" then v2_fail($label + " must be an object")
+        else
+          ($value | (keys - $allowed)) as $unknown
+          | ($required | map(. as $key | select($value | has($key) | not))) as $missing
+          | if ($unknown | length) > 0 then v2_fail($label + " has unknown field: " + $unknown[0])
+            elif ($missing | length) > 0 then v2_fail($label + " missing required key: " + $missing[0])
+            else $value
+            end
+        end;
+    def v2_string($label; $field):
+      if (.[$field] | nonempty_string) then . else v2_fail($label + "." + $field + " must be a non-empty string") end;
+    def v2_string_array($label; $field):
+      if (.[$field] | type) != "array" or (.[$field] | length) == 0 or any(.[$field][]; nonempty_string | not)
+      then v2_fail($label + "." + $field + " must be a non-empty string array")
+      else .
       end;
-    def configured_profiles:
-      ([(.rules // [])[]? | profiles(.use?)[]?]
-        + (if has("default") then [profiles(.default)[]?] else [] end));
-    def malformed_optional_fields($items):
-      ($items | any(has("model") and (((.model | type) != "string") or (.model | length) == 0)))
-      or ($items | any(has("effort") and (((.effort | type) != "string") or (.effort | length) == 0)));
-    def bad_efforts:
-      configured_profiles
-      | map({h: .harness, m: .model, e: .effort})
-      | map(select(.e != null))
-      | map(select((.h | type) == "string" and verified(.h)))
-      | map(select(. as $p | effort_ok($p.h; $p.m; $p.e) | not))
-      | map("\(.h):\(.e)")
-      | unique;
-    if type != "object" then "top-level value must be an object"
-    elif has("rules") and (.rules | type) != "array" then "rules must be an array"
-    elif [(.rules // [])[]? | select(type != "object")] | length > 0 then "each rule must be an object"
-    elif [(.rules // [])[]? | select((.when? | type) != "string" or (.when | length) == 0)] | length > 0 then "each rule needs non-empty when"
-    elif [(.rules // [])[]? | select((.use? | type) != "object" and (.use? | type) != "array")] | length > 0 then "each rule needs use"
-    elif [(.rules // [])[]? | select((.use? | type) == "array" and (.use | length) == 0)] | length > 0 then "each rule needs at least one use profile"
-    elif [(.rules // [])[]? | profiles(.use?)[]? | select(type != "object")] | length > 0 then "each use profile must be an object"
-    elif [(.rules // [])[]? | profiles(.use?)[]? | select((.harness? | type) != "string" or (.harness | length) == 0)] | length > 0 then "each use profile needs harness"
-    elif malformed_optional_fields([(.rules // [])[]? | profiles(.use?)[]?]) then "use profile model and effort must be non-empty strings when present"
-    elif [(.rules // [])[]? | select(has("select") and ((.select? | type) != "string" or (.select | length) == 0))] | length > 0 then "select must be a non-empty string"
-    elif [(.rules // [])[]? | .select? // empty | select(. != "quota-balanced")] | length > 0 then
-      "unknown select: " + ([ (.rules // [])[]? | .select? // empty | select(. != "quota-balanced") ] | unique | join(", "))
-    elif has("default") and ((.default | type) != "object" and (.default | type) != "array") then "default must be a profile object or non-empty profile array"
-    elif has("default") and ((.default | type) == "array" and (.default | length) == 0) then "default needs at least one profile"
-    elif has("default") and ([profiles(.default)[]? | select(type != "object")] | length) > 0 then "each default profile must be an object"
-    elif has("default") and ([profiles(.default)[]? | select((.harness? | type) != "string" or (.harness | length) == 0)] | length) > 0 then "each default profile needs harness"
-    elif has("default") and malformed_optional_fields([profiles(.default)[]?]) then "default profile model and effort must be non-empty strings when present"
-    else
-      (configured_profiles
-        | map(.harness)
-        | map(select(. != null))
-        | map(select(. as $h | verified($h) | not))
-        | unique) as $bad_harnesses
-      | if ($bad_harnesses | length) > 0 then "unverified harness: " + ($bad_harnesses | join(", "))
-        elif (bad_efforts | length) > 0 then "invalid effort: " + (bad_efforts | join(", "))
-        else empty
+    def v2_boolean($label; $field):
+      if (.[$field] | type) == "boolean" then . else v2_fail($label + "." + $field + " must be boolean") end;
+    def v2_enum($label; $field; $choices):
+      .[$field] as $value
+      | if ($value | type) != "string" or ($choices | index($value)) == null
+        then v2_fail($label + "." + $field + " must be one of " + ($choices | join(", ")))
+        else .
+        end;
+    def v2_array($label):
+      if type != "array" or length == 0
+      then v2_fail($label + " must be a non-empty array")
+      else .
+      end;
+    def v2_model_class_names: ["ordinary", "astra", "fable"];
+    def v2_builtin_ordinary_models: ["gpt-5.6-terra", "sonnet", "claude-sonnet-5", "gpt-5.6-sol-xhigh", "grok-4.6", "cursor-grok-4.6-high-fast", "composer-2.5", "gpt-5.6-luna", "claude-opus-5"];
+    def v2_top_tier_class:
+      split("/")[-1] as $model
+      | if ($model | test("astra"; "i")) then "astra"
+        elif ($model | test("fable"; "i")) then "fable"
+        else null
+        end;
+    def v2_ordinary_models:
+      if has("ordinary_models") then
+        v2_string_array("top-level"; "ordinary_models")
+        | .ordinary_models as $listed
+        | ([$listed[] | select(test("/"))]) as $qualified
+        | ([$listed[] | select(v2_top_tier_class != null)]) as $top
+        | if ($qualified | length) > 0 then v2_fail("ordinary_models must be bare model names: " + $qualified[0])
+          elif ($top | length) > 0 then v2_fail("ordinary_models cannot include a top-tier model: " + $top[0])
+          else $listed
+          end
+      else v2_builtin_ordinary_models
+      end;
+    def v2_model_class($ordinary):
+      . as $selector
+      | split("/")[-1] as $model
+      | ($selector | v2_top_tier_class) as $top
+      | if $top != null then $top
+        elif ($ordinary | index($model)) != null then "ordinary"
+        else v2_fail("unclassified model: " + $selector)
+        end;
+    def v2_profile($ordinary):
+      v2_fields("profile"; ["id", "harness", "model", "effort", "model_class", "reasoning_target", "reasoning_source", "eligible_when", "preferred_when"]; ["id", "harness", "model", "model_class"])
+      | v2_string("profile"; "id")
+      | v2_string("profile"; "harness")
+      | v2_string("profile"; "model")
+      | v2_enum("profile"; "model_class"; v2_model_class_names)
+      | if has("effort") then v2_string("profile"; "effort") else . end
+      | if has("reasoning_target") then v2_string("profile"; "reasoning_target") else . end
+      | if has("reasoning_source") then v2_string("profile"; "reasoning_source") else . end
+      | if has("eligible_when") then v2_string("profile"; "eligible_when") else . end
+      | if has("preferred_when") then v2_string("profile"; "preferred_when") else . end
+      | . as $profile
+      | if (verified($profile.harness) | not) then v2_fail("unverified harness: " + $profile.harness)
+        elif $profile.model_class != ($profile.model | v2_model_class($ordinary))
+        then v2_fail("profile.model_class does not match model: " + $profile.model)
+        elif (($profile | has("effort")) and (effort_ok($profile.harness; $profile.model; $profile.effort) | not))
+        then v2_fail("invalid effort: " + $profile.harness + ":" + $profile.effort)
+        else $profile
+        end;
+    def v2_match:
+      v2_fields("rule match"; ["task_kind", "task_shape", "delivery", "project", "host"]; [])
+      | if length == 0 then v2_fail("rule match needs at least one field") else . end
+      | if has("task_kind") then v2_string_array("rule match"; "task_kind") else . end
+      | if has("task_shape") then v2_string_array("rule match"; "task_shape") else . end
+      | if has("delivery") then v2_string("rule match"; "delivery") else . end
+      | if has("project") then v2_string("rule match"; "project") else . end
+      | if has("host") then v2_string("rule match"; "host") else . end;
+    def v2_reasoning:
+      v2_fields("rule reasoning"; ["mode", "target", "dispatch_reason_required"]; ["mode"])
+      | v2_enum("rule reasoning"; "mode"; ["generic", "fixed"])
+      | . as $reasoning
+      | if $reasoning.mode == "fixed" and ($reasoning | has("target") | not)
+        then v2_fail("rule reasoning missing required key: target")
+        elif $reasoning.mode == "fixed" and ($reasoning | has("dispatch_reason_required") | not)
+        then v2_fail("rule reasoning missing required key: dispatch_reason_required")
+        elif $reasoning.mode == "generic" and (($reasoning | has("target")) or ($reasoning | has("dispatch_reason_required")))
+        then v2_fail("generic rule reasoning cannot set fixed-mode fields")
+        else $reasoning
         end
-    end
+      | if .mode == "fixed" then
+          v2_enum("rule reasoning"; "target"; ["low", "medium", "high", "xhigh", "max"])
+          | if .dispatch_reason_required != true then v2_fail("rule reasoning.dispatch_reason_required must be true") else . end
+        else . end;
+    def v2_independence:
+      v2_fields("rule independence"; ["exclude_author_harness", "minimum_distinct_harnesses", "explicit_task_instruction_may_raise_minimum"]; ["exclude_author_harness", "minimum_distinct_harnesses", "explicit_task_instruction_may_raise_minimum"])
+      | v2_boolean("rule independence"; "exclude_author_harness")
+      | v2_boolean("rule independence"; "explicit_task_instruction_may_raise_minimum")
+      | if (.minimum_distinct_harnesses | type) == "number" and .minimum_distinct_harnesses >= 1
+        then .
+        else v2_fail("rule independence.minimum_distinct_harnesses must be a number of at least 1")
+        end;
+    def v2_shapes_permit_blocked($match; $allowed):
+      ($match != null)
+      and ($match | has("task_shape"))
+      and ($match.task_shape | length) > 0
+      and (any($match.task_shape[]; . as $shape | ($allowed | index($shape)) == null) | not);
+    def v2_constraint:
+      v2_fields("constraint"; ["id", "allowed_task_shapes", "blocked_model_classes", "unknown_model_class", "on_no_eligible_candidate", "decision_ref"]; ["id", "allowed_task_shapes", "blocked_model_classes", "unknown_model_class", "on_no_eligible_candidate", "decision_ref"])
+      | v2_string("constraint"; "id")
+      | v2_string_array("constraint"; "allowed_task_shapes")
+      | v2_string_array("constraint"; "blocked_model_classes")
+      | v2_string("constraint"; "decision_ref")
+      | . as $constraint
+      | if any($constraint.blocked_model_classes[]; . as $class | (v2_model_class_names | index($class)) == null)
+        then v2_fail("constraint.blocked_model_classes must contain only ordinary, astra, fable")
+        elif $constraint.unknown_model_class != "treat_as_blocked"
+        then v2_fail("constraint.unknown_model_class must be treat_as_blocked")
+        elif $constraint.on_no_eligible_candidate != "report"
+        then v2_fail("constraint.on_no_eligible_candidate must be report")
+        else $constraint
+        end;
+    def v2_capabilities:
+      if type != "object" or length == 0 then v2_fail("placement capabilities must be a non-empty object")
+      else
+        . as $capabilities
+        | [to_entries[] | .key as $id | (.value | v2_fields("placement capability " + $id; ["home", "path"]; ["home", "path"]) | v2_string("placement capability " + $id; "home") | v2_string("placement capability " + $id; "path"))]
+        | $capabilities
+      end;
+    def v2_placement_rule($capabilities):
+      v2_fields("placement rule"; ["id", "match", "target"]; ["id", "match", "target"])
+      | v2_string("placement rule"; "id")
+      | . as $rule
+      | ($rule.match | v2_fields("placement rule match"; ["repository", "requires_capability"]; ["repository"]) | v2_string("placement rule match"; "repository")) as $match
+      | (if ($match | has("requires_capability")) and (($match.requires_capability | nonempty_string) | not)
+         then v2_fail("placement rule match.requires_capability must be a non-empty string") else $match end) as $checked_match
+      | if ($checked_match | has("requires_capability")) and ($capabilities | has($checked_match.requires_capability) | not)
+        then v2_fail("placement rule references unknown capability: " + $checked_match.requires_capability)
+        else .
+        end
+      | ($rule.target | v2_fields("placement target"; ["kind", "id", "host"]; ["kind", "id"]) | v2_enum("placement target"; "kind"; ["main-home", "secondmate"]) | v2_string("placement target"; "id")) as $target
+      | if ($target | has("host")) and (($target.host | nonempty_string) | not)
+        then v2_fail("placement target.host must be a non-empty string")
+        elif $target.kind == "secondmate" and ($target | has("host") | not)
+        then v2_fail("secondmate placement target missing required key: host")
+        elif $target.kind == "main-home" and ($target | has("host"))
+        then v2_fail("main-home placement target cannot set host")
+        else $rule
+        end;
+    def v2_placement:
+      v2_fields("placement"; ["capabilities", "rules", "unmatched", "enforcement"]; ["capabilities", "rules", "unmatched", "enforcement"])
+      | . as $placement
+      | ($placement.capabilities | v2_capabilities) as $capabilities
+      | ($placement.rules | v2_array("placement rules") | map(v2_placement_rule($capabilities))) as $rules
+      | ($placement.enforcement | v2_fields("placement enforcement"; ["current", "mechanical_owner", "not_read_by"]; ["current", "mechanical_owner", "not_read_by"]) | v2_string("placement enforcement"; "current") | v2_string("placement enforcement"; "mechanical_owner") | v2_string_array("placement enforcement"; "not_read_by")) as $enforcement
+      | if $placement.unmatched != "retain-intake-home"
+        then v2_fail("placement.unmatched must be retain-intake-home")
+        elif $enforcement.current != "advisory"
+        then v2_fail("placement enforcement.current must be advisory until intake and backlog handoff read it")
+        elif (($enforcement.not_read_by | index("fm-bootstrap")) == null or ($enforcement.not_read_by | index("fm-spawn")) == null)
+        then v2_fail("placement enforcement.not_read_by must list fm-bootstrap and fm-spawn")
+        else $placement
+        end;
+    def v2_dispatch:
+      v2_fields("dispatch"; ["selector", "target_host_checks", "higher_reasoning_requires_reason", "history_ref"]; ["selector", "target_host_checks", "higher_reasoning_requires_reason", "history_ref"])
+      | v2_string("dispatch"; "selector")
+      | v2_string_array("dispatch"; "target_host_checks")
+      | v2_boolean("dispatch"; "higher_reasoning_requires_reason")
+      | v2_string("dispatch"; "history_ref")
+      | . as $dispatch
+      | if $dispatch.selector != "quota-array-dispatch"
+        then v2_fail("dispatch.selector must be quota-array-dispatch")
+        elif $dispatch.higher_reasoning_requires_reason != true
+        then v2_fail("dispatch.higher_reasoning_requires_reason must be true")
+        elif $dispatch.history_ref != "data/crew-dispatch-history.md"
+        then v2_fail("dispatch.history_ref must be data/crew-dispatch-history.md")
+        else $dispatch
+        end;
+    def v2_rule($constraints; $ordinary):
+      v2_fields("rule"; ["id", "when", "match", "independence", "reasoning", "use", "decision_refs"]; ["id", "when", "reasoning", "use"])
+      | v2_string("rule"; "id")
+      | v2_string("rule"; "when")
+      | . as $rule
+      | (if ($rule | has("match")) then ($rule.match | v2_match) else null end) as $match
+      | ($rule.reasoning | v2_reasoning) as $reasoning
+      | (if ($rule | has("independence")) then ($rule.independence | v2_independence) else null end) as $independence
+      | (if ($rule | has("decision_refs")) then ($rule | v2_string_array("rule"; "decision_refs")) else $rule end) as $decision_refs
+      | ($rule.use | v2_array("rule use") | map(v2_profile($ordinary))) as $profiles
+      | ($profiles | map(.id)) as $ids
+      | [
+          $profiles[] as $profile
+          | select(
+              any(
+                $constraints[];
+                ((.blocked_model_classes | index($profile.model_class)) != null)
+                and (v2_shapes_permit_blocked($match; .allowed_task_shapes) | not)
+              )
+            )
+          | $profile
+        ] as $blocked
+      | if ($ids | unique | length) != ($ids | length)
+        then v2_fail("rule use profile ids must be unique")
+        elif ($blocked | length) > 0
+        then v2_fail("top-tier model class " + $blocked[0].model_class + " requires rule match.task_shape to be a non-empty subset of constraint allowed_task_shapes")
+        else $rule
+        end;
+    def v2_default($constraints; $ordinary):
+      v2_array("default")
+      | map(v2_profile($ordinary))
+      | . as $profiles
+      | ($profiles | map(.id)) as $ids
+      | ($constraints | map(.blocked_model_classes[]) | unique) as $blocked_classes
+      | ($profiles | map(select(.model_class as $class | ($blocked_classes | index($class)) != null))) as $blocked
+      | if ($ids | unique | length) != ($ids | length)
+        then v2_fail("default profile ids must be unique")
+        elif ($blocked | length) > 0
+        then v2_fail("top-tier model class " + $blocked[0].model_class + " cannot appear in default")
+        else $profiles
+        end;
+    def v2_validate:
+      v2_fields("top-level"; ["schema_version", "placement", "dispatch", "constraints", "exceptions", "rules", "default", "ordinary_models"]; ["schema_version", "placement", "dispatch", "constraints", "exceptions", "rules", "default"])
+      | if .schema_version != 2 then v2_fail("schema_version must be 2") else . end
+      | . as $config
+      | ($config | v2_ordinary_models) as $ordinary
+      | ($config.placement | v2_placement) as $placement
+      | ($config.dispatch | v2_dispatch) as $dispatch
+      | ($config.constraints | v2_array("constraints") | map(v2_constraint)) as $constraints
+      | if $config.exceptions != [] then v2_fail("exceptions must be empty") else . end
+      | ($config.rules | v2_array("rules") | map(v2_rule($constraints; $ordinary))) as $rules
+      | ($config.default | v2_default($constraints; $ordinary)) as $defaults
+      | empty;
+    try (
+      if type != "object" then "top-level value must be an object"
+      elif has("schema_version") then v2_validate
+      else "v2 top-level missing required key: schema_version"
+      end
+    ) catch .
   ' "$file" 2>/dev/null || true)
   if [ -n "$err" ]; then
     echo "CREW_DISPATCH: invalid config/crew-dispatch.json - $err"
@@ -1581,6 +1785,19 @@ if [ "${FM_BOOTSTRAP_DETECT_ONLY:-0}" != 1 ]; then
   fi
   # x_mode_setup writes local Relay artifacts only and never leaves the machine.
   local_phase && x_mode_setup
+  # Origin-push-guard install is local, idempotent, and silent on success. It
+  # writes only inside this repository's Git common directory. The script header owns
+  # refusal, chaining, outside-hooksPath skip, and the deliberate overrides.
+  if local_phase && [ -x "$SCRIPT_DIR/fm-origin-push-guard.sh" ]; then
+    origin_push_guard_error='' origin_push_guard_rc=0
+    origin_push_guard_error=$("$SCRIPT_DIR/fm-origin-push-guard.sh" install "$FM_ROOT" 2>&1) \
+      || origin_push_guard_rc=$?
+    if [ "$origin_push_guard_rc" -ne 0 ] || [ -n "$origin_push_guard_error" ]; then
+      [ -n "$origin_push_guard_error" ] || origin_push_guard_error='install failed without a diagnostic'
+      printf 'ORIGIN_PUSH_GUARD: %s; resolve the hook path and rerun bin/fm-bootstrap.sh\n' \
+        "$origin_push_guard_error"
+    fi
+  fi
   if [ -n "$fleet_sync_pid" ]; then
     wait "$fleet_sync_pid" || true
     cat "$fleet_sync_out"

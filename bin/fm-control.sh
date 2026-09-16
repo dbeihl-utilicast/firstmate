@@ -132,6 +132,8 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 . "$SCRIPT_DIR/fm-busy-lib.sh"
 # shellcheck source=bin/fm-control-lib.sh
 . "$SCRIPT_DIR/fm-control-lib.sh"
+# shellcheck source=bin/fm-qwen-lib.sh
+. "$SCRIPT_DIR/fm-qwen-lib.sh"
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
 # shellcheck source=bin/fm-wake-lib.sh
@@ -614,6 +616,9 @@ relaunch_rollback() {
 resolve_relaunch_profile() {
   PRIOR_HARNESS=$HARNESS
   PRIOR_RECORDED_HARNESS=$RECORDED_HARNESS
+  if fm_control_harness_supported "$PRIOR_RECORDED_HARNESS"; then
+    PRIOR_HARNESS=$PRIOR_RECORDED_HARNESS
+  fi
   PRIOR_MODEL=$(fm_meta_get "$META" model)
   PRIOR_EFFORT=$(fm_meta_get "$META" effort)
   [ -n "$PRIOR_MODEL" ] || PRIOR_MODEL=default
@@ -792,6 +797,9 @@ do_relaunch() {
 
   require_state_verified_backend relaunch
   resolve_relaunch_profile
+  if [ "$TARGET_HARNESS" = qwen ]; then
+    fm_qwen_launch_preflight >/dev/null || exit 1
+  fi
 
   case "$KIND" in
     ship|scout)

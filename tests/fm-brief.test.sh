@@ -760,6 +760,104 @@ test_herdr_lab_contract_applies_to_scouts_but_not_secondmates() {
   pass "fm-brief.sh: Herdr lab contract covers scouts and rejects secondmate misuse"
 }
 
+# --local-model-contract is the worker half of the red-first contract
+# bin/fm-spawn.sh mechanically requires before dispatching a local-model
+# harness ship task. The marker line is what that spawn check greps for, so
+# it must render verbatim, and the three captured-proof artifacts must be
+# named so the worker cannot satisfy the contract in form without substance.
+test_local_model_contract_is_explicit_and_complete() {
+  local home id brief
+  home="$TMP_ROOT/local-model-home"
+  mkdir -p "$home/data"
+  id="brief-local-model-f1"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" firstmate --mode no-mistakes --local-model-contract >/dev/null 2>&1
+  brief="$home/data/$id/brief.md"
+  assert_present "$brief" "local-model-contract brief was not scaffolded"
+  assert_grep "# Local-model red-first contract" "$brief" \
+    "local-model brief missing its contract section"
+  grep -qx "Local-model contract: enabled" "$brief" \
+    || fail "local-model brief did not record its machine-readable marker line"
+  grep -qx "Red test: {RED_TEST}" "$brief" \
+    || fail "local-model brief did not scaffold the {RED_TEST} placeholder line"
+  assert_grep "make that exact test pass by changing only what is needed" "$brief" \
+    "local-model brief missing the narrow test-only acceptance scope"
+  assert_grep "Firstmate independently re-runs the named test itself" "$brief" \
+    "local-model brief missing the independent-re-run statement"
+  assert_grep "Nothing you write about your own work" "$brief" \
+    "local-model brief did not say its own captured files are not trusted"
+  assert_grep "is taken on your word" "$brief" \
+    "local-model brief did not say only the independent re-run decides acceptance"
+  assert_grep "save its failing output to \`$home/data/$id/red-before.txt\`" "$brief" \
+    "local-model brief missing the worker's own working-evidence red artifact path"
+  assert_grep "save the passing output to \`$home/data/$id/green-after.txt\`" "$brief" \
+    "local-model brief missing the worker's own working-evidence green artifact path"
+  assert_grep "save that to \`$home/data/$id/red-revert.txt\`" "$brief" \
+    "local-model brief missing the worker's own working-evidence revert artifact path"
+  pass "fm-brief.sh: --local-model-contract emits the complete red-first contract"
+}
+
+# {RED_TEST} follows the exact same fill-then-spawn-refuses-placeholders shape
+# as {TASK}/{FIRSTMATE_SPEC}: bin/fm-spawn.sh reads this line to decide whether
+# a local-model ship spawn has a real, existing red test, so a global replace
+# of the placeholder must leave exactly one filled line behind.
+test_local_model_contract_red_test_line_is_fillable() {
+  local home id brief filled
+  home="$TMP_ROOT/local-model-redtest-home"
+  mkdir -p "$home/data"
+  id="brief-local-model-f5"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" firstmate --mode no-mistakes --local-model-contract >/dev/null 2>&1
+  brief="$home/data/$id/brief.md"
+  filled=$(sed 's/{RED_TEST}/tests\/multiply.test.sh/' "$brief")
+  printf '%s\n' "$filled" > "$brief"
+  grep -qx "Red test: tests/multiply.test.sh" "$brief" \
+    || fail "filling {RED_TEST} did not leave a single machine-readable Red test line"
+  [ "$(grep -c '^Red test: ' "$brief")" = 1 ] \
+    || fail "filling {RED_TEST} left more than one Red test line"
+  pass "fm-brief.sh: the {RED_TEST} placeholder fills to one machine-readable Red test line"
+}
+
+# The contract is optional per-task machinery, not a default every ship brief
+# carries - an ordinary brief scaffolded without the flag must stay free of
+# both the section and the marker line bin/fm-spawn.sh checks for.
+test_local_model_contract_absent_by_default() {
+  local home id brief
+  home="$TMP_ROOT/local-model-absent-home"
+  mkdir -p "$home/data"
+  id="brief-local-model-f2"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" firstmate --mode no-mistakes >/dev/null 2>&1
+  brief="$home/data/$id/brief.md"
+  assert_present "$brief" "ordinary ship brief was not scaffolded"
+  assert_no_grep "Local-model contract" "$brief" \
+    "an ordinary ship brief carried local-model contract text without the flag"
+  pass "fm-brief.sh: an ordinary ship brief carries no local-model contract by default"
+}
+
+# A scout's deliverable is a report and a secondmate charter is not a
+# delivery contract, so --local-model-contract must be refused there exactly
+# like --mode and --herdr-lab already are, never silently accepted and dropped.
+test_local_model_contract_applies_only_to_ship() {
+  local home out status
+  home="$TMP_ROOT/local-model-scope-home"
+  mkdir -p "$home/data"
+
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-local-model-f3 firstmate --scout --local-model-contract 2>&1)
+  status=$?
+  [ "$status" -ne 0 ] || fail "scout --local-model-contract should exit non-zero"
+  assert_contains "$out" "--local-model-contract applies only to ship briefs" \
+    "scout brief did not refuse --local-model-contract"
+  assert_absent "$home/data/brief-local-model-f3/brief.md" \
+    "rejected scout --local-model-contract still wrote a brief"
+
+  out=$(FM_HOME="$home" FM_SECONDMATE_CHARTER=ops "$ROOT/bin/fm-brief.sh" brief-local-model-f4 --secondmate firstmate --local-model-contract 2>&1)
+  status=$?
+  [ "$status" -ne 0 ] || fail "secondmate --local-model-contract should exit non-zero"
+  assert_contains "$out" "--local-model-contract applies only to ship briefs" \
+    "secondmate charter did not refuse --local-model-contract"
+  assert_absent "$home/data/brief-local-model-f4/brief.md" \
+    "rejected secondmate --local-model-contract still wrote a brief"
+  pass "fm-brief.sh: --local-model-contract is refused on scout and secondmate scaffolds"
+}
+
 test_pause_verb_override_renders_all_brief_scaffolds() {
   local home kind id brief
   home="$TMP_ROOT/pause-verb-home"
@@ -885,6 +983,10 @@ test_herdr_lab_contract_quotes_foreign_firstmate_path
 test_herdr_lab_omission_is_loud_for_ship_and_scout
 test_documented_global_replace_leaves_the_herdr_gate_intact
 test_herdr_lab_contract_applies_to_scouts_but_not_secondmates
+test_local_model_contract_is_explicit_and_complete
+test_local_model_contract_red_test_line_is_fillable
+test_local_model_contract_absent_by_default
+test_local_model_contract_applies_only_to_ship
 test_secondmate_no_projects_charter
 test_secondmate_marked_request_reporting_contract
 test_secondmate_directory_paths_are_absolute_and_output_is_stable

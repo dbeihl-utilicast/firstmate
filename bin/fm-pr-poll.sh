@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # Static watcher program for a validated PR/MR poll sidecar.
-# It emits exactly one merged line for a merged PR or MR and stays silent
-# otherwise, including on every error, so a failed lookup can never be read as
-# a merge. The provider-tagged identity is data in the sidecar and is never
-# interpolated into this source: these bytes are identical for every task.
+# It emits one validated state line for a merged PR/MR or a behind/conflicting
+# open GitHub PR, stays silent on errors, and never moves a branch itself.
+# Provider identity remains uninterpolated data and these bytes stay task-static.
 # Each provider is read through its own standard CLI, gh for GitHub and glab
 # for GitLab, so an upstream checkout needs no extra tooling to follow either.
 set -u
@@ -62,8 +61,43 @@ case "$provider" in
       .|..|*[!A-Za-z0-9._-]*) exit 0 ;;
     esac
     [ "$url" = "https://github.com/$owner/$repo/pull/$number" ] || exit 0
-    state=$(gh pr view "$url" --json state -q .state 2>/dev/null) || exit 0
-    [ "$state" = MERGED ] && printf '%s\n' merged
+    raw=$(gh pr view "$url" --json state,mergeStateStatus,mergeable,headRefOid,baseRefName \
+      -q '[.state, .mergeStateStatus, .mergeable, .headRefOid, .baseRefName, (.baseRefName | @uri)] | @tsv' 2>/dev/null) || exit 0
+    case "$raw" in ''|*$'\n'*) exit 0 ;; esac
+    IFS=$'\t' read -r state merge_state mergeable head base_name base_ref extra <<< "$raw"
+    [ -z "${extra:-}" ] || exit 0
+    if [ "$state" = MERGED ]; then
+      printf '%s\n' merged
+      exit 0
+    fi
+    [ "$state" = OPEN ] || exit 0
+    case "$head" in
+      [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) ;;
+      *) exit 0 ;;
+    esac
+    case "${#head}" in 40|64) ;; *) exit 0 ;; esac
+    case "$head" in *[!0-9a-f]*) exit 0 ;; esac
+    if [ "$mergeable" = CONFLICTING ] || [ "$merge_state" = DIRTY ]; then
+      printf 'conflict %s\n' "$head"
+    else
+      case "$base_name" in
+        ''|-*) exit 0 ;;
+      esac
+      git check-ref-format "refs/heads/$base_name" 2>/dev/null || exit 0
+      [ -n "$base_ref" ] || exit 0
+      strict=$(gh api --hostname "$host" "repos/$path/branches/$base_ref/protection/required_status_checks" \
+        --jq '.strict == true and (((.checks // []) + (.contexts // [])) | length > 0)' 2>/dev/null) || strict=
+      if [ "$strict" != true ]; then
+        strict=$(gh api --hostname "$host" "repos/$path/rules/branches/$base_ref" --paginate \
+          --jq '.[] | select(.type == "required_status_checks" and .parameters.strict_required_status_checks_policy == true and ((.parameters.required_status_checks // []) | length > 0)) | "true"' \
+          2>/dev/null) || exit 0
+      fi
+      printf '%s\n' "$strict" | grep -qx true || exit 0
+      behind=$(gh api --hostname "$host" "repos/$path/compare/$base_ref...$head" \
+        --jq '.behind_by' 2>/dev/null) || exit 0
+      case "$behind" in ''|*[!0-9]*) exit 0 ;; esac
+      [ "$behind" -gt 0 ] 2>/dev/null && printf 'behind %s\n' "$head"
+    fi
     ;;
   gitlab)
     [ "${#host}" -ge 1 ] && [ "${#host}" -le 253 ] || exit 0

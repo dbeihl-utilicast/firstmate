@@ -198,7 +198,7 @@ FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 # Supervisor backends this daemon knows how to inject into today. zellij, orca,
 # and cmux are real backends elsewhere in firstmate (bin/fm-backend.sh) but this
 # daemon has no verified composer/busy primitives wired up for them yet - see
-# docs/herdr-backend.md and AGENTS.md section 4's
+# docs/herdr-backend.md and the harness-adapters skill's
 # harness-verification discipline. Selecting one refuses loudly at startup
 # instead of silently running tmux primitives against a pane that is not a tmux
 # pane.
@@ -558,7 +558,7 @@ sync_pause_markers_from_signal() {  # <state> <signal files>
   local state=$1 paths=$2 f last task win
   local -a files
   read -r -a files <<<"$paths"
-  for f in "${files[@]}"; do
+  for f in "${files[@]+"${files[@]}"}"; do
     case "$f" in *.status) ;; *) continue ;; esac
     [ -e "$f" ] || continue
     last=$(last_status_line "$f")
@@ -930,10 +930,10 @@ wedge_alarm_notify() {  # <summary> <marker>
     [ -n "$ch" ] || continue
     channels+=("$ch")
   done < <(wedge_alarm_configured_channels)
-  for ch in "${channels[@]}"; do
+  for ch in "${channels[@]+"${channels[@]}"}"; do
     [ "$ch" = off ] && return 0
   done
-  for ch in "${channels[@]}"; do
+  for ch in "${channels[@]+"${channels[@]}"}"; do
     case "$ch" in auto|default) ch=$(wedge_alarm_platform_default) ;; esac
     case "$ch" in
       '') log "wedge alarm: no OS-level alert channel on $(uname); durable marker $marker is the only signal - set config/wedge-alarm (e.g. a command: directive)" ;;
@@ -1600,8 +1600,8 @@ fm_super_main() {
 
   # --- refuse an unsupported supervisor backend loudly, before ever trying a
   # tmux/herdr-specific call against it (zellij, orca, and cmux have no verified
-  # composer/busy primitives wired up for this daemon yet - AGENTS.md section 4
-  # harness-verification discipline). This is the clear refusal the task calls
+  # composer/busy primitives wired up for this daemon yet - harness-adapters'
+  # verification discipline). This is the clear refusal the task calls
   # for, instead of a confusing "does not resolve to a tmux pane" error.
   if ! fm_backend_list_contains "$FM_SUPERVISOR_SUPPORTED_BACKENDS" "$BACKEND"; then
     echo "error: away-mode daemon does not support supervisor backend '$BACKEND' yet (supported: $FM_SUPERVISOR_SUPPORTED_BACKENDS); set FM_SUPERVISOR_BACKEND=tmux|herdr and FM_SUPERVISOR_TARGET to run firstmate's own pane under a supported backend" >&2

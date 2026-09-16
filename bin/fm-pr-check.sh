@@ -5,6 +5,9 @@
 # live only in a private sidecar and are never interpolated into shell source.
 # A GitHub pull request URL and a GitLab merge request URL are both accepted,
 # including a merge request on a self-hosted GitLab instance.
+# A ship task on a local-model harness (bin/fm-harness.sh is-local-model) must
+# clear bin/fm-local-model-verify.sh's revert-check here first; registration is
+# refused, with the verifier's own reason, when it fails or cannot run.
 # Usage: fm-pr-check.sh <task-id> <pr-url>
 set -eu
 
@@ -41,6 +44,12 @@ META="$STATE/$ID.meta"
 if [ ! -f "$META" ] || [ -L "$META" ] || [ "$(fm_pr_file_link_count "$META")" != 1 ]; then
   echo "error: task metadata is unavailable" >&2
   exit 1
+fi
+
+TASK_KIND=$(grep '^kind=' "$META" | tail -1 | cut -d= -f2- || true)
+TASK_HARNESS=$(grep '^harness=' "$META" | tail -1 | cut -d= -f2- || true)
+if [ "$TASK_KIND" = ship ] && "$SCRIPT_DIR/fm-harness.sh" is-local-model "$TASK_HARNESS"; then
+  "$SCRIPT_DIR/fm-local-model-verify.sh" "$ID" 1>&2 || exit 1
 fi
 
 # A prior exact merged result may have queued its durable wake immediately

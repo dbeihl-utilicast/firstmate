@@ -4,7 +4,7 @@ The files and environment variables you set to operate firstmate.
 
 ## Orchestrator behavior (AGENTS.md)
 
-The shared orchestrator behavior lives in [`AGENTS.md`](../AGENTS.md) - edit it like any prompt when the fleet is empty, or dispatch shared-repo edits to a crewmate while tasks are in flight.
+The shared orchestrator contract and skill triggers live in [`AGENTS.md`](../AGENTS.md) - edit shared instructions when the fleet is empty, or dispatch shared-repo edits to a crewmate while tasks are in flight.
 
 ## Operational home layout and state
 
@@ -19,10 +19,117 @@ Untracked files and directories whose names begin with `scratchpad` are also git
 The producing PR and Relay helpers own the fields they append, `bin/fm-classify-lib.sh` owns status-event vocabulary, and `bin/fm-crew-state.sh` owns current-state reconciliation.
 Wake, watcher, away-mode, and Relay-specific state mechanics remain with their named scripts and reference sections rather than being duplicated into one exhaustive state tree here.
 
+### Full annotated layout
+
+```
+AGENTS.md            this file (CLAUDE.md is a real @AGENTS.md pointer to it)
+CONTRIBUTING.md      contributor workflow and repo conventions
+README.md            public overview and development notes
+.github/workflows/   shared CI and PR enforcement, committed
+.tasks.toml          tracked tasks-axi markdown backend config for the default backlog backend (AGENTS.md section 10)
+.agents/skills/      firstmate-loaded internal skills, committed; each carries metadata.internal=true for installers
+.claude/skills       symlink to .agents/skills for claude compatibility
+skills/              standalone public installer-facing skills, committed; not loaded by firstmate
+bin/                 helper scripts, committed; read each script's header before first use
+.env                 optional Relay pairing token (presence-gates AGENTS.md section 14) and mail-plane credentials (schema: "Mail plane" below); LOCAL, gitignored
+config/crew-harness  crewmate harness override; LOCAL, gitignored; absent or "default" = same as firstmate. Inherited as the literal file: a concrete primary adapter value also controls a secondmate home's own crewmates (AGENTS.md section 4)
+config/crew-dispatch.json  optional crewmate dispatch profiles; LOCAL, gitignored; firstmate-maintained but human-editable natural-language rules that choose a per-task harness/model/effort profile (AGENTS.md section 4). Inherited by secondmate homes
+config/host-plugins.json  optional exact allowlist of the Claude Code plugins on a second-mate host, with the marketplaces they resolve from; the remote readiness check registers the named marketplaces and installs and enables the named plugins at user scope, and refuses a remote second-mate launch while any reported plugin it does not name is installed at any scope; host-wide because user-scope plugins belong to the host account, so it governs every home and Claude worker on that host, not only the home holding the copy; LOCAL, gitignored; inherited by secondmate homes; absent means the check is not applicable. Schema: "Host Claude Code plugins" below
+config/foundry-luna.json  Azure AI Foundry host and subscription id (no secrets) the codex-foundry-luna crewmate/scout adapter's local token-refreshing gateway needs to resolve the `gpt-5.6-luna` endpoint; LOCAL, gitignored; inherited by secondmate homes so their own crewmates can dispatch onto it too; absent or malformed refuses the codex-foundry-luna launch rather than falling back to any built-in host. Schema: "Foundry Luna endpoint" below
+config/secondmate-harness  harness the PRIMARY uses to launch SECONDMATE agents, optionally followed by a model and effort token on the same line ("<harness> [<model>] [<effort>]"; AGENTS.md section 4); LOCAL, gitignored; absent or "default" harness falls back to config/crew-harness then firstmate's own. The primary's own setting; NOT inherited into secondmate homes (secondmates do not spawn secondmates)
+config/backlog-backend  backlog backend override; LOCAL, gitignored; absent or "tasks-axi" = the configured tasks-axi backend, "manual" = force routine backlog updates to hand-editing; inherited by secondmate homes (AGENTS.md section 10)
+config/backend  runtime session-provider backend override for new tasks; LOCAL, gitignored; absent = falls through to runtime auto-detection (the runtime firstmate itself is executing inside), then tmux; tmux is the verified reference backend (docs/tmux-backend.md), herdr has its own required CI lane (docs/herdr-backend.md), while zellij, orca, and cmux remain experimental with no dedicated real-backend CI lane (docs/zellij-backend.md, docs/orca-backend.md, docs/cmux-backend.md) - herdr and cmux can also be selected by runtime auto-detection, zellij and orca never are (always explicit), and codex-app is not accepted; see docs/codex-app-backend.md; inherited by secondmate homes under the primary-authoritative contract in secondmate-provisioning
+config/calm     Pi Calm presentation preference; LOCAL, gitignored, and not inherited; see "Pi Calm preference" below
+config/supervision-branch-model config/supervision-branch-effort  Pi supervision-branch model and reasoning-effort pins written by /supervision-model; LOCAL, gitignored, independently settable, and not inherited; see "Pi supervision branch model and effort" below
+config/startup-memory-budget     primary-authoritative per-home startup-memory budget; LOCAL, gitignored, materialized as 7,500 estimated tokens by locked primary bootstrap and inherited into secondmate homes; see "Startup memory budget" below
+config/stow-pass-horizon  optional presence flag opting this home in to /stow's default-off pass-count decay horizon; LOCAL, gitignored, and not inherited; see "Stow pass horizon" below
+config/herdr-presentation-spaces  optional "off" opt-out from, or "on" opt-in to, Herdr's default-on disposable single-task visual projection, which is unconfigured-default-on only at or above a Herdr version floor; LOCAL, gitignored; inherited by secondmate homes; see docs/herdr-backend.md "Presentation spaces"
+config/trace-context  optional presence flag enabling default-off native W3C trace-context propagation to spawned agents; LOCAL, gitignored; inherited by secondmate homes; see "Trace context propagation" below and docs/trace-context.md
+config/turnend-churn-absorb  optional presence flag opting this home into the default-off absorb of bare turn-end wakes on pane churn; LOCAL, gitignored, and not inherited; see "Turn-end pane-churn absorb" below
+config/pr-refresh  branch-currency opt-in; see "Branch-currency dispatch" below
+config/cmux-socket-password  optional cmux control-socket password; LOCAL, gitignored; read fresh on every cmux CLI call and passed through without ever overriding an operator's own ambient CMUX_SOCKET_PASSWORD when absent (docs/cmux-backend.md "Setup")
+config/wedge-alarm  optional away-mode wedge-alarm active-alert directives; LOCAL, gitignored; absent means auto (macOS Notification Center when available); see docs/wedge-alarm.md
+config/watched-tools.json  optional list of the tools this home depends on, read by the update check armed with bin/fm-tool-update-check.sh; LOCAL, gitignored, firstmate-maintained but human-editable, and NOT inherited by secondmate homes; see "Watched tool updates" below
+config/x-mode.env    generated Relay watcher cadence; LOCAL, gitignored; source before arming watcher when present
+data/                personal fleet records; LOCAL, gitignored as a whole
+  backlog.md         task queue, dependencies, history
+  captain.md         this home's domain-local captain preferences and working style; LOCAL, gitignored, canonical even if harness memory mirrors it, and updated with inspect-then-update
+  captain-shared.md  main-authoritative shared captain preferences propagated read-only to secondmate homes; LOCAL, gitignored, owned by secondmate-provisioning
+  learnings.md       fleet-local operational facts and gotchas; LOCAL, gitignored; dated, evidence-backed, curated, and updated with inspect-then-update - rewrite and prune rather than append forever, the same contract as captain.md; created lazily, absent until this home has a learning to store
+  projects.md        thin fleet navigation registry recording each project's standing delivery posture; firstmate-private, parsed for mechanical sync and seeding by fm-project-mode.sh (AGENTS.md section 6)
+  secondmates.md      local and remote secondmate routing table; firstmate-private, maintained by the secondmate seed helpers (AGENTS.md section 6)
+  <id>/brief.md      per-task crewmate brief, or per-secondmate charter brief when kind=secondmate
+  <id>/report.md     scout task deliverable, written by the crewmate; survives teardown
+projects/            cloned repos; gitignored; read-only except under hard rule 1's concrete captain-approved project operation exception
+state/               runtime records and signals; gitignored
+  <id>.status        appended by crewmates: "<state>: <note>" wake-event lines, not current-state truth
+  <id>.turn-ended    touched by turn-end hooks
+  <id>.progress      touched for observed native-harness activity inside one Pi turn; bin/fm-busy-event.sh owns its generation binding and bin/fm-watch.sh reads it beside turn-ended for the busy-age bound only, never as a completed turn
+  <id>.grok-turnend-token   firstmate-owned grok hook registry token for the task; removed by teardown
+  <id>.kimi-turnend-token   firstmate-owned Kimi hook registry token for the task; removed by teardown
+  <id>.gemini-settings.json  firstmate-owned per-task Gemini settings carrying the busy-state and turn-end hooks, reached through GEMINI_CLI_SYSTEM_SETTINGS_PATH so nothing is written into the project's own .gemini/; removed by teardown
+  <id>.qwen-settings.json  firstmate-owned per-task Qwen Code settings carrying the busy-state and turn-end hooks, reached through QWEN_CODE_SYSTEM_SETTINGS_PATH so nothing is written into the project's own .qwen/; removed by teardown
+  <id>.muse-session  muse busy-source binding (sessions root plus task worktree) written by fm-spawn; removed by teardown
+  <id>.cursor-session  cursor busy-source binding (projects root, task worktree, prior conversations) written by fm-spawn; removed by teardown
+  <id>.reconcile-nudged  epoch second of the last inventory-reconcile nudge sent to this secondmate; bin/fm-secondmate-reconcile.sh owns its per-home cooldown window
+  <id>.backlog-close  the exact backlog transition a teardown recorded before removing the task's record, so an interrupted cleanup can still be finished at the next session start; bin/fm-backlog-transition-lib.sh owns its format and replay, and a landed transition removes it
+  <id>.inbox/          durable steering inbox: sequenced firstmate instruction records the worker acknowledges by moving them into its handled/ subdirectory; written by fm-send, with ordinary records re-rung and escalated by the watcher while explicit fire-and-forget records are excluded from that ladder, and removed by teardown (bin/fm-task-inbox-lib.sh)
+  <id>.meta          task metadata; each producer script's header owns its exact fields and mutation contract, with docs/configuration.md routing operator-facing backend and trace-context details
+  <id>.herdr-presentation  quarantinable attempt and restart-binding journal for Herdr's optional visual projection; never task or endpoint authority; see docs/herdr-backend.md "Presentation spaces"
+  <id>.check.sh      authenticated slow poll; the watcher dispatches validated PR data and the byte-identified Relay shim through trusted repository scripts, runs registered custom checks from hash-validated private snapshots, and rejects every other state check without execution
+  <id>.check-trust   private content binding created by fm-check-register.sh for an intentional custom check
+  <id>.pr-poll       private validated data sidecar for the byte-static PR merge poll
+  <id>.pr-poll-registration  private transactional provenance record binding the task, canonical metadata identity, sidecar, and static poll publication
+  <id>.pr-poll-retirement  private identity-bound crash-recovery receipt for one exact validated merged result; removed after its poll artifacts retire
+  <id>.pr-poll-merge-notified  canonical PR identity of the last merge outcome delivered for this task; bin/fm-pr-lib.sh owns the marker format and identity mechanics, while bin/fm-merge-outcome-lib.sh owns locked publication, duplicate suppression, and replacement
+  <id>.pr-refresh-state  private branch-currency dispatch receipt; docs/architecture.md owns its lifecycle, bin/fm-watch.sh its format
+  <id>.pr-refresh-refused  branch-currency refusal receipt; see docs/architecture.md
+  <id>.pr-poll-rearm-notified  PR poll upgrade diagnostic receipt; see docs/architecture.md
+  branch-outcomes.jsonl .branch-outcomes-cursor .branch-outcomes-processed .<task>.branch-outcome-index .branch-outcome-index-ready  Pi supervision-branch durable outcome store, its read cursor, main's processed marker, bounded latest per-task status-coverage caches, and their recovery marker; bin/fm-branch-outcome.sh owns the formats
+  branch-session/ .branch-session .branch-mirror-cursor  the branch's per-main-session conversations, the pointer to the current one, and the dialog-mirror cursor; extension-owned (docs/pi-supervision-branch.md)
+  .branch-eligible-rows .branch-eligible-owner .main-eligible-rows  per-actor wake-row claims and branch-owner evidence; docs/watcher-continuity.md owns the acknowledgement contract
+  .lease-<task>        per-task supervision lease naming which actor (main or branch) may change that task; bin/fm-lease-lib.sh owns the contract the guarded scripts enforce
+  x-watch.check.sh   generated Relay poll shim; present only when opted in (AGENTS.md section 14)
+  tool-updates.check.sh  generated watched-tool update poll shim and its .check-trust binding; present only after bin/fm-tool-update-check.sh arm; its report record .tool-updates is what keeps one pending update from being reported on every poll
+  mail.check.sh      generated received-mail poll shim and its .check-trust binding; present only after bin/fm-mail-check.sh arm; report record .mail-check (mail schema: "Mail plane" below)
+  .mail-seen .mail-woken .mail-retry .mail-retry-pos .mail-turn .mail-seen.lock  mail-plane poll cursor, emission journal, transient-fetch retry set, retry-scan position, contended-slot turn flag, and overlapping-poll lock; written only by bin/fm-mail.sh (mail schema: "Mail plane" below)
+  pending-replies/   parent-owned secondmate pending-reply records (correlation id, delivery vs reply, recovery, escalation); fm-pending-reply-lib.sh
+  procevent/         registered process-to-event sources, one private record per canonical source id; written only by bin/fm-procevent.sh, and their presence alone keeps supervision required (AGENTS.md section 13)
+  procevent-inbox/   private captured results and their durable handled-acknowledgement markers; source output lives here and never in an event line
+  decision-bindings/ private records marking a captured-answer source as feeding the keyed-answer intake, with a legacy origin on pre-collapse records; written only by bin/fm-captain-hold.sh bind, dropped by unbind and by source retirement (AGENTS.md section 13; docs/captain-hold-lifecycle.md)
+  reconcile-requests/ private open obligations to re-check a captain call whose board selection was `reconcile`; written only by bin/fm-captain-hold.sh, retired by its verify-then-decide outcomes or a normal answer that settles the call (AGENTS.md section 13; docs/captain-hold-lifecycle.md)
+  when/              private condition->action watch specs, their trust bindings, and single-fire markers; written only by bin/fm-procevent-when.sh (AGENTS.md section 13's process-event-sources trigger)
+  inbox/             captain notes captured out of band by bin/fm-inbox.sh, including the voice handover's queued requests; each note appends one `check` wake and stays pending until acknowledged with `bin/fm-inbox.sh drain --ack <id>`, which moves it to inbox/handled/ (docs/voice-relay.md)
+  x-inbox/           generated Relay pending mention payloads; fmx-respond drains it (AGENTS.md section 14)
+  x-context/         generated Relay durable per-request reply context and one-wake offer markers, keyed by request_id; survives inbox cleanup and expires within seven days (AGENTS.md section 14; bin/fm-x-lib.sh)
+  x-outbox/          generated Relay dry-run reply and dismiss previews; inspect it when FMX_DRY_RUN is set (AGENTS.md section 14)
+  public-followup/   generated private transport for promised public replies: retained open-loop registrations, typed terminal-result inbox, results staged for an owning home on another machine, accepted/rejected ledgers, and retirement receipts (AGENTS.md section 14; bin/fm-public-followup.sh)
+  x-poll.error x-poll.claim-error  generated Relay and offer-claim diagnostic dedupe markers
+  .startup-network.*  status, report, per-step elapsed timings, inline-print claim, and lock for the deferred startup stage that runs network checks and the inactive-outcome scan off the digest's blocking path; bin/fm-startup-network.sh
+  .wake-queue        durable queued wakes retained until post-handling acknowledgement: epoch<TAB>seq<TAB>kind<TAB>key<TAB>payload
+  .watcher-down      private generation-bound recovery state coupling watcher downtime, durable wake presentation, and post-handling acknowledgement; never touch
+  .<id>.open-decisions-cursor  per-task byte cursor and folded open-decision set bounding the OPEN DECISIONS scan's cost to new status-log appends; written only by fm-classify-lib.sh's status_open_decisions_incremental, removed by teardown, safe to delete (forces one full re-fold)
+  .status-presentation-cursor .status-presentation-lock  fleet-wide per-task status identity plus independent annotation and outcome-backstop byte offsets, with a serialization lock preventing already-presented lines from replaying while preserving delayed signal annotations; owned by fm-classify-lib.sh, with each task's row retired by teardown
+  .afk-contract      the away-posture record: the captain's verbatim away words, expected return, reach profile, spend cap, and structured mandate clauses; written only by bin/fm-afk-contract.sh after the captain confirms the read-back, archived under afk-contracts/ at return; its presence IS the away posture in every harness
+  afk-contracts/     archived away-posture records: one final record per away window keyed by entry time, plus any superseded mandates from that window
+  .afk               durable away-mode daemon flag on the harnesses that still launch the daemon (never on Pi); present = sub-supervisor may inject escalations (set by the daemon entry, cleared on user return)
+  .watch.lock .wake-queue.lock watcher singleton and queue serialization locks
+  .claude-autoarm.lock .claude-autoarm-epoch .claude-autoarm-failure-notified .claude-autoarm-failure-alarmed .turnend-claude-blocks .turnend-claude-blocks.lock   Claude Stop auto-arm single-flight, epoch, failure-episode, attended-alarm, guard-budget, and budget-lock records; never touch
+  .cursor-park-owner .cursor-park-owner.lock .turnend-cursor-blocks   Cursor stop-hook owner record, publication and commit lock, and bounded repair-nag budget; never touch
+  .hash-* .count-* .stale-* .stale-since-* .churn-since-* .paused-* .wedge-escalations-* .writing-* .seen-* .hb-surfaced-* .last-* .heartbeat-streak   watcher internals; never touch
+  .watch-triage.log  watcher's absorbed-wake debug log (size-capped); never relied on, safe to delete
+  .last-watcher-beat watcher liveness beacon, refreshed at cycle start and during poll work so a slow poll stays fresh while a hung step still ages past grace; guard scripts read it
+  .subsuper-* .supervise-daemon.*   sub-supervisor internals; never touch
+.no-mistakes/        local validation state and evidence; gitignored
+```
+
+A `state/<id>.status` line is a wake event, not current-state truth; `bin/fm-crew-state.sh` owns current-state reconciliation.
+`data/captain.md`, optional `data/captain-shared.md`, and `data/learnings.md` are covered below under "Captain Preferences" and "Operational learnings".
+
 `bin/fm-session-start.sh`'s header is the single owner of session-start ordering, composed commands, digest contents, and the digest's startup mechanism.
 `bin/fm-startup-network.sh`'s header owns the deferred startup stage that keeps every external-network call and the potentially slow inactive-outcome scan off that digest's blocking path, including its state files and the safety argument for running them later.
 `docs/sessionstart-nudge.md` owns the native session-open adapter tiers that run or nudge the digest command, and the source routing between them.
-`AGENTS.md` retains the run-once and read-once operator rules, lock-refusal safety, installation consent, and direct-report recovery boundaries because those facts apply at every session start.
+[`session-start-recovery`](../.agents/skills/session-start-recovery/SKILL.md) owns startup interpretation, read-once behavior, lock-refusal safety, and installation consent; `AGENTS.md` retains the run-once trigger and direct-report recovery boundaries.
 Ordinary dead-direct-report recovery is owned by `stuck-crewmate-recovery`, while persistent-secondmate recovery is owned by `secondmate-provisioning`.
 
 ## Pi Calm preference (config/calm)
@@ -208,6 +315,30 @@ The bound is required rather than cosmetic because churn and pane staleness read
 The flag is a home-local supervision-noise preference and is not inherited by secondmate homes, which run their own crew mix.
 [`architecture.md`](architecture.md) owns the triage contract and `bin/fm-watch.sh`'s `signal_turnend_panes_churned` owns the exact evidence and fail-closed boundaries.
 
+## Branch-currency dispatch (config/pr-refresh)
+
+The optional local, gitignored `config/pr-refresh` presence flag enables automatic branch refresh for eligible finished GitHub PR workers in this home; it is default-off and is not inherited by secondmate homes.
+Without the flag, each `behind` or `conflict` observation is written to the triage log as `branch-refresh-observed`, with no refresh dispatch, dispatch-state update, or captain wake.
+The worker re-enters its selected delivery path, preserving active-run ownership, and reports ready again only after checks pass on the resulting head.
+[`architecture.md`](architecture.md#event-driven-supervision) owns dispatch eligibility, acknowledgement, retry, refusal, and blocked-head behavior.
+`FM_PR_REFRESH_STALE_SECS` sets the elapsed budget from the first dispatch for an unchanged head and defaults to 1800 seconds (30 minutes), six default check intervals.
+`FM_PR_REFRESH_COOLDOWN_SECS` sets the minimum interval between dispatches for the same PR and defaults to 600 seconds (10 minutes), two default check intervals.
+Empty, nonnumeric, and `0` values for either setting fall back to its default.
+
+The poll compares the current base branch named by `baseRefName` with the PR head; `baseRefOid` can describe an earlier base commit and is not used for currency detection.
+Base names are validated as Git branch refs and URL-encoded for protection, ruleset, and comparison queries.
+A positive `behind_by` triggers refresh only when classic branch protection or an active repository or organization ruleset requires up-to-date branches with at least one required status check.
+The comparison also covers PRs awaiting required review.
+Absent, disabled, or unreadable protection never authorizes a behind refresh; conflict detection remains independent of protection and comparison.
+Classic protection inspection needs GitHub Administration read permission, while active ruleset inspection needs Metadata read permission.
+The shared poll performs these checks even without `config/pr-refresh`, adding up to three GitHub API queries per open, non-conflicting PR per check sweep, with additional requests for paginated rulesets; tokens without Administration read can receive a classic-protection permission error on every sweep.
+
+Upgrading firstmate across a change to `bin/fm-pr-poll.sh` invalidates every already-armed PR poll, because the watcher accepts a poll only when the task's armed byte copy is identical to the current template.
+The watcher suspends merge detection for affected tasks and batches their diagnostics into one sweep wake, with the exact command to re-run `bin/fm-pr-check.sh <task-id> <pr-url>`, including the home, state directory, and script path.
+Run that command once for each affected task after upgrading to resume merge detection and any enabled branch-currency dispatch.
+The watcher keeps the armed bytes unchanged, and repeated sweeps remain quiet until the poll is re-armed or its registration or template changes.
+Unregistered or tampered poll bytes still produce the unauthenticated-check rejection.
+
 ## Gate defaults (.no-mistakes.yaml)
 
 The tracked `.no-mistakes.yaml` sets `test.evidence.store_in_repo: true` and pins `commands.lint` to `bin/fm-lint.sh`, the same owner CI invokes.
@@ -217,6 +348,26 @@ The [`firstmate-coding-guidelines` skill](../.agents/skills/firstmate-coding-gui
 `commands.test` executes code, so no-mistakes honors it only from the default-branch copy of `.no-mistakes.yaml`; a pushed branch cannot change what the gate runs.
 See [CONTRIBUTING.md](../CONTRIBUTING.md) for the firstmate-specific local test policy and entry points.
 Portable shard evidence and coverage rules are in [fm-test-portable-shards.md](fm-test-portable-shards.md); [herdr-backend.md](herdr-backend.md#destructive-lab-safety) owns the real-Herdr lane's isolation boundary, and [runtime-backends.md](verification/runtime-backends.md#herdr) owns active evidence.
+
+## Validation census
+
+Use [`bin/fm-nm-quiescence.sh`](../bin/fm-nm-quiescence.sh) with `FM_HOME` selecting the home whose secondmate registry defines the fleet to inspect.
+The script header owns invocation modes, record names, and exit codes; this section owns coverage and interpretation.
+The census reads no-mistakes repository identities and run ledgers for the code root, repositories backing the active and registered homes, and each home's immediate project clones, including homes with no projects.
+The active home honors `FM_PROJECTS_OVERRIDE`, while registered local children use their own `projects/` directories.
+Remote routes go through [`fm-on.sh`](../bin/fm-on.sh), querying each distinct registered host/root and every registered remote home; those roots must already contain compatible census code and satisfy the [remote setup requirements](remote-secondmates.md).
+Discovery uses only the invoking home's registry, so child registries and repositories or hosts outside that inventory are outside the result's coverage.
+
+A parked run remains busy while its ledger state is nonterminal, regardless of whether its worker is responding.
+Reported age is elapsed time since the ledger's start timestamp.
+Ledgers are deduplicated by reported host label and resolved no-mistakes repository identity, preserving separately registered worktrees and each home's busy or incomplete outcome while counting shared runs and ledger gaps once in fleet totals.
+Home totals can therefore overlap and must not be summed into a fleet total.
+Incomplete home status takes precedence when a home has both runs and gaps.
+Unconfigured repositories, inaccessible or unsafe inventory entries, transport or query failures, unusable ledger output, unknown run states, and unavailable or future run ages leave coverage incomplete.
+A clear result requires recognized successful ledger responses with no outstanding runs or gaps throughout the discovered inventory; the sequential scan does not prevent a new run from starting afterward.
+
+The [focused regression suite](../tests/fm-nm-quiescence.test.sh) uses stubbed no-mistakes responses and remote runners.
+Live daemon and remote-host demonstrations, including scenarios that could not be exercised, belong in PR evidence; passing that suite alone does not establish live fleet coverage.
 
 ## Captain Preferences (data/captain.md / data/captain-shared.md)
 
@@ -302,7 +453,7 @@ The full cmux home label also includes a short hash of the resolved `FM_ROOT` pa
 
 ## Harness support
 
-claude, codex, opencode, pi, pi-signed, grok, kimi, cursor, and omp are empirically verified for crewmate and secondmate launches; gemini is verified for crewmate and scout launches only, and [README requirements](../README.md#requirements) own the set supported for the primary session.
+claude, codex, opencode, pi, pi-signed, grok, kimi, cursor, and omp are empirically verified for crewmate and secondmate launches; gemini, muse, rovo, qwen, and codex-foundry-luna are verified for crewmate and scout launches only, and [README requirements](../README.md#requirements) own the set supported for the primary session.
 A cursor secondmate or primary runs the tracked project-scope `.cursor/hooks.json` in its own home and must be launched with `--trust`, or no project hook loads; [`docs/supervision-protocols/cursor.md`](supervision-protocols/cursor.md) owns its supervision protocol.
 Cursor typed-submit confirmation is verified on tmux and Herdr only.
 On Zellij, cmux, and Orca a typed-plane Cursor send (a harness-native invocation or an explicit backend target; ordinary text steers ride the durable inbox and exit 0 at enqueue) lands, but `fm-send` reports delivery unconfirmed and exits non-zero because their shared submit core does not consult the busy footer; [runtime backend verification](verification/runtime-backends.md#cursor-agent-cli) owns the evidence and transcript-state boundary.
@@ -310,6 +461,8 @@ muse is verified for crewmate and scout launches ONLY, and `fm-spawn.sh` refuses
 muse also needs a worker-reachable credential before spawning, and the portable fleet path is the `<config>/muse/auth.json` credential stored by `muse login`, because a caller-only `META_API_KEY` does not cross a long-lived backend daemon.
 gemini is likewise refused for secondmates because it has no primary supervision protocol; [its adapter reference](../.agents/skills/harness-adapters/references/harness/gemini.md) owns the credential precondition, canonical-launch wiring, and raw-launch limitations.
 rovo is likewise verified for crewmate and scout launches ONLY, refused for a secondmate for the same reason - no turn-end hook and no primary supervision protocol; [`docs/verification/rovo.md`](verification/rovo.md) owns that evidence, including the OAuth token's silent background refresh from a stored refresh token and both tmux and herdr pane liveness (herdr placement is verified live, with a Herdr-side agent-detection gap left open for recovery classification).
+qwen is likewise verified for crewmate and scout launches ONLY, on Linux ONLY, refused for a secondmate because it has no primary supervision protocol and refused on any non-Linux host as `qwen-platform-unsupported`; [`docs/verification/qwen.md`](verification/qwen.md) owns that evidence, including the Stop-hook busy source and the independent-test arbiter that stays red even when the worker is asked to claim success.
+codex-foundry-luna is likewise verified for crewmate and scout launches ONLY, refused for a secondmate because it carries no supervision mechanics of its own and has never been verified dispatching its own crew against a single locked-down Foundry deployment; [`docs/verification/codex-foundry-luna.md`](verification/codex-foundry-luna.md) owns that evidence, including the live Responses-route check and the route-plus-body deployment allowlist that keeps an unauthorized deployment off the account.
 New harnesses get verified through a supervised trial task before joining the set.
 The verified adapter evidence - each harness's busy-state source, interrupt and exit behavior, skill-invocation syntax, and per-harness quirks - lives in the skill tree rooted at [`.agents/skills/harness-adapters/SKILL.md`](../.agents/skills/harness-adapters/SKILL.md).
 The executable interrupt and exit mechanics live in [`bin/fm-control-lib.sh`](../bin/fm-control-lib.sh), and [`docs/agent-control.md`](agent-control.md) owns their lifecycle-control architecture.
@@ -380,6 +533,7 @@ Choose the minimum additions for the authentication method actually in use:
 | Provider configured through environment variables | The exact credential and endpoint names required by that provider, for example `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`; a multi-provider tool needs each provider it will actually use. |
 | Custom provider store | Its configured location variables, such as `CODEX_HOME`, `GROK_HOME`, or `XDG_CONFIG_HOME`; Firstmate's existing explicit Claude and Muse store assignments still apply. |
 | Muse environment authentication | `META_API_KEY`, already present in the target tmux session environment; Firstmate's preflight requires the stored-login path on other backends. |
+| codex-foundry-luna (Azure AI Foundry gpt-5.6-luna) | None to add: its local token-refreshing gateway (`bin/fm-foundry-luna-proxy.py`) authenticates with `az account get-access-token` under the worker's own home directory, the same as any provider login stored there, and nothing it uses is placed in the launch environment or on the launch command. The gateway is codex's parent, so it passes its own minted `FM_FOUNDRY_LUNA_SECRET` straight into codex's environment and the allowlist needs no entry for it. |
 | Git over SSH with an agent | `SSH_AUTH_SOCK`; add `GIT_SSH_COMMAND` only if the chosen transport requires that override. |
 | Git over SSH with a key file | No credential variable when normal SSH configuration selects the key; file permissions and any passphrase handling still apply. |
 | Git over HTTPS with a credential helper | Whatever the configured helper requires; a GitHub CLI helper using an environment token needs its selected `GH_TOKEN` or `GITHUB_TOKEN`. |
@@ -392,49 +546,111 @@ Regression coverage executes emitted launch commands with synthetic nonsecret va
 
 Every claude launch's inline `--settings` JSON also carries `"attribution":{"commit":"","pr":"","sessionUrl":false}`, so a spawned worker never writes a Co-Authored-By trailer, Claude-Session link, or generated-with line into a commit or PR body regardless of which settings scopes end up loaded.
 
-## Crew dispatch profiles (config/crew-dispatch.json)
+## Host Claude Code plugins (config/host-plugins.json)
 
-`config/crew-dispatch.json` is an optional local, gitignored file containing natural-language rules that firstmate reads before dispatching a crewmate or scout.
-The shell scripts do not match those rules; firstmate chooses the best matching rule with judgment, resolves its profile object or array under the operating contract in `AGENTS.md` section 4 and `quota-array-dispatch`, and passes only concrete `--harness`, `--model`, and `--effort` flags to `fm-spawn.sh`.
-When the file exists, `fm-spawn.sh` enforces that contract by refusing crewmate and scout spawns that lack an explicit harness (`--harness`, a positional adapter, or a raw launch command).
-Batch spawns satisfy the same requirement with a shared `--harness`.
-Secondmate spawns are exempt and still resolve through `config/secondmate-harness` and its optional model and effort tokens.
-This section is the single owner of the canonical schema and its per-field semantics.
-`AGENTS.md` section 4 owns the always-loaded dispatch intake boundary, and `quota-array-dispatch` owns the completion-aware profile-array selection procedure.
+The optional local, gitignored `config/host-plugins.json` is the exact allowlist of Claude Code plugins on a remote second-mate host, with the marketplaces they resolve from: the remote readiness check registers the named marketplaces and installs and enables the named plugins at user scope, and refuses a remote second-mate launch while any reported plugin it does not name is installed at any scope.
+User-scope Claude Code plugins belong to the host's account rather than to one Firstmate home, so one list governs every home and every Claude worker on that host, not only the home holding the copy.
+It is inherited into secondmate homes under the [primary-authoritative configuration contract](../.agents/skills/secondmate-provisioning/SKILL.md).
+`bin/fm-remote-doctor.sh` reads the copy in the remote home and converges that account's user-scope Claude Code plugins as one more readiness check; its header owns the exact check, repair, and operator-action lines.
+A registered marketplace must match the configured source, not only the name.
+An absent file means the check is not applicable and the public template is unchanged.
+When the file is present, `plugins` is an exact allowlist for the Claude plugin inventory: any reported plugin from any marketplace that is not named refuses launch until the operator adds or removes it.
+An explicit catalogue with empty arrays therefore allows no installed plugins.
+The doctor never installs Claude Code itself, directly requests only marketplaces and plugins named in this file, and never supplies credentials.
+If Claude Code auto-installs a dependency that the preflight did not recognize, the final read-only inventory leaves it installed and refuses the remote second-mate launch until the operator adds it to the catalogue or removes it.
+
+The file is a JSON object with two arrays.
+`marketplaces` lists objects with a `name` that exactly matches the source repository's `.claude-plugin/marketplace.json` name and a `source` that is a credential-free HTTPS Git repository URL ending in `.git`; other source spellings are invalid.
+`plugins` lists `plugin@marketplace` strings for that host's user-scope installs.
 
 ```json
 {
-  "rules": [
+  "marketplaces": [
     {
-      "when": "<natural-language condition describing a kind of task>",
-      "use": [
-        { "harness": "<adapter>", "model": "<optional model>", "effort": "<low|medium|high|xhigh|max|ultra, optional>" }
-      ],
-      "why": "<optional rationale that helps firstmate choose>"
+      "name": "example-plugins",
+      "source": "https://github.com/example/example-plugins.git"
     }
   ],
-  "default": [
-    { "harness": "<adapter>", "model": "<optional model>", "effort": "<optional effort>" }
+  "plugins": [
+    "example-core@example-plugins",
+    "example-docs@example-plugins"
   ]
 }
 ```
 
-Per rule, `when` and `use` are required.
-Both `use` and the optional top-level `default` accept either one profile object or a non-empty array of profile objects.
-The single-object form stays fully backward-compatible, and every profile needs `harness`.
-Profile `model` and `effort` fields and rule `why` are optional.
+See [`docs/examples/host-plugins.json`](examples/host-plugins.json) for a copyable starting point.
+Proof of readiness is a named skill resolving from `claude plugin details` for each configured plugin, not an install reporting success.
+Claude Code plugins reach Claude Code sessions only; workers on other harnesses still do not see these skills.
+
+## Foundry Luna endpoint (config/foundry-luna.json)
+
+The codex-foundry-luna crewmate/scout adapter's local token-refreshing gateway ([`bin/fm-foundry-luna-proxy.py`](../bin/fm-foundry-luna-proxy.py)) resolves the Azure AI Foundry `gpt-5.6-luna` deployment's host and subscription id from the local, gitignored `config/foundry-luna.json` named by `FM_FOUNDRY_LUNA_CONFIG` rather than from any value baked into the tracked repository - this fork is public, and those identifiers are private operational data.
+`bin/fm-spawn.sh` refuses a codex-foundry-luna spawn before it creates a task at all when this home's copy is missing, naming the expected path; the gateway itself refuses to start, with no built-in fallback host, when the file is absent, unreadable, not valid JSON, or missing either field.
+It is inherited into secondmate homes under the same [primary-authoritative configuration contract](../.agents/skills/secondmate-provisioning/SKILL.md) as `config/host-plugins.json`, so a secondmate's own crewmates can dispatch onto `gpt-5.6-luna` too.
+
+The file is a JSON object with two string fields.
+`host` must be exactly one DNS label plus the literal suffix `.services.ai.azure.com` (case-insensitive) - no extra subdomain labels, no path, no port, and no other shape, so neither a malformed value nor a crafted one that merely contains that suffix elsewhere in the string can redirect the gateway's real AAD bearer token to an arbitrary host.
+`subscription_id` must be a GUID, the Azure subscription id `az account get-access-token` resolves the token against.
+Neither field, nor anything else in this file, is a secret: the AAD token itself is fetched inline by `az` at the point of use and is never read from this file, written to it, or logged.
+
+```json
+{
+  "host": "<foundry-account>.services.ai.azure.com",
+  "subscription_id": "00000000-0000-0000-0000-000000000000"
+}
+```
+
+See [`docs/examples/foundry-luna.json`](examples/foundry-luna.json) for a copyable starting point - its `host` placeholder is deliberately invalid (angle brackets are not a valid DNS label character) and the gateway refuses it until the real account's host replaces it.
+`docs/verification/codex-foundry-luna.md` records the empirical evidence for the adapter as a whole; it does not restate the real account values either.
+
+## Crew dispatch profiles (config/crew-dispatch.json)
+
+`config/crew-dispatch.json` is an optional local, gitignored file containing natural-language rules that firstmate reads before dispatching a crewmate or scout.
+Bootstrap's dispatch validator checks the local policy without matching task intent, choosing a candidate, resolving quota, or reading target-host catalogues.
+Firstmate chooses the best matching natural-language rule with judgment, resolves its profile array under [`harness-adapters`](../.agents/skills/harness-adapters/SKILL.md) and [`quota-array-dispatch`](../.agents/skills/quota-array-dispatch/SKILL.md), then passes only concrete `--harness`, `--model`, and `--effort` flags to `fm-spawn.sh`.
+When the file exists, `fm-spawn.sh` enforces that contract by refusing crewmate and scout spawns that lack an explicit harness (`--harness`, a positional adapter, or a raw launch command).
+Batch spawns satisfy the same requirement with a shared `--harness`.
+Secondmate spawns are exempt and still resolve through `config/secondmate-harness` and its optional model and effort tokens.
+V2 is the required fleet policy whenever this file exists.
+Bootstrap emits `CREW_DISPATCH: invalid ...` for a missing or non-2 `schema_version`, an unknown field, a missing required key, malformed value, unverified harness, invalid effort, unclassified or misclassified model, or a blocked-class candidate whose rule `match.task_shape` is missing, empty, or not a subset of that constraint's `allowed_task_shapes`.
+This section is the single owner of the canonical V2 schema and its per-field semantics.
+`AGENTS.md` section 4 owns the always-loaded dispatch intake boundary, and `quota-array-dispatch` owns the completion-aware profile-array selection procedure.
+
+| V2 field | Required contents and effect |
+| --- | --- |
+| `schema_version` | The number `2`. |
+| `placement` | Non-empty capability map and ordered target rules, `unmatched: "retain-intake-home"`, and an `enforcement` object. `enforcement.current` must be `"advisory"` and `not_read_by` must name `fm-bootstrap` and `fm-spawn`: bootstrap validates this data, but neither path uses it to route work. `mechanical_owner` records the intended future routing owner; the example names `intake-and-backlog-handoff`. |
+| `dispatch` | `selector: "quota-array-dispatch"`, non-empty `target_host_checks` naming checks for firstmate to perform on the target host, `higher_reasoning_requires_reason: true`, and `history_ref: "data/crew-dispatch-history.md"`. These declarations do not run checks or write history. |
+| `constraints` | At least one constraint. Each names `allowed_task_shapes` (the task shapes that may use the blocked classes), `blocked_model_classes` (each value must be a known `model_class`), `unknown_model_class: "treat_as_blocked"`, and `on_no_eligible_candidate: "report"`. The last two values are fixed on purpose. |
+| `ordinary_models` | Optional non-empty array of bare model names classified `ordinary`. When omitted, bootstrap uses the built-in default: `gpt-5.6-terra`, `sonnet`, `claude-sonnet-5`, `gpt-5.6-sol-xhigh`, `grok-4.6`, `cursor-grok-4.6-high-fast`, `composer-2.5`, `gpt-5.6-luna`, and `claude-opus-5`. An existing V2 file without this field keeps validating. A present list replaces that default rather than merging with it. Names matching the structural astra or fable patterns, and names that contain `/`, are refused. |
+| `exceptions` | Exactly `[]`. Quota eligibility, runway, and ranking follow `quota-array-dispatch`. |
+| `rules` | A non-empty ordered array of `id`, natural-language `when`, `reasoning`, and non-empty `use` profiles. `match`, `independence`, and `decision_refs` are optional; an absent `match` matches whatever no earlier rule already claimed, so rule order carries a fallback rule's precedence. A fixed reasoning rule must name an effort target and require a dispatch reason. |
+| `default` | A non-empty quota-aware array of profiles used only when no task-shaped rule matches. A profile whose `model_class` is listed in `blocked_model_classes` is rejected here. |
+
+The `placement.rules` and `rules` arrays carry rule order; `default` defines default membership.
+Separate `precedence` and `dispatch.ordinary_default_profiles` declarations are rejected.
+If supplied, a rule's `match` must be a non-empty object; `null` and `{}` are invalid.
+The optional `match.host` is a non-empty string that scopes the rule to the named dispatch host.
+Matching, including applying host scope, remains firstmate's judgment; bootstrap does not select or verify that host.
+
+Every V2 profile has `id`, `harness`, `model`, and `model_class`; `effort`, `reasoning_target`, `reasoning_source`, `eligible_when`, and `preferred_when` are optional non-empty strings.
+Profile IDs must be unique within each `use` array and within `default`.
+`model_class` must agree with the classification owned by `crew_dispatch_validate` in [`bin/fm-bootstrap.sh`](../bin/fm-bootstrap.sh).
+Astra and fable are detected by name pattern and stay structural: `ordinary_models` cannot include a matching name, and a matching model cannot claim `ordinary`.
+Ordinary names come from `ordinary_models` when that field is present, otherwise from the built-in default above.
+Models outside that classification, including automatic aliases, are rejected even if a target-host catalogue lists them; changing `model_class` cannot make them eligible.
+This classification establishes policy eligibility; target-host catalogue and authentication checks still establish model availability.
+A profile whose `model_class` appears in a constraint's `blocked_model_classes` is valid only in a rule whose `match.task_shape` is a non-empty subset of that constraint's `allowed_task_shapes`; those classes are rejected in `default`.
 `ultra` is native-only: the model-aware validation contract and launch mapping are owned by `bin/fm-harness.sh validate-native-effort` and `bin/fm-spawn.sh` respectively.
-An omitted model or effort means the selected harness uses its own default for that axis.
-Every profile array is an implicit quota-aware choice resolved through `quota-array-dispatch`.
-If no dispatch rule fits, firstmate resolves `default` through the same object-or-array path before falling back to `config/crew-harness`.
-Except for `ultra`, which refuses unsupported profiles under the native-effort contract above, an effort value the chosen harness does not accept is recorded as `effort=` in task meta for traceability but omitted from the launch flags.
-Bootstrap reports unsupported harness/model/effort combinations as a `CREW_DISPATCH` diagnostic when they are visible in the file.
-See [`docs/examples/crew-dispatch.json`](examples/crew-dispatch.json) for a starting point to copy into local `config/crew-dispatch.json`.
-When the file exists, bootstrap validates it with `jq`.
-Valid files stay silent by default; with `FM_BOOTSTRAP_VERBOSE_FACTS=1`, bootstrap emits `BOOTSTRAP_INFO: crew dispatch active config/crew-dispatch.json`, one `BOOTSTRAP_INFO:` fact per rule, and one fact for the optional default profile set.
-Malformed JSON, an empty or malformed rule/default array, an unverified harness, or an effort value unsupported by that harness is reported as `CREW_DISPATCH: invalid config/crew-dispatch.json - ...`; missing `jq` is reported through the normal `MISSING: jq` install-consent flow.
-While the file remains present, no crewmate or scout spawn may proceed without an explicit resolved harness; malformed configuration must be reported and corrected rather than selected around.
+Every profile array, including a one-candidate array, is a quota-aware choice resolved through `quota-array-dispatch`.
+If no dispatch rule fits, firstmate resolves the required `default` array; [`harness-adapters`](../.agents/skills/harness-adapters/references/common/dispatch.md) owns profile precedence and the static-harness fallback.
+See [`docs/examples/crew-dispatch.json`](examples/crew-dispatch.json) for a copyable V2 starting point.
+V1 single-profile objects and rule `why` or `select` keys are no longer accepted.
+Valid files stay silent by default; with `FM_BOOTSTRAP_VERBOSE_FACTS=1`, bootstrap emits the active config, every rule, and the default profile set.
+Missing `jq` uses the normal `MISSING: jq` install-consent flow.
+An invalid V2 file is not a usable policy: correct the reported configuration error rather than selecting around it.
 Secondmate homes inherit this file from the primary, so a secondmate's own crewmates apply the same dispatch profile behavior.
+Before the V2 requirement merges, the configuration owner must migrate the live local file and provide successful V2 bootstrap validation evidence for the active homes. Updating the tracked example leaves live local configuration untouched.
 
 ## Toolchain
 
@@ -832,6 +1048,7 @@ Each claim binds its caller-reported home and runner PID to a process identity, 
 Registration, acquisition, replacement, retirement, and generation-bound release are serialized at one machine-wide boundary per source.
 A live identity-matched owner is never displaced, and release removes only the exact generation the caller acquired.
 Every stop proves ownership before its first signal: the live runner's recorded process identity must match and it must still lead its process group.
+If a matched runner exits before the group-id observation or before signalling succeeds, the stop treats it as already complete only after confirming that both the PID and its process group are absent.
 Once that stop has proved ownership and sent TERM, its own escalation to KILL checks only whether the proved group still has members; it does not re-read the leader's identity or group membership, which can change or become unreadable as TERM ends the leader.
 This proof belongs only to that stop's own escalation and cannot authorize another caller that encounters an unproved group.
 A claim counts as reclaimable only when its owner is stale and an independent process-group check finds no members; a crashed leader or reused pid whose process group still has members cannot relax ownership cleanup, so reconcile preserves the claim without signalling the ambiguous group or starting a replacement.
@@ -845,6 +1062,7 @@ If identity cannot be established before the first signal, or a surviving owned 
 A live PID whose identity no longer matches is refused before the first signal.
 Identity and process-group verification cannot be made atomic with signalling in portable shell: the reaper signals only a target it has verified as the recorded generation, but PID and group reuse remain possible in the narrow interval between verification and the signal.
 Launch pacing is the primary host-wedge protection; watchdog cleanup is a backstop.
+`test_retire_runner_exits_during_stop` in [`tests/fm-procevent.test.sh`](../tests/fm-procevent.test.sh) exercises these exit races and the live-runner refusal when group-id evidence is unreadable through public `retire`.
 
 Supported secondmate retirement preflights each target home's bounded `sweep-home` command before destructive teardown, snapshots its registrations outside the target, then runs the sweep at that home's final deletion or return boundary.
 If deletion or return fails, teardown restores those registrations and reconciles them before returning the refusal.
@@ -955,6 +1173,8 @@ FM_HEARTBEAT_MAX=7200   # heartbeat backoff cap
 FM_INACTIVE_RECONCILE_SECS=900  # 60..1800-second watcher cadence and inactivity threshold; locked session start also requests an immediate scan in the deferred worker
 FM_INACTIVE_RECONCILE_BUDGET_SECS=10  # 1..30-second scan deadline; wedged-scan kill backstop follows one second later
 FM_CHECK_INTERVAL=300   # seconds between slow checks (authenticated merge polls, custom checks, or Relay dispatch)
+FM_PR_REFRESH_STALE_SECS=1800   # unchanged-head budget; see Branch-currency dispatch
+FM_PR_REFRESH_COOLDOWN_SECS=600 # per-PR dispatch interval; see Branch-currency dispatch
 FM_TASK_INBOX_GRACE_SECS=90   # seconds an unhandled steering-inbox message may sit before the watcher attempts doorbell delivery on an idle pane; also the minimum spacing between attempts
 FM_TASK_INBOX_RING_MAX=3      # watcher delivery attempts without an acknowledgement before the task surfaces as a stale wake for recovery
 FM_CHECK_TIMEOUT=30     # seconds allowed per slow check script
@@ -974,6 +1194,9 @@ FM_WHEN_OUTPUT_TAIL_BYTES=8192          # bound on the command-output tail insid
 FM_CODEX_WATCH_CHECKPOINT=180   # seconds per foreground watcher checkpoint in Codex primary supervision
 FM_CREW_STATE_NM_TIMEOUT=10   # seconds allowed per no-mistakes query inside fm-crew-state.sh
 FM_TEARDOWN_NM_TIMEOUT=10    # seconds allowed per no-mistakes query or abort inside fm-teardown.sh
+FM_NM_QUIESCENCE_TIMEOUT=15  # positive integer seconds per local census identity or ledger query; fm-on does not forward this override
+FM_NM_QUIESCENCE_NOW_EPOCH=  # optional nonnegative epoch seconds for local census ages; defaults to the current clock and is not forwarded by fm-on
+FM_NM_ON_BIN=               # test override for the census remote runner; defaults to bin/fm-on.sh beside the census script
 FM_CREW_STATE_RUNS_LIMIT=200  # recent no-mistakes run rows scanned when the runs ledger is consulted: axi status cannot be attributed directly, or its answer is terminal and may have a live sibling run
 FM_TEARDOWN_NM_RUNS_LIMIT=200  # recent no-mistakes run rows scanned to prove an unresolved-head parked run belongs to teardown's task
 FM_CREW_STATE_BIN=bin/fm-crew-state.sh   # test override for the current-state reader used by working/paused watcher triage
@@ -1009,7 +1232,8 @@ FM_WATCH_REARM_RETRY_MAX_MS=4000   # Pi/OpenCode adapter cap for exponential con
 FM_WATCH_REARM_RETRY_LIMIT=5   # Pi/OpenCode adapter launch-failure retries before surfacing restoration failure
 FM_WATCH_CYCLE_LOG_MAX_BYTES=262144   # size cap for the arm-owned watcher lifecycle ledger
 FM_WATCH_CYCLE_LOG_KEEP_LINES=1000   # newest complete lifecycle rows considered when the ledger is capped
-FM_WATCHER_STALE_GRACE=300   # defaults to FM_GUARD_GRACE if set, else the poll-derived grace (docs/turnend-guard.md "Guard grace and the poll cadence"); seconds a live watcher lock may have a stale beacon before re-arm errors
+FM_WATCHER_STALE_GRACE=300   # defaults to FM_GUARD_GRACE if set, else the poll-derived grace (docs/turnend-guard.md "Guard grace and the poll cadence"); seconds a live watcher lock may have a stale beacon before re-arm attempts eviction (docs/watcher-continuity.md)
+FM_WATCHER_EVICT_WAIT=5   # seconds a starting watcher waits after each of TERM and KILL when evicting a live holder whose beacon is stale; fm-watch-arm.sh reads the same value to size its confirmation-window extension (docs/watcher-continuity.md)
 FM_SIGNAL_GRACE=30      # seconds to coalesce nearby status and turn-end signals into one wake
 FM_TURNEND_CHURN_ABSORB_SECS=900   # longest one endpoint's bare turn-ends may be deferred on pane-churn evidence alone; only consulted when config/turnend-churn-absorb is present
 FM_CAPTAIN_RE='done:|needs-decision:|blocked:|failed:|PR ready|checks green|ready in branch|merged'   # captain-relevant status regex; nonterminal progress verbs remain excluded even when their prose matches

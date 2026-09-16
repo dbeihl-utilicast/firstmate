@@ -14,6 +14,16 @@
 #   scaffolded before that line existed warns once and launches on the flag. A
 #   ship or scout spawn also refuses leftover `{TASK}` / `{FIRSTMATE_SPEC}`
 #   placeholders, an empty Task, or an incomplete pair of Task subsections.
+#   A ship spawn on a local-model harness (bin/fm-harness.sh is-local-model,
+#   e.g. qwen) additionally refuses unless the brief carries the local-model
+#   red-first contract from bin/fm-brief.sh --local-model-contract: the
+#   "Local-model contract: enabled" marker plus a "Red test:" line naming a
+#   failing test that exists in the project. This check reads brief text only
+#   and never runs the test; bin/fm-local-model-verify.sh independently
+#   re-runs it against the worker's real committed code after done is
+#   reported. Never route a local model onto a security or guard path, and
+#   never ask one whether an existing guard is too strict: those two scope
+#   rules are not checked here and remain firstmate's own intake judgment.
 #   Every ship or scout spawn renders `launch-brief.md`; for a no-mistakes ship
 #   it also carries the current `--intent` contract and the extracted captain
 #   intent. A legacy mixed Task is accepted there only under bin/fm-dod-lib.sh's
@@ -125,8 +135,17 @@
 #   profile consultation. A --secondmate spawn is exempt and resolves the SECONDMATE
 #   harness (config/secondmate-harness -> config/crew-harness -> own), so the
 #   secondmate-vs-crewmate split is DURABLE across every respawn (recovery,
-#   /updatefirstmate, restart). A bare adapter name (claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp)
-#   overrides it for this spawn (either kind). A non-flag string containing
+#   /updatefirstmate, restart). A bare adapter name (claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|qwen|codex-foundry-luna)
+#   overrides it for this spawn (either kind). codex-foundry-luna is codex itself,
+#   repointed at the Azure AI Foundry `gpt-5.6-luna` deployment, named by this
+#   home's local config/foundry-luna.json (docs/configuration.md "Foundry Luna
+#   endpoint"; never a value baked into this script, since this fork is public),
+#   through a local per-task token-refreshing proxy (bin/fm-foundry-luna-proxy.py)
+#   instead of OpenAI's own API; it is crewmate/scout only (no secondmate: it carries
+#   no separate control/busy mechanics of its own and inherits codex's via the
+#   `codex*` family match in fm-control-lib.sh and fm-busy-lib.sh) and refuses a
+#   --model other than gpt-5.6-luna outright, since the account carries other
+#   deployments whose cost is not authorized for fleet dispatch. A non-flag string containing
 #   whitespace is treated as a RAW launch command - the escape hatch for verifying
 #   new adapters. For pi and pi-signed, fm-spawn resolves the selected executable
 #   name from PATH once, probes that concrete path with --help, and launches the
@@ -260,7 +279,13 @@
 #     __WORKTREE__  absolute path to the task worktree
 #     __CURSORBIN__ resolved, cursor-verified executable for a cursor launch
 #     __GEMINISETTINGS__ firstmate-owned per-task gemini settings file (busy-state hooks)
+#     __QWENBIN__   quoted concrete Qwen executable path resolved from PATH
+#     __QWENSETTINGS__ firstmate-owned per-task qwen settings file (busy-state hooks)
 #     __ROVOBIN__   resolved, rovo-verified executable for a rovo launch
+#     __FOUNDRYLUNAPROXY__ quoted path to bin/fm-foundry-luna-proxy.py, the codex-foundry-luna gateway
+#     __FOUNDRYLUNAPORT__ deliberately NOT replaced here: that gateway substitutes it in
+#                  codex's argv once it has bound the port it serves
+#     __FOUNDRYLUNACONFIG__ quoted absolute path to this home's config/foundry-luna.json
 # Verified per-harness turn-end hooks are installed automatically where enabled; some live outside the worktree.
 # Kimi uses one surgically installed Firstmate region in $HOME/.kimi-code/config.toml,
 # a firstmate-owned global hook and registry, and a gitignored per-task pointer.
@@ -269,6 +294,12 @@
 # muse installs no hook at all - its plugin engine is off in the default build - so
 # it writes state/<id>.muse-session to bind the pane to muse's own session event
 # log; muse and gemini are crewmate/scout only and are refused for --secondmate.
+# qwen (Qwen Code) writes firstmate-owned busy-state hooks into
+# state/<id>.qwen-settings.json and reaches them through
+# QWEN_CODE_SYSTEM_SETTINGS_PATH, never the worktree's .qwen/settings.json.
+# Its events are the Claude-style UserPromptSubmit/Stop/SessionEnd set, not
+# Gemini's BeforeAgent/AfterAgent pair, even though the CLI is a Gemini-CLI
+# fork. qwen is crewmate/scout only and is refused for --secondmate.
 # rovo installs no hook either - its eventHooks fire at tool granularity only,
 # never turn-end - so it carries no busy-source wiring at all and no turn-end
 # hook. A positional brief is dead-on-arrival (rovo loads, never works, and drops
@@ -422,6 +453,8 @@ fm_backlog_directory_present "$STATE" "state directory" || {
 . "$SCRIPT_DIR/fm-backend.sh"
 # shellcheck source=bin/fm-control-lib.sh
 . "$SCRIPT_DIR/fm-control-lib.sh"
+# shellcheck source=bin/fm-qwen-lib.sh
+. "$SCRIPT_DIR/fm-qwen-lib.sh"
 # shellcheck source=bin/fm-gate-refuse-lib.sh
 . "$SCRIPT_DIR/fm-gate-refuse-lib.sh"
 # shellcheck source=bin/fm-busy-lib.sh
@@ -677,10 +710,11 @@ spawn_remote_secondmate() {
   fi
   # Gate the host before anything is published or transferred, so a host that
   # cannot hold a durable Herdr endpoint refuses here rather than half-way
-  # through a launch. This is also the readiness gate every liveness relaunch
-  # passes through, because recovery respawns through this same route.
+  # through a launch. Plugin catalogue work waits until inherited config
+  # lands: this pass skips host-plugins so a stale remote catalogue cannot
+  # install or block before the primary's current file is copied.
   rc=0
-  fm_remote_readiness_ensure "$SCRIPT_DIR" "$id" || rc=$?
+  fm_remote_readiness_ensure "$SCRIPT_DIR" "$id" --skip-check host-plugins || rc=$?
   if [ "$rc" -ne 0 ]; then
     fm_lock_release "$registry_lock" || true
     fm_lock_release "$SPAWN_TASK_LOCK" || true
@@ -739,6 +773,23 @@ spawn_remote_secondmate() {
       echo "error: remote secondmate $id inheritance failed; launch refused" >&2
     fi
     return "$rc"
+  fi
+  # One post-inheritance readiness gate: every fresh remote-agent launch
+  # converges plugins against the catalogue that just landed (or its absence).
+  rc=0
+  fm_remote_readiness_ensure "$SCRIPT_DIR" "$id" || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    fm_lock_release "$remote_lock" || true
+    fm_lock_release "$registry_lock" || true
+    fm_lock_release "$SPAWN_TASK_LOCK" || true
+    if [ "$rc" -eq 255 ]; then
+      echo "error: remote secondmate $id readiness could not be confirmed; preserved route $host:$home" >&2
+    else
+      echo "error: remote secondmate $id host $host is not ready for a remote second mate; launch refused" >&2
+    fi
+    [ -z "$FM_REMOTE_READINESS_OUT" ] || printf '%s\n' "$FM_REMOTE_READINESS_OUT" >&2
+    [ "$rc" -ne 255 ] || return 255
+    return 1
   fi
   # This parent home owns the remote secondmate's task identity because it holds
   # the task metadata an observer reads, exactly as for a local spawn: the
@@ -871,6 +922,8 @@ SPAWN_META_LOCK=
 SPAWN_META_LOCK_HELD=0
 SPAWN_META_PUBLISH_STARTED=0
 SPAWN_FRESH_COMMIT_PENDING=0
+SPAWN_FRESH_QWEN_WIRING_PENDING=0
+SPAWN_FRESH_QWEN_SETTINGS_TMP=
 SPAWN_TASK_SET_LOCK=
 SPAWN_TASK_SET_LOCK_HELD=0
 SPAWN_TREEHOUSE_PROJECT_LOCK=
@@ -934,6 +987,14 @@ spawn_abort_cleanup() {
           --gen "$RELAUNCH_REPLACEMENT_BUSY_GEN"; then
         echo "warning: could not retire replacement busy generation after aborted relaunch of $ID" >&2
       fi
+    fi
+  fi
+  if [ "$SPAWN_FRESH_QWEN_WIRING_PENDING" = 1 ]; then
+    SPAWN_FRESH_QWEN_WIRING_PENDING=0
+    [ -z "$SPAWN_FRESH_QWEN_SETTINGS_TMP" ] \
+      || rm -f -- "$SPAWN_FRESH_QWEN_SETTINGS_TMP" 2>/dev/null || true
+    if ! clear_relaunch_harness_wiring qwen "$WT" "$STATE_REAL" "$ID"; then
+      echo "warning: could not remove Qwen wiring after aborted spawn of $ID" >&2
     fi
   fi
   if [ "$HERDR_PROJECTION_ABORT_CLEANUP" = 1 ] \
@@ -1326,7 +1387,7 @@ if [ "$RELAUNCH" -eq 1 ]; then
   }
 elif [ "$KIND" = secondmate ]; then
   case "${POS[1]:-}" in
-    ''|claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp)
+    ''|claude|codex|codex-foundry-luna|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|qwen)
       ARG3=${POS[1]:-}
       ;;
     *' '*)
@@ -1354,7 +1415,7 @@ shell_quote() {
   printf "'"
 }
 
-resolve_pi_executable() {
+resolve_path_executable() {
   local candidate dir
   candidate=$(type -P -- "$1" 2>/dev/null) || return 1
   [ -x "$candidate" ] || return 1
@@ -1445,6 +1506,26 @@ launch_template() {
         printf '%s' 'codex __MODELFLAG____EFFORTFLAG__--dangerously-bypass-approvals-and-sandbox -c "notify=[\"bash\",\"-c\",\"touch __TURNEND__\"]" "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
       fi
       ;;
+    # codex-foundry-luna: codex itself, repointed at the Azure AI Foundry
+    # gpt-5.6-luna deployment instead of OpenAI's own API. __FOUNDRYLUNAPROXY__
+    # (bin/fm-foundry-luna-proxy.py, `run -- <codex...>`) starts the local
+    # token-refreshing gateway first and runs codex as its child; that script's
+    # own header owns the refusal, port and token-refresh mechanics.
+    # FM_FOUNDRY_LUNA_CONFIG=__FOUNDRYLUNACONFIG__ names the launching home's
+    # own config/foundry-luna.json (docs/configuration.md "Foundry Luna
+    # endpoint"), which the gateway reads its Foundry host and subscription id
+    # from - never a value baked into this template, since the account is
+    # private operational data in a public fork. __FOUNDRYLUNAPORT__ stays
+    # LITERAL: the gateway substitutes it in codex's argv once it has bound
+    # the port it serves, so nothing can take that port in between. codex's
+    # model/provider/base_url/wire_api are fixed with -c overrides rather than
+    # left to --model, per the captain's single-deployment authorization, and
+    # env_key names the variable the gateway puts its own minted admission
+    # secret in, so no secret rides this command text.
+    # Crewmate/scout only: see the secondmate refusal below.
+    codex-foundry-luna)
+      printf '%s' 'FM_FOUNDRY_LUNA_CONFIG=__FOUNDRYLUNACONFIG__ __FOUNDRYLUNAPROXY__ run -- codex -c model=\"gpt-5.6-luna\" -c model_provider=\"fm_foundry_luna\" -c model_providers.fm_foundry_luna.name=\"Azure-AI-Foundry-gpt-5.6-luna\" -c model_providers.fm_foundry_luna.base_url=\"http://127.0.0.1:__FOUNDRYLUNAPORT__/openai/v1\" -c model_providers.fm_foundry_luna.wire_api=\"responses\" -c model_providers.fm_foundry_luna.env_key=\"FM_FOUNDRY_LUNA_SECRET\" __EFFORTFLAG__--dangerously-bypass-approvals-and-sandbox -c "notify=[\"bash\",\"-c\",\"touch __TURNEND__\"]" "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
+      ;;
     opencode) printf '%s' 'OPENCODE_CONFIG_CONTENT='\''{"permission":{"*":"allow"}}'\'' opencode __MODELFLAG__--prompt "$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
     pi|pi-signed)
       printf '%s' '__PIBIN____PITUIMODE__'
@@ -1530,6 +1611,26 @@ launch_template() {
     # Its turn-end and busy-state signals do NOT ride the launch command:
     # they are project hooks written into the worktree below.
     gemini) printf '%s' 'env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS GEMINI_CLI_TRUST_WORKSPACE=true GEMINI_CLI_SYSTEM_SETTINGS_PATH=__GEMINISETTINGS__ gemini -y __MODELFLAG__"$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
+    # qwen (Qwen Code): a positional query is one-shot headless and exits
+    # (verified, 0.23.0: `qwen -y --model ... "<brief>"` printed "No auth type
+    # is selected... before running in non-interactive mode" and dropped to a
+    # shell). --prompt-interactive <brief> runs that prompt and stays in the
+    # TUI, which is the crewmate shape. -y (--yolo) auto-approves every tool
+    # call. Folder trust is disabled by default in qwen 0.23.0, so a fresh
+    # worktree does not show a trust dialog unless the operator has enabled
+    # security.folderTrust.enabled.
+    # QWEN_CODE_SYSTEM_SETTINGS_PATH points qwen at the firstmate-owned
+    # per-task settings file written below. It is deliberately NOT the
+    # worktree's .qwen/settings.json: that path is the PROJECT's own settings
+    # file, so writing it would clobber a project's configuration and removing
+    # it at teardown would delete a tracked file.
+    # The foreign primary markers are cleared because qwen does not scrub an
+    # inherited GROK_AGENT or CLAUDECODE (verified: a tool child under this
+    # grok primary carried GROK_AGENT=1 AND QWEN_CODE=1 together).
+    # qwen exposes no CLI effort flag (checked against 0.23.0 --help; /effort
+    # exists only as an in-session slash command), so the shared effort axis
+    # is omitted here and stays in task metadata only.
+    qwen) printf '%s' 'env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS -u GEMINI_CLI -u CURSOR_AGENT -u CURSOR_INVOKED_AS QWEN_CODE_SYSTEM_SETTINGS_PATH=__QWENSETTINGS__ __QWENBIN__ -y __MODELFLAG__--prompt-interactive "$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
     # Kimi Code rejects a positional prompt, so it launches bare and receives
     # only an absolute brief pointer after the TUI readiness gate below.
     # Its turn-end signal is a globally configured Stop hook plus a guarded
@@ -1625,7 +1726,8 @@ case "$ARG3" in
     ;;
 esac
 
-# muse and gemini are verified as CREWMATE/SCOUT adapters only. A secondmate is
+# muse, gemini, and qwen are verified as CREWMATE/SCOUT adapters only. A
+# secondmate is
 # a firstmate instance, so it needs a primary supervision protocol.
 # gemini has none: docs/supervision-protocols/ carries no gemini wake protocol
 # and this task verified only crewmate-side launch, busy state, interrupt, and
@@ -1635,7 +1737,7 @@ esac
 # asyncRewake handlers that firstmate's primary turn-end supervision is built on
 # (muse 0.1.0-R708.1). Refusing here keeps that gap loud instead of standing up a
 # secondmate whose supervision cycle could never be armed.
-if [ "$KIND" = secondmate ] && { [ "$HARNESS" = muse ] || [ "$HARNESS" = gemini ]; }; then
+if [ "$KIND" = secondmate ] && { [ "$HARNESS" = muse ] || [ "$HARNESS" = gemini ] || [ "$HARNESS" = qwen ]; }; then
   echo "error: $HARNESS is a verified crewmate/scout adapter only and cannot run a secondmate; it has no primary supervision protocol. Select a harness verified for secondmates." >&2
   exit 1
 fi
@@ -1649,9 +1751,28 @@ if [ "$KIND" = secondmate ] && [ "$HARNESS" = rovo ]; then
   exit 1
 fi
 
+# codex-foundry-luna carries no supervision mechanics of its own - it is codex,
+# and inherits codex's turn-end hook and busy detection via the `codex*` family
+# match in fm-control-lib.sh and fm-busy-lib.sh - but a secondmate is a firstmate
+# instance dispatching its OWN crew, which this adapter has never been verified
+# to run pointed at a single locked-down Foundry deployment. Refused rather than
+# guessed.
+if [ "$KIND" = secondmate ] && [ "$HARNESS" = codex-foundry-luna ]; then
+  echo "error: codex-foundry-luna is a verified crewmate/scout adapter only and cannot run a secondmate. Select a harness verified for secondmates." >&2
+  exit 1
+fi
+
+# gpt-5.6-luna is the only Foundry deployment the captain authorized for fleet
+# dispatch; other deployments on this account work but bill Azure without
+# authorization, so a caller cannot use --model to point this adapter at one.
+if [ "$HARNESS" = codex-foundry-luna ] && [ -n "$MODEL" ] && [ "$MODEL" != default ] && [ "$MODEL" != gpt-5.6-luna ]; then
+  echo "error: codex-foundry-luna dispatches the gpt-5.6-luna deployment only; refusing --model '$MODEL'" >&2
+  exit 1
+fi
+
 case "$HARNESS" in
   pi|pi-signed)
-    PI_BIN=$(resolve_pi_executable "$HARNESS") || {
+    PI_BIN=$(resolve_path_executable "$HARNESS") || {
       echo "error: $HARNESS executable not found on PATH; install it or select a different verified harness" >&2
       exit 1
     }
@@ -1661,6 +1782,11 @@ case "$HARNESS" in
     fi
     LAUNCH=${LAUNCH//__PITUIMODE__/$PI_TUI_MODE}
     LAUNCH="FM_PI_HARNESS=$HARNESS $LAUNCH"
+    ;;
+  qwen)
+    if [ "$RAW_LAUNCH" -eq 0 ]; then
+      QWEN_BIN=$(fm_qwen_launch_preflight) || exit 1
+    fi
     ;;
   cursor)
     # `cursor` is not the CLI name, and the legacy alias `agent` is far too
@@ -1678,8 +1804,28 @@ case "$HARNESS" in
       fi
     fi
     ;;
+  codex-foundry-luna)
+    # A PREFLIGHT rather than a rendered-screen check, for muse's reason: the
+    # gateway fetches its AAD token with `az account get-access-token`, and with
+    # az absent that failure is a silent 502 on every turn of a live pane, which
+    # supervision reads as a wedged worker rather than a missing credential.
+    command -v az >/dev/null 2>&1 || {
+      echo "error: az executable not found on PATH; the codex-foundry-luna gateway obtains its AAD token with 'az account get-access-token'. Install the Azure CLI and sign in to the tenant, or select a different verified harness" >&2
+      exit 1
+    }
+    # This home's own private endpoint config, never a value baked into this
+    # script (this fork is public). The gateway owns deep validation (host
+    # shape, JSON schema); this preflight only proves the file is present, so a
+    # secondmate that never inherited it refuses before a worktree or task
+    # record is even created, the same fail-fast shape as the az check above.
+    FOUNDRY_LUNA_CONFIG="$CONFIG/foundry-luna.json"
+    [ -f "$FOUNDRY_LUNA_CONFIG" ] || {
+      echo "error: config/foundry-luna.json not found at $FOUNDRY_LUNA_CONFIG; the codex-foundry-luna gateway needs this home's inherited Foundry endpoint config (host + subscription id) to resolve gpt-5.6-luna. See docs/configuration.md 'Foundry Luna endpoint'" >&2
+      exit 1
+    }
+    ;;
   omp)
-    OMP_BIN=$(resolve_pi_executable omp) || {
+    OMP_BIN=$(resolve_path_executable omp) || {
       echo "error: omp executable not found on PATH; install Oh My Pi or select a different verified harness" >&2
       exit 1
     }
@@ -1836,7 +1982,7 @@ model_flag_for_harness() {
   local harness=$1 model=$2
   [ -n "$model" ] && [ "$model" != default ] || return 0
   case "$harness" in
-    claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp)
+    claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|qwen)
       printf -- '--model %s ' "$(shell_quote "$model")"
       ;;
   esac
@@ -1851,10 +1997,11 @@ effort_flag_for_harness() {
         low|medium|high|xhigh|max) printf -- '--effort %s ' "$(shell_quote "$effort")" ;;
       esac
       ;;
-    codex)
+    codex|codex-foundry-luna)
       # The installed codex config schema uses model_reasoning_effort, and the
       # bundled model catalog advertises low|medium|high|xhigh. Omit max rather
-      # than passing an unsupported value.
+      # than passing an unsupported value. codex-foundry-luna is codex itself,
+      # so the same override applies.
       case "$effort" in
         low|medium|high|xhigh) printf -- '-c %s ' "$(shell_quote "model_reasoning_effort=\"$effort\"")" ;;
       esac
@@ -1891,7 +2038,7 @@ effort_flag_for_harness() {
       # high|xhigh|ultra and defaults to high, so low..xhigh map straight across.
       # ultra is muse's max-CLASS level, so firstmate's max maps onto it - but
       # only ever as an EXPLICIT captain choice, never as a fallback, because
-      # AGENTS.md section 4 forbids selecting max without captain preference and
+      # harness-adapters' model-and-effort reference requires that preference and
       # the omitted effort here leaves muse on its own high default. muse's extra
       # none/minimal levels sit below firstmate's shared vocabulary and are
       # deliberately unreachable rather than remapped onto low.
@@ -2201,6 +2348,34 @@ if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
   if ! fm_brief_task_content_valid "$BRIEF"; then
     echo "error: $BRIEF must contain nonempty ## Captain's intent and ## Firstmate spec subsections (or a nonempty legacy # Task body) before spawn" >&2
     exit 1
+  fi
+  # A local-model harness (bin/fm-harness.sh is-local-model, e.g. qwen) can
+  # satisfy a brief in form without substance. Refuse a ship spawn unless the
+  # brief carries bin/fm-brief.sh --local-model-contract's marker and a Red
+  # test line naming a test that exists; this reads brief text only, never
+  # runs anything - bin/fm-local-model-verify.sh is the mechanism that does,
+  # run after done, before validation. The two accompanying scope rules
+  # (never route to a security/guard path, never ask if a guard is too
+  # strict) stay firstmate's own intake judgment (AGENTS.md section 7).
+  if [ "$KIND" = ship ] && "$SCRIPT_DIR/fm-harness.sh" is-local-model "$HARNESS"; then
+    if ! grep -q '^Local-model contract: enabled$' "$BRIEF"; then
+      echo "error: $ID ships on local-model harness '$HARNESS' but $BRIEF carries no local-model red-first contract; re-scaffold with 'fm-brief.sh ... --mode $MODE --local-model-contract' before spawn" >&2
+      exit 1
+    fi
+    RED_TEST=$(sed -n 's/^Red test: //p' "$BRIEF" | head -n 1)
+    if [ -z "$RED_TEST" ]; then
+      echo "error: $ID ships on local-model harness '$HARNESS' but $BRIEF carries no 'Red test: <path>' line naming the failing test the worker must turn green; add one before spawn" >&2
+      exit 1
+    elif [ "$RED_TEST" = "{RED_TEST}" ]; then
+      echo "error: $ID ships on local-model harness '$HARNESS' but $BRIEF's 'Red test:' line is still the unfilled {RED_TEST} placeholder; name the actual failing test before spawn" >&2
+      exit 1
+    elif case "$RED_TEST" in /*|*..*) true ;; *) false ;; esac; then
+      echo "error: $ID ships on local-model harness '$HARNESS' but $BRIEF's 'Red test:' line '$RED_TEST' must be a project-relative path with no traversal" >&2
+      exit 1
+    elif [ ! -f "$PROJ_ABS/$RED_TEST" ]; then
+      echo "error: $ID ships on local-model harness '$HARNESS' but $BRIEF names a red test '$RED_TEST' that does not exist in $PROJ_ABS; write the failing test first, then point the brief at it" >&2
+      exit 1
+    fi
   fi
   if [ "$KIND" = ship ] && [ "$MODE" = no-mistakes ]; then
     if fm_brief_task_heading_present "$BRIEF" "## Captain's intent"; then
@@ -3221,6 +3396,15 @@ if [ "$KIND" != secondmate ]; then
         [ "$RELAUNCH" -ne 1 ] || RELAUNCH_REPLACEMENT_BUSY_GEN=$BUSY_GEN
       fi
       ;;
+    qwen)
+      if [ "$RAW_LAUNCH" -eq 0 ]; then
+        BUSY_GEN=$("$FM_ROOT/bin/fm-busy-event.sh" arm "$STATE_REAL" "$ID") || {
+          echo "error: failed to arm the busy-state contract for $ID" >&2
+          exit 1
+        }
+        [ "$RELAUNCH" -ne 1 ] || RELAUNCH_REPLACEMENT_BUSY_GEN=$BUSY_GEN
+      fi
+      ;;
     kimi*)
       # Standalone Kimi stays unknown until fm_busy_kimi_verified opens on a
       # live-verified installed version (bin/fm-busy-lib.sh owns the gate and
@@ -3287,6 +3471,63 @@ EOF
       cat > "$STATE_REAL/$ID.gemini-settings.json" <<EOF
 {"hooks":{"BeforeAgent":[{"hooks":[{"type":"command","command":"$g_before"}]}],"AfterAgent":[{"hooks":[{"type":"command","command":"$g_after"}]}],"SessionEnd":[{"hooks":[{"type":"command","command":"$g_sessionend"}]}]}}
 EOF
+      fi
+      ;;
+    qwen)
+      if [ "$RAW_LAUNCH" -eq 0 ]; then
+      # Semantic busy-state hooks (bin/fm-busy-lib.sh): UserPromptSubmit opens
+      # a turn; Stop (normal completion), StopFailure (API-error turn end),
+      # and SessionEnd (process shutdown) all close it, so an abnormal end can
+      # never leave a stale busy record. Verified live on qwen 0.23.0: a
+      # one-turn headless session fired SessionStart, UserPromptSubmit, then
+      # Stop, and a tool-using turn also fired PostToolUse. SessionEnd was
+      # not observed on a natural headless exit, so Stop is the load-bearing
+      # close; SessionEnd remains wired so a TUI /quit cannot strand busy.
+      # These are written into a FIRSTMATE-OWNED settings file under state/,
+      # reached through QWEN_CODE_SYSTEM_SETTINGS_PATH on the launch command,
+      # never into the worktree's own .qwen/settings.json.
+      # Every hook command tolerates a refused event (|| true) so a stale-gen
+      # writer can never break qwen's own lifecycle, and each prints the
+      # empty JSON object qwen's hook contract accepted on stdout.
+      busy_cmd_prefix="$(shell_quote "$FM_ROOT/bin/fm-busy-event.sh") apply $(shell_quote "$STATE_REAL") $(shell_quote "$ID")"
+      busy_suffix="--gen $(shell_quote "$BUSY_GEN") --source qwen-hook"
+      q_submit="$busy_cmd_prefix busy $busy_suffix --event user-prompt-submit >/dev/null 2>&1 || true; printf '{}'"
+      q_stop="touch $(shell_quote "$TURNEND"); $busy_cmd_prefix idle $busy_suffix --event stop >/dev/null 2>&1 || true; printf '{}'"
+      q_stopfail="$busy_cmd_prefix idle $busy_suffix --event stop-failure >/dev/null 2>&1 || true; printf '{}'"
+      q_sessionend="$busy_cmd_prefix idle $busy_suffix --event session-end >/dev/null 2>&1 || true; printf '{}'"
+      qwen_settings="$STATE_REAL/$ID.qwen-settings.json"
+      qwen_settings_tmp="$qwen_settings.tmp.${BASHPID:-$$}"
+      if [ "$RELAUNCH" -eq 0 ]; then
+        SPAWN_FRESH_QWEN_WIRING_PENDING=1
+        SPAWN_FRESH_QWEN_SETTINGS_TMP=$qwen_settings_tmp
+      fi
+      (
+        umask 077
+        jq -n \
+          --arg submit "$q_submit" \
+          --arg stop "$q_stop" \
+          --arg stopfail "$q_stopfail" \
+          --arg sessionend "$q_sessionend" '
+          {
+            hooks: {
+              UserPromptSubmit: [{hooks: [{type: "command", command: $submit}]}],
+              Stop: [{hooks: [{type: "command", command: $stop}]}],
+              StopFailure: [{hooks: [{type: "command", command: $stopfail}]}],
+              SessionEnd: [{hooks: [{type: "command", command: $sessionend}]}]
+            }
+          }
+          + {
+              security: {auth: {selectedType: env.QWEN_DEFAULT_AUTH_TYPE}},
+              env: ({OPENAI_API_KEY: env.OPENAI_API_KEY} + if env.OPENAI_BASE_URL == null or env.OPENAI_BASE_URL == "" then {} else {OPENAI_BASE_URL: env.OPENAI_BASE_URL} end)
+            }
+        ' > "$qwen_settings_tmp" \
+          && chmod 600 "$qwen_settings_tmp" \
+          && mv -f "$qwen_settings_tmp" "$qwen_settings"
+      ) || {
+        rm -f -- "$qwen_settings_tmp"
+        echo "error: failed to write secure Qwen settings for $ID" >&2
+        exit 1
+      }
       fi
       ;;
     opencode*)
@@ -3778,6 +4019,10 @@ if [ "$HARNESS" = rovo ]; then
   }
   LAUNCH=${LAUNCH//__ROVOCONFIGOVERRIDE__/$ROVOCONFIGOVERRIDE}
 fi
+if [ "$HARNESS" = codex-foundry-luna ]; then
+  LAUNCH=${LAUNCH//__FOUNDRYLUNAPROXY__/"$(shell_quote "$FM_ROOT/bin/fm-foundry-luna-proxy.py")"}
+  LAUNCH=${LAUNCH//__FOUNDRYLUNACONFIG__/"$(shell_quote "$FOUNDRY_LUNA_CONFIG")"}
+fi
 LAUNCH=${LAUNCH//__BRIEF__/$sq_brief}
 LAUNCH=${LAUNCH//__TURNEND__/$sq_turnend}
 LAUNCH=${LAUNCH//__PIEXT__/$sq_piext}
@@ -3790,11 +4035,17 @@ case "$HARNESS" in
   pi|pi-signed) LAUNCH=${LAUNCH//__PIBIN__/"$(shell_quote "$PI_BIN")"} ;;
   cursor) LAUNCH=${LAUNCH//__CURSORBIN__/"$(shell_quote "$CURSOR_BIN")"} ;;
   gemini) LAUNCH=${LAUNCH//__GEMINISETTINGS__/"$(shell_quote "$STATE_REAL/$ID.gemini-settings.json")"} ;;
+  qwen)
+    if [ "$RAW_LAUNCH" -eq 0 ]; then
+      LAUNCH=${LAUNCH//__QWENBIN__/"$(shell_quote "$QWEN_BIN")"}
+      LAUNCH=${LAUNCH//__QWENSETTINGS__/"$(shell_quote "$STATE_REAL/$ID.qwen-settings.json")"}
+    fi
+    ;;
   omp) LAUNCH=${LAUNCH//__OMPBIN__/"$(shell_quote "$OMP_BIN")"} ;;
 esac
 LAUNCH=${LAUNCH//__WORKTREE__/$sq_worktree}
 case "$HARNESS" in
-  claude|codex|opencode|pi|pi-signed|grok|kimi|gemini|muse|rovo)
+  claude|codex|codex-foundry-luna|opencode|pi|pi-signed|grok|kimi|gemini|muse|rovo|qwen)
     LAUNCH="env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI $LAUNCH"
     ;;
 esac
@@ -4001,11 +4252,13 @@ SPAWN_BACKLOG_COMMIT_STATUS=0
 FM_TASKS_AXI_TIMEOUT=${FM_TASKS_AXI_TIMEOUT:-30}
 if spawn_commit_backlog_transition; then
   SPAWN_FRESH_COMMIT_PENDING=0
+  SPAWN_FRESH_QWEN_WIRING_PENDING=0
 else
   SPAWN_BACKLOG_COMMIT_STATUS=$?
   if spawn_commit_backlog_transition; then
     SPAWN_BACKLOG_COMMIT_STATUS=0
     SPAWN_FRESH_COMMIT_PENDING=0
+    SPAWN_FRESH_QWEN_WIRING_PENDING=0
   fi
 fi
 if [ "$SPAWN_BACKLOG_COMMIT_STATUS" -ne 0 ]; then

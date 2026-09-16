@@ -15,7 +15,8 @@
 # because remote staging captures stdin to EOF and an open caller stream would
 # block staging indefinitely; a payload caller passes --stdin to forward its
 # own stream as the job's bounded input. stdout and stderr remain separate, and
-# ssh's exit status is returned unchanged. OpenSSH never receives an auto-retry
+# ssh's exit status is returned unchanged except when the FM_ON_TIMEOUT bound
+# below ends the call. OpenSSH never receives an auto-retry
 # instruction here. Exit 255 therefore means unavailable transport or unknown
 # remote completion and must be reconciled by the semantic caller, never
 # blindly repeated by this layer.
@@ -29,15 +30,28 @@
 # peer (a reboot, a dropped link) becomes a bounded ssh failure (exit 255)
 # instead of an indefinite hang on a half-open TCP connection. The remote
 # sshd answers keepalive probes independently of whatever the remote command
-# is doing, so a legitimately long-but-alive remote command is never falsely
-# killed. FM_SSH_ALIVE_INTERVAL and FM_SSH_ALIVE_COUNT_MAX override the
-# defaults; the worst-case detection window is roughly interval * count.
+# is doing, so keepalive never kills a legitimately long-but-alive remote
+# command; only FM_ON_TIMEOUT bounds its duration. FM_SSH_ALIVE_INTERVAL and
+# FM_SSH_ALIVE_COUNT_MAX override the defaults; the worst-case detection window
+# is roughly interval * count.
+#
+# ssh output goes to private files relayed after ssh exits, so nothing ssh
+# leaves behind can hold a caller's capture pipe open.
+#
+# The call is bounded by FM_ON_TIMEOUT (default 900s) and exits 255 naming the
+# host when the bound fires. Only the perl and bash fallbacks also exit early when
+# ssh stops for a terminal prompt; under timeout/gtimeout it waits out the bound.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
+ON_TIMEOUT=${FM_ON_TIMEOUT:-900}
+case "$ON_TIMEOUT" in ''|*[!0-9]*|0) printf 'error: %s\n' "FM_ON_TIMEOUT must be a positive integer: $ON_TIMEOUT" >&2; exit 1 ;; esac
+
+# shellcheck source=bin/fm-timeout-lib.sh
+. "$SCRIPT_DIR/fm-timeout-lib.sh"
 REG="$DATA/secondmates.md"
 PROTOCOL=1
 
@@ -119,7 +133,46 @@ SSH_ARGS=(
   -o "ServerAliveCountMax=$ALIVE_COUNT_MAX"
   -- "$HOST" fm-remote-entrypoint.sh "$PROTOCOL" "$ROOT_B64" "$HOME_B64" "$ARGV_B64"
 )
+CAPTURE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/fm-on.XXXXXX") || die "could not create a private output capture directory"
+trap 'rm -rf -- "$CAPTURE_DIR"' EXIT
+# ssh is not exec'd, so forward a caller's signal to the bounded call, then
+# re-deliver it here so the caller still observes 128+signal.
+# shellcheck disable=SC2329 # Invoked through the trap registrations below.
+fm_on_forward_signal() {
+  sig=$1
+  [ -z "${FM_RUN_TIMED_KILL_TARGET:-}" ] || kill -s "$sig" "$FM_RUN_TIMED_KILL_TARGET" 2>/dev/null || true
+  rm -rf -- "$CAPTURE_DIR"
+  trap - "$sig"
+  kill -s "$sig" "$$" 2>/dev/null || exit 1
+}
+trap 'fm_on_forward_signal TERM' TERM
+trap 'fm_on_forward_signal INT' INT
+trap 'fm_on_forward_signal HUP' HUP
+
 if [ "$STDIN_MODE" = caller ]; then
-  exec "$SSH_BIN" "${SSH_ARGS[@]}"
+  exec 3<&0
+else
+  exec 3< /dev/null
 fi
-exec "$SSH_BIN" "${SSH_ARGS[@]}" < /dev/null
+exec 4> "$CAPTURE_DIR/stdout"
+if [ /dev/fd/1 -ef /dev/fd/2 ]; then
+  exec 5>&4
+else
+  exec 5> "$CAPTURE_DIR/stderr"
+fi
+rc=0
+FM_RUN_TIMED_FOREGROUND=1 fm_run_timed "$ON_TIMEOUT" "$SSH_BIN" "${SSH_ARGS[@]}" \
+  <&3 >&4 2>&5 3<&- 4>&- 5>&- || rc=$?
+exec 3<&- 4>&- 5>&-
+cat -- "$CAPTURE_DIR/stdout"
+[ ! -f "$CAPTURE_DIR/stderr" ] || cat -- "$CAPTURE_DIR/stderr" >&2
+if [ "$FM_RUN_TIMED_STOPPED" -eq 1 ]; then
+  printf 'error: ssh stopped for a terminal prompt it could not reach talking to %s: %s\n' \
+    "$HOST" "$COMMAND" >&2
+  rc=255
+elif [ "$FM_RUN_TIMED_EXPIRED" -eq 1 ]; then
+  printf 'error: remote command did not complete within %ss talking to %s: %s\n' \
+    "$ON_TIMEOUT" "$HOST" "$COMMAND" >&2
+  rc=255
+fi
+exit "$rc"
