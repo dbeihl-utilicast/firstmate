@@ -1501,7 +1501,7 @@ launch_template() {
     # provider with none configured, and the proxy supplies the real one.
     # Crewmate/scout only: see the secondmate refusal below.
     codex-foundry-luna)
-      printf '%s' '__FOUNDRYLUNAPROXY__ run --port __FOUNDRYLUNAPORT__ -- codex -c model=\"gpt-5.6-luna\" -c model_provider=\"fm_foundry_luna\" -c model_providers.fm_foundry_luna.name=\"Azure AI Foundry (gpt-5.6-luna)\" -c model_providers.fm_foundry_luna.base_url=\"http://127.0.0.1:__FOUNDRYLUNAPORT__/openai/v1\" -c model_providers.fm_foundry_luna.wire_api=\"responses\" __EFFORTFLAG__--dangerously-bypass-approvals-and-sandbox -c "notify=[\"bash\",\"-c\",\"touch __TURNEND__\"]" "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
+      printf '%s' '__FOUNDRYLUNAPROXY__ run --port __FOUNDRYLUNAPORT__ -- codex -c model=\"gpt-5.6-luna\" -c model_provider=\"fm_foundry_luna\" -c model_providers.fm_foundry_luna.name=\"Azure-AI-Foundry-gpt-5.6-luna\" -c model_providers.fm_foundry_luna.base_url=\"http://127.0.0.1:__FOUNDRYLUNAPORT__/openai/v1\" -c model_providers.fm_foundry_luna.wire_api=\"responses\" __EFFORTFLAG__--dangerously-bypass-approvals-and-sandbox -c "notify=[\"bash\",\"-c\",\"touch __TURNEND__\"]" "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
       ;;
     opencode) printf '%s' 'OPENCODE_CONFIG_CONTENT='\''{"permission":{"*":"allow"}}'\'' opencode __MODELFLAG__--prompt "$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
     pi|pi-signed)
@@ -2095,16 +2095,15 @@ rovo_config_override_flag() {
   printf -- '--config-override %s ' "$(shell_quote "$config_json")"
 }
 
-# A deterministic loopback port for this task's fm-foundry-luna-proxy.py
-# instance, derived from the task id so concurrent codex-foundry-luna tasks on
-# one host land on distinct ports without a shared allocation registry. The
-# port appears twice in one launch command (the `run --port` flag and inside
-# codex's base_url), so it must be chosen once, here, rather than left to the
-# proxy to self-assign as its own `serve 0` does.
-foundry_luna_port_for_task() {
-  local id=$1 sum
-  sum=$(printf '%s' "$id" | cksum | cut -d' ' -f1)
-  printf '%s' $((40000 + sum % 10000))
+# A free loopback port for this task's fm-foundry-luna-proxy.py instance, asked
+# of the kernel: the port appears twice in one launch command (`run --port` and
+# codex's base_url), and any derived number can already be held by another socket.
+foundry_luna_free_port() {
+  python3 -c 'import socket
+s = socket.socket()
+s.bind(("127.0.0.1", 0))
+print(s.getsockname()[1])
+s.close()'
 }
 
 resolved_existing_dir() {
@@ -3961,7 +3960,10 @@ if [ "$HARNESS" = rovo ]; then
   LAUNCH=${LAUNCH//__ROVOCONFIGOVERRIDE__/$ROVOCONFIGOVERRIDE}
 fi
 if [ "$HARNESS" = codex-foundry-luna ]; then
-  FOUNDRYLUNAPORT=$(foundry_luna_port_for_task "$ID")
+  FOUNDRYLUNAPORT=$(foundry_luna_free_port) && [ -n "$FOUNDRYLUNAPORT" ] || {
+    echo "error: could not obtain a free loopback port for the codex-foundry-luna gateway" >&2
+    exit 1
+  }
   LAUNCH=${LAUNCH//__FOUNDRYLUNAPROXY__/"$(shell_quote "$FM_ROOT/bin/fm-foundry-luna-proxy.py")"}
   LAUNCH=${LAUNCH//__FOUNDRYLUNAPORT__/$FOUNDRYLUNAPORT}
 fi
@@ -3987,7 +3989,7 @@ case "$HARNESS" in
 esac
 LAUNCH=${LAUNCH//__WORKTREE__/$sq_worktree}
 case "$HARNESS" in
-  claude|codex|opencode|pi|pi-signed|grok|kimi|gemini|muse|rovo|qwen)
+  claude|codex|codex-foundry-luna|opencode|pi|pi-signed|grok|kimi|gemini|muse|rovo|qwen)
     LAUNCH="env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI $LAUNCH"
     ;;
 esac

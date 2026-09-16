@@ -33,11 +33,37 @@ SUBSCRIPTION_ID = "201f9be2-2f49-47d4-9f16-f2ab8a9cd1a2"
 TOKEN_RESOURCE = "https://cognitiveservices.azure.com"
 REFRESH_MARGIN_SECONDS = 300
 
-# Test-only escape hatch: redirect forwarding away from the real Foundry host
-# so tests can point this proxy at a local fake upstream. Unset in every real
-# launch, so production traffic always goes to FOUNDRY_HOST over https.
-UPSTREAM_HOST = os.environ.get("FM_FOUNDRY_LUNA_TEST_UPSTREAM_HOST", FOUNDRY_HOST)
-UPSTREAM_SCHEME = os.environ.get("FM_FOUNDRY_LUNA_TEST_UPSTREAM_SCHEME", "https")
+LOOPBACK_HOSTS = ("127.0.0.1", "::1")
+HOP_BY_HOP_HEADERS = (
+    "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
+    "te", "trailers", "transfer-encoding", "upgrade",
+)
+
+
+def resolve_upstream(override):
+    """Test-only escape hatch: point forwarding at a LOOPBACK fake upstream.
+
+    A non-loopback override would send this proxy's real AAD bearer token to
+    an arbitrary host, so it is refused loudly rather than honored or ignored.
+    """
+    if not override:
+        return FOUNDRY_HOST, "https"
+    host = override
+    if host.startswith("[") and "]" in host:
+        host = host[1:host.index("]")]
+    elif ":" in host:
+        host = host.split(":", 1)[0]
+    if host not in LOOPBACK_HOSTS:
+        sys.exit(
+            "fm-foundry-luna-proxy: FM_FOUNDRY_LUNA_TEST_UPSTREAM_HOST must name a "
+            "loopback address; refusing to attach an AAD token for a request to %r" % host
+        )
+    return override, "http"
+
+
+UPSTREAM_HOST, UPSTREAM_SCHEME = resolve_upstream(
+    os.environ.get("FM_FOUNDRY_LUNA_TEST_UPSTREAM_HOST", "")
+)
 
 
 class TokenCache:
@@ -47,11 +73,13 @@ class TokenCache:
         self._fetch = fetch
         self._token = None
         self._expires_at = 0.0
+        self._lock = threading.Lock()
 
     def get(self):
-        if self._token is None or time.time() >= self._expires_at - REFRESH_MARGIN_SECONDS:
-            self._token, self._expires_at = self._fetch()
-        return self._token
+        with self._lock:
+            if self._token is None or time.time() >= self._expires_at - REFRESH_MARGIN_SECONDS:
+                self._token, self._expires_at = self._fetch()
+            return self._token
 
 
 def fetch_az_token(subscription=SUBSCRIPTION_ID, resource=TOKEN_RESOURCE):
@@ -102,14 +130,6 @@ def make_handler(token_cache, upstream_host=UPSTREAM_HOST, upstream_scheme=UPSTR
                     % (model, ALLOWED_MODEL),
                 )
                 return
-            # gpt-5.6-luna rejects the legacy `max_tokens` field with a 400
-            # ("Use 'max_completion_tokens' instead"), confirmed live against
-            # the account; most OpenAI-compatible clients still send the
-            # legacy name, so translate it here rather than pushing that
-            # quirk onto every caller.
-            if "max_tokens" in parsed and "max_completion_tokens" not in parsed:
-                parsed["max_completion_tokens"] = parsed.pop("max_tokens")
-                body = json.dumps(parsed).encode()
             self._forward(body)
 
         def _reject(self, status, message):
@@ -138,23 +158,45 @@ def make_handler(token_cache, upstream_host=UPSTREAM_HOST, upstream_scheme=UPSTR
             try:
                 conn.request("POST", self.path, body=body, headers=headers)
                 upstream = conn.getresponse()
-                data = upstream.read()
-                self.send_response(upstream.status)
-                for k, v in upstream.getheaders():
-                    if k.lower() in ("transfer-encoding", "connection"):
-                        continue
-                    self.send_header(k, v)
-                self.end_headers()
-                self.wfile.write(data)
+                self._relay(upstream)
             finally:
                 conn.close()
+
+        def _relay(self, upstream):
+            """Re-frames the upstream reply for this connection.
+
+            A streamed Foundry reply arrives chunked with no Content-Length, so
+            its framing cannot be copied through: it is re-chunked here, flushed
+            per read so a streaming client renders as the turn arrives.
+            """
+            declared = upstream.getheader("Content-Length")
+            self.log_request(upstream.status)
+            self.send_response_only(upstream.status)
+            for k, v in upstream.getheaders():
+                if k.lower() in HOP_BY_HOP_HEADERS or k.lower() == "content-length":
+                    continue
+                self.send_header(k, v)
+            if declared is not None:
+                self.send_header("Content-Length", declared)
+                self.end_headers()
+                self.wfile.write(upstream.read())
+                return
+            self.send_header("Transfer-Encoding", "chunked")
+            self.end_headers()
+            while True:
+                chunk = upstream.read1(65536)
+                if not chunk:
+                    break
+                self.wfile.write(b"%x\r\n" % len(chunk) + chunk + b"\r\n")
+                self.wfile.flush()
+            self.wfile.write(b"0\r\n\r\n")
 
     return Handler
 
 
 def start_server(port):
     token_cache = TokenCache(fetch_az_token)
-    server = http.server.HTTPServer(("127.0.0.1", port), make_handler(token_cache))
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", port), make_handler(token_cache))
     return server
 
 

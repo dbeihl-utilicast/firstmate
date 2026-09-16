@@ -32,6 +32,8 @@ log_path = sys.argv[1]
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
     def do_POST(self):
         n = int(self.headers.get("Content-Length", "0"))
         req_body = self.rfile.read(n)
@@ -40,6 +42,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.path + "\t" + self.headers.get("Authorization", "") + "\t"
                 + req_body.decode("utf-8", "replace").replace("\n", " ") + "\n"
             )
+        if b'"stream": true' in req_body or b'"stream":true' in req_body:
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Transfer-Encoding", "chunked")
+            self.end_headers()
+            for i in range(3):
+                event = b'data: {"seq":%d}\n\n' % i
+                self.wfile.write(b"%x\r\n" % len(event) + event + b"\r\n")
+                self.wfile.flush()
+            self.wfile.write(b"0\r\n\r\n")
+            return
         body = b'{"ok":true}'
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
@@ -73,7 +86,6 @@ fm_start_proxy() {
   portfile=$(mktemp "$TMP_ROOT/proxy-port.XXXXXX")
   PATH="$az_dir:$PATH" \
     FM_FOUNDRY_LUNA_TEST_UPSTREAM_HOST="127.0.0.1:$upstream_port" \
-    FM_FOUNDRY_LUNA_TEST_UPSTREAM_SCHEME="http" \
     python3 "$PROXY" serve 0 > "$portfile" 2>"$TMP_ROOT/proxy-err-$$" &
   local pid=$!
   local port=
@@ -247,15 +259,15 @@ test_caches_a_still_valid_token_across_requests() {
   pass "fm-foundry-luna-proxy: a still-valid cached token is reused instead of refetched"
 }
 
-test_translates_legacy_max_tokens_field() {
+test_streams_a_chunked_reply_through_with_usable_framing() {
   local az_dir calls upstream_info upstream_pid upstream_port upstream_log
-  local proxy_info proxy_pid proxy_port status line
+  local proxy_info proxy_pid proxy_port status headers server_lines
 
-  az_dir="$TMP_ROOT/az-translate"
-  calls="$TMP_ROOT/az-translate-calls"
+  az_dir="$TMP_ROOT/az-stream"
+  calls="$TMP_ROOT/az-stream-calls"
   fm_write_fake_az "$az_dir" "$calls"
 
-  upstream_log="$TMP_ROOT/upstream-translate.log"
+  upstream_log="$TMP_ROOT/upstream-stream.log"
   : > "$upstream_log"
   upstream_info=$(fm_start_fake_upstream "$upstream_log")
   upstream_pid=${upstream_info%% *}
@@ -265,21 +277,39 @@ test_translates_legacy_max_tokens_field() {
   proxy_pid=${proxy_info%% *}
   proxy_port=${proxy_info##* }
 
-  status=$(curl -sS -o /dev/null -w '%{http_code}' \
-    -X POST "http://127.0.0.1:$proxy_port/openai/v1/chat/completions" \
+  headers="$TMP_ROOT/stream-headers"
+  status=$(curl -sS --max-time 8 -D "$headers" -o "$TMP_ROOT/stream-body" -w '%{http_code}' \
+    -X POST "http://127.0.0.1:$proxy_port/openai/v1/responses" \
     -H 'Content-Type: application/json' \
-    -d '{"model":"gpt-5.6-luna","messages":[],"max_tokens":8}')
-  expect_code 200 "$status" "request using the legacy field must still be forwarded"
+    -d '{"model":"gpt-5.6-luna","stream":true,"input":[]}')
+  if [ $? -ne 0 ]; then
+    kill "$proxy_pid" "$upstream_pid" 2>/dev/null
+    fail "a streamed reply must terminate for the client instead of hanging until the socket times out"
+  fi
 
   kill "$proxy_pid" "$upstream_pid" 2>/dev/null
   wait "$proxy_pid" "$upstream_pid" 2>/dev/null
 
-  line=$(sed -n '1p' "$upstream_log")
-  assert_contains "$line" "max_completion_tokens" \
-    "the forwarded request must use the field gpt-5.6-luna actually accepts"
-  assert_not_contains "$line" "max_tokens\":8" \
-    "the legacy field name must not reach Azure unchanged"
-  pass "fm-foundry-luna-proxy: translates the legacy max_tokens field gpt-5.6-luna rejects"
+  expect_code 200 "$status" "a streamed authorized request must be forwarded"
+  assert_contains "$(cat "$TMP_ROOT/stream-body")" 'data: {"seq":2}' \
+    "the whole streamed body must reach the client"
+  server_lines=$(grep -ci '^server:' "$headers")
+  [ "$server_lines" -le 1 ] \
+    || fail "the relayed response must not carry a duplicated Server header (got $server_lines)"
+  pass "fm-foundry-luna-proxy: a chunked streamed reply is relayed with framing the client can end on"
+}
+
+test_refuses_a_non_loopback_upstream_override() {
+  local out status
+
+  out=$(FM_FOUNDRY_LUNA_TEST_UPSTREAM_HOST="foundry-luna.invalid:443" \
+    python3 "$PROXY" serve 0 2>&1)
+  status=$?
+
+  [ "$status" -ne 0 ] \
+    || fail "the proxy must refuse to start rather than attach an AAD token for a non-loopback host"
+  assert_contains "$out" "loopback address" "the refusal names the constraint it enforced"
+  pass "fm-foundry-luna-proxy: refuses a non-loopback upstream override instead of forwarding a token to it"
 }
 
 test_run_subcommand_serves_while_the_child_runs_then_stops() {
@@ -322,7 +352,6 @@ SH
 
   PATH="$az_dir:$PATH" \
     FM_FOUNDRY_LUNA_TEST_UPSTREAM_HOST="127.0.0.1:$upstream_port" \
-    FM_FOUNDRY_LUNA_TEST_UPSTREAM_SCHEME="http" \
     python3 "$PROXY" run --port "$port_probe_val" -- "$child_script" "$port_probe_val" "$port_probe"
   run_status=$?
 
@@ -341,5 +370,6 @@ SH
 test_refuses_every_unauthorized_deployment_name
 test_refresh_path_obtains_a_new_token_per_request_when_expired
 test_caches_a_still_valid_token_across_requests
-test_translates_legacy_max_tokens_field
+test_streams_a_chunked_reply_through_with_usable_framing
+test_refuses_a_non_loopback_upstream_override
 test_run_subcommand_serves_while_the_child_runs_then_stops

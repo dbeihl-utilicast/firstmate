@@ -455,7 +455,54 @@ test_codex_foundry_luna_pins_the_deployment_and_threads_effort() {
     "codex-foundry-luna launch must still thread the effort axis like plain codex"
   assert_not_contains "$launch" "--model " \
     "codex-foundry-luna must never expose a --model flag a caller could repoint at another deployment"
+  printf '%s\n' "$launch" > "$CASE_DIR/launch.sh"
+  bash -n "$CASE_DIR/launch.sh" 2>"$CASE_DIR/launch.parse.err" \
+    || fail "the launch command must parse in the shell that runs it: $(cat "$CASE_DIR/launch.parse.err")"
   pass "codex-foundry-luna pins base_url/wire_api/model to gpt-5.6-luna and still threads effort"
+}
+
+test_codex_foundry_luna_picks_a_gateway_port_that_is_actually_free() {
+  local rec id out status launch held_port emitted_port holder_pid ready
+  id=profile-foundry-luna-port-z8
+  rec=$(make_spawn_case profile-foundry-luna-port codex-foundry-luna "$id")
+  read_case_record "$rec"
+
+  # Hold the port a task-id-derived choice used to land on, so a spawn that
+  # still derived one would hand codex a gateway port it could never bind.
+  held_port=$(( 40000 + $(printf '%s' "$id" | cksum | cut -d' ' -f1) % 10000 ))
+  ready="$CASE_DIR/holder-ready"
+  python3 -c 'import socket, sys, time
+s = socket.socket()
+s.bind(("127.0.0.1", int(sys.argv[1])))
+s.listen(1)
+open(sys.argv[2], "w").close()
+time.sleep(60)' "$held_port" "$ready" &
+  holder_pid=$!
+  for _ in $(seq 1 50); do
+    [ -e "$ready" ] && break
+    sleep 0.1
+  done
+  [ -e "$ready" ] || { kill "$holder_pid" 2>/dev/null; fail "could not hold the collision port for the test"; }
+
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  status=$?
+  launch=$(cat "$LAUNCH_LOG")
+  emitted_port=${launch#*run --port }
+  emitted_port=${emitted_port%% *}
+  kill "$holder_pid" 2>/dev/null
+  wait "$holder_pid" 2>/dev/null
+
+  expect_code 0 "$status" "a taken port must not break a codex-foundry-luna spawn"
+  [ "$emitted_port" != "$held_port" ] \
+    || fail "the gateway port must not be one already in use ($held_port)"
+  python3 -c 'import socket, sys
+s = socket.socket()
+s.bind(("127.0.0.1", int(sys.argv[1])))
+s.close()' "$emitted_port" \
+    || fail "the gateway port handed to codex must be bindable: $emitted_port"
+  assert_contains "$launch" "base_url=\\\"http://127.0.0.1:$emitted_port/openai/v1\\\"" \
+    "codex's base_url must name the same port the gateway was told to serve"
+  pass "codex-foundry-luna bind-probes a free gateway port instead of deriving a possibly-taken one"
 }
 
 test_codex_foundry_luna_refuses_a_different_deployment_name() {
@@ -1257,6 +1304,7 @@ test_claude_threads_model_and_effort
 test_codex_threads_model_and_effort
 test_codex_omits_invalid_max_effort
 test_codex_foundry_luna_pins_the_deployment_and_threads_effort
+test_codex_foundry_luna_picks_a_gateway_port_that_is_actually_free
 test_codex_foundry_luna_refuses_a_different_deployment_name
 test_grok_threads_model_and_reasoning_effort
 test_grok_omits_invalid_max_reasoning_effort

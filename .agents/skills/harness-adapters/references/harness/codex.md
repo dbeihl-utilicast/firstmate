@@ -51,3 +51,4 @@ Everything above (exit command, skill popup, resume, primary integration) applie
 No `env_key` is configured: codex sends no Authorization header to a provider with none set, and the proxy supplies the real AAD bearer token itself, fetched fresh via `az account get-access-token` and refreshed before its ~1-hour expiry.
 The gateway also refuses any request whose `model` is not exactly `gpt-5.6-luna`, so a caller cannot repoint it at another deployment on the same account.
 `bin/fm-spawn.sh` refuses a `--model` other than `gpt-5.6-luna` at spawn time too, and refuses `--secondmate` outright; see that script's `codex-foundry-luna` case and guards.
+`gpt-5.6-luna` rejects the legacy chat-completions `max_tokens` field with a 400 naming `max_completion_tokens` (verified live 2026-09-16); the `responses` wire API sends `max_output_tokens`, so the dispatched path never hits it and the gateway does not translate it.
