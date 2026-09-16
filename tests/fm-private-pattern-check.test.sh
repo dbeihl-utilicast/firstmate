@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # fm-private-pattern-check.test.sh - fixture-level proof for
 # bin/fm-private-pattern-check.sh: a planted match fails closed naming only
-# file:line, an absent/empty/comment-only pattern list fails closed, a clean
-# tree passes, comments/blanks are ignored around a real pattern, and
-# --diff-range catches an added line with correct line arithmetic.
+# file:line, an absent/empty/comment-only/invalid pattern list fails closed
+# (a malformed regex must never silently match nothing), matching is
+# case-insensitive by default, a clean tree passes, comments/blanks are
+# ignored around a real pattern, and --diff-range catches an added line with
+# correct line arithmetic.
 #
 # Every fixture is its own throwaway git repo so the script's own
 # `git rev-parse --show-toplevel` resolves inside the fixture, never this
@@ -76,6 +78,35 @@ test_comment_and_blank_only_var_fails() {
   pass "a pattern list holding only comments and blank lines fails closed"
 }
 
+test_invalid_pattern_fails_closed_instead_of_matching_nothing() {
+  local repo out rc
+  repo=$(fixture_repo)
+  printf 'nothing sensitive here\n' > "$repo/plain.txt"
+  git -C "$repo" add plain.txt
+  fixture_commit "$repo" plain
+  out=$(cd "$repo" && FM_PRIVATE_PATTERNS='fake-unbalanced-paren-(' "$SCRIPT" 2>&1); rc=$?
+  rm -rf "$repo"
+  [ "$rc" -eq 1 ] || fail "a malformed extended-regex pattern must exit 1 (config error), got $rc: $out"
+  assert_not_contains "$out" 'fake-unbalanced-paren-(' \
+    "the refusal must never echo the malformed pattern itself"
+  pass "an invalid pattern fails closed instead of silently matching nothing"
+}
+
+test_case_insensitive_match_by_default() {
+  local repo out rc pattern planted
+  repo=$(fixture_repo)
+  pattern='vvv-fake-secret-marker-4471-do-not-reuse'
+  planted='VvV-Fake-Secret-Marker-4471-Do-Not-Reuse'
+  printf 'context line\n%s\n' "$planted" > "$repo/secret3.txt"
+  git -C "$repo" add secret3.txt
+  fixture_commit "$repo" plant3
+  out=$(cd "$repo" && FM_PRIVATE_PATTERNS="$pattern" "$SCRIPT" 2>&1); rc=$?
+  rm -rf "$repo"
+  [ "$rc" -eq 2 ] || fail "a lower-case pattern must match a mixed-case planted value, got $rc: $out"
+  assert_contains "$out" "secret3.txt:2" "the case-insensitive match must still name the file and line"
+  pass "matching is case-insensitive by default"
+}
+
 test_comments_and_blanks_are_ignored_around_a_real_pattern() {
   local repo out rc pattern patterns
   repo=$(fixture_repo)
@@ -123,6 +154,8 @@ test_planted_match_fails_and_names_file_line_only
 test_absent_pattern_var_fails
 test_empty_pattern_var_fails
 test_comment_and_blank_only_var_fails
+test_invalid_pattern_fails_closed_instead_of_matching_nothing
+test_case_insensitive_match_by_default
 test_comments_and_blanks_are_ignored_around_a_real_pattern
 test_clean_tree_passes
 test_diff_range_catches_a_planted_addition
