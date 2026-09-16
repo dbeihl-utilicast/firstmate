@@ -270,6 +270,9 @@
 #     __QWENBIN__   quoted concrete Qwen executable path resolved from PATH
 #     __QWENSETTINGS__ firstmate-owned per-task qwen settings file (busy-state hooks)
 #     __ROVOBIN__   resolved, rovo-verified executable for a rovo launch
+#     __FOUNDRYLUNAPROXY__ quoted path to bin/fm-foundry-luna-proxy.py, the codex-foundry-luna gateway
+#     __FOUNDRYLUNAPORT__ deliberately NOT replaced here: that gateway substitutes it in
+#                  codex's argv once it has bound the port it serves
 # Verified per-harness turn-end hooks are installed automatically where enabled; some live outside the worktree.
 # Kimi uses one surgically installed Firstmate region in $HOME/.kimi-code/config.toml,
 # a firstmate-owned global hook and registry, and a gitignored per-task pointer.
@@ -1492,16 +1495,18 @@ launch_template() {
       ;;
     # codex-foundry-luna: codex itself, repointed at the Azure AI Foundry
     # gpt-5.6-luna deployment instead of OpenAI's own API. __FOUNDRYLUNAPROXY__
-    # (bin/fm-foundry-luna-proxy.py, `run --port <n> -- <codex...>`) starts the
-    # local token-refreshing gateway first and runs codex as its child; that
-    # script's own header owns the refusal and token-refresh mechanics. codex's
-    # model/provider/base_url/wire_api are fixed with -c overrides here rather
-    # than left to --model, per the captain's single-deployment authorization.
-    # No env_key: codex sends no Authorization header of its own to a local
-    # provider with none configured, and the proxy supplies the real one.
+    # (bin/fm-foundry-luna-proxy.py, `run -- <codex...>`) starts the local
+    # token-refreshing gateway first and runs codex as its child; that script's
+    # own header owns the refusal, port and token-refresh mechanics.
+    # __FOUNDRYLUNAPORT__ stays LITERAL: the gateway substitutes it in codex's
+    # argv once it has bound the port it serves, so nothing can take that port
+    # in between. codex's model/provider/base_url/wire_api are fixed with -c
+    # overrides rather than left to --model, per the captain's single-deployment
+    # authorization, and env_key points codex at this task's
+    # FM_FOUNDRY_LUNA_SECRET, the only caller the gateway admits.
     # Crewmate/scout only: see the secondmate refusal below.
     codex-foundry-luna)
-      printf '%s' '__FOUNDRYLUNAPROXY__ run --port __FOUNDRYLUNAPORT__ -- codex -c model=\"gpt-5.6-luna\" -c model_provider=\"fm_foundry_luna\" -c model_providers.fm_foundry_luna.name=\"Azure-AI-Foundry-gpt-5.6-luna\" -c model_providers.fm_foundry_luna.base_url=\"http://127.0.0.1:__FOUNDRYLUNAPORT__/openai/v1\" -c model_providers.fm_foundry_luna.wire_api=\"responses\" __EFFORTFLAG__--dangerously-bypass-approvals-and-sandbox -c "notify=[\"bash\",\"-c\",\"touch __TURNEND__\"]" "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
+      printf '%s' '__FOUNDRYLUNAPROXY__ run -- codex -c model=\"gpt-5.6-luna\" -c model_provider=\"fm_foundry_luna\" -c model_providers.fm_foundry_luna.name=\"Azure-AI-Foundry-gpt-5.6-luna\" -c model_providers.fm_foundry_luna.base_url=\"http://127.0.0.1:__FOUNDRYLUNAPORT__/openai/v1\" -c model_providers.fm_foundry_luna.wire_api=\"responses\" -c model_providers.fm_foundry_luna.env_key=\"FM_FOUNDRY_LUNA_SECRET\" __EFFORTFLAG__--dangerously-bypass-approvals-and-sandbox -c "notify=[\"bash\",\"-c\",\"touch __TURNEND__\"]" "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
       ;;
     opencode) printf '%s' 'OPENCODE_CONFIG_CONTENT='\''{"permission":{"*":"allow"}}'\'' opencode __MODELFLAG__--prompt "$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
     pi|pi-signed)
@@ -2093,17 +2098,6 @@ rovo_config_override_flag() {
     "$(json_escape "$state_real/$id.status")")
   config_json="{${agent_json}\"toolPermissions\":{\"allowedExternalPaths\":[$paths_json]}}"
   printf -- '--config-override %s ' "$(shell_quote "$config_json")"
-}
-
-# A free loopback port for this task's fm-foundry-luna-proxy.py instance, asked
-# of the kernel: the port appears twice in one launch command (`run --port` and
-# codex's base_url), and any derived number can already be held by another socket.
-foundry_luna_free_port() {
-  python3 -c 'import socket
-s = socket.socket()
-s.bind(("127.0.0.1", 0))
-print(s.getsockname()[1])
-s.close()'
 }
 
 resolved_existing_dir() {
@@ -3960,12 +3954,7 @@ if [ "$HARNESS" = rovo ]; then
   LAUNCH=${LAUNCH//__ROVOCONFIGOVERRIDE__/$ROVOCONFIGOVERRIDE}
 fi
 if [ "$HARNESS" = codex-foundry-luna ]; then
-  FOUNDRYLUNAPORT=$(foundry_luna_free_port) && [ -n "$FOUNDRYLUNAPORT" ] || {
-    echo "error: could not obtain a free loopback port for the codex-foundry-luna gateway" >&2
-    exit 1
-  }
   LAUNCH=${LAUNCH//__FOUNDRYLUNAPROXY__/"$(shell_quote "$FM_ROOT/bin/fm-foundry-luna-proxy.py")"}
-  LAUNCH=${LAUNCH//__FOUNDRYLUNAPORT__/$FOUNDRYLUNAPORT}
 fi
 LAUNCH=${LAUNCH//__BRIEF__/$sq_brief}
 LAUNCH=${LAUNCH//__TURNEND__/$sq_turnend}
@@ -4002,6 +3991,16 @@ esac
 # an unset value is the single-store default and needs no prefix.
 if [ "$HARNESS" = claude ] && [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then
   LAUNCH="CLAUDE_CONFIG_DIR=$(shell_quote "$CLAUDE_CONFIG_DIR") $LAUNCH"
+fi
+# The gateway brokers the operator's own AAD token, so it admits only the caller
+# holding this task's freshly minted secret rather than every local process. The
+# secret reaches the worker the explicit-assignment way CLAUDE_CONFIG_DIR does.
+if [ "$HARNESS" = codex-foundry-luna ]; then
+  FOUNDRYLUNASECRET=$(python3 -c 'import secrets; print(secrets.token_hex(32))') && [ -n "$FOUNDRYLUNASECRET" ] || {
+    echo "error: could not mint a gateway secret for the codex-foundry-luna task" >&2
+    exit 1
+  }
+  LAUNCH="FM_FOUNDRY_LUNA_SECRET=$(shell_quote "$FOUNDRYLUNASECRET") $LAUNCH"
 fi
 if [ "$KIND" = secondmate ]; then
   sq_home=$(shell_quote "$PROJ_ABS")

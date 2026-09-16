@@ -477,6 +477,10 @@
       "audience": "operator-current"
     },
     {
+      "path": "docs/verification/codex-foundry-luna.md",
+      "audience": "maintainer-verification"
+    },
+    {
       "path": "docs/verification/dispatch-auth.md",
       "audience": "maintainer-verification"
     },

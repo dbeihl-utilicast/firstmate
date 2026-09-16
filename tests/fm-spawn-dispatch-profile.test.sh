@@ -445,8 +445,12 @@ test_codex_foundry_luna_pins_the_deployment_and_threads_effort() {
   expect_code 0 "$status" "codex-foundry-luna spawn should succeed"
   assert_meta_profile "$HOME_DIR/state/$id.meta" codex-foundry-luna default high
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "fm-foundry-luna-proxy.py' run --port " \
+  assert_contains "$launch" "fm-foundry-luna-proxy.py' run -- codex " \
     "codex-foundry-luna launch must start the local token-refreshing gateway"
+  assert_contains "$launch" '-c model_providers.fm_foundry_luna.env_key=\"FM_FOUNDRY_LUNA_SECRET\"' \
+    "codex-foundry-luna launch must make codex present this task's gateway secret"
+  assert_contains "$launch" "FM_FOUNDRY_LUNA_SECRET=" \
+    "codex-foundry-luna launch must carry a per-task gateway secret into the worker's environment"
   assert_contains "$launch" '-c model=\"gpt-5.6-luna\"' \
     "codex-foundry-luna launch must pin the one authorized deployment"
   assert_contains "$launch" '-c model_providers.fm_foundry_luna.wire_api=\"responses\"' \
@@ -461,48 +465,41 @@ test_codex_foundry_luna_pins_the_deployment_and_threads_effort() {
   pass "codex-foundry-luna pins base_url/wire_api/model to gpt-5.6-luna and still threads effort"
 }
 
-test_codex_foundry_luna_picks_a_gateway_port_that_is_actually_free() {
-  local rec id out status launch held_port emitted_port holder_pid ready
+test_codex_foundry_luna_leaves_the_gateway_port_for_the_gateway_to_resolve() {
+  local rec id out status launch secret_a secret_b
   id=profile-foundry-luna-port-z8
   rec=$(make_spawn_case profile-foundry-luna-port codex-foundry-luna "$id")
   read_case_record "$rec"
 
-  # Hold the port a task-id-derived choice used to land on, so a spawn that
-  # still derived one would hand codex a gateway port it could never bind.
-  held_port=$(( 40000 + $(printf '%s' "$id" | cksum | cut -d' ' -f1) % 10000 ))
-  ready="$CASE_DIR/holder-ready"
-  python3 -c 'import socket, sys, time
-s = socket.socket()
-s.bind(("127.0.0.1", int(sys.argv[1])))
-s.listen(1)
-open(sys.argv[2], "w").close()
-time.sleep(60)' "$held_port" "$ready" &
-  holder_pid=$!
-  for _ in $(seq 1 50); do
-    [ -e "$ready" ] && break
-    sleep 0.1
-  done
-  [ -e "$ready" ] || { kill "$holder_pid" 2>/dev/null; fail "could not hold the collision port for the test"; }
-
   out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
   status=$?
+  expect_code 0 "$status" "a codex-foundry-luna spawn should succeed"
   launch=$(cat "$LAUNCH_LOG")
-  emitted_port=${launch#*run --port }
-  emitted_port=${emitted_port%% *}
-  kill "$holder_pid" 2>/dev/null
-  wait "$holder_pid" 2>/dev/null
 
-  expect_code 0 "$status" "a taken port must not break a codex-foundry-luna spawn"
-  [ "$emitted_port" != "$held_port" ] \
-    || fail "the gateway port must not be one already in use ($held_port)"
-  python3 -c 'import socket, sys
-s = socket.socket()
-s.bind(("127.0.0.1", int(sys.argv[1])))
-s.close()' "$emitted_port" \
-    || fail "the gateway port handed to codex must be bindable: $emitted_port"
-  assert_contains "$launch" "base_url=\\\"http://127.0.0.1:$emitted_port/openai/v1\\\"" \
-    "codex's base_url must name the same port the gateway was told to serve"
-  pass "codex-foundry-luna bind-probes a free gateway port instead of deriving a possibly-taken one"
+  # fm-spawn deliberately picks no port: a port chosen here would be released
+  # before the pane's gateway binds it, so codex's base_url carries the literal
+  # placeholder the gateway substitutes once it owns the socket it serves.
+  assert_contains "$launch" 'base_url=\"http://127.0.0.1:__FOUNDRYLUNAPORT__/openai/v1\"' \
+    "codex's base_url must carry the placeholder the gateway resolves, not a port fm-spawn released"
+  assert_not_contains "$launch" "run --port" \
+    "fm-spawn must not hand the gateway a port it probed and let go of"
+
+  secret_a=${launch#*FM_FOUNDRY_LUNA_SECRET=}
+  secret_a=${secret_a%% *}
+  id=profile-foundry-luna-port-z9
+  rec=$(make_spawn_case profile-foundry-luna-port2 codex-foundry-luna "$id")
+  read_case_record "$rec"
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  expect_code 0 "$?" "a second codex-foundry-luna spawn should succeed"
+  launch=$(cat "$LAUNCH_LOG")
+  secret_b=${launch#*FM_FOUNDRY_LUNA_SECRET=}
+  secret_b=${secret_b%% *}
+
+  [ -n "$secret_a" ] && [ -n "$secret_b" ] \
+    || fail "each codex-foundry-luna spawn must carry a gateway secret"
+  assert_not_equals "$secret_a" "$secret_b" \
+    "each task's gateway secret must be minted fresh, never shared across spawns"
+  pass "codex-foundry-luna leaves the gateway port to the gateway and mints a fresh secret per task"
 }
 
 test_codex_foundry_luna_refuses_a_different_deployment_name() {
@@ -1304,7 +1301,7 @@ test_claude_threads_model_and_effort
 test_codex_threads_model_and_effort
 test_codex_omits_invalid_max_effort
 test_codex_foundry_luna_pins_the_deployment_and_threads_effort
-test_codex_foundry_luna_picks_a_gateway_port_that_is_actually_free
+test_codex_foundry_luna_leaves_the_gateway_port_for_the_gateway_to_resolve
 test_codex_foundry_luna_refuses_a_different_deployment_name
 test_grok_threads_model_and_reasoning_effort
 test_grok_omits_invalid_max_reasoning_effort

@@ -18,6 +18,12 @@ set -u
 PROXY="$ROOT/bin/fm-foundry-luna-proxy.py"
 TMP_ROOT=$(fm_test_tmproot fm-foundry-luna-proxy)
 
+# The per-task secret the gateway admits, standing in for the value
+# bin/fm-spawn.sh mints per spawn. A nonsecret fixture string that resembles no
+# real credential.
+GATEWAY_SECRET=fm-test-gateway-fixture-not-a-credential
+AUTH_HEADER="Authorization: Bearer $GATEWAY_SECRET"
+
 # fm_start_fake_upstream <log-file> -> prints "<pid> <port>"
 # The fake upstream always answers 200 and records the path and Authorization
 # header it received for each forwarded request.
@@ -94,6 +100,7 @@ fm_start_proxy() {
   portfile=$(mktemp "$TMP_ROOT/proxy-port.XXXXXX")
   PATH="$az_dir:$PATH" \
     FM_FOUNDRY_LUNA_TEST_UPSTREAM_HOST="127.0.0.1:$upstream_port" \
+    FM_FOUNDRY_LUNA_SECRET="$GATEWAY_SECRET" \
     python3 "$PROXY" serve 0 > "$portfile" 2>"$TMP_ROOT/proxy-err-$$" &
   local pid=$!
   local port=
@@ -145,6 +152,30 @@ SH
   chmod +x "$dir/az"
 }
 
+# fm_write_relaying_child <path> [exit-status] -> prints <path>
+# A stand-in "codex" for run mode: it learns its gateway's port only from its
+# own argv (where the gateway substitutes __FOUNDRYLUNAPORT__) and its secret
+# only from the environment the gateway handed it, exactly as codex does with
+# base_url and env_key. $1 port, $2 status file, $3 optional port-echo file.
+# Stays quiet on stdio so a run-mode silence assertion measures the gateway.
+fm_write_relaying_child() {
+  local path=$1 exit_status=${2:-0}
+  cat > "$path" <<SH
+#!/usr/bin/env bash
+set -u
+port=\$1
+[ -z "\${3:-}" ] || printf '%s\n' "\$port" > "\$3"
+curl -s -o /dev/null -w '%{http_code}' \\
+  -X POST "http://127.0.0.1:\$port/openai/v1/responses" \\
+  -H 'Content-Type: application/json' \\
+  -H "Authorization: Bearer \$FM_FOUNDRY_LUNA_SECRET" \\
+  -d '{"model":"gpt-5.6-luna","input":[]}' 2>/dev/null > "\$2"
+exit $exit_status
+SH
+  chmod +x "$path"
+  printf '%s\n' "$path"
+}
+
 test_refuses_every_unauthorized_deployment_name() {
   local az_dir calls upstream_info upstream_pid upstream_port upstream_log
   local proxy_info proxy_pid proxy_port name status body
@@ -167,6 +198,7 @@ test_refuses_every_unauthorized_deployment_name() {
     body=$(curl -sS -o "$TMP_ROOT/refuse-body" -w '%{http_code}' \
       -X POST "http://127.0.0.1:$proxy_port/openai/v1/responses" \
       -H 'Content-Type: application/json' \
+      -H "$AUTH_HEADER" \
       -d "{\"model\":\"$name\",\"messages\":[]}")
     status=$body
     if [ "$status" -lt 400 ]; then
@@ -206,12 +238,14 @@ test_refresh_path_obtains_a_new_token_per_request_when_expired() {
   status=$(curl -sS -o "$TMP_ROOT/req1-body" -w '%{http_code}' \
     -X POST "http://127.0.0.1:$proxy_port/openai/v1/responses" \
     -H 'Content-Type: application/json' \
+    -H "$AUTH_HEADER" \
     -d '{"model":"gpt-5.6-luna","messages":[]}')
   expect_code 200 "$status" "first authorized request must be forwarded"
 
   status=$(curl -sS -o "$TMP_ROOT/req2-body" -w '%{http_code}' \
     -X POST "http://127.0.0.1:$proxy_port/openai/v1/responses" \
     -H 'Content-Type: application/json' \
+    -H "$AUTH_HEADER" \
     -d '{"model":"gpt-5.6-luna","messages":[]}')
   expect_code 200 "$status" "second authorized request must be forwarded"
 
@@ -250,12 +284,14 @@ test_caches_a_still_valid_token_across_requests() {
   status=$(curl -sS -o /dev/null -w '%{http_code}' \
     -X POST "http://127.0.0.1:$proxy_port/openai/v1/responses" \
     -H 'Content-Type: application/json' \
+    -H "$AUTH_HEADER" \
     -d '{"model":"gpt-5.6-luna","messages":[]}')
   expect_code 200 "$status" "first authorized request must be forwarded"
 
   status=$(curl -sS -o /dev/null -w '%{http_code}' \
     -X POST "http://127.0.0.1:$proxy_port/openai/v1/responses" \
     -H 'Content-Type: application/json' \
+    -H "$AUTH_HEADER" \
     -d '{"model":"gpt-5.6-luna","messages":[]}')
   expect_code 200 "$status" "second authorized request must be forwarded"
 
@@ -294,6 +330,7 @@ test_refuses_a_deployment_scoped_route_for_an_unauthorized_deployment() {
     status=$(curl -sS -o "$TMP_ROOT/route-body" -w '%{http_code}' \
       -X POST "http://127.0.0.1:$proxy_port$route" \
       -H 'Content-Type: application/json' \
+      -H "$AUTH_HEADER" \
       -d '{"model":"gpt-5.6-luna","input":[]}')
     if [ "$status" -lt 400 ]; then
       kill "$proxy_pid" "$upstream_pid" 2>/dev/null
@@ -333,6 +370,7 @@ test_streams_a_chunked_reply_through_with_usable_framing() {
   if ! status=$(curl -sS --max-time 8 -D "$headers" -o "$TMP_ROOT/stream-body" -w '%{http_code}' \
     -X POST "http://127.0.0.1:$proxy_port/openai/v1/responses" \
     -H 'Content-Type: application/json' \
+    -H "$AUTH_HEADER" \
     -d '{"model":"gpt-5.6-luna","stream":true,"input":[]}'); then
     kill "$proxy_pid" "$upstream_pid" 2>/dev/null
     fail "a streamed reply must terminate for the client instead of hanging until the socket times out"
@@ -365,7 +403,7 @@ test_refuses_a_non_loopback_upstream_override() {
 
 test_run_mode_is_silent_unless_an_access_log_file_is_named() {
   local az_dir calls upstream_info upstream_pid upstream_port upstream_log
-  local child_script quiet_port loud_port quiet_err loud_err access_log probe
+  local child_script quiet_err loud_err access_log probe
 
   az_dir="$TMP_ROOT/az-quiet"
   calls="$TMP_ROOT/az-quiet-calls"
@@ -377,25 +415,14 @@ test_run_mode_is_silent_unless_an_access_log_file_is_named() {
   upstream_pid=${upstream_info%% *}
   upstream_port=${upstream_info##* }
 
-  # A stand-in "codex" that relays one request through the gateway it is
-  # wrapped by, so the run-mode stdio the pane would see is the real thing.
-  child_script="$TMP_ROOT/quiet-child.sh"
-  cat > "$child_script" <<'SH'
-#!/usr/bin/env bash
-set -u
-curl -s -o /dev/null -w '%{http_code}' \
-  -X POST "http://127.0.0.1:$1/openai/v1/responses" \
-  -H 'Content-Type: application/json' \
-  -d '{"model":"gpt-5.6-luna","input":[]}' 2>/dev/null > "$2"
-SH
-  chmod +x "$child_script"
+  child_script=$(fm_write_relaying_child "$TMP_ROOT/quiet-child.sh")
 
   probe="$TMP_ROOT/quiet-probe"
   quiet_err="$TMP_ROOT/quiet-stderr"
-  quiet_port=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
   PATH="$az_dir:$PATH" \
     FM_FOUNDRY_LUNA_TEST_UPSTREAM_HOST="127.0.0.1:$upstream_port" \
-    python3 "$PROXY" run --port "$quiet_port" -- "$child_script" "$quiet_port" "$probe" \
+    FM_FOUNDRY_LUNA_SECRET="$GATEWAY_SECRET" \
+    python3 "$PROXY" run -- "$child_script" __FOUNDRYLUNAPORT__ "$probe" \
     > "$TMP_ROOT/quiet-stdout" 2>"$quiet_err"
   expect_code 200 "$(cat "$probe")" "the wrapped command's request must still be relayed"
   [ ! -s "$quiet_err" ] \
@@ -405,11 +432,11 @@ SH
 
   access_log="$TMP_ROOT/quiet-access.log"
   loud_err="$TMP_ROOT/loud-stderr"
-  loud_port=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
   PATH="$az_dir:$PATH" \
     FM_FOUNDRY_LUNA_TEST_UPSTREAM_HOST="127.0.0.1:$upstream_port" \
+    FM_FOUNDRY_LUNA_SECRET="$GATEWAY_SECRET" \
     FM_FOUNDRY_LUNA_LOG="$access_log" \
-    python3 "$PROXY" run --port "$loud_port" -- "$child_script" "$loud_port" "$probe" \
+    python3 "$PROXY" run -- "$child_script" __FOUNDRYLUNAPORT__ "$probe" \
     > /dev/null 2>"$loud_err"
   expect_code 200 "$(cat "$probe")" "the wrapped command's request must still be relayed with logging on"
 
@@ -425,13 +452,13 @@ SH
   # connection failure) must be silenced the same way, not just the ordinary
   # access log: point at a loopback port nothing listens on so conn.request()
   # in _forward raises ConnectionRefusedError before any response is sent.
-  local error_quiet_port error_quiet_err error_loud_port error_loud_err error_log error_probe
+  local error_quiet_err error_loud_err error_log error_probe
   error_probe="$TMP_ROOT/error-probe"
   error_quiet_err="$TMP_ROOT/error-quiet-stderr"
-  error_quiet_port=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
   PATH="$az_dir:$PATH" \
     FM_FOUNDRY_LUNA_TEST_UPSTREAM_HOST="127.0.0.1:1" \
-    python3 "$PROXY" run --port "$error_quiet_port" -- "$child_script" "$error_quiet_port" "$error_probe" \
+    FM_FOUNDRY_LUNA_SECRET="$GATEWAY_SECRET" \
+    python3 "$PROXY" run -- "$child_script" __FOUNDRYLUNAPORT__ "$error_probe" \
     > "$TMP_ROOT/error-quiet-stdout" 2>"$error_quiet_err"
   [ ! -s "$error_quiet_err" ] \
     || fail "an error escaping the handler must not write to the pane's stderr by default, got: $(cat "$error_quiet_err")"
@@ -440,11 +467,11 @@ SH
 
   error_log="$TMP_ROOT/error-access.log"
   error_loud_err="$TMP_ROOT/error-loud-stderr"
-  error_loud_port=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
   PATH="$az_dir:$PATH" \
     FM_FOUNDRY_LUNA_TEST_UPSTREAM_HOST="127.0.0.1:1" \
+    FM_FOUNDRY_LUNA_SECRET="$GATEWAY_SECRET" \
     FM_FOUNDRY_LUNA_LOG="$error_log" \
-    python3 "$PROXY" run --port "$error_loud_port" -- "$child_script" "$error_loud_port" "$error_probe" \
+    python3 "$PROXY" run -- "$child_script" __FOUNDRYLUNAPORT__ "$error_probe" \
     > /dev/null 2>"$error_loud_err"
   [ ! -s "$error_loud_err" ] \
     || fail "a named access log must catch an escaping error too, not just leave it on stderr, got: $(cat "$error_loud_err")"
@@ -455,7 +482,7 @@ SH
 
 test_run_subcommand_serves_while_the_child_runs_then_stops() {
   local az_dir calls upstream_info upstream_pid upstream_port upstream_log
-  local child_script status port_probe run_status
+  local child_script status port_probe run_status served_port
 
   az_dir="$TMP_ROOT/az-run"
   calls="$TMP_ROOT/az-run-calls"
@@ -467,33 +494,18 @@ test_run_subcommand_serves_while_the_child_runs_then_stops() {
   upstream_pid=${upstream_info%% *}
   upstream_port=${upstream_info##* }
 
-  # A stand-in "codex": it curls the gateway's own port (passed to it as $1)
+  # A stand-in "codex": it curls the gateway's own port - handed to it by the
+  # gateway itself, through the __FOUNDRYLUNAPORT__ placeholder in its argv -
   # to prove the gateway is already listening while the wrapped command runs,
   # then exits with a distinctive status so the test can prove `run` forwards
   # a real child exit code rather than always exiting 0.
-  child_script="$TMP_ROOT/fake-child.sh"
-  cat > "$child_script" <<'SH'
-#!/usr/bin/env bash
-set -u
-port=$1
-curl -sS -o /dev/null -w '%{http_code}' \
-  -X POST "http://127.0.0.1:$port/openai/v1/responses" \
-  -H 'Content-Type: application/json' \
-  -d '{"model":"gpt-5.6-luna","messages":[]}' > "$2"
-exit 42
-SH
-  chmod +x "$child_script"
+  child_script=$(fm_write_relaying_child "$TMP_ROOT/fake-child.sh" 42)
 
   port_probe="$TMP_ROOT/run-port-probe"
-  # bin/fm-spawn.sh's launch template must pick a concrete port itself (it
-  # appears twice in one launch command: once for `run --port` and once inside
-  # codex's base_url), so this picks one the same way rather than asking `run`
-  # to self-assign one as `serve 0` does.
-  port_probe_val=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
-
   PATH="$az_dir:$PATH" \
     FM_FOUNDRY_LUNA_TEST_UPSTREAM_HOST="127.0.0.1:$upstream_port" \
-    python3 "$PROXY" run --port "$port_probe_val" -- "$child_script" "$port_probe_val" "$port_probe"
+    FM_FOUNDRY_LUNA_SECRET="$GATEWAY_SECRET" \
+    python3 "$PROXY" run -- "$child_script" __FOUNDRYLUNAPORT__ "$port_probe" "$TMP_ROOT/run-port-seen"
   run_status=$?
 
   kill "$upstream_pid" 2>/dev/null
@@ -502,10 +514,152 @@ SH
   assert_equals "42" "$run_status" "run must exit with the wrapped command's own exit status"
   status=$(cat "$port_probe")
   expect_code 200 "$status" "the wrapped command could reach the gateway while it ran"
+  served_port=$(cat "$TMP_ROOT/run-port-seen")
+  [ "$served_port" != "__FOUNDRYLUNAPORT__" ] \
+    || fail "run must replace __FOUNDRYLUNAPORT__ in the wrapped command's argv with the port it bound"
   assert_contains "$(cat "$upstream_log")" "Bearer FAKE-TOKEN-1" "the request the child made was really forwarded with a fetched token"
-  ! curl -sS -o /dev/null --max-time 1 "http://127.0.0.1:$port_probe_val/openai/v1/responses" 2>/dev/null \
+  ! curl -sS -o /dev/null --max-time 1 "http://127.0.0.1:$served_port/openai/v1/responses" 2>/dev/null \
     || fail "the gateway must stop listening once the wrapped command exits"
-  pass "fm-foundry-luna-proxy: 'run' serves the wrapped command and stops the gateway when it exits"
+  pass "fm-foundry-luna-proxy: 'run' serves the wrapped command on the port it resolves for it, and stops when the command exits"
+}
+
+test_two_live_gateways_never_share_a_port() {
+  local az_dir calls upstream_info upstream_pid upstream_port upstream_log
+  local child_script a_status b_status port_a port_b
+
+  az_dir="$TMP_ROOT/az-ports"
+  calls="$TMP_ROOT/az-ports-calls"
+  fm_write_fake_az "$az_dir" "$calls"
+
+  upstream_log="$TMP_ROOT/upstream-ports.log"
+  : > "$upstream_log"
+  upstream_info=$(fm_start_fake_upstream "$upstream_log")
+  upstream_pid=${upstream_info%% *}
+  upstream_port=${upstream_info##* }
+
+  # Each child publishes its gateway's port, then waits for the OTHER child to
+  # publish before relaying, so both gateways are provably listening at once -
+  # the window in which a port handed out before it was bound could collide.
+  child_script="$TMP_ROOT/rendezvous-child.sh"
+  cat > "$child_script" <<'SH'
+#!/usr/bin/env bash
+set -u
+port=$1
+printf '%s\n' "$port" > "$3"
+for _ in $(seq 1 100); do
+  [ -s "$4" ] && break
+  sleep 0.1
+done
+curl -sS -o /dev/null -w '%{http_code}' \
+  -X POST "http://127.0.0.1:$port/openai/v1/responses" \
+  -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $FM_FOUNDRY_LUNA_SECRET" \
+  -d '{"model":"gpt-5.6-luna","input":[]}' > "$2"
+SH
+  chmod +x "$child_script"
+
+  rm -f "$TMP_ROOT/port-a" "$TMP_ROOT/port-b"
+  PATH="$az_dir:$PATH" \
+    FM_FOUNDRY_LUNA_TEST_UPSTREAM_HOST="127.0.0.1:$upstream_port" \
+    FM_FOUNDRY_LUNA_SECRET="$GATEWAY_SECRET" \
+    python3 "$PROXY" run -- "$child_script" __FOUNDRYLUNAPORT__ \
+      "$TMP_ROOT/status-a" "$TMP_ROOT/port-a" "$TMP_ROOT/port-b" \
+    > /dev/null 2>"$TMP_ROOT/ports-a-stderr" &
+  local a_pid=$!
+  PATH="$az_dir:$PATH" \
+    FM_FOUNDRY_LUNA_TEST_UPSTREAM_HOST="127.0.0.1:$upstream_port" \
+    FM_FOUNDRY_LUNA_SECRET="$GATEWAY_SECRET" \
+    python3 "$PROXY" run -- "$child_script" __FOUNDRYLUNAPORT__ \
+      "$TMP_ROOT/status-b" "$TMP_ROOT/port-b" "$TMP_ROOT/port-a" \
+    > /dev/null 2>"$TMP_ROOT/ports-b-stderr" &
+  local b_pid=$!
+  wait "$a_pid"
+  wait "$b_pid"
+
+  kill "$upstream_pid" 2>/dev/null
+  wait "$upstream_pid" 2>/dev/null
+
+  port_a=$(cat "$TMP_ROOT/port-a" 2>/dev/null)
+  port_b=$(cat "$TMP_ROOT/port-b" 2>/dev/null)
+  a_status=$(cat "$TMP_ROOT/status-a" 2>/dev/null)
+  b_status=$(cat "$TMP_ROOT/status-b" 2>/dev/null)
+
+  [ -n "$port_a" ] && [ -n "$port_b" ] \
+    || fail "both gateways must hand their wrapped command a port (got '$port_a' and '$port_b')"
+  assert_not_equals "$port_a" "$port_b" \
+    "two gateways listening at the same time must never be handed the same port"
+  expect_code 200 "$a_status" "the first of two concurrent gateways must relay its request"
+  expect_code 200 "$b_status" "the second of two concurrent gateways must relay its request"
+  [ ! -s "$TMP_ROOT/ports-a-stderr" ] && [ ! -s "$TMP_ROOT/ports-b-stderr" ] \
+    || fail "a second concurrent gateway must not print a bind failure to the pane: $(cat "$TMP_ROOT/ports-a-stderr" "$TMP_ROOT/ports-b-stderr")"
+  pass "fm-foundry-luna-proxy: two gateways alive at once each serve the port they bound themselves"
+}
+
+test_refuses_a_caller_without_this_tasks_secret() {
+  local az_dir calls upstream_info upstream_pid upstream_port upstream_log
+  local proxy_info proxy_pid proxy_port status
+
+  az_dir="$TMP_ROOT/az-secret"
+  calls="$TMP_ROOT/az-secret-calls"
+  fm_write_fake_az "$az_dir" "$calls"
+
+  upstream_log="$TMP_ROOT/upstream-secret.log"
+  : > "$upstream_log"
+  upstream_info=$(fm_start_fake_upstream "$upstream_log")
+  upstream_pid=${upstream_info%% *}
+  upstream_port=${upstream_info##* }
+
+  proxy_info=$(fm_start_proxy "$az_dir" "$upstream_port")
+  proxy_pid=${proxy_info%% *}
+  proxy_port=${proxy_info##* }
+
+  status=$(curl -sS -o "$TMP_ROOT/secret-body" -w '%{http_code}' \
+    -X POST "http://127.0.0.1:$proxy_port/openai/v1/responses" \
+    -H 'Content-Type: application/json' \
+    -d '{"model":"gpt-5.6-luna","input":[]}')
+  expect_code 401 "$status" "a local caller with no Authorization header must be refused"
+
+  status=$(curl -sS -o "$TMP_ROOT/secret-body" -w '%{http_code}' \
+    -X POST "http://127.0.0.1:$proxy_port/openai/v1/responses" \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: Bearer not-this-tasks-secret" \
+    -d '{"model":"gpt-5.6-luna","input":[]}')
+  expect_code 401 "$status" "a local caller offering the wrong secret must be refused"
+  assert_not_contains "$(cat "$TMP_ROOT/secret-body")" "not-this-tasks-secret" \
+    "the refusal must never echo the value it was offered"
+
+  [ ! -s "$upstream_log" ] || fail "an unauthenticated caller reached the fake upstream: $(cat "$upstream_log")"
+  [ ! -s "$calls" ] || fail "an unauthenticated caller triggered a token fetch"
+
+  status=$(curl -sS -o /dev/null -w '%{http_code}' \
+    -X POST "http://127.0.0.1:$proxy_port/openai/v1/responses" \
+    -H 'Content-Type: application/json' \
+    -H "$AUTH_HEADER" \
+    -d '{"model":"gpt-5.6-luna","input":[]}')
+  expect_code 200 "$status" "the caller holding this task's secret must still be relayed"
+
+  kill "$proxy_pid" "$upstream_pid" 2>/dev/null
+  wait "$proxy_pid" "$upstream_pid" 2>/dev/null
+
+  assert_contains "$(cat "$upstream_log")" "Bearer FAKE-TOKEN-1" \
+    "the relayed request carries the gateway's own fetched token, not the caller's secret"
+  assert_not_contains "$(cat "$upstream_log")" "$GATEWAY_SECRET" \
+    "the caller's gateway secret must never be forwarded upstream"
+  pass "fm-foundry-luna-proxy: refuses a local caller that does not hold this task's gateway secret"
+}
+
+test_refuses_to_serve_without_a_gateway_secret() {
+  local out status
+
+  # Bounded: a gateway that wrongly starts would otherwise block here forever
+  # instead of failing, and a guard that can only hang is not a guard.
+  out=$(env -u FM_FOUNDRY_LUNA_SECRET timeout 5 python3 "$PROXY" serve 0 2>&1)
+  status=$?
+
+  [ "$status" -ne 0 ] \
+    || fail "the proxy must refuse to start rather than broker an AAD token with no caller check at all"
+  assert_contains "$out" "FM_FOUNDRY_LUNA_SECRET" "the refusal names the missing secret"
+  pass "fm-foundry-luna-proxy: refuses to start without this task's gateway secret"
 }
 
 test_refuses_every_unauthorized_deployment_name
@@ -516,3 +670,6 @@ test_streams_a_chunked_reply_through_with_usable_framing
 test_refuses_a_non_loopback_upstream_override
 test_run_mode_is_silent_unless_an_access_log_file_is_named
 test_run_subcommand_serves_while_the_child_runs_then_stops
+test_two_live_gateways_never_share_a_port
+test_refuses_a_caller_without_this_tasks_secret
+test_refuses_to_serve_without_a_gateway_secret

@@ -8,8 +8,9 @@
 # overnight worker outlives it, but the OpenAI-compatible CLI this proxy sits
 # behind reads its bearer token once from its process environment at launch
 # and has no per-request refresh hook for a generic (non-AWS) provider. This
-# proxy is the worker's own token refresh: it listens on loopback only, fetches
-# a fresh AAD token via `az account get-access-token` on demand, caches it only
+# proxy is the worker's own token refresh: it listens on loopback only, admits
+# only the caller holding this task's FM_FOUNDRY_LUNA_SECRET, fetches a fresh
+# AAD token via `az account get-access-token` on demand, caches it only
 # in memory until shortly before expiry, and forwards to Foundry with that
 # token attached. No credential value is ever read from argv, written to a
 # file, or logged. The gateway is silent on stdout and stderr - including its
@@ -22,6 +23,7 @@
 # pinned: only the single route the configured base_url produces is relayed, and
 # only `gpt-5.6-luna` in the body. Anything else is refused locally before a
 # token is fetched, so an unauthorized deployment cannot rack up Azure cost.
+import hmac
 import http.client
 import http.server
 import json
@@ -40,6 +42,8 @@ TOKEN_RESOURCE = "https://cognitiveservices.azure.com"
 REFRESH_MARGIN_SECONDS = 300
 
 ACCESS_LOG_PATH = os.environ.get("FM_FOUNDRY_LUNA_LOG", "")
+CLIENT_SECRET = os.environ.get("FM_FOUNDRY_LUNA_SECRET", "")
+PORT_PLACEHOLDER = "__FOUNDRYLUNAPORT__"
 HOP_BY_HOP_HEADERS = (
     "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
     "te", "trailers", "transfer-encoding", "upgrade",
@@ -114,6 +118,11 @@ def make_handler(token_cache, upstream_host=UPSTREAM_HOST, upstream_scheme=UPSTR
                 fh.write("fm-foundry-luna-proxy: " + (fmt % args) + "\n")
 
         def do_POST(self):
+            offered = self.headers.get("Authorization", "").encode("latin-1", "replace")
+            expected = ("Bearer " + CLIENT_SECRET).encode("latin-1", "replace")
+            if not hmac.compare_digest(offered, expected):
+                self._reject(401, "caller is not authorized to use this gateway")
+                return
             if self.path != ALLOWED_PATH:
                 self._reject(
                     403,
@@ -200,6 +209,14 @@ def make_handler(token_cache, upstream_host=UPSTREAM_HOST, upstream_scheme=UPSTR
     return Handler
 
 
+def log_silently(message):
+    if not ACCESS_LOG_PATH:
+        return
+    with open(ACCESS_LOG_PATH, "a") as fh:
+        fh.write("fm-foundry-luna-proxy: " + message + "\n")
+        traceback.print_exc(file=fh)
+
+
 class Gateway(http.server.ThreadingHTTPServer):
     """Silent by default on the error path too: an exception escaping a
     request handler (a client disconnect mid-relay, an upstream network
@@ -208,14 +225,20 @@ class Gateway(http.server.ThreadingHTTPServer):
     """
 
     def handle_error(self, request, client_address):
-        if not ACCESS_LOG_PATH:
-            return
-        with open(ACCESS_LOG_PATH, "a") as fh:
-            fh.write("fm-foundry-luna-proxy: error handling request from %s\n" % (client_address,))
-            traceback.print_exc(file=fh)
+        log_silently("error handling request from %s" % (client_address,))
 
 
 def start_server(port):
+    """Binds the listening socket. The bound port is the ONE the gateway serves.
+
+    Refuses to start without this task's shared secret rather than opening an
+    unauthenticated broker for the operator's AAD token to every local process.
+    """
+    if not CLIENT_SECRET:
+        sys.exit(
+            "fm-foundry-luna-proxy: FM_FOUNDRY_LUNA_SECRET must name this task's "
+            "gateway secret; refusing to serve an unauthenticated AAD token broker"
+        )
     token_cache = TokenCache(fetch_az_token)
     server = Gateway(("127.0.0.1", port), make_handler(token_cache))
     return server
@@ -231,19 +254,33 @@ def cmd_serve(argv):
 
 
 def cmd_run(argv):
-    """run --port <port> -- <command> [args...]: run the gateway in the
-    background and the given command in the foreground, inheriting its
-    stdio (so an interactive CLI's TUI still renders normally); exits with
-    the command's exit status and stops the gateway either way.
+    """run -- <command> [args...]: bind a free loopback port, run the gateway on
+    it in the background and the given command in the foreground with every
+    __FOUNDRYLUNAPORT__ in its argv replaced by that port, inheriting its stdio
+    (so an interactive CLI's TUI still renders normally); exits with the
+    command's exit status and stops the gateway either way.
+
+    The port is chosen here, at the one moment it can be held: the socket that
+    is probed is the socket that serves, so nothing can take it in between.
     """
-    if len(argv) < 3 or argv[0] != "--port" or "--" not in argv:
-        sys.exit("usage: fm-foundry-luna-proxy.py run --port <port> -- <command> [args...]")
-    port = int(argv[1])
-    command = argv[argv.index("--") + 1:]
-    if not command:
-        sys.exit("usage: fm-foundry-luna-proxy.py run --port <port> -- <command> [args...]")
-    server = start_server(port)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    if len(argv) < 2 or argv[0] != "--":
+        sys.exit("usage: fm-foundry-luna-proxy.py run -- <command> [args...]")
+    command = argv[1:]
+    try:
+        server = start_server(0)
+    except OSError:
+        log_silently("gateway could not bind a loopback port")
+        return 70
+    port = str(server.server_address[1])
+    command = [arg.replace(PORT_PLACEHOLDER, port) for arg in command]
+
+    def serve():
+        try:
+            server.serve_forever()
+        except Exception:
+            log_silently("gateway stopped serving")
+
+    thread = threading.Thread(target=serve, daemon=True)
     thread.start()
     try:
         return subprocess.run(command).returncode
@@ -257,7 +294,7 @@ def main(argv):
     if len(argv) >= 2 and argv[1] == "serve":
         cmd_serve(argv[2:])
         return
-    sys.exit("usage: fm-foundry-luna-proxy.py serve <port> | run --port <port> -- <command> [args...]")
+    sys.exit("usage: fm-foundry-luna-proxy.py serve <port> | run -- <command> [args...]")
 
 
 if __name__ == "__main__":
