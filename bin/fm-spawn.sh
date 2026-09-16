@@ -2351,6 +2351,9 @@ if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
     elif [ "$RED_TEST" = "{RED_TEST}" ]; then
       echo "error: $ID ships on local-model harness '$HARNESS' but $BRIEF's 'Red test:' line is still the unfilled {RED_TEST} placeholder; name the actual failing test before spawn" >&2
       exit 1
+    elif case "$RED_TEST" in /*|*..*) true ;; *) false ;; esac; then
+      echo "error: $ID ships on local-model harness '$HARNESS' but $BRIEF's 'Red test:' line '$RED_TEST' must be a project-relative path with no traversal" >&2
+      exit 1
     elif [ ! -f "$PROJ_ABS/$RED_TEST" ]; then
       echo "error: $ID ships on local-model harness '$HARNESS' but $BRIEF names a red test '$RED_TEST' that does not exist in $PROJ_ABS; write the failing test first, then point the brief at it" >&2
       exit 1

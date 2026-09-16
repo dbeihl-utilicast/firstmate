@@ -207,6 +207,8 @@ EOF
 no Red test line at all||carries no 'Red test: <path>' line
 still the unfilled placeholder|Red test: {RED_TEST}|is still the unfilled {RED_TEST} placeholder
 names a file that does not exist|Red test: tests/does-not-exist.test.sh|that does not exist in
+names an absolute path|Red test: /etc/passwd|must be a project-relative path with no traversal
+names a path with traversal|Red test: tests/../../../etc/passwd|must be a project-relative path with no traversal
 ROWS
   pass "fm-spawn: a local-model ship spawn refuses a missing, placeholder, or nonexistent Red test line"
 }
