@@ -18,7 +18,9 @@
 # every production shell separately as a canonical, source-aware root.
 # The default (no explicit-path) path also runs bin/fm-lint-workflows.sh so a
 # malformed GitHub workflow, including a self-broken ci.yml, fails locally
-# before merge instead of only failing to run as CI.
+# before merge instead of only failing to run as CI, and
+# bin/fm-doc-audience-check.sh so an unclassified prose surface or an
+# unresolved local link fails on the same gate rather than only in CI.
 #
 # With no explicit paths, the file set and source-following posture depend
 # on context:
@@ -157,6 +159,13 @@ fm_lint_usage() {
 fm_lint_run_workflows() {
   [ "$EXPLICIT_PATHS" -eq 0 ] || return 0
   "$SELF_DIR/fm-lint-workflows.sh"
+}
+
+# Default no-args lint also audits the tracked prose surfaces. Explicit paths
+# stay a ShellCheck-only override so callers can target one shell root.
+fm_lint_run_doc_audience() {
+  [ "$EXPLICIT_PATHS" -eq 0 ] || return 0
+  "$SELF_DIR/fm-doc-audience-check.sh"
 }
 
 # Backend adapters belong behind tasks-axi. Keep direct Beads CLI invocations
@@ -561,6 +570,7 @@ if [ "$CHANGED_MODE" -eq 1 ] && [ "$ROOT_COUNT" -eq 0 ]; then
   overall_rc=0
   fm_lint_run_backend_purity || overall_rc=$?
   fm_lint_run_workflows || overall_rc=$?
+  fm_lint_run_doc_audience || overall_rc=$?
   exit "$overall_rc"
 fi
 
@@ -880,8 +890,10 @@ fi
 
 if [ "$overall_rc" -eq 0 ]; then
   fm_lint_run_workflows || overall_rc=$?
+  fm_lint_run_doc_audience || overall_rc=$?
 else
   fm_lint_run_workflows || true
+  fm_lint_run_doc_audience || true
 fi
 
 exit "$overall_rc"

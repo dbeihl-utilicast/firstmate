@@ -1620,6 +1620,96 @@ puts JSON.generate(
   pass "Herdr CI family-run step times out at 20 min under a 75 min job backstop"
 }
 
+test_ci_behavior_lanes_fail_closed_on_classifier_outcome() {
+  # A lane must run when the classifier failed or was skipped, skip only on a
+  # clean documentation-only verdict, and stay stopped on a cancelled run.
+  # Evaluate the parsed conditions per outcome rather than matching their text.
+  command -v ruby >/dev/null 2>&1 \
+    || fail "ruby is required to parse .github/workflows/ci.yml as YAML"
+  local json verdict
+  json=$(ruby -ryaml -rjson -e '
+doc = YAML.load_file(ARGV[0])
+jobs = doc.fetch("jobs")
+lanes = %w[
+  tests-portable-parallel-1 tests-portable-parallel-2 tests-portable-serial
+  tests-herdr tests-timing-aggregate macos-stock-bash
+]
+out = {}
+lanes.each do |name|
+  job = jobs.fetch(name) { raise "missing behavior lane #{name}" }
+  raise "#{name} does not depend on the classifier" unless Array(job["needs"]).include?("changes")
+  raise "#{name} has no if expression" unless job["if"].is_a?(String)
+  out[name] = job.fetch("if")
+end
+changes = jobs.fetch("changes")
+raise "changes has no if expression" unless changes["if"].is_a?(String)
+out["changes"] = changes.fetch("if")
+puts JSON.generate(out)
+' "$ROOT/.github/workflows/ci.yml") \
+    || fail "could not parse the behavior-lane conditions from ci.yml"
+
+  verdict=$(python3 - "$json" <<'PY'
+import json
+import sys
+
+STATUS_FUNCTIONS = ("success()", "always()", "cancelled()", "failure()")
+
+
+def effective(expr):
+    body = expr.strip()
+    if body.startswith("${{") and body.endswith("}}"):
+        body = body[3:-2].strip()
+    # GitHub gates a job-level `if` on an implicit success() unless the
+    # condition names a status function; that gate is the fail-open shape.
+    if not any(fn in body for fn in STATUS_FUNCTIONS):
+        body = "success() && (%s)" % body
+    return body
+
+
+def runs(expr, result, cancelled, docs_only, event="pull_request"):
+    body = effective(expr)
+    body = body.replace("needs.changes.outputs.docs_only", repr(docs_only))
+    body = body.replace("needs.changes.result", repr(result))
+    body = body.replace("github.event_name", repr(event))
+    body = body.replace("success()", repr(result == "success"))
+    body = body.replace("failure()", repr(result == "failure"))
+    body = body.replace("cancelled()", repr(cancelled))
+    body = body.replace("always()", "True")
+    body = body.replace("!=", "__NE__").replace("!", " not ").replace("__NE__", "!=")
+    body = body.replace("&&", " and ").replace("||", " or ")
+    return bool(eval(body))
+
+
+conditions = json.loads(sys.argv[1])
+classifier = conditions.pop("changes")
+problems = []
+
+for name, expr in sorted(conditions.items()):
+    for label, result, cancelled, docs_only, expected in (
+        ("the classifier failed", "failure", False, "", True),
+        ("the classifier was skipped", "skipped", False, "", True),
+        ("the classifier wrote no verdict", "success", False, "", True),
+        ("the diff is documentation-only", "success", False, "true", False),
+        ("the run was cancelled", "cancelled", True, "", False),
+    ):
+        actual = runs(expr, result, cancelled, docs_only)
+        if actual is not expected:
+            problems.append(
+                "%s must %srun when %s" % (name, "" if expected else "not ", label)
+            )
+
+if runs(classifier, "success", False, "", event="push"):
+    problems.append("changes bills a classify run on push, where it has no diff to read")
+if not runs(classifier, "success", False, "", event="pull_request"):
+    problems.append("changes does not classify on a pull request")
+
+print("; ".join(problems))
+PY
+) || fail "could not evaluate the ci.yml gating conditions"
+  [ -z "$verdict" ] || fail "ci.yml gating is not fail-closed: $verdict"
+  pass "ci.yml behavior lanes run unless the classifier cleanly says documentation-only"
+}
+
 test_aggregate_json() {
   local tmp a b
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-aggjson.XXXXXX")
@@ -1699,4 +1789,5 @@ test_per_script_timeout_bounds_a_hang
 test_max_wall_ms_is_a_result_not_advice
 test_jobs_parallel_scheduler_and_failure_propagation
 test_herdr_ci_family_run_has_a_step_timeout
+test_ci_behavior_lanes_fail_closed_on_classifier_outcome
 test_aggregate_json
