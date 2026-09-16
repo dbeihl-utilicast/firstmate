@@ -1690,13 +1690,17 @@ case "$ARG3" in
     LAUNCH=$ARG3
     HARNESS=""
     RAW_HOME_ASSIGNMENT=""
+    RAW_LAUNCH_TOKENS=$(xargs -n1 <<<"$LAUNCH" 2>&1) || {
+      echo "error: raw launch command has unparseable quoting ('$LAUNCH'): $RAW_LAUNCH_TOKENS" >&2
+      exit 1
+    }
     while IFS= read -r word; do
       case "$word" in
         HOME=*|GROK_HOME=*) RAW_HOME_ASSIGNMENT=$word; continue ;;
         [A-Za-z_]*=*) continue ;;
         *) HARNESS=$(basename "$word"); break ;;
       esac
-    done < <(xargs -n1 <<<"$LAUNCH" 2>/dev/null)
+    done <<<"$RAW_LAUNCH_TOKENS"
     case "$HARNESS" in
       grok*)
         if [ -n "$RAW_HOME_ASSIGNMENT" ]; then
