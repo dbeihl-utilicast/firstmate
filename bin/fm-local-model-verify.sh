@@ -2,8 +2,9 @@
 # Independently verify a local-model ship task's red-first contract. Trusts
 # nothing the worker wrote about its own work, only the "Red test: <path>"
 # line firstmate wrote into data/<id>/brief.md (bin/fm-brief.sh
-# --local-model-contract), which the worker's worktree can never touch. Run
-# after a local-model worker reports done, before validation starts.
+# --local-model-contract), which the worker's worktree can never touch. Called
+# by bin/fm-pr-check.sh when a local-model ship task's PR is registered ready,
+# after the worker reports done; that registration is refused on failure.
 #
 # Both checks run in a throwaway linked worktree - a clean checkout of the
 # committed branch tip, never $WT itself, so an uncommitted change in the
