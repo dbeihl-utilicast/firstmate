@@ -91,7 +91,7 @@ EOF
   cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 case "$*" in *"#{pane_current_path}"*) printf '%s\n' "${FM_FAKE_PANE_PATH:-}"; exit 0 ;; esac
-case "${1:-}" in display-message) printf 'firstmate\n'; exit 0 ;; esac
+case "${1:-}" in display-message) printf 'firstmate\n'; exit 0 ;; list-panes) printf '%%1\n'; exit 0 ;; esac
 exit 0
 SH
   chmod +x "$fakebin/tmux"
@@ -445,6 +445,7 @@ break_launch_delivery() {  # <case-dir>
 case "$*" in *"#{pane_current_path}"*) printf '%s\n' "${FM_FAKE_PANE_PATH:-}"; exit 0 ;; esac
 case "${1:-}" in
   display-message) printf 'firstmate\n'; exit 0 ;;
+  list-panes) printf '%%1\n'; exit 0 ;;
   send-keys) exit 1 ;;
 esac
 exit 0
@@ -497,6 +498,7 @@ case "\$*" in
 esac
 case "\${1:-}" in
   display-message) printf 'firstmate\\n'; exit 0 ;;
+  list-panes) printf '%%1\\n'; exit 0 ;;
   capture-pane)
     if [ ! -f "$case_dir/kimi-interrupted" ]; then
       : > "$case_dir/kimi-interrupted"
@@ -913,7 +915,7 @@ case "\$*" in
   *treehouse\\ get*) : > "$case_dir/local-copy-requested" ;;
   *"#{pane_current_path}"*) printf '%s\n' "\${FM_FAKE_PANE_PATH:-}"; exit 0 ;;
 esac
-case "\${1:-}" in display-message) printf 'firstmate\n'; exit 0 ;; esac
+case "\${1:-}" in display-message) printf 'firstmate\n'; exit 0 ;; list-panes) printf '%%1\n'; exit 0 ;; esac
 exit 0
 SH
   chmod +x "$case_dir/fakebin/tmux"
@@ -948,7 +950,7 @@ case "\$*" in
   *treehouse\\ get*) : > "$case_dir/local-copy-requested" ;;
   *"#{pane_current_path}"*) printf '%s\n' "\${FM_FAKE_PANE_PATH:-}"; exit 0 ;;
 esac
-case "\${1:-}" in display-message) printf 'firstmate\n'; exit 0 ;; esac
+case "\${1:-}" in display-message) printf 'firstmate\n'; exit 0 ;; list-panes) printf '%%1\n'; exit 0 ;; esac
 exit 0
 SH
   chmod +x "$case_dir/fakebin/tmux"
@@ -983,7 +985,7 @@ case "\$*" in
   *treehouse\\ get*) : > "$case_dir/local-copy-requested" ;;
   *"#{pane_current_path}"*) printf '%s\n' "\${FM_FAKE_PANE_PATH:-}"; exit 0 ;;
 esac
-case "\${1:-}" in display-message) printf 'firstmate\n'; exit 0 ;; esac
+case "\${1:-}" in display-message) printf 'firstmate\n'; exit 0 ;; list-panes) printf '%%1\n'; exit 0 ;; esac
 exit 0
 SH
   chmod +x "$case_dir/fakebin/tmux"
@@ -1018,7 +1020,7 @@ case "\$*" in
   *treehouse\\ get*) : > "$case_dir/local-copy-requested" ;;
   *"#{pane_current_path}"*) printf '%s\n' "\${FM_FAKE_PANE_PATH:-}"; exit 0 ;;
 esac
-case "\${1:-}" in display-message) printf 'firstmate\n'; exit 0 ;; esac
+case "\${1:-}" in display-message) printf 'firstmate\n'; exit 0 ;; list-panes) printf '%%1\n'; exit 0 ;; esac
 exit 0
 SH
   chmod +x "$case_dir/fakebin/tmux"

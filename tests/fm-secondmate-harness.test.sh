@@ -417,12 +417,18 @@ test_propagate_lib() {
 # ===========================================================================
 
 # A tmux stub that accepts every subcommand and prints nothing, so no window
-# pre-exists and the spawn proceeds to write its meta. Echoes the fakebin dir.
+# pre-exists and the spawn proceeds to write its meta. list-panes is the one
+# exception: fm_backend_tmux_target_exists (the launch sequence's final Enter
+# key send) requires a non-empty pane id, so a truly silent stub would report
+# the just-created window as gone and abort the spawn. Echoes the fakebin dir.
 make_noop_tmux() {
   local dir=$1 fakebin="$1/fakebin"
   mkdir -p "$fakebin"
   cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
+case "$1" in
+  list-panes) printf '%%1\n' ;;
+esac
 exit 0
 SH
   chmod +x "$fakebin/tmux"
@@ -642,6 +648,7 @@ case "$*" in
 esac
 case "${1:-}" in
   display-message) printf 'firstmate\n'; exit 0 ;;
+  list-panes) printf '%%1\n'; exit 0 ;;
   list-windows) exit 0 ;;
   has-session|new-session|new-window|kill-window) exit 0 ;;
   send-keys)
@@ -1069,6 +1076,7 @@ case "$*" in
     sed -n 's/^window=[^:]*://p' "${FM_HOME:?}"/state/*.meta
     exit 0
     ;;
+  list-panes*) printf '%s\n' '%1'; exit 0 ;;
   *display-message*'#{pane_current_command}'*) printf '%s\n' codex; exit 0 ;;
   *display-message*'#{pane_id}'*) printf '%s\n' '%1'; exit 0 ;;
   *display-message*'#{cursor_y}'*) printf '%s\n' 0; exit 0 ;;
@@ -2465,6 +2473,7 @@ SH
   cat > "$fakebin/tmux" <<SH
 #!/usr/bin/env bash
 case "\$*" in
+  *list-panes*) printf '%s' '%1' ;;
   *display-message*'#{pane_current_command}'*) printf '%s' zsh ;;
   *display-message*'#{pane_id}'*) printf '%s' '%1' ;;
   *display-message*'#{cursor_y}'*) printf '%s' 0 ;;

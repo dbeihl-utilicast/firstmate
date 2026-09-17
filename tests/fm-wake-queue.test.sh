@@ -459,6 +459,7 @@ test_secondmate_active_turn_defers_stall_until_the_turn_ends() {
 #!/usr/bin/env bash
 case "${1:-}" in
   list-windows) printf '%s\n' 'firstmate:fm-mate' ;;
+  list-panes) printf '%s\n' '%1' ;;
   capture-pane) printf 'working\n' ;;
   display-message) printf '0\n' ;;
   *) exit 0 ;;
@@ -514,6 +515,7 @@ test_secondmate_stall_marker_rejects_symlink() {
 #!/usr/bin/env bash
 case "${1:-}" in
   list-windows) printf '%s\n' 'firstmate:fm-mate' ;;
+  list-panes) printf '%s\n' '%1' ;;
   capture-pane) : ;;
   display-message) printf '0\n' ;;
   *) exit 0 ;;

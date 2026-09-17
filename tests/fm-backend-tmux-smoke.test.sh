@@ -156,6 +156,27 @@ if fm_backend_tmux_resolve_bare_selector "no-such-window-xyz" 2>/dev/null; then
 fi
 pass "real tmux: fm_backend_tmux_resolve_bare_selector fails for a window that does not exist"
 
+# --- target_exists must not trust display-message exit status ---------------
+# Reproduction: on a live tmux server, display-message -p -t <session>:<missing>
+# exits 0. tmux 3.4 answers with the client's active pane id; 3.7c was reported
+# to print an empty line. Either way the cheap existence check must still treat
+# the missing window as absent, and a real live pane as present.
+
+MISSING_TARGET="$SESSION:fm-x"
+set +e
+dm_out=$(tmux display-message -p -t "$MISSING_TARGET" '#{pane_id}' 2>/dev/null)
+dm_rc=$?
+set -e
+[ "$dm_rc" -eq 0 ] \
+  || fail "reproduction expected display-message to exit 0 for a missing window on a live server, got rc=$dm_rc out=$(printf %q "$dm_out")"
+if fm_backend_target_exists tmux "$MISSING_TARGET"; then
+  fail "fm_backend_target_exists treated missing window $MISSING_TARGET as alive (display-message rc=$dm_rc out=$(printf %q "$dm_out"))"
+fi
+if ! fm_backend_target_exists tmux "$TARGET"; then
+  fail "fm_backend_target_exists treated live pane $TARGET as absent"
+fi
+pass "fm_backend_target_exists: a missing window on a live server is dead; a live pane is alive"
+
 # --- kill and recovery-grade missing-window classification ------------------
 
 fm_backend_tmux_kill "$TARGET"

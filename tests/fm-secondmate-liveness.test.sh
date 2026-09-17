@@ -55,6 +55,7 @@ make_probe_tmux() {
 #!/usr/bin/env bash
 set -u
 case "\${1:-}" in
+  list-panes) printf '%%1\n'; exit 0 ;;
   display-message)
     for a in "\$@"; do case "\$a" in *pane_current_command*) printf '%s\n' '$comm'; exit 0 ;; esac; done
     exit 0 ;;
@@ -266,7 +267,9 @@ SH
 
 # make_liveness_tmux <dir>: a controllable tmux stub. FM_TEST_PANE_CMD may be
 # a foreground command, `missing` (readable inventory omits the window), or
-# `unreadable` (both pane and inventory reads fail).
+# `unreadable` (both pane and inventory reads fail). A window actually created
+# by a later new-window call answers list-panes as present regardless of mode,
+# since a respawn's own send-key preflight must see the window it just made.
 make_liveness_tmux() {
   local dir=$1 fakebin
   fakebin=$(fm_fakebin "$dir")
@@ -275,6 +278,15 @@ make_liveness_tmux() {
 set -u
 mode=${FM_TEST_PANE_CMD:-zsh}
 case "${1:-}" in
+  list-panes)
+    if [ -e "${FM_TMUX_CALL_LOG:?}.spawned" ]; then
+      printf '%s\n' '%1'; exit 0
+    fi
+    case "$mode" in
+      missing|unreadable) exit 1 ;;
+      *) printf '%s\n' '%1'; exit 0 ;;
+    esac
+    ;;
   display-message)
     for a in "$@"; do
       case "$a" in
@@ -298,9 +310,15 @@ case "${1:-}" in
     ;;
   new-window|kill-window)
     printf '%s\n' "$*" >> "${FM_TMUX_CALL_LOG:?}"
-    [ "${1:-}" = kill-window ] && : > "${FM_TMUX_CALL_LOG}.killed"
+    if [ "${1:-}" = kill-window ]; then
+      : > "${FM_TMUX_CALL_LOG}.killed"
+      rm -f "${FM_TMUX_CALL_LOG}.spawned"
+    fi
     [ "${FM_TEST_FAIL_NEW_WINDOW:-0}" = 1 ] && [ "${1:-}" = new-window ] && exit 1
-    [ "${1:-}" = new-window ] && rm -f "${FM_TMUX_CALL_LOG}.killed"
+    if [ "${1:-}" = new-window ]; then
+      rm -f "${FM_TMUX_CALL_LOG}.killed"
+      : > "${FM_TMUX_CALL_LOG}.spawned"
+    fi
     exit 0
     ;;
   has-session) exit 0 ;;

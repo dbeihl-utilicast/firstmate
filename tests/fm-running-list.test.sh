@@ -31,6 +31,12 @@ case "${1:-}" in
   list-windows)
     printf '%s\n' fm-ship-task fm-paused-task fm-working-held fm-blocked-live fm-unknown-live
     ;;
+  list-panes)
+    case "$*" in
+      *fm-dead-paused*|*fm-qwen-process*|*fm-watch-ssh*) exit 1 ;;
+      *) printf '%%1\n' ;;
+    esac
+    ;;
   display-message)
     case "$*" in
       *pane_current_command*) printf 'claude\n' ;;

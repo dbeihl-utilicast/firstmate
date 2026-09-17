@@ -290,7 +290,7 @@ SH
   chmod +x "$fakebin/ps"
 }
 
-# make_fake_tmux <fakebin> <live-target>: display-message succeeds only for
+# make_fake_tmux <fakebin> <live-target>: list-panes succeeds only for
 # the given "session:window" target - the exact primitive
 # fm_backend_target_exists uses for a tmux endpoint liveness read.
 make_fake_tmux() {
@@ -299,7 +299,7 @@ make_fake_tmux() {
 #!/usr/bin/env bash
 set -u
 case "\${1:-}" in
-  display-message)
+  list-panes|display-message)
     target=""
     prev=""
     for a in "\$@"; do
@@ -332,6 +332,17 @@ mate_home=${FM_FAKE_SECOND_MATE_HOME:?}
 mate_id=${FM_FAKE_SECOND_MATE_ID:?}
 mate_window="fm-$mate_id"
 case "${1:-}" in
+  list-panes)
+    if [ -e "$spawned" ]; then
+      printf '%%1\n'
+      exit 0
+    fi
+    case "$mode" in
+      ambiguous|shell) printf '%%1\n'; exit 0 ;;
+      missing|unreadable) exit 1 ;;
+    esac
+    exit 1
+    ;;
   display-message)
     target=
     format=

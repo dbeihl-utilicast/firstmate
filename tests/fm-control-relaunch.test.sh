@@ -96,6 +96,8 @@ case "${1:-}" in
       esac
     fi
     exit 0 ;;
+  list-panes)
+    printf 'fakepane\n'; exit 0 ;;
   display-message)
     for a in "$@"; do
       case "$a" in

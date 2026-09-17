@@ -40,9 +40,10 @@ case "${1:-}" in
       exit 1
     fi
     exit 0 ;;
-  display-message)
+  list-panes|display-message)
     target=
     cursor=0
+    cmd=${1:-}
     while [ $# -gt 0 ]; do
       case "$1" in
         -t) target=$2; shift 2 ;;
@@ -53,7 +54,7 @@ case "${1:-}" in
     if [ -n "${FM_FAKE_TMUX_DEAD_TARGET:-}" ] && [ "$target" = "$FM_FAKE_TMUX_DEAD_TARGET" ]; then
       exit 1
     fi
-    [ "$cursor" = 1 ] && { printf '1\n'; exit 0; }
+    [ "$cmd" = display-message ] && [ "$cursor" = 1 ] && { printf '1\n'; exit 0; }
     printf '%%1\n'
     exit 0 ;;
   capture-pane)

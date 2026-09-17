@@ -25,6 +25,8 @@ make_submit_mock() {
 set -u
 COMPOSER="${FM_FAKE_COMPOSER:?}"
 case "${1:-}" in
+  list-panes)
+    printf 'fakepane\n'; exit 0 ;;
   display-message)
     for a in "$@"; do
       case "$a" in *cursor_y*) printf '1\n'; exit 0 ;; esac

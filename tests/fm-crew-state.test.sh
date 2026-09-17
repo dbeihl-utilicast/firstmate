@@ -114,9 +114,11 @@ set -u
 case "${1:-}" in
   list-windows)
     # A successful but empty inventory: it omits the crew's window, so absence
-    # is proved by the answer rather than by an addressed call failing. Only
-    # reached once display-message has already failed.
+    # is proved by the answer rather than by an addressed call failing.
     ;;
+  list-panes)
+    [ "${FM_FAKE_TMUX_MISSING:-0}" = 1 ] && exit 1
+    printf '%%1\n' ;;
   display-message)
     [ "${FM_FAKE_TMUX_MISSING:-0}" = 1 ] && exit 1
     printf '%%1\n' ;;
