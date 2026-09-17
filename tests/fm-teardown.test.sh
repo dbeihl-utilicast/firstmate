@@ -423,9 +423,16 @@ add_lock_aware_treehouse() {
 if [ "${1:-}" = return ]; then
   shift
   wt=""
+  skip_root=0
   for a in "$@"; do
+    if [ "$skip_root" = 1 ]; then
+      skip_root=0
+      continue
+    fi
     case "$a" in
       --force) ;;
+      --root) skip_root=1 ;;
+      --root=*) ;;
       *) wt=$a ;;
     esac
   done
@@ -457,9 +464,16 @@ add_transient_lock_treehouse() {
 if [ "${1:-}" = return ]; then
   shift
   wt=""
+  skip_root=0
   for a in "$@"; do
+    if [ "$skip_root" = 1 ]; then
+      skip_root=0
+      continue
+    fi
     case "$a" in
       --force) ;;
+      --root) skip_root=1 ;;
+      --root=*) ;;
       *) wt=$a ;;
     esac
   done
@@ -502,9 +516,16 @@ add_persistent_lock_treehouse() {
 if [ "${1:-}" = return ]; then
   shift
   wt=""
+  skip_root=0
   for a in "$@"; do
+    if [ "$skip_root" = 1 ]; then
+      skip_root=0
+      continue
+    fi
     case "$a" in
       --force) ;;
+      --root) skip_root=1 ;;
+      --root=*) ;;
       *) wt=$a ;;
     esac
   done

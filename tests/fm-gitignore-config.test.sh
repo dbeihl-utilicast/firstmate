@@ -82,8 +82,16 @@ test_scratchpad2_does_not_dirty_porcelain() {
   pass "scratchpad2/ does not make git status --porcelain dirty"
 }
 
+test_treehouse_dir_is_ignored() {
+  local sample=.treehouse/utilicast-triage-8491ad/12/utilicast-triage
+  git -C "$ROOT" check-ignore -q "$sample" \
+    || fail "git does not ignore $sample (.treehouse/ must be ignored as the home-scoped pool root)"
+  pass ".treehouse/ is gitignored as the home-scoped Treehouse pool root"
+}
+
 test_config_dir_ignored_as_category
 test_unrelated_path_stays_visible
 test_scratchpad_prefix_is_ignored
 test_scratchpad_prefix_ignores_no_tracked_path
 test_scratchpad2_does_not_dirty_porcelain
+test_treehouse_dir_is_ignored

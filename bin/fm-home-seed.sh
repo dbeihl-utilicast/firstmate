@@ -4,7 +4,8 @@
 # Usage:
 #   fm-home-seed.sh <id> <home|-> {<project>...|--no-projects}
 #       Provision <home> as an isolated firstmate home. If <home> is "-", acquire
-#       a fresh firstmate worktree via "treehouse get --lease", which durably
+#       a fresh firstmate worktree via "treehouse get --lease" with this home's
+#       scoped --root (bin/fm-treehouse-lib.sh), which durably
 #       leases the worktree under the secondmate <id> so the home survives with
 #       no live process and is never recycled until the lease is released with
 #       "treehouse return". Projects are cloned
@@ -49,6 +50,8 @@ SUB_HOME_PARENT_MARKER=".fm-secondmate-parent"
 . "$SCRIPT_DIR/fm-secondmate-charter-lib.sh"
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
+# shellcheck source=bin/fm-treehouse-lib.sh
+. "$SCRIPT_DIR/fm-treehouse-lib.sh"
 
 usage() {
   echo "usage: fm-home-seed.sh <id> <home|-> {<project>...|--no-projects}" >&2
@@ -393,7 +396,7 @@ acquire_treehouse_home() {
   # live process and is skipped by later get/prune, so the home survives restarts
   # until teardown or rollback returns it. treehouse prints only the worktree path
   # to stdout (banners go to stderr), so command substitution captures the path.
-  home=$(cd "$FM_ROOT" && treehouse get --lease --lease-holder "$id") || {
+  home=$(cd "$FM_ROOT" && fm_treehouse get --lease --lease-holder "$id") || {
     echo "error: treehouse get --lease failed to lease a firstmate home" >&2
     return 1
   }
@@ -582,7 +585,7 @@ seed_return_treehouse_home() {
     echo "warning: failed to return treehouse-acquired home $abs_home during seed rollback; treehouse command not found" >&2
     return 0
   fi
-  ( cd "$FM_ROOT" && treehouse return --force "$abs_home" >/dev/null ) || {
+  ( cd "$FM_ROOT" && fm_treehouse return --force "$abs_home" >/dev/null ) || {
     echo "warning: failed to return treehouse-acquired home $abs_home during seed rollback; lease may still be held" >&2
     return 0
   }

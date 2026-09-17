@@ -204,6 +204,10 @@
 #   itself a linked worktree of the project repository still launches. A pane
 #   that never reaches an isolated worktree refuses at the end of that wait,
 #   naming the last path seen and why it was rejected.
+#   Ship/scout Treehouse acquisition passes a home-scoped --root derived from
+#   FM_HOME (bin/fm-treehouse-lib.sh) so two homes cloning the same project do
+#   not share a pool, and refuses a handed-out slot whose git common dir is
+#   not this clone's.
 #   That placement is proven only at launch. Every ship or scout pane therefore
 #   also receives `export FM_TASK_ID=<task-id>` before the launch command, on
 #   the same channel as GOTMPDIR, and bin/fm-test-run.sh refuses to execute the
@@ -443,6 +447,8 @@ fi
 . "$SCRIPT_DIR/fm-ff-lib.sh"
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
+# shellcheck source=bin/fm-treehouse-lib.sh
+. "$SCRIPT_DIR/fm-treehouse-lib.sh"
 fm_backlog_directory_present "$STATE" "state directory" || {
   echo "error: spawn refused: $FM_BACKLOG_TRANSITION_ERROR" >&2
   exit 1
@@ -2563,10 +2569,42 @@ spawn_worktree_isolated() {  # <path>
   return 0
 }
 
+# True when <path> is a linked worktree of THIS clone, not merely some other
+# git checkout. Two homes cloning the same project share Treehouse's default
+# pool, and a handed-out slot can be a worktree of the other clone: isolated()
+# accepts that path (it is not this primary) and the failure then surfaces as
+# a git error far from the cause. Same-clone is the extra check that refuses it.
+spawn_worktree_same_clone() {  # <path>
+  local path=$1 slot_common proj_common
+  slot_common=$(git -C "$path" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) \
+    && slot_common=$(CDPATH='' cd -- "$slot_common" 2>/dev/null && pwd -P) || slot_common=
+  proj_common=$(git -C "$PROJ_ABS" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) \
+    && proj_common=$(CDPATH='' cd -- "$proj_common" 2>/dev/null && pwd -P) || proj_common=
+  [ -n "$slot_common" ] && [ -n "$proj_common" ] && [ "$slot_common" = "$proj_common" ]
+}
+
+# True when <path> is a Treehouse pool slot (pool/treehouse-state.json two
+# levels up) whose git common dir is not this clone's. Git worktree registry
+# names under <clone>/.git/worktrees/ are independent of Treehouse slot
+# numbers; an offset between those names is expected and is not corruption.
+spawn_treehouse_slot_foreign_clone() {  # <path>
+  local path=$1 slot pool state
+  slot=$(CDPATH='' cd -- "$path" 2>/dev/null && pwd -P) || return 1
+  pool=$(dirname "$(dirname "$slot")")
+  state="$pool/treehouse-state.json"
+  [ -f "$state" ] && [ ! -L "$state" ] || return 1
+  spawn_worktree_same_clone "$path" && return 1
+  return 0
+}
+
 validate_spawn_worktree() {  # <source> <inspect-target>
   local source=$1 inspect_target=$2
   if ! spawn_worktree_isolated "$WT"; then
     echo "error: $source did not yield an isolated worktree (resolved '$WT'; worktree root '${SPAWN_WT_TOP:-none}'; spawning project '$PROJ_ABS'); refusing to launch to avoid tangling the primary checkout. Inspect target $inspect_target" >&2
+    exit 1
+  fi
+  if [ "$source" = "treehouse get" ] && ! spawn_worktree_same_clone "$WT"; then
+    echo "error: $source handed worktree '$WT' whose git metadata belongs to a different clone than '$PROJ_ABS'; refusing to launch into a slot this home cannot use. Inspect target $inspect_target" >&2
     exit 1
   fi
 }
@@ -3278,7 +3316,8 @@ if [ "$RELAUNCH" -eq 1 ]; then
   fi
   [ "$KIND" = secondmate ] || validate_spawn_worktree "relaunch" "$T"
 elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
-  spawn_send_text_line "$WT_TARGET" 'treehouse get'
+  TREEHOUSE_GET_CMD=$(fm_treehouse_spawn_get_command) || exit 1
+  spawn_send_text_line "$WT_TARGET" "$TREEHOUSE_GET_CMD"
 
   # Wait for the treehouse subshell: the pane's cwd moves from the project to the worktree.
   # Target the stable window id, not the name: if the name is ever lost (e.g. an
@@ -3319,13 +3358,22 @@ elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
     p=$(spawn_current_path "$WT_TARGET" || true)
     [ -z "$p" ] || last_seen="$p"
     if [ -n "$p" ] && spawn_worktree_isolated "$p"; then
-      p_real=$(real_path_or_raw "$p")
-      last_reason="it is an isolated worktree, but no second read agreed with it"
-      if [ -n "$candidate" ] && [ "$p_real" = "$candidate" ]; then
-        WT="$p"
-        break
+      if spawn_treehouse_slot_foreign_clone "$p"; then
+        echo "error: treehouse get handed worktree '$p' whose git metadata belongs to a different clone than '$PROJ_ABS'; refusing to launch into a slot this home cannot use. Inspect window $T" >&2
+        exit 1
       fi
-      candidate="$p_real"
+      if ! spawn_worktree_same_clone "$p"; then
+        candidate=""
+        last_reason="it is an isolated worktree of a different repository, not this project's clone"
+      else
+        p_real=$(real_path_or_raw "$p")
+        last_reason="it is an isolated worktree, but no second read agreed with it"
+        if [ -n "$candidate" ] && [ "$p_real" = "$candidate" ]; then
+          WT="$p"
+          break
+        fi
+        candidate="$p_real"
+      fi
     else
       candidate=""
       [ -z "$p" ] || last_reason=$SPAWN_WT_REASON
