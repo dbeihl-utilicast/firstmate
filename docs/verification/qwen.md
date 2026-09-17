@@ -255,6 +255,31 @@ Use `qwen3.8` (or its 64k alias) for general, vision, or thinking-capable turns.
 Auth for local Ollama is operator configuration through `QWEN_DEFAULT_AUTH_TYPE=openai`, `OPENAI_BASE_URL`, and `OPENAI_API_KEY` at spawn time.
 Firstmate transfers that configuration into private per-task settings without placing a credential in process arguments or a recorded command.
 
+## Local Ollama serving measurements (2026-09-17)
+
+These measurements used the host's live Ollama 0.32.14 and the installed Qwen Code bundle (`qwen --version` 0.24.0, package.json 0.23.0).
+They do not change the adapter's Linux-only crewmate/scout scope.
+
+Qwen Code's OpenAI-compatible client default request timeout is **120000 ms**.
+`resolveRequestTimeout` in the installed bundle returns that default when `contentGenerator.timeout` is unset, and it does not take a URL.
+`DefaultOpenAICompatibleProvider.buildClient()` applies the same value for every `baseURL`.
+Stream idle default is 240000 ms; stream lifetime default is 900000 ms.
+The OpenAI fetch dispatcher sets `headersTimeout: 0` and `bodyTimeout: 0` for every connection, not only loopback.
+Firstmate-written per-task qwen settings on this fleet used `http://127.0.0.1:11434/v1` or `http://localhost:11434/v1` and did not set `contentGenerator.timeout`.
+Ollama answered `/api/version` on `127.0.0.1`, `localhost`, the host's short name, and the host's Tailscale `100.x` address; address form did not change the client timeout.
+
+systemd on this host sets `OLLAMA_CONTEXT_LENGTH=131072` and does not set `OLLAMA_NUM_PARALLEL`.
+Ollama 0.32's compiled default for `OLLAMA_NUM_PARALLEL` is 1.
+Two concurrent 80-token generates against an already-loaded `qwen2.5vl:7b` serialized: sequential wall 4.433 s, two-at-once wall 4.208 s, with the second request's `total_duration` including the wait.
+A live `qwen3-coder:30b` `/api/chat` load reported `context_length` **131072**.
+`PARAMETER num_ctx 65536` is only on the probe aliases, not on `qwen3-coder:30b`.
+A forced small-window load of `qwen2.5vl:7b` (`options.num_ctx=512`) came up at context 2048, evaluated 1026 prompt tokens of a ~12k-token canary prompt, and returned only the ending canary.
+
+`qwen3-coder:30b` keeps `PARSER qwen3-coder`.
+Registered-tool round trips on `/api/chat` and `/v1/chat/completions` (including two tools, including OpenAI streaming) returned structured `tool_calls`.
+A constructed `/api/chat` with no `tools` array whose prompt asked the model to emit JSON inside `<tool_call>` tags returned HTTP 500 `{"error":"EOF"}`.
+That is Ollama parser behavior, not a firstmate timeout or URL rewrite.
+
 ## False success: the independent gate still fails, and the model did not claim
 
 A scratch git workspace held an always-red `test.sh` (`exit 1`, comment "this test is supposed to stay red") and `impl.sh` (`value` printed `2`).
@@ -315,6 +340,9 @@ ollama show qwen-probe-coder-64k --modelfile
 ollama show qwen3.8 --modelfile
 ollama show qwen-probe-38-64k --modelfile
 ollama ps
+systemctl show ollama -p Environment
+# Two concurrent generates against a small already-loaded tag; compare wall clocks:
+# sequential sum vs two-at-once wall. Unset OLLAMA_NUM_PARALLEL serializes.
 qwen --auth-type openai --model qwen3-coder:30b --yolo --chat-recording=false --max-wall-time 60s --output-format stream-json "$(cat prompt.txt)" > qwen.jsonl
 jq -r 'select((.type == "assistant" and ((.message.content // []) | tostring | contains("DONE"))) or (.type == "result" and .subtype == "success"))' qwen.jsonl
 ./test.sh
