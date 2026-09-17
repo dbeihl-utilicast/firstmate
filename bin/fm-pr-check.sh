@@ -85,9 +85,10 @@ fi
 WT=$(grep '^worktree=' "$META" | tail -1 | cut -d= -f2- || true)
 PR_HEAD=
 PR_DRAFT=0
+PR_DRAFT_READ_OK=0
 view_head=
 {
-  IFS=$'\t' read -r PR_DRAFT view_head
+  IFS=$'\t' read -r PR_DRAFT PR_DRAFT_READ_OK view_head
 } <<EOF
 $(fm_pr_read_draft "$URL" "$WT")
 EOF
@@ -150,12 +151,16 @@ fm_pr_poll_publish_prepared || {
 # In a secondmate home the registration itself is a captain-facing fact:
 # publish the child's PR line with the canonical URL just recorded, so it
 # reaches the parent whether or not the mate model appends anything
-# (bin/fm-parent-channel-lib.sh). A draft PR says draft; an open PR says ready.
-# A main home has no channel and this is a silent no-op there. The poll is
-# armed either way; a channel that cannot be written is reported as
-# actionable, and bin/fm-inactive-reconcile.sh still delivers the child's own
-# ready line on the next supervision poll.
-if [ "${PR_DRAFT:-0}" = 1 ]; then
+# (bin/fm-parent-channel-lib.sh). A draft PR says draft; an open PR says
+# ready; a view that could not be read at all says draft status unknown, so a
+# transient forge failure never gets announced as ready. A main home has no
+# channel and this is a silent no-op there. The poll is armed either way; a
+# channel that cannot be written is reported as actionable, and
+# bin/fm-inactive-reconcile.sh still delivers the child's own ready line on
+# the next supervision poll.
+if [ "${PR_DRAFT_READ_OK:-0}" != 1 ]; then
+  READY_LINE="done [key=child-pr-$ID]: child $ID PR draft status unknown, verify before treating as ready: $URL"
+elif [ "${PR_DRAFT:-0}" = 1 ]; then
   READY_LINE="done [key=child-pr-$ID]: child $ID PR draft: $URL"
 else
   READY_LINE="done [key=child-pr-$ID]: child $ID PR ready: $URL"
