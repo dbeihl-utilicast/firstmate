@@ -1204,6 +1204,7 @@ FM_NM_QUIESCENCE_NOW_EPOCH=  # optional nonnegative epoch seconds for local cens
 FM_NM_ON_BIN=               # test override for the census remote runner; defaults to bin/fm-on.sh beside the census script
 FM_CREW_STATE_RUNS_LIMIT=200  # recent no-mistakes run rows scanned when the runs ledger is consulted: axi status cannot be attributed directly, or its answer is terminal and may have a live sibling run
 FM_TEARDOWN_NM_RUNS_LIMIT=200  # recent no-mistakes run rows scanned to prove an unresolved-head parked run belongs to teardown's task
+FM_CAPTAIN_HOLD_NESTED_CONTROL_LOCK=  # internal one-hop handoff: names the task id a nested fm-captain-hold.sh call already holds state/.control-<id>.lock for (today: fm-teardown.sh recording a pause-lift resumption), so that call skips acquiring its own lock; any other value acquires the lock as usual
 FM_CREW_STATE_BIN=bin/fm-crew-state.sh   # test override for the current-state reader used by working/paused watcher triage
 FM_MAIL_USER=      # mail-plane IMAP/SMTP login, from .env or environment (docs/configuration.md "Mail plane")
 FM_MAIL_PASS=      # mail-plane IMAP/SMTP password
