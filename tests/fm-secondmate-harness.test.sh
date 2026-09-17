@@ -417,12 +417,18 @@ test_propagate_lib() {
 # ===========================================================================
 
 # A tmux stub that accepts every subcommand and prints nothing, so no window
-# pre-exists and the spawn proceeds to write its meta. Echoes the fakebin dir.
+# pre-exists and the spawn proceeds to write its meta. list-panes is the one
+# exception: fm_backend_tmux_target_exists (the launch sequence's final Enter
+# key send) requires a non-empty pane id, so a truly silent stub would report
+# the just-created window as gone and abort the spawn. Echoes the fakebin dir.
 make_noop_tmux() {
   local dir=$1 fakebin="$1/fakebin"
   mkdir -p "$fakebin"
   cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
+case "$1" in
+  list-panes) printf '%%1\n' ;;
+esac
 exit 0
 SH
   chmod +x "$fakebin/tmux"
