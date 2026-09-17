@@ -9,12 +9,14 @@
 # clear bin/fm-local-model-verify.sh's revert-check here first; registration is
 # refused, with the verifier's own reason, when it fails or cannot run.
 # When the task brief's captain intent names parseable GitHub issue numbers
-# (#N or github.com/.../issues/N, ignoring quoted and backtick examples), a
-# GitHub PR body must close each with its own GitHub closing keyword. That
-# check refuses registration rather than arming a merge poll: a warning that
-# still recorded pr= would let the PR be treated as ready and merged with the
-# issues still open. The body is fetched with the same gh pr view path already
-# used for pr_head, so GitLab merge requests skip this check.
+# (#N or github.com/.../issues/N, ignoring quoted, backtick, and fenced-code
+# examples), a GitHub PR body must close each with its own GitHub closing
+# keyword. When it names none, the PR body must say so deliberately with a
+# literal "No linked issue" line. Either check refuses registration rather
+# than arming a merge poll: a warning that still recorded pr= would let the
+# PR be treated as ready and merged with the issues still open, or with an
+# omission nobody meant. The body is fetched with the same gh pr view path
+# already used for pr_head, so GitLab merge requests skip both checks.
 # Usage: fm-pr-check.sh <task-id> <pr-url>
 set -eu
 
@@ -33,9 +35,10 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 # shellcheck source=bin/fm-dod-lib.sh
 . "$SCRIPT_DIR/fm-dod-lib.sh"
 
-# Unique issue numbers named in captain-intent text. Quoted and backtick
-# spans are skipped so examples such as "Closes #421, #431, #440" are not
-# treated as work this PR must close.
+# Unique issue numbers named in captain-intent text. Quoted, backtick, and
+# fenced-code spans are skipped so examples such as "Closes #421, #431, #440"
+# or a ```-fenced multi-line sample are not treated as work this PR must
+# close.
 fm_pr_intent_issue_numbers() {
   printf '%s\n' "$1" | awk '
     function emit(n) {
@@ -45,6 +48,8 @@ fm_pr_intent_issue_numbers() {
       }
     }
     {
+      if ($0 ~ /^[ \t]*```/) { fence = !fence; next }
+      if (fence) next
       line = $0
       out = ""
       nlen = length(line)
@@ -146,18 +151,13 @@ fi
 WT=$(grep '^worktree=' "$META" | tail -1 | cut -d= -f2- || true)
 BRIEF="$DATA/$ID/brief.md"
 intent=
+intent_recorded=0
 if [ -f "$BRIEF" ] && [ ! -L "$BRIEF" ] && [ -r "$BRIEF" ]; then
   intent=$(fm_brief_task_heading_body "$BRIEF" "## Captain's intent" || true)
+  fm_brief_task_heading_present "$BRIEF" "## Captain's intent" && intent_recorded=1
 fi
 issues=$(fm_pr_intent_issue_numbers "$intent")
-if [ -n "$issues" ] && [ "$PROVIDER" = github ]; then
-  issue_list=
-  while IFS= read -r n; do
-    [ -n "$n" ] || continue
-    issue_list="${issue_list:+$issue_list }#$n"
-  done <<EOF
-$issues
-EOF
+if [ "$PROVIDER" = github ] && { [ -n "$issues" ] || [ "$intent_recorded" = 1 ]; }; then
   body_rc=0
   PR_BODY=
   if [ -n "$WT" ] && [ -d "$WT" ] && command -v gh >/dev/null 2>&1; then
@@ -165,22 +165,44 @@ EOF
   else
     body_rc=1
   fi
-  if [ "$body_rc" -ne 0 ]; then
-    echo "error: could not read PR body to verify closing keywords for issues named in captain's intent: $issue_list" >&2
-    exit 1
-  fi
-  missing=
-  while IFS= read -r n; do
-    [ -n "$n" ] || continue
-    if ! printf '%s\n' "$PR_BODY" | fm_pr_body_closes_issue "$n"; then
-      missing="${missing:+$missing }#$n"
-    fi
-  done <<EOF
+  if [ -n "$issues" ]; then
+    issue_list=
+    while IFS= read -r n; do
+      [ -n "$n" ] || continue
+      issue_list="${issue_list:+$issue_list }#$n"
+    done <<EOF
 $issues
 EOF
-  if [ -n "$missing" ]; then
-    echo "error: PR body does not close issues named in captain's intent: $missing (each named issue needs its own closing keyword, e.g. Closes #N)" >&2
-    exit 1
+    if [ "$body_rc" -ne 0 ]; then
+      echo "error: could not read PR body to verify closing keywords for issues named in captain's intent: $issue_list" >&2
+      exit 1
+    fi
+    missing=
+    while IFS= read -r n; do
+      [ -n "$n" ] || continue
+      if ! printf '%s\n' "$PR_BODY" | fm_pr_body_closes_issue "$n"; then
+        missing="${missing:+$missing }#$n"
+      fi
+    done <<EOF
+$issues
+EOF
+    if [ -n "$missing" ]; then
+      echo "error: PR body does not close issues named in captain's intent: $missing (each named issue needs its own closing keyword, e.g. Closes #N)" >&2
+      exit 1
+    fi
+  else
+    if [ "$body_rc" -ne 0 ]; then
+      echo "error: could not read PR body to verify the no-linked-issue marker" >&2
+      exit 1
+    fi
+    body_lc=$(printf '%s' "$PR_BODY" | tr '[:upper:]' '[:lower:]')
+    case "$body_lc" in
+      *"no linked issue"*) ;;
+      *)
+        echo "error: captain's intent names no issue, and the PR body does not say so deliberately (add a literal 'No linked issue' line)" >&2
+        exit 1
+        ;;
+    esac
   fi
 fi
 

@@ -969,7 +969,8 @@ test_ship_briefs_require_per_issue_closing_keywords() {
     "no-mistakes brief does not require a per-issue closing keyword in the PR body"
   assert_grep 'never list several issues after a single keyword' "$brief" \
     "no-mistakes brief does not forbid chaining several issues under one keyword"
-  assert_grep 'When the intent names none, say so in the PR body' "$brief" \
+  # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
+  assert_grep 'a literal `No linked issue` line' "$brief" \
     "no-mistakes brief does not require a deliberate no-issue statement"
 
   FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-close-dpr some-proj --mode direct-PR >/dev/null 2>&1 \

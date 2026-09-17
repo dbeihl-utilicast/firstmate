@@ -197,7 +197,7 @@ EOF
 fm_dod_issue_close_guidance() {
   cat <<'EOF'
 When this brief's `## Captain's intent` names one or more issue numbers, the pull request body must close each issue with its own GitHub closing keyword (`Closes #N`); never list several issues after a single keyword.
-When the intent names none, say so in the PR body rather than omitting closing keywords by accident.
+When the intent names none, the pull request body must say so deliberately with a literal `No linked issue` line; registration is refused without it.
 EOF
 }
 

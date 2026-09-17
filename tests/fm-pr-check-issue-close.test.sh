@@ -148,7 +148,7 @@ test_quoted_example_issue_numbers_are_not_work_to_close() {
   write_brief "$dir" "$id" \
     'A neighboring repo once wrote "Closes #421, #431, #440" under one keyword. This task has no issue to close.'
 
-  FM_TEST_GH_PR_BODY="No related issue." \
+  FM_TEST_GH_PR_BODY="No linked issue." \
     run_check "$dir" "$id" https://github.com/o/r/pull/10 >/dev/null 2>"$dir/stderr" \
     || fail "quoted example issue numbers were treated as work to close (got: $(cat "$dir/stderr"))"
   [ -f "$dir/home/state/$id.check.sh" ] \
@@ -156,19 +156,58 @@ test_quoted_example_issue_numbers_are_not_work_to_close() {
   pass "fm-pr-check.sh does not treat quoted example issue numbers as work to close"
 }
 
-test_intent_without_issue_numbers_is_unchanged() {
-  local dir id
-  dir=$(make_case no-issues)
-  id=close-none
+test_intent_without_issue_numbers_and_no_marker_is_refused() {
+  local dir id out rc
+  dir=$(make_case no-issues-no-marker)
+  id=close-none-nomarker
   write_ship_meta "$dir" "$id"
   write_brief "$dir" "$id" "Refactor the parser. No tracked issue."
 
+  set +e
   FM_TEST_GH_PR_BODY="Refactor only." \
+    out=$(run_check "$dir" "$id" https://github.com/o/r/pull/11 2>&1)
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "fm-pr-check.sh registered a no-issue-intent PR whose body never says so"
+  assert_contains "$out" "No linked issue" "refusal did not name the missing no-issue marker"
+  [ ! -e "$dir/home/state/$id.check.sh" ] \
+    || fail "a refused no-issue-marker registration still armed a merge poll"
+  pass "fm-pr-check.sh refuses a no-issue-intent PR whose body omits the no-issue marker"
+}
+
+test_intent_without_issue_numbers_and_marker_is_registered() {
+  local dir id
+  dir=$(make_case no-issues-marker)
+  id=close-none-marker
+  write_ship_meta "$dir" "$id"
+  write_brief "$dir" "$id" "Refactor the parser. No tracked issue."
+
+  FM_TEST_GH_PR_BODY="Refactor only. No linked issue." \
     run_check "$dir" "$id" https://github.com/o/r/pull/11 >/dev/null 2>"$dir/stderr" \
-    || fail "fm-pr-check.sh refused a PR whose captain intent named no issue (got: $(cat "$dir/stderr"))"
+    || fail "fm-pr-check.sh refused a no-issue-intent PR whose body says so (got: $(cat "$dir/stderr"))"
   [ -f "$dir/home/state/$id.check.sh" ] \
-    || fail "a no-issue intent did not arm a merge poll"
-  pass "fm-pr-check.sh leaves registration unchanged when captain intent names no issue"
+    || fail "a no-issue-intent PR with the marker did not arm a merge poll"
+  pass "fm-pr-check.sh registers a no-issue-intent PR whose body deliberately says so"
+}
+
+test_fenced_example_issue_numbers_are_not_work_to_close() {
+  local dir id
+  dir=$(make_case fenced-example)
+  id=close-fenced
+  write_ship_meta "$dir" "$id"
+  write_brief "$dir" "$id" \
+'This task has no issue to close. A neighboring repo once chained issues like this:
+```
+Closes #421, #431, #440
+```
+Do not treat those as work for this PR.'
+
+  FM_TEST_GH_PR_BODY="No linked issue." \
+    run_check "$dir" "$id" https://github.com/o/r/pull/13 >/dev/null 2>"$dir/stderr" \
+    || fail "fenced-block example issue numbers were treated as work to close (got: $(cat "$dir/stderr"))"
+  [ -f "$dir/home/state/$id.check.sh" ] \
+    || fail "a brief whose only #N refs are inside a fenced example did not register"
+  pass "fm-pr-check.sh does not treat fenced multi-line example issue numbers as work to close"
 }
 
 test_unreadable_pr_body_with_named_issue_is_refused() {
@@ -193,6 +232,8 @@ test_named_issue_without_closing_keyword_is_refused
 test_own_keyword_per_named_issue_is_registered
 test_chained_issues_under_one_keyword_do_not_close_the_rest
 test_quoted_example_issue_numbers_are_not_work_to_close
-test_intent_without_issue_numbers_is_unchanged
+test_intent_without_issue_numbers_and_no_marker_is_refused
+test_intent_without_issue_numbers_and_marker_is_registered
+test_fenced_example_issue_numbers_are_not_work_to_close
 test_unreadable_pr_body_with_named_issue_is_refused
 echo "# all fm-pr-check-issue-close tests passed"
