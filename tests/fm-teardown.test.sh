@@ -265,6 +265,7 @@ case "\${1:-} \${2:-}" in
   "pr view")
     case " \$* " in
       *"state,headRefOid,url"*) printf '%s\t%s\t%s\n' 'MERGED' '$head' 'https://github.com/example/repo/pull/7' ; exit 0 ;;
+      *"isDraft"*) printf '%s\tfalse\n' '$head' ; exit 0 ;;
       *"headRefOid"*) printf '%s\n' '$head' ; exit 0 ;;
     esac
     ;;
@@ -2028,6 +2029,55 @@ test_secondmate_pr_registration_unreadable_view_says_unknown() {
     fail "mate-pr-unreadable: an unreadable forge view was announced as ready: $(cat "$channel")"
   fi
   pass "fm-pr-check publishes draft status unknown when the forge view cannot be read"
+}
+
+# The forge view succeeds but `.isDraft` comes back neither "true" nor
+# "false" (a null/absent field surviving `tostring`, a permissions-limited
+# view, a GraphQL anomaly). fm_pr_read_draft must not treat this as a proven
+# non-draft; registration must say unknown, not ready.
+add_gh_pr_view_malformed_draft() {
+  local case_dir=$1 head=$2
+  cat > "$case_dir/fakebin/gh-axi" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+  cat > "$case_dir/fakebin/gh" <<SH
+#!/usr/bin/env bash
+case "\${1:-} \${2:-}" in
+  "pr view")
+    case " \$* " in
+      *"isDraft"*) printf '%s\tnull\n' '$head' ; exit 0 ;;
+      *"headRefOid"*) printf '%s\n' '$head' ; exit 0 ;;
+    esac
+    ;;
+esac
+echo "error: pull request not found" >&2
+exit 1
+SH
+  chmod +x "$case_dir/fakebin/gh-axi" "$case_dir/fakebin/gh"
+}
+
+test_secondmate_pr_registration_malformed_draft_says_unknown() {
+  local case_dir channel url pr_head
+  url=https://github.com/example/repo/pull/7
+  case_dir=$(make_case mate-pr-malformed-draft)
+  configure_secondmate_home "$case_dir" local "$case_dir/parent"
+  mkdir -p "$case_dir/parent/state"
+  channel="$case_dir/parent/state/mate-x.status"
+  write_meta "$case_dir" no-mistakes ship
+  wt_commit_file "$case_dir" feature.txt hello "add feature"
+  pr_head=$(git -C "$case_dir/wt" rev-parse HEAD)
+  add_gh_pr_view_malformed_draft "$case_dir" "$pr_head"
+
+  FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$case_dir/state" \
+    PATH="$case_dir/fakebin:$PATH" "$PR_CHECK" task-x1 "$url" > "$case_dir/pr-check.out" 2> "$case_dir/pr-check.err" \
+    || fail "mate-pr-malformed-draft: fm-pr-check failed: $(cat "$case_dir/pr-check.err")"
+  assert_grep "done [key=child-pr-task-x1]: child task-x1 PR draft status unknown, verify before treating as ready: $url mode=no-mistakes" \
+    "$channel" "mate-pr-malformed-draft: the parent channel did not say draft status unknown"
+  if grep -q 'PR ready' "$channel"; then
+    fail "mate-pr-malformed-draft: a malformed isDraft value was announced as ready: $(cat "$channel")"
+  fi
+  pass "fm-pr-check publishes draft status unknown when isDraft is neither true nor false"
 }
 
 # Tearing a child down inside a secondmate home delivers the child's final
@@ -3899,6 +3949,7 @@ test_secondmate_pr_registration_publishes_ready_line
 test_secondmate_pr_registration_publishes_draft_not_ready
 test_secondmate_gitlab_draft_registration_publishes_draft_not_ready
 test_secondmate_pr_registration_unreadable_view_says_unknown
+test_secondmate_pr_registration_malformed_draft_says_unknown
 test_secondmate_home_teardown_delivers_final_line_or_refuses
 test_teardown_missing_busy_sidecar_completes
 test_herdr_teardown_clears_escalation_marker

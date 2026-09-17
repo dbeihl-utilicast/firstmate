@@ -280,10 +280,9 @@ nm_field() {  # <key>
   fm_nm_field "$RUN_OUT" "$1"
 }
 
-# Phrase for a checks-green PR: "PR draft" when the forge says draft,
-# "PR ready for review" when it says ready, and a conservative "unknown"
-# wording when the view could not be read at all.
-crew_pr_readiness_phrase() {
+# Draft/read-ok tuple ("is_draft\tread_ok") for the run's registered PR, so
+# every call site consults the forge's actual draft flag the same way.
+nm_pr_draft_state() {
   local pr_url view is_draft read_ok
   pr_url=$(strip_quotes "$(nm_field pr)")
   [ -n "$pr_url" ] || pr_url=$(meta_value pr)
@@ -295,6 +294,17 @@ crew_pr_readiness_phrase() {
 $view
 EOF
   fi
+  printf '%s\t%s\n' "${is_draft:-0}" "${read_ok:-1}"
+}
+
+# Phrase for a checks-green PR: "PR draft" when the forge says draft,
+# "PR ready for review" when it says ready, and a conservative "unknown"
+# wording when the view could not be read at all.
+crew_pr_readiness_phrase() {
+  local is_draft read_ok
+  IFS=$'\t' read -r is_draft read_ok <<EOF
+$(nm_pr_draft_state)
+EOF
   if [ "${read_ok:-0}" != 1 ]; then
     printf 'PR draft status unknown, verify before treating as ready'
   elif [ "${is_draft:-0}" = 1 ]; then
@@ -483,8 +493,17 @@ EOF
 nm_reclassify_failed_run_as_held_green() {
   nm_failed_run_is_green_held_ci || return 1
   RUN_STATE="done"
-  RUN_DETAIL="checks green: PR held for merge (ci monitor ended)"
-  local pr_url
+  local is_draft read_ok pr_url
+  IFS=$'\t' read -r is_draft read_ok <<EOF
+$(nm_pr_draft_state)
+EOF
+  if [ "${read_ok:-0}" != 1 ]; then
+    RUN_DETAIL="checks green: PR draft status unknown, verify before treating as ready (ci monitor ended)"
+  elif [ "${is_draft:-0}" = 1 ]; then
+    RUN_DETAIL="checks green: PR draft (ci monitor ended)"
+  else
+    RUN_DETAIL="checks green: PR held for merge (ci monitor ended)"
+  fi
   pr_url=$(strip_quotes "$(nm_field pr)")
   [ -n "$pr_url" ] && RUN_DETAIL="$RUN_DETAIL: $pr_url"
   return 0

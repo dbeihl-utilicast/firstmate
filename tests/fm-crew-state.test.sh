@@ -1085,6 +1085,24 @@ daemon shutting down"
   pass "orphaned ci monitor after green reads as held-for-merge done"
 }
 
+test_terminal_failed_ci_orphan_draft_pr_says_draft() {
+  reset_fakes
+  local d; d=$(new_case failed-ci-orphan-draft)
+  make_repo_on_branch "$d/wt" fm/feat-ci-orphan-draft
+  make_fakebin "$d" >/dev/null
+  write_crew_state_gh_draft "$d" true
+  fm_write_meta "$d/state/feat-ci-orphan-draft.meta" "window=fm:fm-feat-ci-orphan-draft" "worktree=$d/wt" "kind=ship"
+  FM_FAKE_AXI_STATUS="$(run_failed_ci_orphan fm/feat-ci-orphan-draft)"
+  FM_FAKE_CI_LOGS="all CI checks passed - still monitoring until merged or closed
+daemon shutting down"
+  local out; out=$(run_crew_state "$d" feat-ci-orphan-draft)
+  assert_contains "$out" "state: done" "orphaned ci monitor with a draft PR still reads done"
+  assert_contains "$out" "checks green: PR draft (ci monitor ended)" \
+    "orphaned ci monitor recovery must say draft, not held for merge"
+  assert_not_contains "$out" "held for merge" "a draft PR must not be announced as held for merge"
+  pass "orphaned ci monitor with a draft PR reports draft instead of held-for-merge"
+}
+
 test_terminal_failed_ci_orphan_status_only_reads_done() {
   reset_fakes
   local d; d=$(new_case failed-ci-orphan-status-only)
@@ -2685,6 +2703,7 @@ test_top_level_fixing_done_log_stays_working
 test_terminal_passed
 test_terminal_failed
 test_terminal_failed_ci_orphan_after_green_reads_done
+test_terminal_failed_ci_orphan_draft_pr_says_draft
 test_terminal_failed_ci_orphan_status_only_reads_done
 test_terminal_failed_ci_genuine_red_stays_failed
 test_terminal_failed_ci_orphan_second_failed_step_stays_failed

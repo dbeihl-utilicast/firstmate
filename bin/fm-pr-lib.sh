@@ -1032,9 +1032,11 @@ fm_pr_read_draft() {  # <url> [worktree]
 $raw
 EOF
                 if [ -z "${extra:-}" ]; then
-                  read_ok=1
-                  [ "$draft" = true ] && is_draft=1
-                  fm_pr_head_valid "$head" && view_head=$head
+                  case "$draft" in
+                    true) read_ok=1; is_draft=1 ;;
+                    false) read_ok=1 ;;
+                  esac
+                  [ "$read_ok" = 1 ] && fm_pr_head_valid "$head" && view_head=$head
                 fi
                 ;;
             esac
