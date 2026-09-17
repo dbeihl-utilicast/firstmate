@@ -11,9 +11,9 @@
 # In a secondmate home every `scan` invocation, which is every watcher poll,
 # first runs the LEDGER-FIRST parent delivery: a direct child whose status
 # ledger ends in a whole `done:` or `failed:` line has stated its own outcome,
-# except that a PR-requiring ship `done:` with no recorded PR and no pushed
-# head is not a terminal delivery (bin/fm-done-delivery-lib.sh) and is left
-# for the child's supervisor, the same way bin/fm-crew-state.sh refuses it.
+# except that a PR-requiring ship `done:` with no recorded PR (pushed or not)
+# is not a terminal delivery (bin/fm-done-delivery-lib.sh) and is left for the
+# child's supervisor, the same way bin/fm-crew-state.sh refuses it.
 # so that line is published on the parent channel at once through
 # bin/fm-parent-channel-lib.sh as
 #   <state> [key=child-outcome-<child>-<state>-<fp8>]: child <child> <state>: <note> [pr=<url>] [mode=<mode>] [yolo=<posture>] [report=data/<child>/report.md]

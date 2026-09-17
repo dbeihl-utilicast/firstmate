@@ -79,9 +79,9 @@
 #      recorded backend's pane busy state, then the status log's last line only
 #      when its verb maps to a recognized run-state. Decision-only events such as
 #      `resolved` never become current state or detail. A ship `done:` in a
-#      PR-requiring mode that has no recorded PR and no pushed head is refused
-#      rather than reported as done (bin/fm-done-delivery-lib.sh); local-only
-#      and scout dones stay accepted.
+#      PR-requiring mode that has no recorded PR is refused rather than
+#      reported as done, whether or not the head is pushed
+#      (bin/fm-done-delivery-lib.sh); local-only and scout dones stay accepted.
 #   5. Missing meta or torn-down worktree: report unknown · none. If no run is
 #      attributed to this crew, a dead endpoint also reports unknown · none rather
 #      than trusting a stale status log. On tmux and herdr, which own a
