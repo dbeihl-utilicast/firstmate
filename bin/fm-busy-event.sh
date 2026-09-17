@@ -29,6 +29,18 @@
 #       turn-ended notification. Arm and retire clear the marker, and an old
 #       incarnation can never refresh its replacement's progress.
 #
+#   turn-end <state-dir> <id>
+#       Touch state/<id>.turn-ended as a watcher wake notification. Refuses
+#       when state/<id>.meta is missing from that state dir (or is a symlink),
+#       so a hook that resolved the wrong home cannot create a phantom marker
+#       for a torn-down or foreign task id. Spawn-generated adapters call this
+#       instead of touching the file. The shared Grok Stop hook does too; the
+#       silent always-zero Kimi hook applies the same missing-meta refusal
+#       inline because it must stay self-contained. No gen is required: grok,
+#       kimi, and codex notify never arm busy-state, and the matching .meta
+#       is the home-membership proof. Adapter hook command lines still append
+#       `|| true` so a refusal never breaks the harness's own lifecycle.
+#
 #   retire <state-dir> <id> (--gen G | --current-gen)
 #       Remove one incarnation's sidecar and record while holding the same
 #       writer lock used by arm and apply. An exact gen prevents teardown for
@@ -46,6 +58,7 @@ usage:
   fm-busy-event.sh arm <state-dir> <id> [--state busy|idle|unknown] [--source S] [--event E]
   fm-busy-event.sh apply <state-dir> <id> <busy|idle|unknown> (--gen G | --current-gen) --source S --event E
   fm-busy-event.sh progress <state-dir> <id> --gen G
+  fm-busy-event.sh turn-end <state-dir> <id>
   fm-busy-event.sh retire <state-dir> <id> (--gen G | --current-gen)
 See the header comment for the full contract.
 EOF
@@ -58,7 +71,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 CMD=${1:-}
 case "$CMD" in
-  arm|apply|progress|retire) shift ;;
+  arm|apply|progress|turn-end|retire) shift ;;
   *) usage ;;
 esac
 
@@ -98,6 +111,7 @@ if [ "$CMD" = apply ] || [ "$CMD" = arm ]; then
   fm_busy_token_valid "$EVENT" || { echo "error: invalid --event" >&2; exit 1; }
 fi
 
+[ "$CMD" != turn-end ] || [ $# -eq 0 ] || usage
 [ "$CMD" != progress ] || [ "$USE_CURRENT_GEN" = 0 ] || usage
 
 REC=$(fm_busy_record_path "$STATE" "$ID")
@@ -154,6 +168,22 @@ write_record() {  # <gen> <seq>
 
 old_umask=$(umask)
 umask 077
+
+if [ "$CMD" = turn-end ]; then
+  META="$STATE/$ID.meta"
+  if [ ! -f "$META" ] || [ -L "$META" ]; then
+    umask "$old_umask"
+    echo "error: no meta for task $ID at $META" >&2
+    exit 1
+  fi
+  touch "$STATE/$ID.turn-ended" || {
+    umask "$old_umask"
+    echo "error: turn-end marker write failed for $ID" >&2
+    exit 1
+  }
+  umask "$old_umask"
+  exit 0
+fi
 
 if [ "$CMD" = arm ]; then
   GEN="g$(date +%s).$$.$RANDOM"

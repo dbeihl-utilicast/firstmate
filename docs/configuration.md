@@ -65,7 +65,7 @@ projects/            cloned repos; gitignored; read-only except under hard rule 
 .treehouse/          home-scoped Treehouse pool root (bin/fm-treehouse-lib.sh); LOCAL, gitignored
 state/               runtime records and signals; gitignored
   <id>.status        appended by crewmates: "<state>: <note>" wake-event lines, not current-state truth
-  <id>.turn-ended    touched by turn-end hooks
+  <id>.turn-ended    touched by turn-end hooks only when this home already has <id>.meta; a hook that resolved this home without that record refuses rather than creating the marker (bin/fm-busy-event.sh turn-end)
   <id>.progress      touched for observed native-harness activity inside one Pi turn; bin/fm-busy-event.sh owns its generation binding and bin/fm-watch.sh reads it beside turn-ended for the busy-age bound only, never as a completed turn
   <id>.grok-turnend-token   firstmate-owned grok hook registry token for the task; removed by teardown
   <id>.grok-home     the Grok home fm-spawn resolved from the destination pane and installed that hook into; read by teardown and relaunch instead of re-guessing it, and removed by teardown
