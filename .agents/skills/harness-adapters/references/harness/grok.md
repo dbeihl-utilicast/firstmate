@@ -64,7 +64,7 @@ The shared classifier locates the full box and all content rows, so border curso
 Grok fires `Stop` each turn.
 Project hooks require the folder trust the "Folder trust" section above owns; global `${GROK_HOME:-$HOME/.grok}/hooks/` is always trusted regardless of it.
 The spawn installs guarded global `fm-turn-end.json` and `fm-turn-end.sh` under `hooks/` in the Grok home it resolved from the destination pane, which is the same home the "Folder trust" section above registers and binds.
-They act only when workspace `.fm-grok-turnend` matches the registry in `fm-turn-end.d/` beside them, then touch the task's `state/<id>.turn-ended` through always-set `GROK_WORKSPACE_ROOT`, which equals the worktree.
+They act only when workspace `.fm-grok-turnend` matches the registry in `fm-turn-end.d/` beside them, then record `state/<id>.turn-ended` through always-set `GROK_WORKSPACE_ROOT` (the worktree) only when that resolved home already has the matching `.meta`.
 This stays outside the worktree, needs no trust grant, and writes only Firstmate files.
 `../../../bin/fm-teardown.sh` removes the gitignored pointer before pooling.
 Secondmates skip it because idle is healthy and ordinary stale-pane detection does not apply.

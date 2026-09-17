@@ -45,7 +45,7 @@ Kimi is outside the primary turn-end guard scope.
 
 `../../../bin/fm-spawn.sh` installs one marker-delimited Firstmate entry in `$HOME/.kimi-code/config.toml`, one silent always-zero hook script, and one private token registry under `$HOME/.kimi-code/fm-turn-end.d/`.
 Each Kimi worker worktree receives a gitignored `.fm-kimi-turnend` pointer.
-The global hook touches `state/<id>.turn-ended` only when the Stop payload's `cwd`, pointer, and registry entry all agree.
+The global hook touches `state/<id>.turn-ended` only when the Stop payload's `cwd`, pointer, and registry entry all agree, and only when that resolved home already has the matching `.meta`.
 A guarded silent hook cannot be verified from absence of effect, so prove invocation with an unguarded probe before concluding it did not fire.
 The guarded turn-end signal remains a wake notification.
 Standalone Kimi has no busy-state source until one is live-verified.

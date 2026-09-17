@@ -293,6 +293,21 @@ test_claude_hooks_semantic_lifecycle() {
   pass "claude hooks open on UserPromptSubmit and close on Stop, StopFailure, and SessionEnd"
 }
 
+test_claude_stop_refuses_turnend_without_meta() {
+  local rec id=busy-cl-nometa out state settings
+  rec=$(make_spawn_case claude-nometa claude "$id")
+  read_case_record "$rec"
+  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" "$PROJ_DIR")
+  expect_code 0 $? "claude spawn should succeed: $out"
+  state="$HOME_DIR/state"
+  settings="$WT_DIR/.claude/settings.local.json"
+  rm -f "$state/$id.turn-ended" "$state/$id.meta"
+  run_claude_hook "$settings" Stop || fail "Stop hook command failed after meta removal"
+  [ ! -e "$state/$id.turn-ended" ] \
+    || fail "Stop wrote a turn-end marker with no .meta in the resolved home"
+  pass "claude Stop refuses a turn-end marker when the resolved home has no .meta"
+}
+
 test_claude_hooks_stale_incarnation_harmless() {
   local rec id=busy-cl-2 out state settings
   rec=$(make_spawn_case claude-stale claude "$id")
@@ -693,6 +708,7 @@ test_pi_extension_stale_incarnation_rejected
 test_kimi_and_grok_install_no_unverified_wiring
 test_opencode_plugin_semantic_lifecycle
 test_claude_hooks_semantic_lifecycle
+test_claude_stop_refuses_turnend_without_meta
 test_claude_hooks_stale_incarnation_harmless
 test_gemini_hooks_semantic_lifecycle
 test_gemini_hooks_stale_incarnation_harmless

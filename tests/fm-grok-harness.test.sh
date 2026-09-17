@@ -81,6 +81,34 @@ EOF
   pass "grok global hook requires a firstmate registry token"
 }
 
+test_grok_shared_hook_refuses_marker_without_meta() {
+  local rec case_dir home proj wt fakebin grok_home id hook home_b id_b token_b ws out
+  rec=$(make_spawn_case cross-home)
+  IFS='|' read -r case_dir home proj wt fakebin grok_home id <<EOF
+$rec
+EOF
+  out=$(run_grok_spawn "$home" "$proj" "$wt" "$fakebin" "$grok_home" "$id")
+  expect_code 0 $? "grok spawn should succeed before the cross-home hook check: $out"
+  hook="$grok_home/hooks/fm-turn-end.sh"
+  assert_present "$hook" "grok hook script was not installed"
+
+  home_b="$case_dir/home-b"
+  mkdir -p "$home_b/state"
+  id_b=torn-down-x1
+  token_b=$(basename "$(mktemp "$grok_home/hooks/fm-turn-end.d/fm.XXXXXXXXXXXX")")
+  printf '%s\n' "$home_b/state/$id_b.turn-ended" > "$grok_home/hooks/fm-turn-end.d/$token_b"
+  ws="$case_dir/home-a-session"
+  mkdir -p "$ws"
+  printf 'token=%s\n' "$token_b" > "$ws/.fm-grok-turnend"
+
+  out=$(GROK_WORKSPACE_ROOT="$ws" bash "$hook" 2>&1) || true
+  [ ! -e "$home_b/state/$id_b.turn-ended" ] \
+    || fail "shared grok hook wrote a turn-end marker into a home with no .meta"
+  assert_contains "$out" "no meta for task $id_b" \
+    "shared grok hook stayed silent about the missing meta"
+  pass "shared grok hook refuses a turn-end marker when the resolved home has no .meta"
+}
+
 test_grok_teardown_removes_pointer_and_token() {
   local rec case_dir home proj wt fakebin grok_home id out status token
   rec=$(make_spawn_case teardown)
@@ -345,6 +373,7 @@ SH
 }
 
 test_grok_hook_requires_registered_token
+test_grok_shared_hook_refuses_marker_without_meta
 test_grok_teardown_removes_pointer_and_token
 test_grok_spawn_pretrusts_the_project_not_the_worktree
 test_grok_secondmate_spawn_pretrusts_its_primary
