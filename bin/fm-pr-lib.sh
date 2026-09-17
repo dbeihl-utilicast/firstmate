@@ -89,8 +89,6 @@ FM_PR_RETIRE_REG_IDENTITY=
 FM_PR_RETIRE_RECEIPT_HASH=
 FM_PR_RETIRE_RECEIPT_IDENTITY=
 FM_PR_POLL_RETIREMENT_REJECTED=
-FM_PR_DRAFT=0
-FM_PR_VIEW_HEAD=
 
 fm_task_id_path_safe() {
   local id=${1-}
@@ -1006,47 +1004,53 @@ fm_pr_poll_merge_mark_notified() {  # <state> <id> <provider> <host> <path> <num
   fi
 }
 
-# Read whether the pull request or merge request at <url> is a draft.
-# Sets FM_PR_DRAFT to 1 or 0. An unreadable forge view leaves 0, so wording
-# stays "ready" unless the forge actually reports a draft.
-# A GitHub view that also returns a valid head sets FM_PR_VIEW_HEAD. GitLab
-# still records no head here.
+# Print "<is-draft>\t<head>" for the pull request or merge request at <url>.
+# is-draft is 1 only when the forge reports a draft; otherwise 0, including
+# when the view is unreadable, so wording stays "ready" unless a draft is
+# proven. head is the GitHub head SHA when valid, else empty. GitLab records
+# no head here.
 # GitHub: one `gh pr view --json headRefOid,isDraft` (isDraft is gh's field).
 # GitLab: `glab mr view -F json`; the payload field is `draft` (boolean), the
 # GitLab Merge Request API name, which glab dumps unchanged.
 fm_pr_read_draft() {  # <url> [worktree]
-  FM_PR_DRAFT=0
-  FM_PR_VIEW_HEAD=
   local url=${1-} wt=${2-} raw head draft extra json
-  [ -n "$url" ] || return 0
-  fm_pr_url_parse "$url" || return 0
-  case "$FM_PR_PROVIDER" in
-    github)
-      command -v gh >/dev/null 2>&1 || return 0
-      [ -n "$wt" ] && [ -d "$wt" ] || return 0
-      raw=$(cd "$wt" && gh pr view "$FM_PR_URL" --json headRefOid,isDraft \
-        -q '[.headRefOid, (.isDraft|tostring)] | @tsv' 2>/dev/null) || return 0
-      case "$raw" in ''|*$'\n'*) return 0 ;; esac
-      IFS=$'\t' read -r head draft extra <<EOF
+  local is_draft=0 view_head=
+  if [ -n "$url" ] && fm_pr_url_parse "$url"; then
+    case "$FM_PR_PROVIDER" in
+      github)
+        if command -v gh >/dev/null 2>&1 && [ -n "$wt" ] && [ -d "$wt" ]; then
+          if raw=$(cd "$wt" && gh pr view "$FM_PR_URL" --json headRefOid,isDraft \
+            -q '[.headRefOid, (.isDraft|tostring)] | @tsv' 2>/dev/null); then
+            case "$raw" in
+              ''|*$'\n'*) ;;
+              *)
+                IFS=$'\t' read -r head draft extra <<EOF
 $raw
 EOF
-      [ -z "${extra:-}" ] || return 0
-      [ "$draft" = true ] && FM_PR_DRAFT=1
-      fm_pr_head_valid "$head" && FM_PR_VIEW_HEAD=$head
-      ;;
-    gitlab)
-      command -v glab >/dev/null 2>&1 || return 0
-      json=$(GITLAB_HOST="$FM_PR_HOST" glab mr view "$FM_PR_NUMBER" \
-        -R "https://$FM_PR_HOST/$FM_PR_PATH" -F json 2>/dev/null) || return 0
-      [ -n "$json" ] || return 0
-      command -v jq >/dev/null 2>&1 || return 0
-      draft=$(printf '%s' "$json" | jq -r \
-        'if type == "object" and (.draft == true) then "true" else empty end' \
-        2>/dev/null) || return 0
-      [ "$draft" = true ] && FM_PR_DRAFT=1
-      ;;
-  esac
-  return 0
+                if [ -z "${extra:-}" ]; then
+                  [ "$draft" = true ] && is_draft=1
+                  fm_pr_head_valid "$head" && view_head=$head
+                fi
+                ;;
+            esac
+          fi
+        fi
+        ;;
+      gitlab)
+        if command -v glab >/dev/null 2>&1; then
+          json=$(GITLAB_HOST="$FM_PR_HOST" glab mr view "$FM_PR_NUMBER" \
+            -R "https://$FM_PR_HOST/$FM_PR_PATH" -F json 2>/dev/null) || json=
+          if [ -n "$json" ] && command -v jq >/dev/null 2>&1; then
+            draft=$(printf '%s' "$json" | jq -r \
+              'if type == "object" and (.draft == true) then "true" else empty end' \
+              2>/dev/null) || draft=
+            [ "$draft" = true ] && is_draft=1
+          fi
+        fi
+        ;;
+    esac
+  fi
+  printf '%s\t%s\n' "$is_draft" "$view_head"
 }
 
 # Removed at teardown alongside the other per-task PR-poll artifacts

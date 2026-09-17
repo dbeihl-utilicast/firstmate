@@ -84,8 +84,14 @@ fi
 # draft, so registration can say draft instead of ready.
 WT=$(grep '^worktree=' "$META" | tail -1 | cut -d= -f2- || true)
 PR_HEAD=
-fm_pr_read_draft "$URL" "$WT"
-[ -z "$FM_PR_VIEW_HEAD" ] || PR_HEAD=$FM_PR_VIEW_HEAD
+PR_DRAFT=0
+view_head=
+{
+  IFS=$'\t' read -r PR_DRAFT view_head
+} <<EOF
+$(fm_pr_read_draft "$URL" "$WT")
+EOF
+[ -z "$view_head" ] || PR_HEAD=$view_head
 
 META_TMP=
 META_LOCK=
@@ -149,7 +155,7 @@ fm_pr_poll_publish_prepared || {
 # armed either way; a channel that cannot be written is reported as
 # actionable, and bin/fm-inactive-reconcile.sh still delivers the child's own
 # ready line on the next supervision poll.
-if [ "${FM_PR_DRAFT:-0}" = 1 ]; then
+if [ "${PR_DRAFT:-0}" = 1 ]; then
   READY_LINE="done [key=child-pr-$ID]: child $ID PR draft: $URL"
 else
   READY_LINE="done [key=child-pr-$ID]: child $ID PR ready: $URL"

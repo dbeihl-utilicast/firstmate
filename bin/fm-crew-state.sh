@@ -278,14 +278,17 @@ nm_field() {  # <key>
 # Phrase for a checks-green PR: "PR draft" when the forge says draft, else
 # "PR ready for review". An unreadable view keeps the ready wording.
 crew_pr_readiness_phrase() {
-  local pr_url
+  local pr_url view is_draft
   pr_url=$(strip_quotes "$(nm_field pr)")
   [ -n "$pr_url" ] || pr_url=$(meta_value pr)
-  FM_PR_DRAFT=0
+  is_draft=0
   if [ -n "$pr_url" ]; then
-    fm_pr_read_draft "$pr_url" "$WT"
+    view=$(fm_pr_read_draft "$pr_url" "$WT")
+    IFS=$'\t' read -r is_draft _ <<EOF
+$view
+EOF
   fi
-  if [ "${FM_PR_DRAFT:-0}" = 1 ]; then
+  if [ "${is_draft:-0}" = 1 ]; then
     printf 'PR draft'
   else
     printf 'PR ready for review'
