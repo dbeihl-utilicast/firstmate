@@ -11,6 +11,7 @@ metadata:
 For a no-mistakes ship, trigger validation on the same worker after its implementation commit, using the harness invocation owned by `harness-adapters`.
 The task worker that starts a no-mistakes run drives the pipeline and owns every `no-mistakes axi run` and `no-mistakes axi respond` call through the next gate or outcome.
 Firstmate never invokes `no-mistakes axi respond` for a crew-owned run.
+The per-step fix-round cap is owned by `bin/fm-nm-fix-round.sh`: after three fixing-to-re-review cycles on the same step, do not steer another silent `fix`; the worker must `approve`, `skip`, or escalate `needs-decision`.
 When the captain adds or changes an ask mid-task, append the captain's words to that brief's `## Captain's intent` and steer the worker; Firstmate build constraints stay in `## Firstmate spec` or the steer.
 `bin/fm-dod-lib.sh` owns the worker-side `--intent` contract.
 Once validation starts, prefer routing new requirements to follow-up work rather than expanding the current task, unless a new requirement completely invalidates the work being validated; however, the smallest downstream changes needed to keep already accepted product or engineering behavior correct, add behavioral tests where an executable contract exists, or keep documentation accurate remain within the current task even when they touch files not named at intake, and corrections required to satisfy already accepted intent are not new requirements.

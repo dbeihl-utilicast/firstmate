@@ -361,6 +361,14 @@ test_no_mistakes_dod_wording() {
 
   # The --yes ban is a fleet-wide prohibition, not a preference, and it must not
   # claim an enforcement the tool does not provide: this is instruction only.
+  assert_grep "Firstmate enforces a hard cap of three fix rounds per pipeline step" "$brief" \
+    "no-mistakes DOD must state the per-step fix-round cap as an enforced fact"
+  assert_grep "bin/fm-nm-fix-round.sh observe" "$brief" \
+    "no-mistakes DOD must point at the fix-round helper for counting"
+  assert_grep "bin/fm-nm-fix-round.sh guard --action fix" "$brief" \
+    "no-mistakes DOD must require the fix-round guard before a fix response"
+  assert_no_grep "up to three rounds chain" "$brief" \
+    "no-mistakes DOD still describes the three-round chain as unverified guidance"
   assert_grep "NEVER pass \`--yes\` (or \`-y\`) to \`no-mistakes axi run\` or \`no-mistakes axi respond\`. It is banned fleet-wide." "$brief" \
     "no-mistakes DOD must state the --yes ban as a prohibition"
   assert_grep "answering your own ask-user finding is a hard rule violation" "$brief" \
