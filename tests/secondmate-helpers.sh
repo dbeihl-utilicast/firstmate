@@ -100,6 +100,8 @@ case "${1:-}" in
     while [ $# -gt 0 ]; do
       case "$1" in
         --force) ;;
+        --root) shift ;;
+        --root=*) ;;
         *) target=$1 ;;
       esac
       shift
