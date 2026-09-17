@@ -108,6 +108,8 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 . "$SCRIPT_DIR/fm-busy-lib.sh"
 # shellcheck source=bin/fm-nm-run-lib.sh
 . "$SCRIPT_DIR/fm-nm-run-lib.sh"
+# shellcheck source=bin/fm-pr-lib.sh
+. "$SCRIPT_DIR/fm-pr-lib.sh"
 
 ID=${1:-}
 [ -n "$ID" ] || { echo "usage: fm-crew-state.sh <id>" >&2; exit 2; }
@@ -271,6 +273,23 @@ nm_run() {  # <args...>
 RUN_OUT=""
 nm_field() {  # <key>
   fm_nm_field "$RUN_OUT" "$1"
+}
+
+# Phrase for a checks-green PR: "PR draft" when the forge says draft, else
+# "PR ready for review". An unreadable view keeps the ready wording.
+crew_pr_readiness_phrase() {
+  local pr_url
+  pr_url=$(strip_quotes "$(nm_field pr)")
+  [ -n "$pr_url" ] || pr_url=$(meta_value pr)
+  FM_PR_DRAFT=0
+  if [ -n "$pr_url" ]; then
+    fm_pr_read_draft "$pr_url" "$WT"
+  fi
+  if [ "${FM_PR_DRAFT:-0}" = 1 ]; then
+    printf 'PR draft'
+  else
+    printf 'PR ready for review'
+  fi
 }
 # Finding count from a findings[N]{...} table header; empty when none.
 nm_findings_count() {
@@ -662,7 +681,7 @@ if [ "$HAVE_RUN" = 1 ]; then
     if [ -n "$outcome" ]; then
       case "$outcome" in
         passed)        RUN_STATE="done"; RUN_DETAIL="run passed: PR merged/closed" ;;
-        checks-passed) RUN_STATE="done"; RUN_DETAIL="checks green: PR ready for review" ;;
+        checks-passed) RUN_STATE="done"; RUN_DETAIL="checks green: $(crew_pr_readiness_phrase)" ;;
         failed)
           if nm_reclassify_failed_run_as_held_green; then :; else
             RUN_STATE=failed; RUN_DETAIL="run failed"
@@ -705,7 +724,7 @@ if [ "$HAVE_RUN" = 1 ]; then
             CI_LOG_STATE=$(nm_ci_checks_state)
             if [ "$CI_LOG_STATE" = green ]; then
               RUN_STATE="done"
-              RUN_DETAIL="checks green: PR ready for review (still monitoring for merge/close)"
+              RUN_DETAIL="checks green: $(crew_pr_readiness_phrase) (still monitoring for merge/close)"
             fi
             ;;
           fixing)

@@ -194,6 +194,14 @@ case " $* " in
       '{state: $state, mergeStateStatus: $merge_state, mergeable: $mergeable, headRefOid: $head, baseRefName: $base_name, baseRefOid: $base_oid} | '"$7"
     ;;
 
+  *"headRefOid,isDraft"*|*"isDraft,headRefOid"*)
+    draft=false
+    [ "${FM_TEST_GH_DRAFT:-0}" = 1 ] && draft=true
+    jq -nr --arg head "${FM_TEST_GH_HEAD:-0123456789abcdef0123456789abcdef01234567}" \
+      --argjson isDraft "$draft" \
+      '{headRefOid: $head, isDraft: $isDraft} | '"$7"
+    ;;
+
   *" headRefOid "*) printf '%s\n' "${FM_TEST_GH_HEAD:-0123456789abcdef0123456789abcdef01234567}" ;;
   *" state "*)
     [ "${FM_TEST_GH_FAIL:-0}" = 0 ] || exit 1
