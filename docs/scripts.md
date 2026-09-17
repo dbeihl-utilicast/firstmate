@@ -97,6 +97,7 @@ The shared no-mistakes gate refusal for fleet lifecycle entrypoints is summarize
 | `fm-supervisor-target-lib.sh` | Resolve the shared supervisor target and backend for the daemon and launcher       |
 | `fm-supervise-daemon.sh` | Presence-gated away-mode sub-supervisor: self-handle routine wakes, guard injection by the detected primary harness, escalate batched digests, alert on failed delivery |
 | `fm-crew-state.sh`       | Print one deterministic current-state line for a crew                                |
+| [`fm-done-delivery-lib.sh`](../bin/fm-done-delivery-lib.sh) | Accept or refuse a claimed terminal ship done against recorded PR and pushed-head evidence |
 | `fm-nm-run-lib.sh`       | Single owner of shared no-mistakes run-attribution primitives and rules             |
 | `fm-nm-fix-round-lib.sh` | Single owner of the per-step no-mistakes fix-round counter, phase detect, and cap   |
 | `fm-nm-fix-round.sh`     | Observe axi status, record fixing-to-re-review rounds, and refuse a fourth silent fix |
