@@ -4,8 +4,9 @@
 # file:line, an absent/empty/comment-only/invalid pattern list fails closed
 # (a malformed regex must never silently match nothing), matching is
 # case-insensitive by default, a clean tree passes, comments/blanks are
-# ignored around a real pattern, and --diff-range catches an added line with
-# correct line arithmetic.
+# ignored around a real pattern, a whitespace-padded pattern still matches
+# unpadded text, and --diff-range catches an added line with correct line
+# arithmetic.
 #
 # Every fixture is its own throwaway git repo so the script's own
 # `git rev-parse --show-toplevel` resolves inside the fixture, never this

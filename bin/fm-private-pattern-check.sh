@@ -3,7 +3,9 @@
 # list matches the tracked tree (and, with --diff-range, the diff).
 #
 # Reads newline-separated extended-regex patterns from the FM_PRIVATE_PATTERNS
-# environment variable. Blank lines and lines whose first non-whitespace
+# environment variable. Each line is stripped of leading and trailing
+# whitespace before use, so incidental indent from a multi-line secret paste
+# is not part of the regex. Blank lines and lines whose first non-whitespace
 # character is '#' are ignored. The variable is never sourced from a file in
 # this repository; callers pass it from a secret (see .github/workflows/ci.yml).
 # Matching is case-insensitive by default (a company, client, or person name
@@ -32,9 +34,9 @@ usage() {
 usage: fm-private-pattern-check.sh [--diff-range RANGE]
 
 Reads newline-separated extended-regex patterns from FM_PRIVATE_PATTERNS and
-scans the tracked tree, case-insensitively, for a match. With --diff-range,
-also scans the added lines of `git diff RANGE` (for example
-"origin/main...HEAD").
+scans the tracked tree, case-insensitively, for a match. Each line is stripped
+of leading and trailing whitespace before use. With --diff-range, also scans
+the added lines of `git diff RANGE` (for example "origin/main...HEAD").
 
 Exit codes:
   0  no match
