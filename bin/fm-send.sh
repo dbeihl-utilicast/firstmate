@@ -146,6 +146,19 @@
 # during final locked route validation; unset or empty guards preserve sends.
 # FM_SEND_PRINT_INBOX_RECORD=1 prints the durable local record path after enqueue.
 #
+# Destination check (text steers to a task selector only): when the message
+# names a backlog row or a recorded PR that this home already holds on a
+# different task, fm-send refuses before any durable mutation. Candidates are
+# hyphenated whole-token identifiers (including an fm-<id> alias) and
+# canonical GitHub PR / GitLab MR URLs that fm_pr_url_parse accepts. A token
+# is foreign only when it matches this home's data/backlog.md row id or a
+# state/<id>.meta name (exact id first, then the fm- prefix stripped when the
+# exact id is not held), or when some other task's pr= records that URL. Bare
+# #N, issue URLs, ordinary numbers, and hyphenated English that is not a held
+# id do not trigger. A steer that names nothing held, a --key send, and an
+# explicit backend target are unchanged. This home's backlog and recorded PRs
+# only; other homes are not scanned.
+#
 # FM_SEND_EXPECTED_PR_POLL_SNAPSHOT is one tab-separated line in
 # fm_send_pr_poll_matches field order, revalidated under the local metadata lock
 # before enqueue. Remote delivery with this guard is refused.
@@ -222,6 +235,7 @@ if [ -z "${FM_HOME+x}" ] || [ -z "${FM_HOME:-}" ]; then
 fi
 
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
+DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 if [ ! -d "$FM_HOME" ]; then
   echo "error: FM_HOME '$FM_HOME' is not a directory; fm-send cannot resolve this home's state" >&2
   exit 1
@@ -272,6 +286,123 @@ fm_send_pr_poll_matches() {
     FM_PR_POLL_SNAPSHOT_REG_HASH FM_PR_POLL_SNAPSHOT_REG_IDENTITY extra \
     <<< "$FM_SEND_EXPECTED_PR_POLL_SNAPSHOT" || return 1
   [ -z "$extra" ] && fm_pr_poll_snapshot_matches "$STATE" "$1" "$SCRIPT_DIR/fm-pr-poll.sh"
+}
+
+# Hyphenated whole-token identifiers and https URLs from steer text. Bare #N
+# and unhyphenated words are ignored so ordinary prose and fleet-wide facts
+# stay on the fast path (no backlog read).
+fm_send_named_work_candidates() {  # <message>
+  printf '%s\n' "$1" | awk '
+    {
+      for (i = 1; i <= NF; i++) {
+        w = $i
+        gsub(/^[<(\["'\''`]+/, "", w)
+        gsub(/[>)\]"'\''`.,;:!?]+$/, "", w)
+        if (w ~ /^https:\/\//) {
+          if (!seen_pr[w]++) print "pr\t" w
+          continue
+        }
+        if (w ~ /^[A-Za-z][A-Za-z0-9._-]*$/ && w ~ /-/) {
+          if (!seen_id[w]++) print "id\t" w
+        }
+      }
+    }
+  '
+}
+
+fm_send_ids_contain() {  # <newline-list> <id>
+  local list=$1 id=$2
+  [ -n "$id" ] || return 1
+  case $'\n'"$list"$'\n' in
+    *$'\n'"$id"$'\n'*) return 0 ;;
+  esac
+  return 1
+}
+
+fm_send_backlog_ids() {
+  local f="$DATA/backlog.md"
+  [ -f "$f" ] || return 0
+  awk '
+    /^[-*] [[:space:]]*\[[xX ]\][[:space:]]+/ {
+      line = $0
+      sub(/^[-*] [[:space:]]*\[[xX ]\][[:space:]]+/, "", line)
+      split(line, parts, /[[:space:]]+/)
+      if (parts[1] ~ /^[A-Za-z][A-Za-z0-9._-]*$/) print parts[1]
+    }
+  ' "$f"
+}
+
+# Canonical id if this home holds <token> as a live task or a backlog row.
+fm_send_home_held_id() {  # <token> <backlog-ids>
+  local token=$1 ids=$2
+  fm_task_id_path_safe "$token" || return 1
+  if [ -f "$STATE/$token.meta" ] || fm_send_ids_contain "$ids" "$token"; then
+    printf '%s' "$token"
+    return 0
+  fi
+  case "$token" in
+    fm-*)
+      token=${token#fm-}
+      fm_task_id_path_safe "$token" || return 1
+      if [ -f "$STATE/$token.meta" ] || fm_send_ids_contain "$ids" "$token"; then
+        printf '%s' "$token"
+        return 0
+      fi
+      ;;
+  esac
+  return 1
+}
+
+fm_send_tasks_recording_pr() {  # <url>
+  local url=$1 meta id got
+  for meta in "$STATE"/*.meta; do
+    [ -e "$meta" ] || continue
+    got=$(fm_meta_get "$meta" pr)
+    [ "$got" = "$url" ] || continue
+    id=$(fm_send_id_from_meta "$meta")
+    [ -n "$id" ] || continue
+    printf '%s\n' "$id"
+  done
+}
+
+# Refuse a text steer to <dest> that names another task's held row or recorded
+# PR in this home. No candidates means return immediately with no I/O.
+fm_send_refuse_misrouted_named_work() {  # <dest-id> <message>
+  local dest=$1 msg=$2
+  local candidates kind value canon owners owner backlog_ids="" need_backlog=0
+  [ -n "$dest" ] || return 0
+  [ -n "$msg" ] || return 0
+  candidates=$(fm_send_named_work_candidates "$msg")
+  [ -n "$candidates" ] || return 0
+  while IFS=$'\t' read -r kind value; do
+    [ "$kind" = id ] || continue
+    need_backlog=1
+    break
+  done <<< "$candidates"
+  if [ "$need_backlog" = 1 ]; then
+    backlog_ids=$(fm_send_backlog_ids)
+  fi
+  while IFS=$'\t' read -r kind value; do
+    [ -n "$kind" ] && [ -n "$value" ] || continue
+    case "$kind" in
+      id)
+        canon=$(fm_send_home_held_id "$value" "$backlog_ids") || continue
+        [ "$canon" != "$dest" ] || continue
+        echo "error: steer not sent to $dest: the message names $canon, which is a task in this home, not $dest. Send that instruction to $canon, or omit the foreign task id. Nothing was sent." >&2
+        return 1
+        ;;
+      pr)
+        fm_pr_url_parse "$value" || continue
+        owners=$(fm_send_tasks_recording_pr "$FM_PR_URL")
+        [ -n "$owners" ] || continue
+        fm_send_ids_contain "$owners" "$dest" && continue
+        owner=${owners%%$'\n'*}
+        echo "error: steer not sent to $dest: the message names $FM_PR_URL, which this home records on $owner. Send that instruction to $owner. Nothing was sent." >&2
+        return 1
+        ;;
+    esac
+  done <<< "$candidates"
+  return 0
 }
 
 # fm_send_clear_after_interrupt: muse RESTORES the interrupted prompt back into
@@ -751,6 +882,10 @@ else
         exit 1
         ;;
     esac
+  fi
+  if [ -n "$TARGET_SELECTOR" ] && [ -n "$TARGET_META" ]; then
+    fm_send_refuse_misrouted_named_work "$(fm_send_id_from_meta "$TARGET_META")" "$MESSAGE" \
+      || exit 1
   fi
   # The pre-marker answer text, kept for the closing resolved note so the
   # durable ledger records the plain answer without marker or corr bytes.

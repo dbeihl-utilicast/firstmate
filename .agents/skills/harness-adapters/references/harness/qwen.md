@@ -48,7 +48,7 @@ A raw Qwen-shaped launch is an unverified escape hatch: it receives no busy-stat
 It is deliberately NOT the worktree's `.qwen/settings.json`: that path is the PROJECT's own settings file, so writing it would clobber a project's configuration and retiring it would delete a tracked file.
 `../../../../../bin/fm-teardown.sh` removes the firstmate-owned file.
 
-`UserPromptSubmit` records busy, `Stop` records idle and keeps the `state/<id>.turn-ended` touch as the watcher NOTIFICATION, and `StopFailure` plus `SessionEnd` record idle so an abnormal end cannot strand a busy record.
+`UserPromptSubmit` records busy, `Stop` records idle and records `state/<id>.turn-ended` (via `bin/fm-busy-event.sh turn-end`, refused when this home has no matching `.meta`) as the watcher NOTIFICATION, and `StopFailure` plus `SessionEnd` record idle so an abnormal end cannot strand a busy record.
 Each hook command prints the empty JSON object the hook contract accepted and tolerates a refused event, so a stale-generation writer can never break Qwen's own lifecycle.
 
 Busy state is this semantic source, never a rendered spinner.

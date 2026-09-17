@@ -268,8 +268,13 @@
 #     __BRIEF__    absolute path to data/<task-id>/brief.md
 #     __PIBIN__    quoted concrete Pi-family executable path resolved from PATH
 #     __PITUIMODE__ optional --tui-mode regular when that executable advertises it
-#     __TURNEND__  absolute path to state/<task-id>.turn-ended (for harnesses whose
-#                  turn-end signal rides the launch command, e.g. codex -c notify=[...])
+#     __TURNEND__  absolute path to state/<task-id>.turn-ended (kept for path
+#                  consumers; the notification writer is __TURNENDEVENT__)
+#     __TURNENDEVENT__  quoted fm-busy-event.sh turn-end invocation for this
+#                  task (codex -c notify=[...] and any other launch-command
+#                  turn-end signal). Refuses when this home has no matching
+#                  .meta, so a wrong-home resolution cannot create a phantom
+#                  marker.
 #     __PIEXT__    absolute path to state/<task-id>.pi-ext.ts (pi turn-end extension,
 #                  written by this script; outside the worktree to avoid pi's trust gate)
 #     __PITURNEND__ absolute path to .pi/extensions/fm-primary-turnend-guard.ts in a pi secondmate home
@@ -1513,7 +1518,7 @@ launch_template() {
       if [ "$kind" = secondmate ]; then
         printf '%s' 'codex __MODELFLAG____EFFORTFLAG__--dangerously-bypass-approvals-and-sandbox "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
       else
-        printf '%s' 'codex __MODELFLAG____EFFORTFLAG__--dangerously-bypass-approvals-and-sandbox -c "notify=[\"bash\",\"-c\",\"touch __TURNEND__\"]" "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
+        printf '%s' 'codex __MODELFLAG____EFFORTFLAG__--dangerously-bypass-approvals-and-sandbox -c "notify=[\"bash\",\"-c\",\"__TURNENDEVENT__ || true\"]" "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
       fi
       ;;
     # codex-foundry-luna: codex itself, repointed at the Azure AI Foundry
@@ -1534,7 +1539,7 @@ launch_template() {
     # secret in, so no secret rides this command text.
     # Crewmate/scout only: see the secondmate refusal below.
     codex-foundry-luna)
-      printf '%s' 'FM_FOUNDRY_LUNA_CONFIG=__FOUNDRYLUNACONFIG__ __FOUNDRYLUNAPROXY__ run -- codex -c model=\"gpt-5.6-luna\" -c model_provider=\"fm_foundry_luna\" -c model_providers.fm_foundry_luna.name=\"Azure-AI-Foundry-gpt-5.6-luna\" -c model_providers.fm_foundry_luna.base_url=\"http://127.0.0.1:__FOUNDRYLUNAPORT__/openai/v1\" -c model_providers.fm_foundry_luna.wire_api=\"responses\" -c model_providers.fm_foundry_luna.env_key=\"FM_FOUNDRY_LUNA_SECRET\" __EFFORTFLAG__--dangerously-bypass-approvals-and-sandbox -c "notify=[\"bash\",\"-c\",\"touch __TURNEND__\"]" "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
+      printf '%s' 'FM_FOUNDRY_LUNA_CONFIG=__FOUNDRYLUNACONFIG__ __FOUNDRYLUNAPROXY__ run -- codex -c model=\"gpt-5.6-luna\" -c model_provider=\"fm_foundry_luna\" -c model_providers.fm_foundry_luna.name=\"Azure-AI-Foundry-gpt-5.6-luna\" -c model_providers.fm_foundry_luna.base_url=\"http://127.0.0.1:__FOUNDRYLUNAPORT__/openai/v1\" -c model_providers.fm_foundry_luna.wire_api=\"responses\" -c model_providers.fm_foundry_luna.env_key=\"FM_FOUNDRY_LUNA_SECRET\" __EFFORTFLAG__--dangerously-bypass-approvals-and-sandbox -c "notify=[\"bash\",\"-c\",\"__TURNENDEVENT__ || true\"]" "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
       ;;
     opencode) printf '%s' 'OPENCODE_CONFIG_CONTENT='\''{"permission":{"*":"allow"}}'\'' opencode __MODELFLAG__--prompt "$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
     pi|pi-signed)
@@ -3465,13 +3470,16 @@ esac
 TASK_TMP="/tmp/fm-$ID"
 mkdir -p "$TASK_TMP/gotmp"
 
-# Per-harness turn-end hook where enabled: a file that touches
-# state/<id>.turn-ended when the agent finishes a turn. Worktree-resident hooks
-# and token pointers stay out of git's view so they never block teardown's dirty
-# check or leak into a commit.
+# Per-harness turn-end hook where enabled: records state/<id>.turn-ended when
+# the agent finishes a turn, but only when that home already has
+# state/<id>.meta. bin/fm-busy-event.sh turn-end is the writer, so a hook
+# that resolved the wrong home refuses rather than creating a phantom marker.
+# Worktree-resident hooks and token pointers stay out of git's view so they
+# never block teardown's dirty check or leak into a commit.
 mkdir -p "$STATE"
 STATE_REAL=$(cd "$STATE" && pwd -P)
 TURNEND="$STATE_REAL/$ID.turn-ended"
+TURNEND_EVENT="$(shell_quote "$FM_ROOT/bin/fm-busy-event.sh") turn-end $(shell_quote "$STATE_REAL") $(shell_quote "$ID")"
 exclude_path() {
   local rel=$1 EXCL
   EXCL=$(git -C "$WT" rev-parse --git-path info/exclude 2>/dev/null || true)
@@ -3565,7 +3573,7 @@ if [ "$KIND" != secondmate ]; then
       busy_cmd_prefix="$(shell_quote "$FM_ROOT/bin/fm-busy-event.sh") apply $(shell_quote "$STATE_REAL") $(shell_quote "$ID")"
       busy_suffix="--gen $(shell_quote "$BUSY_GEN") --source claude-hook"
       j_submit=$(json_escape "$busy_cmd_prefix busy $busy_suffix --event user-prompt-submit 2>/dev/null || true")
-      j_stop=$(json_escape "touch $(shell_quote "$TURNEND"); $busy_cmd_prefix idle $busy_suffix --event stop 2>/dev/null || true")
+      j_stop=$(json_escape "$TURNEND_EVENT || true; $busy_cmd_prefix idle $busy_suffix --event stop 2>/dev/null || true")
       j_stopfail=$(json_escape "$busy_cmd_prefix idle $busy_suffix --event stop-failure 2>/dev/null || true")
       j_sessionend=$(json_escape "$busy_cmd_prefix idle $busy_suffix --event session-end 2>/dev/null || true")
       cat > "$WT/.claude/settings.local.json" <<EOF
@@ -3600,7 +3608,7 @@ EOF
       busy_cmd_prefix="$(shell_quote "$FM_ROOT/bin/fm-busy-event.sh") apply $(shell_quote "$STATE_REAL") $(shell_quote "$ID")"
       busy_suffix="--gen $(shell_quote "$BUSY_GEN") --source gemini-hook"
       g_before=$(json_escape "$busy_cmd_prefix busy $busy_suffix --event before-agent >/dev/null 2>&1 || true; printf '{}'")
-      g_after=$(json_escape "touch $(shell_quote "$TURNEND"); $busy_cmd_prefix idle $busy_suffix --event after-agent >/dev/null 2>&1 || true; printf '{}'")
+      g_after=$(json_escape "$TURNEND_EVENT >/dev/null || true; $busy_cmd_prefix idle $busy_suffix --event after-agent >/dev/null 2>&1 || true; printf '{}'")
       g_sessionend=$(json_escape "$busy_cmd_prefix idle $busy_suffix --event session-end >/dev/null 2>&1 || true; printf '{}'")
       cat > "$STATE_REAL/$ID.gemini-settings.json" <<EOF
 {"hooks":{"BeforeAgent":[{"hooks":[{"type":"command","command":"$g_before"}]}],"AfterAgent":[{"hooks":[{"type":"command","command":"$g_after"}]}],"SessionEnd":[{"hooks":[{"type":"command","command":"$g_sessionend"}]}]}}
@@ -3626,7 +3634,7 @@ EOF
       busy_cmd_prefix="$(shell_quote "$FM_ROOT/bin/fm-busy-event.sh") apply $(shell_quote "$STATE_REAL") $(shell_quote "$ID")"
       busy_suffix="--gen $(shell_quote "$BUSY_GEN") --source qwen-hook"
       q_submit="$busy_cmd_prefix busy $busy_suffix --event user-prompt-submit >/dev/null 2>&1 || true; printf '{}'"
-      q_stop="touch $(shell_quote "$TURNEND"); $busy_cmd_prefix idle $busy_suffix --event stop >/dev/null 2>&1 || true; printf '{}'"
+      q_stop="$TURNEND_EVENT >/dev/null || true; $busy_cmd_prefix idle $busy_suffix --event stop >/dev/null 2>&1 || true; printf '{}'"
       q_stopfail="$busy_cmd_prefix idle $busy_suffix --event stop-failure >/dev/null 2>&1 || true; printf '{}'"
       q_sessionend="$busy_cmd_prefix idle $busy_suffix --event session-end >/dev/null 2>&1 || true; printf '{}'"
       qwen_settings="$STATE_REAL/$ID.qwen-settings.json"
@@ -3708,7 +3716,9 @@ export const FmBusyState = async () => {
           await busyEvent("idle", "session-idle");
         }
         await new Promise((resolve) => {
-          execFile("touch", ["$TURNEND"], () => resolve());
+          execFile("$FM_ROOT/bin/fm-busy-event.sh", [
+            "turn-end", "$STATE_REAL", "$ID",
+          ], () => resolve());
         });
       }
     },
@@ -3746,7 +3756,9 @@ export default function (pi: any) {
     if (ctx && typeof ctx.isIdle === "function" && !ctx.isIdle()) return;
     return busyEvent("idle", "agent-settled");
   });
-  pi.on("turn_end", () => execFile("touch", ["$TURNEND"]));
+  pi.on("turn_end", () => execFile("$FM_ROOT/bin/fm-busy-event.sh", [
+    "turn-end", "$STATE_REAL", "$ID",
+  ]));
   // A native harness can make progress inside one Pi turn. This separate
   // marker prevents false wedge alarms without fabricating a completed turn.
   let lastProgress = 0;
@@ -3794,7 +3806,9 @@ export default function (pi: any) {
     if (event && event.willContinue === true) return;
     return busyEvent("idle", "agent-end");
   });
-  pi.on("turn_end", () => execFile("touch", ["$TURNEND"]));
+  pi.on("turn_end", () => execFile("$FM_ROOT/bin/fm-busy-event.sh", [
+    "turn-end", "$STATE_REAL", "$ID",
+  ]));
 }
 EOF
       ;;
@@ -3805,8 +3819,8 @@ EOF
       # the app-server protocol, and its lifecycle hooks did not fire for a
       # firstmate-launched worker. Codex therefore classifies unknown with
       # an explicit reason rather than falling back to idle, and no busy
-      # wiring is installed. The turn-end NOTIFICATION marker still rides
-      # the launch command via -c notify=[...] and __TURNEND__.
+      # wiring is installed. The turn-end NOTIFICATION still rides the
+      # launch command via -c notify=[...] and __TURNENDEVENT__.
       ;;
     grok*)
       # grok fires a Stop hook at every turn boundary; this uses a global hook
@@ -3823,10 +3837,12 @@ EOF
       printf '%s\n' "${auth_file##*/}" > "$STATE/$ID.grok-turnend-token"
       printf '%s\n' "$GROK_TRUST_HOME" > "$STATE/$ID.grok-home"
       sq_grok_auth_dir=$(shell_quote "$GROK_AUTH_DIR")
+      sq_busy_event=$(shell_quote "$FM_ROOT/bin/fm-busy-event.sh")
       cat > "$GROK_HOOKS_DIR/fm-turn-end.sh" <<EOF
 #!/usr/bin/env bash
 set -u
 auth_dir=$sq_grok_auth_dir
+busy_event=$sq_busy_event
 workspace=\${GROK_WORKSPACE_ROOT:-}
 [ -n "\$workspace" ] || exit 0
 p="\$workspace/.fm-grok-turnend"
@@ -3838,7 +3854,10 @@ case "\$token" in fm.????????????) : ;; *) exit 0 ;; esac
 case "\$token" in *[!A-Za-z0-9._-]*) exit 0 ;; esac
 t=\$(cat "\$auth_dir/\$token" 2>/dev/null) || exit 0
 case "\$t" in /*.turn-ended) : ;; *) exit 0 ;; esac
-touch "\$t" 2>/dev/null || true
+state=\${t%/*}
+base=\${t##*/}
+id=\${base%.turn-ended}
+"\$busy_event" turn-end "\$state" "\$id" || true
 exit 0
 EOF
       chmod +x "$GROK_HOOKS_DIR/fm-turn-end.sh"
@@ -4125,6 +4144,7 @@ fi
 
 sq_brief=$(shell_quote "$BRIEF")
 sq_turnend=$(shell_quote "$TURNEND")
+sq_turnend_event=$TURNEND_EVENT
 sq_piext=$(shell_quote "$STATE/$ID.pi-ext.ts")
 sq_piturnend=$(shell_quote "$PROJ_ABS/.pi/extensions/fm-primary-turnend-guard.ts")
 sq_piwatch=$(shell_quote "$PROJ_ABS/.pi/extensions/fm-primary-pi-watch.ts")
@@ -4149,6 +4169,7 @@ if [ "$HARNESS" = codex-foundry-luna ]; then
 fi
 LAUNCH=${LAUNCH//__BRIEF__/$sq_brief}
 LAUNCH=${LAUNCH//__TURNEND__/$sq_turnend}
+LAUNCH=${LAUNCH//__TURNENDEVENT__/$sq_turnend_event}
 LAUNCH=${LAUNCH//__PIEXT__/$sq_piext}
 LAUNCH=${LAUNCH//__PITURNEND__/$sq_piturnend}
 LAUNCH=${LAUNCH//__PIWATCH__/$sq_piwatch}

@@ -415,6 +415,26 @@ test_kimi_hook_is_silent_and_requires_registered_workspace_token() {
   pass "Kimi hook stays silent and inert without a Firstmate registry token"
 }
 
+test_kimi_hook_refuses_marker_without_meta() {
+  local id rec out rc hook target
+  id=kimi-hook-nometa-z8
+  rec=$(make_spawn_case hook-nometa "$id")
+  read_spawn_record "$rec"
+  out=$(run_spawn "$CASE_DIR" "$HOME_DIR" "$PROJ_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id")
+  rc=$?
+  expect_code 0 "$rc" "Kimi spawn should succeed before the missing-meta hook check"
+  hook="$HOME_DIR/.kimi-code/fm-turn-end.sh"
+  target="$HOME_DIR/state/$id.turn-ended"
+  rm -f "$target" "$HOME_DIR/state/$id.meta"
+  out=$(printf '{"hook_event_name":"Stop","session_id":"crew","cwd":"%s","stop_hook_active":false}\n' "$WT_DIR" \
+    | HOME="$HOME_DIR" bash "$hook" 2>&1)
+  rc=$?
+  expect_code 0 "$rc" "Kimi hook must still exit zero without meta"
+  [ -z "$out" ] || fail "Kimi hook printed without meta: $out"
+  assert_absent "$target" "Kimi hook wrote a turn-end marker with no .meta in the resolved home"
+  pass "Kimi hook refuses a turn-end marker when the resolved home has no .meta"
+}
+
 test_kimi_spawn_refuses_unsafe_global_config_before_pane_creation() {
   local id rec out rc
   id=kimi-config-refuse-z7
@@ -684,6 +704,7 @@ test_kimi_hook_fails_closed_on_missing_malformed_or_partial_config
 test_kimi_hook_install_refuses_without_jq
 test_kimi_launch_then_send_is_verified
 test_kimi_hook_is_silent_and_requires_registered_workspace_token
+test_kimi_hook_refuses_marker_without_meta
 test_kimi_spawn_refuses_unsafe_global_config_before_pane_creation
 test_kimi_teardown_removes_pointer_and_registry_token
 test_kimi_falls_back_to_expanded_home_binary
