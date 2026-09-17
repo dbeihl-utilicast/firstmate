@@ -8,6 +8,15 @@
 # A ship task on a local-model harness (bin/fm-harness.sh is-local-model) must
 # clear bin/fm-local-model-verify.sh's revert-check here first; registration is
 # refused, with the verifier's own reason, when it fails or cannot run.
+# When the task brief's captain intent names parseable GitHub issue numbers
+# (#N or github.com/.../issues/N, ignoring quoted, backtick, and fenced-code
+# examples), a GitHub PR body must close each with its own GitHub closing
+# keyword. When it names none, the PR body must say so deliberately with a
+# literal "No linked issue" line. Either check refuses registration rather
+# than arming a merge poll: a warning that still recorded pr= would let the
+# PR be treated as ready and merged with the issues still open, or with an
+# omission nobody meant. The body is fetched with the same gh pr view path
+# already used for pr_head, so GitLab merge requests skip both checks.
 # Usage: fm-pr-check.sh <task-id> <pr-url>
 set -eu
 
@@ -15,6 +24,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
+DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
@@ -22,6 +32,92 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 # shellcheck source=bin/fm-parent-channel-lib.sh
 . "$SCRIPT_DIR/fm-parent-channel-lib.sh"
+# shellcheck source=bin/fm-dod-lib.sh
+. "$SCRIPT_DIR/fm-dod-lib.sh"
+
+# Unique issue numbers named in captain-intent text. Quoted, backtick, and
+# fenced-code spans are skipped so examples such as "Closes #421, #431, #440"
+# or a ```-fenced multi-line sample are not treated as work this PR must
+# close.
+fm_pr_intent_issue_numbers() {
+  printf '%s\n' "$1" | awk '
+    function emit(n) {
+      if (n ~ /^[1-9][0-9]*$/ && length(n) <= 9 && !(n in seen)) {
+        seen[n] = 1
+        numbers[++count] = n
+      }
+    }
+    {
+      if ($0 ~ /^[ \t]*```/) { fence = !fence; next }
+      if (fence) next
+      line = $0
+      out = ""
+      nlen = length(line)
+      q = ""
+      for (i = 1; i <= nlen; i++) {
+        c = substr(line, i, 1)
+        if (q == "") {
+          if (c == "\"" || c == "`") { q = c; continue }
+          out = out c
+        } else if (c == q) {
+          q = ""
+        }
+      }
+      s = out
+      while (match(s, /#[1-9][0-9]*/)) {
+        emit(substr(s, RSTART + 1, RLENGTH - 1))
+        s = substr(s, RSTART + RLENGTH)
+      }
+      s = out
+      while (match(s, /github\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/issues\/[1-9][0-9]*/)) {
+        tok = substr(s, RSTART, RLENGTH)
+        sub(/.*\//, "", tok)
+        emit(tok)
+        s = substr(s, RSTART + RLENGTH)
+      }
+    }
+    END {
+      for (i = 1; i <= count; i++) print numbers[i]
+    }
+  ' | LC_ALL=C sort -n -u
+}
+
+# Return 0 when stdin closes issue <n> with its own GitHub keyword.
+# Inner match() calls clobber RSTART/RLENGTH, so the keyword span is saved
+# and used to advance; otherwise a failed owner/repo or URL match loops.
+fm_pr_body_closes_issue() {
+  local n=$1
+  awk -v n="$n" '
+    BEGIN { found = 0 }
+    {
+      line = tolower($0)
+      rest = line
+      while (match(rest, /(close[sd]?|fix(es|ed)?|resolve[sd]?)/)) {
+        kw_start = RSTART
+        kw_len = RLENGTH
+        if (kw_len < 1) break
+        if (kw_start > 1 && substr(rest, kw_start - 1, 1) ~ /[a-z0-9_]/) {
+          rest = substr(rest, kw_start + kw_len)
+          continue
+        }
+        after = substr(rest, kw_start + kw_len)
+        sub(/^[: \t]+/, "", after)
+        if (after ~ "^#" n "([^0-9]|$)") { found = 1; exit }
+        if (match(after, /^[a-z0-9._-]+\/[a-z0-9._-]+#[1-9][0-9]*/)) {
+          ref = substr(after, RSTART, RLENGTH)
+          sub(/.*#/, "", ref)
+          if (ref == n) { found = 1; exit }
+        } else if (match(after, /^https:\/\/github\.com\/[a-z0-9._-]+\/[a-z0-9._-]+\/issues\/[1-9][0-9]*/)) {
+          ref = substr(after, RSTART, RLENGTH)
+          sub(/.*\//, "", ref)
+          if (ref == n) { found = 1; exit }
+        }
+        rest = substr(rest, kw_start + kw_len)
+      }
+    }
+    END { exit found ? 0 : 1 }
+  '
+}
 
 if [ "$#" -ne 2 ]; then
   echo "error: invalid PR check request" >&2
@@ -50,6 +146,64 @@ TASK_KIND=$(grep '^kind=' "$META" | tail -1 | cut -d= -f2- || true)
 TASK_HARNESS=$(grep '^harness=' "$META" | tail -1 | cut -d= -f2- || true)
 if [ "$TASK_KIND" = ship ] && "$SCRIPT_DIR/fm-harness.sh" is-local-model "$TASK_HARNESS"; then
   "$SCRIPT_DIR/fm-local-model-verify.sh" "$ID" 1>&2 || exit 1
+fi
+
+WT=$(grep '^worktree=' "$META" | tail -1 | cut -d= -f2- || true)
+BRIEF="$DATA/$ID/brief.md"
+intent=
+intent_recorded=0
+if [ -f "$BRIEF" ] && [ ! -L "$BRIEF" ] && [ -r "$BRIEF" ]; then
+  intent=$(fm_brief_task_heading_body "$BRIEF" "## Captain's intent" || true)
+  fm_brief_task_heading_present "$BRIEF" "## Captain's intent" && intent_recorded=1
+fi
+issues=$(fm_pr_intent_issue_numbers "$intent")
+if [ "$PROVIDER" = github ] && { [ -n "$issues" ] || [ "$intent_recorded" = 1 ]; }; then
+  body_rc=0
+  PR_BODY=
+  if [ -n "$WT" ] && [ -d "$WT" ] && command -v gh >/dev/null 2>&1; then
+    PR_BODY=$(cd "$WT" && gh pr view "$URL" --json body -q .body 2>/dev/null) || body_rc=$?
+  else
+    body_rc=1
+  fi
+  if [ -n "$issues" ]; then
+    issue_list=
+    while IFS= read -r n; do
+      [ -n "$n" ] || continue
+      issue_list="${issue_list:+$issue_list }#$n"
+    done <<EOF
+$issues
+EOF
+    if [ "$body_rc" -ne 0 ]; then
+      echo "error: could not read PR body to verify closing keywords for issues named in captain's intent: $issue_list" >&2
+      exit 1
+    fi
+    missing=
+    while IFS= read -r n; do
+      [ -n "$n" ] || continue
+      if ! printf '%s\n' "$PR_BODY" | fm_pr_body_closes_issue "$n"; then
+        missing="${missing:+$missing }#$n"
+      fi
+    done <<EOF
+$issues
+EOF
+    if [ -n "$missing" ]; then
+      echo "error: PR body does not close issues named in captain's intent: $missing (each named issue needs its own closing keyword, e.g. Closes #N)" >&2
+      exit 1
+    fi
+  else
+    if [ "$body_rc" -ne 0 ]; then
+      echo "error: could not read PR body to verify the no-linked-issue marker" >&2
+      exit 1
+    fi
+    body_lc=$(printf '%s' "$PR_BODY" | tr '[:upper:]' '[:lower:]')
+    case "$body_lc" in
+      *"no linked issue"*) ;;
+      *)
+        echo "error: captain's intent names no issue, and the PR body does not say so deliberately (add a literal 'No linked issue' line)" >&2
+        exit 1
+        ;;
+    esac
+  fi
 fi
 
 # A prior exact merged result may have queued its durable wake immediately
@@ -82,7 +236,6 @@ fi
 # and treats a recorded value that disagrees as stale rather than authoritative.
 # The same GitHub view now also returns isDraft, and a GitLab view returns
 # draft, so registration can say draft instead of ready.
-WT=$(grep '^worktree=' "$META" | tail -1 | cut -d= -f2- || true)
 PR_HEAD=
 PR_DRAFT=0
 PR_DRAFT_READ_OK=0

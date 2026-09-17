@@ -191,6 +191,28 @@ test_local_secondmate_delivers_terminal_ledger_line() {
   pass "secondmate delivers a child's terminal ledger line once, on the next poll, from the ledger alone"
 }
 
+# A PR-requiring ship done with no recorded PR and no pushed head is not a
+# terminal child delivery. The child's supervisor still sees the done: wake;
+# the parent channel does not.
+test_ledger_does_not_deliver_pr_requiring_done_without_push_or_pr() {
+  make_world premature; bind_secondmate local
+  fm_write_meta "$MATE/state/child.meta" \
+    "window=firstmate:fm-child" "worktree=$MATE/projects/child" "project=alpha" \
+    'harness=codex' 'kind=ship' 'mode=no-mistakes' 'yolo=off' \
+    'spawn_gen=s-premature'
+  mkdir -p "$MATE/projects/child"
+  printf 'done: implemented, ready to validate\n' > "$MATE/state/child.status"
+  : > "$MATE/state/child.turn-ended"
+  age "$MATE/state/child.meta" "$MATE/state/child.status" "$MATE/state/child.turn-ended"
+  FM_FAKE_CREW_STATE='unknown' run_reconcile "$MATE"
+  if [ -f "$MAIN/state/mate.status" ] && grep -q 'child-outcome-child-done' "$MAIN/state/mate.status"; then
+    fail "ledger-first published a PR-requiring done with no recorded PR and no push: $(cat "$MAIN/state/mate.status")"
+  fi
+  [ "$(outcome_count "$MATE" reported)" = 0 ] \
+    || fail "a refused done minted a terminal receipt"
+  pass "ledger-first does not publish a PR-requiring done with no recorded PR and no push"
+}
+
 # A busy child cannot keep later ledger outcomes from being visited, and is
 # retried on the next poll after its lifecycle lock becomes available.
 test_busy_child_does_not_starve_later_ledger_outcomes() {
@@ -789,6 +811,7 @@ test_reconciliation_never_calls_forge() {
 
 test_main_direct_terminal_presentation_receipt
 test_local_secondmate_delivers_terminal_ledger_line
+test_ledger_does_not_deliver_pr_requiring_done_without_push_or_pr
 test_busy_child_does_not_starve_later_ledger_outcomes
 test_secondmate_ledger_delivery_carries_report_and_failure
 test_terminal_line_during_state_read_yields_to_ledger_delivery

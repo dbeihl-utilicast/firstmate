@@ -952,6 +952,49 @@ test_scout_and_secondmate_scaffold() {
   pass "fm-brief: scout and secondmate code paths still scaffold well-formed briefs"
 }
 
+# A ship brief that will open a PR must tell the worker to close each issue
+# named in captain's intent with its own keyword. A prose reminder already
+# failed at the neighboring branch-currency problem; this still has to live in
+# the generated brief so the later fm-pr-check refusal is not a surprise.
+test_ship_briefs_require_per_issue_closing_keywords() {
+  local home brief
+  home="$TMP_ROOT/issue-close-brief"
+  mkdir -p "$home/data"
+
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-close-nm some-proj --mode no-mistakes >/dev/null 2>&1 \
+    || fail "no-mistakes brief did not scaffold"
+  brief="$home/data/brief-close-nm/brief.md"
+  # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
+  assert_grep 'each issue with its own GitHub closing keyword (`Closes #N`)' "$brief" \
+    "no-mistakes brief does not require a per-issue closing keyword in the PR body"
+  assert_grep 'never list several issues after a single keyword' "$brief" \
+    "no-mistakes brief does not forbid chaining several issues under one keyword"
+  # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
+  assert_grep 'a literal `No linked issue` line' "$brief" \
+    "no-mistakes brief does not require a deliberate no-issue statement"
+
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-close-dpr some-proj --mode direct-PR >/dev/null 2>&1 \
+    || fail "direct-PR brief did not scaffold"
+  brief="$home/data/brief-close-dpr/brief.md"
+  # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
+  assert_grep 'each issue with its own GitHub closing keyword (`Closes #N`)' "$brief" \
+    "direct-PR brief does not require a per-issue closing keyword in the PR body"
+  assert_grep 'never list several issues after a single keyword' "$brief" \
+    "direct-PR brief does not forbid chaining several issues under one keyword"
+
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-close-lo some-proj --mode local-only >/dev/null 2>&1 \
+    || fail "local-only brief did not scaffold"
+  assert_no_grep 'Closes #N' "$home/data/brief-close-lo/brief.md" \
+    "local-only brief must not talk about PR closing keywords; it never opens a PR"
+
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-close-scout some-proj --scout >/dev/null 2>&1 \
+    || fail "scout brief did not scaffold"
+  assert_no_grep 'Closes #N' "$home/data/brief-close-scout/brief.md" \
+    "scout brief must not talk about PR closing keywords; it never opens a PR"
+
+  pass "fm-brief.sh: ship PR modes require per-issue closing keywords; local-only and scout do not"
+}
+
 test_worker_role_scope() {
   local kind home brief
   home="$TMP_ROOT/worker-role"
@@ -975,6 +1018,7 @@ test_worker_role_scope() {
 }
 
 test_worker_role_scope
+test_ship_briefs_require_per_issue_closing_keywords
 test_script_parses
 test_no_heredoc_in_command_substitution
 test_help_includes_entire_header

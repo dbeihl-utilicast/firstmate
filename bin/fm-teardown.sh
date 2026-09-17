@@ -25,6 +25,14 @@
 # (bin/fm-captain-hold.sh `open` owns that predicate), because the policy holds
 # the very work item a question gates and cleanup must never retire the
 # captain's own question.
+# A ship whose last status line is a declared pause is still waiting when
+# cleanup runs. Ordinary paused-external-wait workers keep their pane and
+# never reach this path, so a pause at teardown is an external or shared
+# pause that would otherwise lose its owner when the record is removed.
+# Before the close decision, teardown records a captain hold through
+# bin/fm-captain-hold.sh (with --until when the pause names a lift date) so
+# the existing retain path keeps the row. A hold that cannot be recorded
+# refuses teardown rather than dropping the wait.
 # NOTE: this uses `open`'s silent default and depends only on its unchanged
 # 0/1/2 exit-code contract. The optional `--identity` output that bin/fm-watch.sh
 # asks for prints only on an exit 0 and changes nothing read here.
@@ -474,6 +482,36 @@ if [ "$TEARDOWN_BACKLOG_APPLIES" = 1 ]; then
 fi
 # Cleanup never closes a captain call (see the header). Asked here, before any
 # destructive step, so "cannot tell" can refuse while everything is intact.
+# A paused ship at teardown also records a captain hold first (see header).
+teardown_pause_until_date() {  # <status-line> -> YYYY-MM-DD
+  local epoch
+  epoch=$(status_paused_until "$1") || return 1
+  date -u -r "$epoch" +%Y-%m-%d 2>/dev/null \
+    || date -u -d "@$epoch" +%Y-%m-%d 2>/dev/null
+}
+
+teardown_hold_paused_ship() {
+  local last reason until_date hold_out hold_status=0
+  local -a hold_args
+  last=$(last_status_line "$STATE/$ID.status")
+  status_is_paused "$last" || return 1
+  reason="resume when the external pause lifts"
+  hold_args=(hold "$ID" --reason "$reason")
+  if until_date=$(teardown_pause_until_date "$last"); then
+    hold_args+=(--until "$until_date")
+  fi
+  hold_out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
+    FM_DATA_OVERRIDE="$DATA" FM_CONFIG_OVERRIDE="$CONFIG" \
+    FM_CAPTAIN_HOLD_NESTED_CONTROL_LOCK="$ID" \
+    "$SCRIPT_DIR/fm-captain-hold.sh" "${hold_args[@]}" 2>&1) || hold_status=$?
+  if [ "$hold_status" -ne 0 ]; then
+    echo "error: task $ID last declared a pause and cleanup could not record a durable resumption; refusing teardown rather than dropping the wait" >&2
+    [ -z "$hold_out" ] || printf '%s\n' "$hold_out" >&2
+    return 1
+  fi
+  return 0
+}
+
 TEARDOWN_BACKLOG_TRANSITION=close
 if [ "$TEARDOWN_BACKLOG_APPLIES" = 1 ]; then
   TEARDOWN_CAPTAIN_OPEN_STATUS=0
@@ -489,6 +527,12 @@ if [ "$TEARDOWN_BACKLOG_APPLIES" = 1 ]; then
       exit 1
       ;;
   esac
+  if [ "$TEARDOWN_BACKLOG_TRANSITION" = close ] \
+      && [ "$TEARDOWN_META_KIND" = ship ] \
+      && status_is_paused "$(last_status_line "$STATE/$ID.status")"; then
+    teardown_hold_paused_ship || exit 1
+    TEARDOWN_BACKLOG_TRANSITION=retain
+  fi
 fi
 
 REMOTE_HANDOFF_DIR_PRESENT=0

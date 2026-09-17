@@ -1462,7 +1462,7 @@ test_other_branch_run_ignored() {
   make_repo_on_branch "$d/wt" fm/feat-g
   make_fakebin "$d" >/dev/null
   fm_write_meta "$d/state/feat-g.meta" "window=fm:fm-feat-g" "worktree=$d/wt" "kind=ship" "harness=claude"
-  printf 'done: implemented, ready to validate\n' > "$d/state/feat-g.status"
+  printf 'working: implemented, ready to validate\n' > "$d/state/feat-g.status"
   FM_FAKE_AXI_STATUS="$(run_running fm/some-other)"
   FM_FAKE_RUNS_LIST="$(cat <<'EOF'
   running    fm/some-other aaaaaaa  2026-07-02 22:10
@@ -1473,7 +1473,7 @@ EOF
   local out; out=$(run_crew_state "$d" feat-g)
   assert_not_contains "$out" "source: run-step" "another branch's run not misattributed"
   assert_contains "$out" "source: status-log" "no own run -> falls back to status-log"
-  assert_contains "$out" "state: done" "falls back to the log verb"
+  assert_contains "$out" "state: working" "falls back to the log verb"
   pass "another branch's run is ignored, falls back"
 }
 
@@ -2536,6 +2536,125 @@ EOF
   pass "runs-list continuation attribution works when axi answers another branch"
 }
 
+# A ship task whose delivery requires a pull request cannot become current-state
+# done from a status-log `done:` that has no recorded PR and no pushed head.
+# Local-only delivery still accepts that shape: a clean ready branch is the
+# deliverable. Workers write the status file directly, so this check lives in
+# the current-state reader they cannot skip.
+ship_status_log_done() {  # <name> <mode-or-empty> <status-line> [pr-url]
+  local d name=$1 mode=$2 line=$3 pr=${4:-}
+  d=$(new_case "$name")
+  make_repo_on_branch "$d/wt" "fm/$name"
+  make_fakebin "$d" >/dev/null
+  if [ -n "$mode" ]; then
+    fm_write_meta "$d/state/$name.meta" "window=fm:fm-$name" "worktree=$d/wt" \
+      "kind=ship" "harness=claude" "mode=$mode"
+  else
+    fm_write_meta "$d/state/$name.meta" "window=fm:fm-$name" "worktree=$d/wt" \
+      "kind=ship" "harness=claude"
+  fi
+  [ -z "$pr" ] || printf 'pr=%s\n' "$pr" >> "$d/state/$name.meta"
+  printf '%s\n' "$line" > "$d/state/$name.status"
+  arm_idle_record "$d/state" "$name"
+  printf '%s\n' "$d"
+}
+
+test_pr_requiring_unpushed_done_is_refused() {
+  reset_fakes
+  local d out
+  d=$(ship_status_log_done nm-unpushed no-mistakes 'done: implemented, ready to validate')
+  out=$(run_crew_state "$d" nm-unpushed)
+  assert_not_contains "$out" "state: done" \
+    "a no-mistakes ship done on an unpushed commit with no recorded PR must not read as done"
+  assert_not_contains "$out" "state: unknown" \
+    "a refused done must not read as unknown, or fm-fleet-snapshot.sh's unknown_children blanks the home's headline state"
+  assert_contains "$out" "done refused" "the refusal is named as a refused done"
+  assert_contains "$out" "recorded PR" "the refusal names the missing recorded PR"
+  assert_contains "$out" "unpushed head" "the refusal names the missing pushed head"
+  d=$(ship_status_log_done dpr-unpushed direct-PR 'done: committed locally')
+  out=$(run_crew_state "$d" dpr-unpushed)
+  assert_not_contains "$out" "state: done" \
+    "a direct-PR ship done on an unpushed commit with no recorded PR must not read as done"
+  assert_contains "$out" "done refused" "direct-PR refusal is named as a refused done"
+  d=$(ship_status_log_done default-unpushed '' 'done: shipped')
+  out=$(run_crew_state "$d" default-unpushed)
+  assert_not_contains "$out" "state: done" \
+    "a ship with no recorded mode defaults to a PR-requiring done check"
+  assert_contains "$out" "done refused" "missing-mode ship refusal is named as a refused done"
+  pass "PR-requiring ship done on an unpushed commit with no recorded PR is refused"
+}
+
+test_pr_requiring_pushed_head_without_pr_is_refused() {
+  reset_fakes
+  local d out
+  d=$(ship_status_log_done nm-pushed-nopr no-mistakes 'done: pushed, ready for review')
+  git init -q --bare "$d/remote.git"
+  git -C "$d/wt" remote add origin "$d/remote.git"
+  git -C "$d/wt" push -q origin "fm/nm-pushed-nopr"
+  out=$(run_crew_state "$d" nm-pushed-nopr)
+  assert_not_contains "$out" "state: done" \
+    "a pushed head with no recorded PR must not read as done"
+  assert_contains "$out" "done refused" "the refusal is named as a refused done"
+  assert_contains "$out" "recorded PR" "the refusal names the missing recorded PR"
+  assert_not_contains "$out" "unpushed head" "a pushed head must not be reported as unpushed"
+  pass "a pushed head with no recorded PR is refused, not accepted on push alone"
+}
+
+test_local_only_unpushed_done_is_accepted() {
+  reset_fakes
+  local d out
+  d=$(ship_status_log_done local-ready local-only 'done: ready in branch fm/local-ready')
+  out=$(run_crew_state "$d" local-ready)
+  assert_contains "$out" "state: done" \
+    "a local-only ship done on a clean unpushed branch still reads as done"
+  assert_contains "$out" "source: status-log" "local-only done still comes from the status log"
+  assert_not_contains "$out" "done refused" "local-only done is not refused"
+  pass "local-only ship done on a clean branch stays accepted"
+}
+
+test_pr_requiring_done_with_recorded_pr_is_accepted() {
+  reset_fakes
+  local d out
+  d=$(ship_status_log_done nm-recorded no-mistakes 'done: implemented' \
+    'https://github.com/o/r/pull/4')
+  out=$(run_crew_state "$d" nm-recorded)
+  assert_contains "$out" "state: done" \
+    "a no-mistakes done that already recorded pr= is accepted even before a push"
+  assert_not_contains "$out" "done refused" "a recorded PR is not a refused done"
+  pass "PR-requiring ship done with a recorded PR is accepted"
+}
+
+test_pr_requiring_done_with_pr_url_in_line_is_accepted() {
+  reset_fakes
+  local d out
+  d=$(ship_status_log_done nm-url no-mistakes \
+    'done: PR https://github.com/o/r/pull/4 checks green')
+  out=$(run_crew_state "$d" nm-url)
+  assert_contains "$out" "state: done" \
+    "a no-mistakes done that carries a canonical PR URL is accepted"
+  assert_not_contains "$out" "done refused" "a PR URL on the done line is not a refused done"
+  pass "PR-requiring ship done carrying a PR URL is accepted"
+}
+
+test_scout_unpushed_done_is_accepted() {
+  reset_fakes
+  local d out
+  d=$(new_case scout-done)
+  make_repo_on_branch "$d/wt" fm/scout-done
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/scout-done.meta" "window=fm:fm-scout-done" \
+    "worktree=$d/wt" "kind=scout" "harness=claude"
+  printf 'done: report written\n' > "$d/state/scout-done.status"
+  FM_FAKE_AXI_STATUS=""
+  FM_FAKE_RUNS_LIST=""
+  FM_FAKE_BUSY=0
+  arm_idle_record "$d/state" scout-done
+  out=$(run_crew_state "$d" scout-done)
+  assert_contains "$out" "state: done" "a scout done with no PR still reads as done"
+  assert_not_contains "$out" "done refused" "a scout done is not refused"
+  pass "scout done without a PR or push stays accepted"
+}
+
 test_active_run_is_authoritative
 test_stale_needs_decision_superseded
 test_stale_blocked_superseded
@@ -2624,5 +2743,11 @@ test_active_fix_round_unfetched_pipeline_head_reports_current
 test_unanchored_unfetched_active_row_does_not_match
 test_unresolved_terminal_row_is_history_not_current
 test_runs_list_continuation_found_when_axi_answers_other_branch
+test_pr_requiring_unpushed_done_is_refused
+test_pr_requiring_pushed_head_without_pr_is_refused
+test_local_only_unpushed_done_is_accepted
+test_pr_requiring_done_with_recorded_pr_is_accepted
+test_pr_requiring_done_with_pr_url_in_line_is_accepted
+test_scout_unpushed_done_is_accepted
 
 echo "all fm-crew-state tests passed"

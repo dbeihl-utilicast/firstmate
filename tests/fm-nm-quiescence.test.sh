@@ -429,10 +429,10 @@ test_remote_home_mode_queries_its_repository() {
   calls="$TMP_ROOT/remote-mode-calls"
 
   output=$(FM_ROOT_OVERRIDE="$main" FM_TEST_NM_CALLS="$calls" \
-    run_check "$child" --home-only remote-child fm-spark) || rc=$?
+    run_check "$child" --home-only remote-child fm-example) || rc=$?
 
   expect_code 1 "$rc" "remote home mode omitted the home's own repository"
-  assert_contains "$output" $'RUN\thost=fm-spark\thome=remote-child\tclone=parked-home' \
+  assert_contains "$output" $'RUN\thost=fm-example\thome=remote-child\tclone=parked-home' \
     "remote home mode lost the host or home attribution"
   assert_equals "$child" "$(cat "$calls")" "remote home mode did not query only its home repository"
   pass "remote home mode includes the home's own repository"
@@ -447,11 +447,11 @@ test_remote_modes_reuse_cached_outcomes() {
   for mode in --home-only --root-only; do
     for counts in '0 0 clear 0' '1 0 busy 1' '0 1 incomplete 2' '1 1 incomplete 3' '0 invalid incomplete 2'; do
       read -r runs gaps status expected <<< "$counts"
-      cache=$'\nfm-spark\t'"$home"$'\t'"$runs"$'\t'"$gaps"$'\n'
+      cache=$'\nfm-example\t'"$home"$'\t'"$runs"$'\t'"$gaps"$'\n'
       rc=0
 
       output=$(FM_ROOT_OVERRIDE="$home" FM_TEST_NM_CALLS="$calls" \
-        run_check "$home" "$mode" shared fm-spark "$cache") || rc=$?
+        run_check "$home" "$mode" shared fm-example "$cache") || rc=$?
 
       expect_code "$expected" "$rc" "$mode lost the cached outcome in its exit status"
       expected_gaps=$gaps
@@ -461,7 +461,7 @@ test_remote_modes_reuse_cached_outcomes() {
       else
         assert_not_contains "$output" $'GAP\t' "cached gaps were emitted again"
       fi
-      assert_home_result "$output" fm-spark shared "$home" 1 "$runs" "$expected_gaps" "$status"
+      assert_home_result "$output" fm-example shared "$home" 1 "$runs" "$expected_gaps" "$status"
       assert_not_contains "$output" $'RUN\t' "cached runs were emitted again"
     done
   done
@@ -488,9 +488,9 @@ esac
 FM_ROOT_OVERRIDE="$root" FM_HOME="$root" "$FM_TEST_QUIESCENCE" "$3" "$4" "$5" "$6"
 SH
   chmod +x "$runner"
-  printf -- '- alpha - first root (host: fm-spark; root: %s; home: %s; scope: firstmate; projects: none; added 2026-09-14)\n' \
+  printf -- '- alpha - first root (host: fm-example; root: %s; home: %s; scope: firstmate; projects: none; added 2026-09-14)\n' \
     "$first" "$first" > "$home/data/secondmates.md"
-  printf -- '- beta - second root (host: fm-spark; root: %s; home: %s; scope: firstmate; projects: none; added 2026-09-14)\n' \
+  printf -- '- beta - second root (host: fm-example; root: %s; home: %s; scope: firstmate; projects: none; added 2026-09-14)\n' \
     "$second" "$second" >> "$home/data/secondmates.md"
 
   output=$(FM_TEST_REMOTE_FIRST="$first" FM_TEST_REMOTE_SECOND="$second" \
@@ -498,7 +498,7 @@ SH
     run_check "$home") || rc=$?
 
   expect_code 1 "$rc" "second repository on the same remote host was omitted"
-  assert_contains "$output" $'RUN\thost=fm-spark\thome=root@fm-spark\tclone=parked-home' \
+  assert_contains "$output" $'RUN\thost=fm-example\thome=root@fm-example\tclone=parked-home' \
     "parked run in the second remote root was not reported"
   assert_equals "$ROOT"$'\n'"$first"$'\n'"$second" "$(cat "$calls")" \
     "remote roots were not each queried exactly once across root and home scans"
@@ -531,9 +531,9 @@ SH
     git -C "$primary" worktree add --quiet --detach "$separate" HEAD
     printf '%s\n' "$primary" > "$inherited/.test-nm-repository"
     calls="$TMP_ROOT/remote-inherited-calls-$ledger"
-    printf -- '- shared - shared ledger (host: fm-spark; root: %s; home: %s; scope: firstmate; projects: none; added 2026-09-14)\n' \
+    printf -- '- shared - shared ledger (host: fm-example; root: %s; home: %s; scope: firstmate; projects: none; added 2026-09-14)\n' \
       "$primary" "$inherited" > "$home/data/secondmates.md"
-    printf -- '- separate - own ledger (host: fm-spark; root: %s; home: %s; scope: firstmate; projects: none; added 2026-09-14)\n' \
+    printf -- '- separate - own ledger (host: fm-example; root: %s; home: %s; scope: firstmate; projects: none; added 2026-09-14)\n' \
       "$primary" "$separate" >> "$home/data/secondmates.md"
     printf -- '- otherhost - other host ledger (host: fm-other; root: %s; home: %s; scope: firstmate; projects: none; added 2026-09-14)\n' \
       "$primary" "$inherited" >> "$home/data/secondmates.md"
@@ -556,11 +556,11 @@ SH
     expect_code "$expected" "$rc" "remote $ledger outcome was lost"
     assert_equals "$ROOT"$'\n'"$primary"$'\n'"$primary"$'\n'"$separate" "$(cat "$calls")" \
       "remote ledger deduplication ignored resolved identity or host boundaries"
-    assert_home_result "$output" fm-spark root@fm-spark "$primary" 1 "$runs" "$gaps" "$status"
-    assert_home_result "$output" fm-spark shared "$inherited" 1 "$runs" "$gaps" "$status"
+    assert_home_result "$output" fm-example root@fm-example "$primary" 1 "$runs" "$gaps" "$status"
+    assert_home_result "$output" fm-example shared "$inherited" 1 "$runs" "$gaps" "$status"
     assert_home_result "$output" fm-other root@fm-other "$primary" 1 "$runs" "$gaps" "$status"
     assert_home_result "$output" fm-other otherhost "$inherited" 1 "$runs" "$gaps" "$status"
-    assert_home_result "$output" fm-spark separate "$separate" 1 1 0 busy
+    assert_home_result "$output" fm-example separate "$separate" 1 1 0 busy
     assert_contains "$output" "$summary" "inherited, independent, and same-path remote ledgers were miscounted"
     assert_not_contains "$output" $'REPO\t' "internal repository records leaked into the fleet report"
   done
@@ -573,23 +573,23 @@ test_unreachable_remote_names_host_and_every_home() {
   runner="$TMP_ROOT/remote-runner"
   cat > "$runner" <<'SH'
 #!/usr/bin/env bash
-printf '%s\n' 'ssh: connect to host fm-spark: Operation timed out' >&2
+printf '%s\n' 'ssh: connect to host fm-example: Operation timed out' >&2
 exit 255
 SH
   chmod +x "$runner"
   cat > "$home/data/secondmates.md" <<'EOF'
-- alpha - alpha work (host: fm-spark; root: /srv/firstmate; home: /srv/homes/alpha; scope: alpha; projects: one; added 2026-09-14)
-- beta - beta work (host: fm-spark; root: /srv/firstmate; home: /srv/homes/beta; scope: beta; projects: two; added 2026-09-14)
+- alpha - alpha work (host: fm-example; root: /srv/firstmate; home: /srv/homes/alpha; scope: alpha; projects: one; added 2026-09-14)
+- beta - beta work (host: fm-example; root: /srv/firstmate; home: /srv/homes/beta; scope: beta; projects: two; added 2026-09-14)
 EOF
 
   output=$(FM_NM_ON_BIN="$runner" run_check "$home") || rc=$?
 
   expect_code 2 "$rc" "unreachable host did not return the incomplete exit code"
-  assert_contains "$output" $'GAP\thost=fm-spark\thome=root@fm-spark\tclone=-\treason=host-unreachable' \
+  assert_contains "$output" $'GAP\thost=fm-example\thome=root@fm-example\tclone=-\treason=host-unreachable' \
     "unreachable remote root was not named"
-  assert_contains "$output" $'GAP\thost=fm-spark\thome=alpha\tclone=-\treason=host-unreachable' \
+  assert_contains "$output" $'GAP\thost=fm-example\thome=alpha\tclone=-\treason=host-unreachable' \
     "first unreachable remote home was not named"
-  assert_contains "$output" $'GAP\thost=fm-spark\thome=beta\tclone=-\treason=host-unreachable' \
+  assert_contains "$output" $'GAP\thost=fm-example\thome=beta\tclone=-\treason=host-unreachable' \
     "second unreachable remote home was not named"
   pass "unreachable host names every unchecked home"
 }
@@ -613,13 +613,13 @@ esac
 SH
   chmod +x "$runner"
   printf '%s\n' \
-    '- alpha - alpha work (host: fm-spark; root: /srv/firstmate; home: /srv/homes/alpha; scope: alpha; projects: one; added 2026-09-14)' \
+    '- alpha - alpha work (host: fm-example; root: /srv/firstmate; home: /srv/homes/alpha; scope: alpha; projects: one; added 2026-09-14)' \
     > "$home/data/secondmates.md"
 
   output=$(FM_NM_ON_BIN="$runner" run_check "$home") || rc=$?
 
   expect_code 1 "$rc" "remote non-terminal run did not return the busy exit code"
-  assert_contains "$output" $'RUN\thost=fm-spark\thome=alpha\tclone=alpha\tbranch=fm/remote' \
+  assert_contains "$output" $'RUN\thost=fm-example\thome=alpha\tclone=alpha\tbranch=fm/remote' \
     "remote home's run was not included"
   assert_contains "$output" $'SUMMARY\tresult=busy\truns=1\tgaps=0' \
     "remote run was not counted in the fleet summary"

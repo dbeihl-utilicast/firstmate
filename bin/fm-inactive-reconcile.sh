@@ -11,6 +11,9 @@
 # In a secondmate home every `scan` invocation, which is every watcher poll,
 # first runs the LEDGER-FIRST parent delivery: a direct child whose status
 # ledger ends in a whole `done:` or `failed:` line has stated its own outcome,
+# except that a PR-requiring ship `done:` with no recorded PR (pushed or not)
+# is not a terminal delivery (bin/fm-done-delivery-lib.sh) and is left for the
+# child's supervisor, the same way bin/fm-crew-state.sh refuses it.
 # so that line is published on the parent channel at once through
 # bin/fm-parent-channel-lib.sh as
 #   <state> [key=child-outcome-<child>-<state>-<fp8>]: child <child> <state>: <note> [pr=<url>] [mode=<mode>] [yolo=<posture>] [report=data/<child>/report.md]
@@ -96,6 +99,8 @@ CREW_STATE_BIN="${FM_INACTIVE_CREW_STATE_BIN:-$SCRIPT_DIR/fm-crew-state.sh}"
 . "$SCRIPT_DIR/fm-parent-channel-lib.sh"
 # shellcheck source=bin/fm-timeout-lib.sh
 . "$SCRIPT_DIR/fm-timeout-lib.sh"
+# shellcheck source=bin/fm-done-delivery-lib.sh
+. "$SCRIPT_DIR/fm-done-delivery-lib.sh"
 
 FM_INACTIVE_RECONCILE_SECS=${FM_INACTIVE_RECONCILE_SECS:-900}
 case "$FM_INACTIVE_RECONCILE_SECS" in
@@ -398,6 +403,10 @@ report_child_ledger_locked() { # <id> <meta>
   status="$STATE/$id.status"
   last=$(child_terminal_ledger_line "$status") || return 0
   state=$(status_line_verb "$last")
+  if [ "$state" = "done" ]; then
+    fm_done_delivery_accept "$meta" "$last" "$(meta_field "$meta" worktree)" >/dev/null \
+      || return 0
+  fi
   pr=$(pr_for_task "$meta" "$status" "$last")
   incarnation=$(meta_incarnation "$meta")
   fingerprint=$(sha256_text "$incarnation|$id|$state|ledger|$last")

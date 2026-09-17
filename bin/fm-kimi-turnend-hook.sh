@@ -10,7 +10,8 @@
 # The installed Stop hook always exits 0 and stays silent. It reads cwd from the
 # hook payload, checks for a .fm-kimi-turnend pointer before registry work, and
 # touches a task turn-end marker only when the pointer names a Firstmate-created
-# token in $HOME/.kimi-code/fm-turn-end.d/.
+# token in $HOME/.kimi-code/fm-turn-end.d/ whose target sits beside an existing
+# non-symlink .meta in that same home.
 #
 # Usage:
 #   fm-kimi-turnend-hook.sh install
@@ -91,6 +92,9 @@ auth_dir=${HOME:-}/.kimi-code/fm-turn-end.d
 [ -n "${HOME:-}" ] || exit 0
 target=$(cat "$auth_dir/$token" 2>/dev/null) || exit 0
 case "$target" in /*.turn-ended) : ;; *) exit 0 ;; esac
+meta=${target%.turn-ended}.meta
+[ -f "$meta" ] || exit 0
+[ ! -L "$meta" ] || exit 0
 touch -- "$target" 2>/dev/null || true
 exit 0
 '''

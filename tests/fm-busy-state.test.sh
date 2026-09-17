@@ -458,7 +458,33 @@ test_progress_is_generation_bound_and_not_semantic_state() {
   pass "native progress is generation-bound, separately recorded, and cleared on arm and retire"
 }
 
+test_turn_end_requires_meta_in_the_resolved_home() {
+  local state err
+  state=$(new_state_dir turnend-meta)
+  err=
+  if err=$("$EV" turn-end "$state" t1 2>&1); then
+    fail "turn-end without meta must be refused"
+  fi
+  assert_contains "$err" "no meta for task t1" "missing-meta refusal did not name the task"
+  assert_contains "$err" "$state/t1.meta" "missing-meta refusal did not name the resolved meta path"
+  [ ! -e "$state/t1.turn-ended" ] || fail "refused turn-end wrote a marker"
+  fm_write_meta "$state/t1.meta" "harness=claude" "window=t:1"
+  "$EV" turn-end "$state" t1 || fail "turn-end with meta was refused"
+  [ -f "$state/t1.turn-ended" ] || fail "turn-end with meta did not write the marker"
+  rm -f "$state/t1.turn-ended"
+  mv "$state/t1.meta" "$state/t1.meta.real"
+  ln -s "$state/t1.meta.real" "$state/t1.meta"
+  err=
+  if err=$("$EV" turn-end "$state" t1 2>&1); then
+    fail "turn-end with a symlink meta must be refused"
+  fi
+  assert_contains "$err" "no meta for task t1" "symlink-meta refusal did not name the task"
+  [ ! -e "$state/t1.turn-ended" ] || fail "symlink-meta turn-end wrote a marker"
+  pass "turn-end writes only when the resolved home has a real .meta"
+}
+
 test_progress_is_generation_bound_and_not_semantic_state
+test_turn_end_requires_meta_in_the_resolved_home
 
 test_arm_seeds_busy_spawn
 test_apply_advances_seq_and_source
