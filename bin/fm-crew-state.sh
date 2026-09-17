@@ -213,11 +213,6 @@ if [ -n "$REMOTE_HOST" ]; then
     alive)
       if [ -n "$LOG_VERB" ]; then
         LOG_STATE=$(map_log_state "$LOG_LINE")
-        if [ "$LOG_STATE" = "done" ]; then
-          if ! REFUSE=$(fm_done_delivery_accept "$META" "$LOG_LINE" "$WT"); then
-            emit unknown status-log "${REFUSE}${SEP}remote endpoint alive on $REMOTE_HOST"
-          fi
-        fi
         if [ "$LOG_STATE" != unknown ]; then
           emit "$LOG_STATE" status-log "$(status_line_note "$LOG_LINE")${SEP}remote endpoint alive on $REMOTE_HOST"
         fi
@@ -861,10 +856,8 @@ fi
 # `unknown` verdict as the "not a state" test needs no second verb list here.
 if [ -n "$LOG_VERB" ]; then
   LOG_STATE=$(map_log_state "$LOG_LINE")
-  if [ "$LOG_STATE" = "done" ]; then
-    if ! REFUSE=$(fm_done_delivery_accept "$META" "$LOG_LINE" "$WT"); then
-      emit unknown status-log "$REFUSE"
-    fi
+  if [ "$LOG_STATE" = "done" ] && ! REFUSE=$(fm_done_delivery_accept "$META" "$LOG_LINE" "$WT"); then
+    emit blocked status-log "$REFUSE"
   fi
   if [ "$LOG_STATE" != unknown ]; then
     emit "$LOG_STATE" status-log "$(status_line_note "$LOG_LINE")"

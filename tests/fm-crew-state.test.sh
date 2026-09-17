@@ -2443,9 +2443,6 @@ ship_status_log_done() {  # <name> <mode-or-empty> <status-line> [pr-url]
   fi
   [ -z "$pr" ] || printf 'pr=%s\n' "$pr" >> "$d/state/$name.meta"
   printf '%s\n' "$line" > "$d/state/$name.status"
-  FM_FAKE_AXI_STATUS=""
-  FM_FAKE_RUNS_LIST=""
-  FM_FAKE_BUSY=0
   arm_idle_record "$d/state" "$name"
   printf '%s\n' "$d"
 }
@@ -2457,6 +2454,8 @@ test_pr_requiring_unpushed_done_is_refused() {
   out=$(run_crew_state "$d" nm-unpushed)
   assert_not_contains "$out" "state: done" \
     "a no-mistakes ship done on an unpushed commit with no recorded PR must not read as done"
+  assert_not_contains "$out" "state: unknown" \
+    "a refused done must not read as unknown, or fm-fleet-snapshot.sh's unknown_children blanks the home's headline state"
   assert_contains "$out" "done refused" "the refusal is named as a refused done"
   assert_contains "$out" "recorded PR" "the refusal names the missing recorded PR"
   assert_contains "$out" "unpushed head" "the refusal names the missing pushed head"
@@ -2471,6 +2470,22 @@ test_pr_requiring_unpushed_done_is_refused() {
     "a ship with no recorded mode defaults to a PR-requiring done check"
   assert_contains "$out" "done refused" "missing-mode ship refusal is named as a refused done"
   pass "PR-requiring ship done on an unpushed commit with no recorded PR is refused"
+}
+
+test_pr_requiring_pushed_head_without_pr_is_refused() {
+  reset_fakes
+  local d out
+  d=$(ship_status_log_done nm-pushed-nopr no-mistakes 'done: pushed, ready for review')
+  git init -q --bare "$d/remote.git"
+  git -C "$d/wt" remote add origin "$d/remote.git"
+  git -C "$d/wt" push -q origin "fm/nm-pushed-nopr"
+  out=$(run_crew_state "$d" nm-pushed-nopr)
+  assert_not_contains "$out" "state: done" \
+    "a pushed head with no recorded PR must not read as done"
+  assert_contains "$out" "done refused" "the refusal is named as a refused done"
+  assert_contains "$out" "recorded PR" "the refusal names the missing recorded PR"
+  assert_not_contains "$out" "unpushed head" "a pushed head must not be reported as unpushed"
+  pass "a pushed head with no recorded PR is refused, not accepted on push alone"
 }
 
 test_local_only_unpushed_done_is_accepted() {
@@ -2613,6 +2628,7 @@ test_unanchored_unfetched_active_row_does_not_match
 test_unresolved_terminal_row_is_history_not_current
 test_runs_list_continuation_found_when_axi_answers_other_branch
 test_pr_requiring_unpushed_done_is_refused
+test_pr_requiring_pushed_head_without_pr_is_refused
 test_local_only_unpushed_done_is_accepted
 test_pr_requiring_done_with_recorded_pr_is_accepted
 test_pr_requiring_done_with_pr_url_in_line_is_accepted

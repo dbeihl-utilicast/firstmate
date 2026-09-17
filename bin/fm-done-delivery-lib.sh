@@ -11,29 +11,17 @@
 #
 # fm_done_delivery_accept <meta-file> <status-line> <worktree>
 #   Return 0 to accept. Print nothing.
-#   Return 1 to refuse. Print one line:
+#   Return 1 to refuse. Print one line, e.g.:
 #     done refused: missing recorded PR; unpushed head
-#   naming exactly the artifacts that are absent (semicolon-separated).
+#   (the unpushed-head clause is informational; only a missing PR gates.)
 #
 # A ship task in no-mistakes or direct-PR, or a ship with no recorded mode
-# (intake's default is no-mistakes), is refused when it has neither a recorded
-# PR nor a pushed head. Recorded PR is a nonempty pr= field in the task meta,
-# or a GitHub `/pull/<n>` or GitLab `/-/merge_requests/<n>` URL on the done
-# line (the same shapes bin/fm-inactive-reconcile.sh already extracts). Pushed
-# head is an empty `git log HEAD --not --remotes` in the worktree; a missing
-# or non-git worktree cannot prove a push and counts as unpushed.
+# (intake's default is no-mistakes), is refused when it has no recorded PR
+# (meta pr=, or a `/pull/<n>`/`/-/merge_requests/<n>` URL on the done line).
 # kind=scout, kind=secondmate, and mode=local-only stay accepted: a scout
 # report and a local-only ready branch are the deliverable, so a done with
 # no PR is correct.
 # A non-done status line is not this check's concern and is accepted.
-
-_FM_DONE_DELIVERY_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd 2>/dev/null)" || _FM_DONE_DELIVERY_LIB_DIR="."
-
-type status_line_verb >/dev/null 2>&1 || {
-  # shellcheck source=bin/fm-classify-lib.sh
-  # shellcheck disable=SC1091
-  . "$_FM_DONE_DELIVERY_LIB_DIR/fm-classify-lib.sh"
-}
 
 _fm_done_delivery_meta_value() {  # <meta-file> <key>
   grep "^$2=" "$1" 2>/dev/null | tail -1 | cut -d= -f2- || true
@@ -59,7 +47,7 @@ _fm_done_delivery_has_recorded_pr() {  # <meta-file> <status-line>
 }
 
 fm_done_delivery_accept() {  # <meta-file> <status-line> <worktree>
-  local meta=$1 line=$2 wt=$3 kind mode missing=''
+  local meta=$1 line=$2 wt=$3 kind mode has_pr=1 pushed=1 missing=''
   [ "$(status_line_verb "$line")" = "done" ] || return 0
   [ -f "$meta" ] || return 0
   kind=$(_fm_done_delivery_meta_value "$meta" kind)
@@ -74,21 +62,13 @@ fm_done_delivery_accept() {  # <meta-file> <status-line> <worktree>
     no-mistakes|direct-PR|'') ;;
     *) return 0 ;;
   esac
-  _fm_done_delivery_has_recorded_pr "$meta" "$line" || missing='missing recorded PR'
-  if _fm_done_delivery_head_unpushed "$wt"; then
-    if [ -n "$missing" ]; then
-      missing="$missing; unpushed head"
-    else
-      missing='unpushed head'
-    fi
-  fi
-  # Refuse only the incident shape: neither artifact is present. A recorded
-  # PR or a pushed head is enough for this reader to accept the claimed done.
-  case "$missing" in
-    'missing recorded PR; unpushed head')
-      printf 'done refused: %s\n' "$missing"
-      return 1
-      ;;
-  esac
-  return 0
+  _fm_done_delivery_has_recorded_pr "$meta" "$line" || has_pr=0
+  _fm_done_delivery_head_unpushed "$wt" && pushed=0
+  # A missing recorded PR is refused on its own: a pushed head with no PR is
+  # the same ungated-done shape as a fully local claim.
+  [ "$has_pr" -eq 1 ] && return 0
+  missing='missing recorded PR'
+  [ "$pushed" -eq 1 ] || missing="$missing; unpushed head"
+  printf 'done refused: %s\n' "$missing"
+  return 1
 }
