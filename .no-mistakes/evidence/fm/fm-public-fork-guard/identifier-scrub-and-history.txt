@@ -1,0 +1,61 @@
+===== unique clean pattern against REAL firstmate tree =====
+exit=0
+
+
+===== leak checks =====
+planted-real-tree leaked pattern? no
+malformed leaked pattern? no
+planted-fixture leaked pattern? no
+
+===== identifier scrub: current HEAD vs base =====
+--- current HEAD (must be absent) ---
+HEAD  /Users/kunchen  hits=0
+HEAD  kunchen@mac  hits=0
+HEAD  kunchen@notty  hits=0
+HEAD  per-user/kunchen  hits=0
+HEAD  fm-spark  hits=0
+HEAD  100.102.217.78  hits=0
+HEAD  100.100.1.2  hits=0
+HEAD  Utilicast-LLC  hits=0
+--- base bb57ab50affd31e2fc32a247ff52c28b0b0a4666 (history still contains; not rewritten) ---
+BASE  /Users/kunchen  hits=6
+BASE  kunchen@mac  hits=1
+BASE  kunchen@notty  hits=1
+BASE  per-user/kunchen  hits=2
+BASE  fm-spark  hits=21
+BASE  100.102.217.78  hits=2
+BASE  100.100.1.2  hits=2
+BASE  Utilicast-LLC  hits=1
+
+===== placeholders present on HEAD =====
+docs/verification/runtime-backends.md:148:# claude 2.1.263 (Claude Code): title='2.1.263' foreground=[/Users/maintainer/.local/bin/claude <defunct> <defunct> ]
+docs/verification/runtime-backends.md:153:# grok grok 1.0.13 (5e9a58528b76) [stable]: title='grok-1.0.13-mac' foreground=[/Users/maintainer/.local/bin/grok ]
+docs/verification/runtime-backends.md:154:# cursor 2026.09.02-c22c1a3: title='node' foreground=[/Users/maintainer/.local/bin/cursor-agent ]
+docs/verification/runtime-backends.md:155:# muse Muse Code 1.0.3 (1.0.3-R2198.1): title='muse-bin-1.0.3-' foreground=[/Users/maintainer/.local/bin/muse-bin-1.0.3-R2198.1 ]
+docs/verification/runtime-backends.md:781:HERDR_SOCKET_PATH=/Users/maintainer/.config/herdr/sessions/fm-lab-fm-herdr-env-pro-65961-25535/herdr.sock
+docs/verification/runtime-backends.md:1113:{"id":"cli:pane:get","error":{"code":"server_not_running","message":"no herdr server is running at /Users/maintainer/.config/herdr/sessions/fm-lab-never-started/herdr.sock; run `herdr session attach fm-lab-never-started` to start or attach it"}}
+tests/fm-nm-quiescence.test.sh:432:    run_check "$child" --home-only remote-child fm-example) || rc=$?
+tests/fm-nm-quiescence.test.sh:435:  assert_contains "$output" $'RUN\thost=fm-example\thome=remote-child\tclone=parked-home' \
+tests/fm-nm-quiescence.test.sh:450:      cache=$'\nfm-example\t'"$home"$'\t'"$runs"$'\t'"$gaps"$'\n'
+tests/fm-nm-quiescence.test.sh:454:        run_check "$home" "$mode" shared fm-example "$cache") || rc=$?
+tests/fm-nm-quiescence.test.sh:464:      assert_home_result "$output" fm-example shared "$home" 1 "$runs" "$expected_gaps" "$status"
+tests/fm-nm-quiescence.test.sh:491:  printf -- '- alpha - first root (host: fm-example; root: %s; home: %s; scope: firstmate; projects: none; added 2026-09-14)\n' \
+tests/fm-nm-quiescence.test.sh:493:  printf -- '- beta - second root (host: fm-example; root: %s; home: %s; scope: firstmate; projects: none; added 2026-09-14)\n' \
+tests/fm-nm-quiescence.test.sh:501:  assert_contains "$output" $'RUN\thost=fm-example\thome=root@fm-example\tclone=parked-home' \
+tests/fm-nm-quiescence.test.sh:534:    printf -- '- shared - shared ledger (host: fm-example; root: %s; home: %s; scope: firstmate; projects: none; added 2026-09-14)\n' \
+tests/fm-nm-quiescence.test.sh:536:    printf -- '- separate - own ledger (host: fm-example; root: %s; home: %s; scope: firstmate; projects: none; added 2026-09-14)\n' \
+tests/fm-remote-doctor.test.sh:61:hold SSH_CONNECTION='203.0.113.10 51234 203.0.113.1 22' SSH_CLIENT='203.0.113.10 51234 22'
+tests/fm-remote-herdr-guard.test.sh:221:hold SSH_CONNECTION='203.0.113.10 51234 203.0.113.1 22' SSH_CLIENT='203.0.113.10 51234 22'
+tests/fm-bootstrap.test.sh:1179:legacy allowed_projects is refused^.constraints[0].allowed_projects = ["example-org/example-project"]^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 constraint has unknown field: allowed_projects
+
+===== Luna/foundry files in this change (must be none) =====
+(none)
+
+===== private pattern list not committed =====
+bin/fm-private-pattern-check.sh
+tests/fm-private-pattern-check.test.sh
+secret reference in workflow:
+.github/workflows/ci.yml:527:          FM_PRIVATE_PATTERNS: ${{ secrets.FM_PRIVATE_PATTERNS }}
+
+===== ancestry (no history rewrite of base) =====
+base is ancestor of HEAD

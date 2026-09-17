@@ -1,0 +1,1 @@
+error: FM_PRIVATE_PATTERNS contains a pattern that is not a valid extended regex; refusing to run rather than silently matching nothing

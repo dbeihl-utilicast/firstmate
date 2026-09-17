@@ -1,0 +1,34 @@
+Live product drive of bin/fm-private-pattern-check.sh and the identifier scrub.
+
+CLI (real firstmate tree unless noted):
+  absent secret                         exit 1  fail closed
+  empty secret (GitHub-unset equivalent) exit 1  fail closed
+  comment/blank-only list               exit 1  fail closed
+  malformed regex                       exit 1  fail closed, pattern not leaked
+  planted match on real tree            exit 2  tests/fm-private-pattern-check.test.sh:41, pattern withheld
+  unique clean pattern on real tree     exit 0
+  /Users/kunchen vs this PR diff        exit 0  scrubbed; deletions not flagged
+  fm-private-pattern-check.sh in diff   exit 2  new guard is itself a match (red proof)
+
+CLI (throwaway fixture repos):
+  clean isolated tree                   exit 0
+  whitespace-padded pattern             exit 2  secret4.txt:2  (false-negative guard)
+  case-insensitive match                exit 2  secret3.txt:2
+  --diff-range planted addition         exit 2  added.txt:2
+  untracked-only match                  exit 0
+  deleted-only identifier in diff       exit 0
+  planted fixture match                 exit 2  secret.txt:2, pattern withheld
+
+Identifier scrub (HEAD vs base bb57ab50):
+  /Users/kunchen, kunchen@mac, kunchen@notty, per-user/kunchen,
+  fm-spark, 100.102.217.78, 100.100.1.2, Utilicast-LLC
+  all hits=0 on HEAD; still present on base (history not rewritten).
+  Luna/foundry files not touched. Pattern list not committed;
+  workflow reads secrets.FM_PRIVATE_PATTERNS.
+
+Targeted tests: fm-private-pattern-check, fm-backend-orca,
+fm-remote-doctor, fm-remote-herdr-guard, fm-nm-quiescence,
+fm-bootstrap — all exit 0.
+
+Not driven: GitHub Actions injecting the real repository secret
+(captain sets FM_PRIVATE_PATTERNS after merge).

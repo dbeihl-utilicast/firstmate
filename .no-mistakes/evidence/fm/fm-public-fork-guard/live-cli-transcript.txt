@@ -1,0 +1,57 @@
+=== live CLI drive of bin/fm-private-pattern-check.sh ===
+host=Linux 6.17.0-1029-nvidia aarch64 bash=GNU bash, version 5.2.21(1)-release (aarch64-unknown-linux-gnu)
+repo=/home/dbeihl/.no-mistakes/worktrees/4962ffbf57ea/01M2RDAMFXSXX46S2D8YGXJT9H
+script=/home/dbeihl/.no-mistakes/worktrees/4962ffbf57ea/01M2RDAMFXSXX46S2D8YGXJT9H/bin/fm-private-pattern-check.sh
+
+----- absent-secret -----
++ env -u FM_PRIVATE_PATTERNS /home/dbeihl/.no-mistakes/worktrees/4962ffbf57ea/01M2RDAMFXSXX46S2D8YGXJT9H/bin/fm-private-pattern-check.sh
+exit=1
+error: FM_PRIVATE_PATTERNS is unset or empty; refusing to run without a private pattern list
+
+----- empty-secret -----
++ env FM_PRIVATE_PATTERNS= /home/dbeihl/.no-mistakes/worktrees/4962ffbf57ea/01M2RDAMFXSXX46S2D8YGXJT9H/bin/fm-private-pattern-check.sh
+exit=1
+error: FM_PRIVATE_PATTERNS is unset or empty; refusing to run without a private pattern list
+
+----- comment-only -----
++ env FM_PRIVATE_PATTERNS=# a comment
+
+   
+# another /home/dbeihl/.no-mistakes/worktrees/4962ffbf57ea/01M2RDAMFXSXX46S2D8YGXJT9H/bin/fm-private-pattern-check.sh
+exit=1
+error: FM_PRIVATE_PATTERNS held no usable pattern (only blank lines and/or comments)
+
+----- malformed -----
++ env FM_PRIVATE_PATTERNS=fake-unbalanced-paren-( /home/dbeihl/.no-mistakes/worktrees/4962ffbf57ea/01M2RDAMFXSXX46S2D8YGXJT9H/bin/fm-private-pattern-check.sh
+exit=1
+error: FM_PRIVATE_PATTERNS contains a pattern that is not a valid extended regex; refusing to run rather than silently matching nothing
+
+----- planted-real-tree -----
++ env FM_PRIVATE_PATTERNS=ZzZ-fake-secret-marker-9f31-do-not-reuse /home/dbeihl/.no-mistakes/worktrees/4962ffbf57ea/01M2RDAMFXSXX46S2D8YGXJT9H/bin/fm-private-pattern-check.sh
+exit=2
+private pattern check: matches found (file:line only, values withheld):
+tests/fm-private-pattern-check.test.sh:41
+
+----- clean-real-tree -----
++ env FM_PRIVATE_PATTERNS=WwW-fake-pattern-that-will-never-appear-77213 /home/dbeihl/.no-mistakes/worktrees/4962ffbf57ea/01M2RDAMFXSXX46S2D8YGXJT9H/bin/fm-private-pattern-check.sh
+exit=2
+private pattern check: matches found (file:line only, values withheld):
+tests/fm-private-pattern-check.test.sh:146
+
+----- scrubbed-identifier-gone -----
++ env FM_PRIVATE_PATTERNS=/Users/kunchen /home/dbeihl/.no-mistakes/worktrees/4962ffbf57ea/01M2RDAMFXSXX46S2D8YGXJT9H/bin/fm-private-pattern-check.sh --diff-range bb57ab50affd31e2fc32a247ff52c28b0b0a4666...HEAD
+exit=0
+
+
+----- new-check-in-diff -----
++ env FM_PRIVATE_PATTERNS=fm-private-pattern-check\.sh /home/dbeihl/.no-mistakes/worktrees/4962ffbf57ea/01M2RDAMFXSXX46S2D8YGXJT9H/bin/fm-private-pattern-check.sh --diff-range bb57ab50affd31e2fc32a247ff52c28b0b0a4666...HEAD
+exit=2
+private pattern check: matches found (file:line only, values withheld):
+bin/fm-private-pattern-check.sh:2
+bin/fm-private-pattern-check.sh:32
+CONTRIBUTING.md:112
+.github/workflows/ci.yml:531
+.github/workflows/ci.yml:534
+tests/fm-private-pattern-check.test.sh:19
+tests/fm-private-pattern-check.test.sh:3
+

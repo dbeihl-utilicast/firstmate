@@ -1,0 +1,8 @@
+private pattern check: matches found (file:line only, values withheld):
+bin/fm-private-pattern-check.sh:2
+bin/fm-private-pattern-check.sh:32
+CONTRIBUTING.md:112
+.github/workflows/ci.yml:531
+.github/workflows/ci.yml:534
+tests/fm-private-pattern-check.test.sh:19
+tests/fm-private-pattern-check.test.sh:3
