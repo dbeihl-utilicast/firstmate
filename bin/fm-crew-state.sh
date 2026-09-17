@@ -275,20 +275,24 @@ nm_field() {  # <key>
   fm_nm_field "$RUN_OUT" "$1"
 }
 
-# Phrase for a checks-green PR: "PR draft" when the forge says draft, else
-# "PR ready for review". An unreadable view keeps the ready wording.
+# Phrase for a checks-green PR: "PR draft" when the forge says draft,
+# "PR ready for review" when it says ready, and a conservative "unknown"
+# wording when the view could not be read at all.
 crew_pr_readiness_phrase() {
-  local pr_url view is_draft
+  local pr_url view is_draft read_ok
   pr_url=$(strip_quotes "$(nm_field pr)")
   [ -n "$pr_url" ] || pr_url=$(meta_value pr)
   is_draft=0
+  read_ok=1
   if [ -n "$pr_url" ]; then
     view=$(fm_pr_read_draft "$pr_url" "$WT")
-    IFS=$'\t' read -r is_draft _ <<EOF
+    IFS=$'\t' read -r is_draft read_ok _ <<EOF
 $view
 EOF
   fi
-  if [ "${is_draft:-0}" = 1 ]; then
+  if [ "${read_ok:-0}" != 1 ]; then
+    printf 'PR draft status unknown, verify before treating as ready'
+  elif [ "${is_draft:-0}" = 1 ]; then
     printf 'PR draft'
   else
     printf 'PR ready for review'
