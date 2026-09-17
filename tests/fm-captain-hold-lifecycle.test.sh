@@ -3776,6 +3776,97 @@ SH
   pass "cleanup refuses a ship row when its captain hold cannot be read"
 }
 
+# A ship that stops at a commit because a shared pause is on, then has its
+# pane torn down, must keep a durable resumption. Closing the pane is allowed;
+# losing the wait is not. Ordinary `paused:` waits keep their pane and never
+# reach this path; the last status line being a pause at teardown time is the
+# structural signal.
+test_teardown_of_a_paused_ship_records_a_resumption() {
+  local home id dated show json
+  home=$(make_home teardown-paused-ship)
+  id=sample-paused-ship
+  tasks_in "$home" add "$id" "Ship the sample pause-held change" --kind ship \
+    --repo sample --start >/dev/null || fail "could not create the paused-ship fixture"
+  fm_write_meta "$home/state/$id.meta" \
+    "window=firstmate:fm-$id" "worktree=$home/projects/missing-$id" \
+    "project=$home/projects/sample" "harness=codex" "kind=ship" "mode=no-mistakes" \
+    "spawn_gen=fixture-$id"
+  printf '%s\n' \
+    "working: committed the grouping fix" \
+    "paused: no-mistakes still paused" \
+    > "$home/state/$id.status"
+
+  PATH="$home/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" \
+    FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
+    FM_CONFIG_OVERRIDE="$home/config" "$TEARDOWN" "$id" --force \
+    > "$home/teardown.out" 2> "$home/teardown.err" \
+    || fail "cleanup of a paused ship failed: $(cat "$home/teardown.err")"
+
+  show=$(tasks_in "$home" show "$id" --full) \
+    || fail "teardown of a paused ship erased the backlog row"
+  assert_not_contains "$show" "state: done" \
+    "teardown closed a paused ship and left no resumption owner"
+  assert_contains "$show" "state: queued" \
+    "the paused ship did not return to the queue for later resumption"
+  assert_contains "$show" "held: yes" \
+    "teardown of a paused ship did not record a captain hold"
+  assert_contains "$show" "hold_kind: captain" \
+    "teardown of a paused ship recorded a hold that is not for the captain"
+  assert_absent "$home/state/$id.meta" \
+    "teardown left the paused ship's worker record in place"
+  json=$(run_bearings "$home") || fail "Bearings failed after paused-ship cleanup"
+  printf '%s' "$json" | jq -e --arg id "$id" '
+    (.decisions_open | any(.id == $id and .verb == "captain-hold"))
+  ' >/dev/null || fail "the paused ship's resumption is not on Captain's Call: $json"
+
+  # A dated pause becomes a dated deferral so lift has an owner without a live
+  # card until that date.
+  dated=sample-paused-until-ship
+  tasks_in "$home" add "$dated" "Ship the dated pause-held change" --kind ship \
+    --repo sample --start >/dev/null || fail "could not create the dated paused-ship fixture"
+  fm_write_meta "$home/state/$dated.meta" \
+    "window=firstmate:fm-$dated" "worktree=$home/projects/missing-$dated" \
+    "project=$home/projects/sample" "harness=codex" "kind=ship" "mode=no-mistakes" \
+    "spawn_gen=fixture-$dated"
+  printf '%s\n' \
+    "working: committed the sample change" \
+    "paused: no-mistakes still paused until 2026-10-01T00:00Z" \
+    > "$home/state/$dated.status"
+  PATH="$home/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" \
+    FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
+    FM_CONFIG_OVERRIDE="$home/config" "$TEARDOWN" "$dated" --force \
+    > "$home/dated.out" 2> "$home/dated.err" \
+    || fail "cleanup of a dated paused ship failed: $(cat "$home/dated.err")"
+  show=$(tasks_in "$home" show "$dated" --full) \
+    || fail "teardown of a dated paused ship erased the backlog row"
+  assert_not_contains "$show" "state: done" \
+    "teardown closed a dated paused ship"
+  assert_contains "$show" "hold_kind: captain" \
+    "teardown of a dated paused ship did not record a captain hold"
+  assert_contains "$show" "hold_until: 2026-10-01" \
+    "teardown of a dated paused ship did not keep the pause's lift date"
+
+  # A finished ship with no pause still closes. The pause path must not hold
+  # every teardown.
+  id=sample-finished-ship
+  tasks_in "$home" add "$id" "Ship the finished sample change" --kind ship \
+    --repo sample --start >/dev/null || fail "could not create the finished-ship fixture"
+  fm_write_meta "$home/state/$id.meta" \
+    "window=firstmate:fm-$id" "worktree=$home/projects/missing-$id" \
+    "project=$home/projects/sample" "harness=codex" "kind=ship" "mode=direct-PR" \
+    "spawn_gen=fixture-$id"
+  printf 'done: PR https://github.com/sample/sample/pull/9\n' > "$home/state/$id.status"
+  PATH="$home/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" \
+    FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
+    FM_CONFIG_OVERRIDE="$home/config" "$TEARDOWN" "$id" --force \
+    > "$home/finished.out" 2> "$home/finished.err" \
+    || fail "cleanup of a finished ship failed: $(cat "$home/finished.err")"
+  show=$(tasks_in "$home" show "$id" --full) || fail "the finished ship row vanished"
+  assert_contains "$show" "state: done" \
+    "ordinary finished-ship cleanup no longer closes its backlog item"
+  pass "teardown of a paused ship records a durable resumption and still closes finished work"
+}
+
 test_uninventoried_report_decision_refuses_completion
 test_completion_gate_attests_and_transfers
 test_answer_records_and_closes
@@ -3818,6 +3909,7 @@ test_merge_entrypoints_refuse_a_reused_task_incarnation
 test_merge_entrypoints_serialize_forced_teardown_before_task_reads
 test_released_merge_passes_the_entrypoint_and_lands
 test_teardown_refuses_a_ship_when_the_captain_hold_cannot_be_read
+test_teardown_of_a_paused_ship_records_a_resumption
 test_verify_resolves_a_hold_migrated_to_beads_notes
 test_verify_resolves_a_hold_migrated_under_the_configured_prefix
 test_marker_noted_row_wins_over_a_prefix_namesake
