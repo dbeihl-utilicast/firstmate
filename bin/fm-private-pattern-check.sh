@@ -80,10 +80,11 @@ trap 'rm -f "$pattern_file" "$matches_file"' EXIT
 printf '%s\n' "$FM_PRIVATE_PATTERNS" | while IFS= read -r raw_line; do
   line=${raw_line%$'\r'}
   trimmed=${line#"${line%%[![:space:]]*}"}
+  trimmed=${trimmed%"${trimmed##*[![:space:]]}"}
   case "$trimmed" in
     ''|'#'*) continue ;;
   esac
-  printf '%s\n' "$line" >> "$pattern_file"
+  printf '%s\n' "$trimmed" >> "$pattern_file"
 done
 
 if [ ! -s "$pattern_file" ]; then
