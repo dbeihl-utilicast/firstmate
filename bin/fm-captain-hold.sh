@@ -46,6 +46,10 @@
 # A task already closed is refused rather than reopened. `--until` records the
 # captain's own deferral date through `tasks-axi hold --until`, so a "revisit
 # later" answer is stored as a date instead of a live card.
+# Nested callers that already hold `state/.control-<id>.lock` for the same
+# task (today: bin/fm-teardown.sh recording a pause-lift resumption) set
+# FM_CAPTAIN_HOLD_NESTED_CONTROL_LOCK to that task id so this command does
+# not wait on its own lock. Any other value acquires the lock as usual.
 #
 # `answer` records the captain's exact words and resolves the call in the same
 # act. It requires a non-empty captain decision file of at most 8192 bytes and
@@ -278,6 +282,11 @@ validate_one_line() {  # <label> <value>
 }
 
 acquire_task_control_lock() {  # <task-id>
+  if [ "${FM_CAPTAIN_HOLD_NESTED_CONTROL_LOCK:-}" = "$1" ]; then
+    CAPTAIN_CONTROL_LOCK=
+    CAPTAIN_CONTROL_LOCK_HELD=0
+    return 0
+  fi
   CAPTAIN_CONTROL_LOCK="$STATE/.control-$1.lock"
   fm_lock_acquire_wait "$CAPTAIN_CONTROL_LOCK"
   CAPTAIN_CONTROL_LOCK_HELD=1
