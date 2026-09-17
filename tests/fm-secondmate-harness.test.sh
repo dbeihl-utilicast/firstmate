@@ -642,6 +642,7 @@ case "$*" in
 esac
 case "${1:-}" in
   display-message) printf 'firstmate\n'; exit 0 ;;
+  list-panes) printf '%%1\n'; exit 0 ;;
   list-windows) exit 0 ;;
   has-session|new-session|new-window|kill-window) exit 0 ;;
   send-keys)
@@ -1069,6 +1070,7 @@ case "$*" in
     sed -n 's/^window=[^:]*://p' "${FM_HOME:?}"/state/*.meta
     exit 0
     ;;
+  list-panes*) printf '%s\n' '%1'; exit 0 ;;
   *display-message*'#{pane_current_command}'*) printf '%s\n' codex; exit 0 ;;
   *display-message*'#{pane_id}'*) printf '%s\n' '%1'; exit 0 ;;
   *display-message*'#{cursor_y}'*) printf '%s\n' 0; exit 0 ;;
@@ -2465,6 +2467,7 @@ SH
   cat > "$fakebin/tmux" <<SH
 #!/usr/bin/env bash
 case "\$*" in
+  *list-panes*) printf '%s' '%1' ;;
   *display-message*'#{pane_current_command}'*) printf '%s' zsh ;;
   *display-message*'#{pane_id}'*) printf '%s' '%1' ;;
   *display-message*'#{cursor_y}'*) printf '%s' 0 ;;

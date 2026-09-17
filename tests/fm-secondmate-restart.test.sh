@@ -94,6 +94,8 @@ case "${1:-}" in
       printf '%s\n' "$payload" >> "$D/keys"
     fi
     exit 0 ;;
+  list-panes)
+    printf 'fakepane\n'; exit 0 ;;
   display-message)
     target=
     prev=

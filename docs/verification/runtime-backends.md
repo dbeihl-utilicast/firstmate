@@ -50,6 +50,30 @@ zsh
 A persistent parent shell waiting for a child remained reported as the parent process, while a shell that directly execed a simple command changed identity with the process itself.
 Pi and pi-signed 0.82.0 were reverified on 2026-07-27 through real isolated `fm-spawn.sh` launches.
 
+### Target existence does not trust display-message
+
+Verified 2026-09-17 on tmux 3.4 with a live server and a live window `firstmate:livewin`.
+
+```sh
+tmux display-message -p -t firstmate:fm-x '#{pane_id}'
+echo rc=$?
+tmux list-panes -t firstmate:fm-x -F '#{pane_id}'
+echo rc=$?
+```
+
+Observed:
+
+```text
+%0
+rc=0
+can't find window: fm-x
+rc=1
+```
+
+A missing tmux server is the case that returns non-zero from display-message.
+The cheap existence check therefore uses `list-panes` and requires a non-empty pane id (`fm_backend_tmux_target_exists` in `bin/backends/tmux.sh`).
+The portable regression is `tests/fm-backend-tmux-smoke.test.sh`.
+
 ### Agent liveness name sources
 
 The earlier record that every harness is observed under its own `#{pane_current_command}` no longer holds and has been replaced by the per-harness evidence below.

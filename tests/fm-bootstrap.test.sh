@@ -838,6 +838,7 @@ make_routine_bootstrap_fixture() {
   cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}" in
+  list-panes) printf '%s\n' '%1' ;;
   display-message)
     case "$*" in
       *'#{cursor_y}'*) printf '%s\n' 0 ;;

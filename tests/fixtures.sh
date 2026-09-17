@@ -113,6 +113,7 @@ case "$*" in
 esac
 case "${1:-}" in
   display-message) printf 'firstmate\n'; exit 0 ;;
+  list-panes) printf '%%1\n'; exit 0 ;;
   list-windows)
     if [ -n "${FM_FAKE_DUPLICATE_WINDOW:-}" ]; then
       printf '%s\n' "$FM_FAKE_DUPLICATE_WINDOW"
@@ -182,6 +183,10 @@ case "${1:-}" in
     if [ "$literal" = 1 ]; then
       printf '%s' "${1:-}" >> "${FM_SEND_LOG:-/dev/null}"
     fi
+    exit 0
+    ;;
+  list-panes)
+    printf 'fakepane\n'
     exit 0
     ;;
   display-message)

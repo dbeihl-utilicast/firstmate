@@ -30,6 +30,10 @@ case "${1:-}" in
     printf '%s\n' "$*" >> "$FM_FAKE_TMUX_LOG"
     exit 0
     ;;
+  list-panes)
+    printf '%s\n' '%1'
+    exit 0
+    ;;
   list-windows)
     session=
     prev=

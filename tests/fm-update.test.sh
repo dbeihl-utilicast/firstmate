@@ -48,6 +48,15 @@ new_world() {
 set -u
 case "${1:-}" in
   list-windows) cat "$FM_FAKE_DIR/windows" ;;
+  list-panes)
+    target=
+    for arg in "$@"; do
+      case "$arg" in main:fm-*) target=$arg ;; esac
+    done
+    id=${target##*fm-}
+    if [ -e "$FM_FAKE_DIR/dead-$id" ]; then exit 1; fi
+    printf '%%1\n'
+    ;;
   display-message)
     target=
     for arg in "$@"; do

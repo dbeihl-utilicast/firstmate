@@ -46,6 +46,8 @@ make_fake_tmux() {  # <dir>
 #!/usr/bin/env bash
 set -u
 case "${1:-}" in
+  list-panes)
+    printf 'fakepane\n'; exit 0 ;;
   display-message)
     for a in "$@"; do case "$a" in *cursor_y*) printf '%s\n' "${FM_FAKE_CY:-0}"; exit 0 ;; esac; done
     printf 'fakepane\n'; exit 0 ;;

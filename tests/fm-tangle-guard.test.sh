@@ -231,6 +231,7 @@ case "$*" in
 esac
 case "${1:-}" in
   display-message) printf 'firstmate\n'; exit 0 ;;
+  list-panes) printf '%%1\n'; exit 0 ;;
   new-window) printf '%s\n' "@spawnwid"; exit 0 ;;
   list-windows) exit 0 ;;
   has-session|new-session|send-keys|set-window-option) exit 0 ;;

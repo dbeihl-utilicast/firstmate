@@ -46,11 +46,21 @@ fm_backend_tmux_capture() {  # <target> <lines>
   tmux capture-pane -p -t "$1" -S -"$2"
 }
 
+# fm_backend_tmux_target_exists: does <target> still name a pane? tmux
+# display-message -p -t <missing> exits 0 on a live server (empty output, or
+# the client's active pane id), so that exit status is not proof the target
+# exists. list-panes names the exact window or pane and fails when it is gone.
+fm_backend_tmux_target_exists() {  # <target>
+  local pane
+  [ -n "$1" ] || return 1
+  pane=$(tmux list-panes -t "$1" -F '#{pane_id}' 2>/dev/null) || return 1
+  [ -n "$pane" ]
+}
+
 # fm_backend_tmux_send_key: one named key. Mirrors fm-send.sh's --key path:
-# `tmux display-message -p -t "$T" '#{pane_id}' >/dev/null`, then
-# `tmux send-keys -t "$T" "$2"`.
+# confirm the target still names a pane, then `tmux send-keys -t "$T" "$2"`.
 fm_backend_tmux_send_key() {  # <target> <key>
-  tmux display-message -p -t "$1" '#{pane_id}' >/dev/null
+  fm_backend_tmux_target_exists "$1" || return 1
   tmux send-keys -t "$1" "$2"
 }
 

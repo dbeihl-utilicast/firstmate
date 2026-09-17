@@ -32,6 +32,9 @@ case "${1:-}" in
   list-windows)
     sed -n 's/^window=[^:]*://p' "${FM_HOME:?}"/state/*.meta
     ;;
+  list-panes)
+    printf '%%1\n'
+    ;;
   display-message)
     case "$*" in
       *pane_current_command*)

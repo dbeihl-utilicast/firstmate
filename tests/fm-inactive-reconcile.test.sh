@@ -37,6 +37,7 @@ SH
   cat > "$fake/tmux" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}" in
+  list-panes) printf '%%1\n' ;;
   display-message) printf '%%1\n' ;;
   capture-pane) printf 'idle\n> \n' ;;
 esac

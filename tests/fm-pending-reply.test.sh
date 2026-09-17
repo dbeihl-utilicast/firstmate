@@ -68,6 +68,8 @@ case "${1:-}" in
       printf '%s' "${1:-}" >> "$FM_SEND_LOG"
     fi
     exit 0 ;;
+  list-panes)
+    printf 'fakepane\n'; exit 0 ;;
   display-message)
     for a in "$@"; do case "$a" in *cursor_y*) printf '1\n'; exit 0 ;; esac; done
     printf 'fakepane\n'; exit 0 ;;

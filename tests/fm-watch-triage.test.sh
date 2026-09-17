@@ -3688,6 +3688,8 @@ case "${1:-}" in
     echo "$n" > "$FM_FAKE_TMUX_TICKS"
     printf 'Working... (%d.%ds) lavish-axi poll' "$(( 7200 + n ))" "$(( n % 10 ))"
     exit 0 ;;
+  list-panes)
+    printf '%%1\n'; exit 0 ;;
   display-message)
     case "$*" in
       *pane_current_command*) printf '%s\n' "${FM_FAKE_TMUX_CURRENT_COMMAND:-}"; exit 0 ;;

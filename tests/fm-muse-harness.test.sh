@@ -82,6 +82,7 @@ case "${1:-}" in
     exit 0
     ;;
   display-message) printf 'firstmate\n'; exit 0 ;;
+  list-panes) printf '%%1\n'; exit 0 ;;
   list-windows) exit 0 ;;
   has-session|new-session|new-window|kill-window) exit 0 ;;
   send-keys)
