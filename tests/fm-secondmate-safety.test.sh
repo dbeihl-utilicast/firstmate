@@ -2609,6 +2609,41 @@ EOF
   pass "a fresh spawn refuses to publish while a forced teardown owns the task set"
 }
 
+test_fresh_spawn_lock_refusal_does_not_assert_a_teardown() {
+  local home subhome err rec held holder lock
+  rec=$(seed_task_set_lock_home taskset-spawn-not-teardown)
+  IFS='|' read -r home subhome <<EOF
+$rec
+EOF
+  err="$TMP_ROOT/taskset-spawn-not-teardown.err"
+  # The holder is a live sleep, not fm-teardown.sh. The refusal must name lock
+  # contention without claiming a teardown that is not running.
+  held=$(hold_task_set_lock "$subhome/state") \
+    || fail "could not stage a held task-set lock"
+  holder=${held%% *}
+  lock=${held#* }
+  if FM_HOME="$subhome" FM_SPAWN_NO_GUARD=1 \
+    "$ROOT/bin/fm-spawn.sh" newtask "$subhome/projects/alpha" --scout >/dev/null 2>"$err"; then
+    kill "$holder" 2>/dev/null || true
+    fail "a fresh spawn published a task while another live process held the set"
+  fi
+  [ ! -e "$subhome/state/newtask.meta" ] \
+    || fail "a refused spawn still published a durable record"
+  [ -e "$lock" ] || fail "a refused spawn removed the holder's task-set lock"
+  grep -F "task set is locked" "$err" >/dev/null \
+    || fail "the spawn refusal did not name the task-set contention: $(cat "$err")"
+  if grep -Ei 'teardown|enumerat' "$err" >/dev/null; then
+    kill "$holder" 2>/dev/null || true
+    wait "$holder" 2>/dev/null || true
+    fail "the spawn refusal asserted a teardown that was not running: $(cat "$err")"
+  fi
+  [ ! -e "$subhome/state/.spawn-newtask.lock" ] \
+    || fail "a refused spawn left its own task lock behind"
+  kill "$holder" 2>/dev/null || true
+  wait "$holder" 2>/dev/null || true
+  pass "a fresh spawn lock refusal names contention and does not assert a teardown"
+}
+
 test_fresh_remote_secondmate_spawn_refuses_while_task_set_is_owned() {
   local home err held holder lock
   home="$TMP_ROOT/taskset-remote-spawn-home"
@@ -3022,6 +3057,7 @@ test_force_teardown_refuses_symlinked_descendant_state
 test_force_teardown_locks_descendant_with_absent_state
 test_force_teardown_refuses_while_a_task_is_being_published
 test_fresh_spawn_refuses_while_a_forced_teardown_owns_the_task_set
+test_fresh_spawn_lock_refusal_does_not_assert_a_teardown
 test_fresh_remote_secondmate_spawn_refuses_while_task_set_is_owned
 test_secondmate_force_teardown_refuses_child_active_home_descendant
 test_secondmate_force_teardown_refuses_child_repo_descendant

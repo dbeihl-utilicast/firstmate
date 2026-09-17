@@ -133,9 +133,12 @@
 #          overlaps the independent secondmate work. Per-secondmate remote
 #          liveness workers run concurrently and finish before per-secondmate
 #          remote convergence workers run concurrently, because convergence
-#          consumes respawned ids. Worker output is captured separately and
-#          replayed in spawn order; failure to create that private capture
-#          directory selects the sequential fallback.
+#          consumes respawned ids. Concurrent liveness workers only probe in
+#          parallel; needed relaunches run afterward one at a time because a
+#          fresh fm-spawn.sh holds this home's task-set lock through publication.
+#          Worker output is captured separately and replayed in spawn order;
+#          failure to create that private capture directory selects the
+#          sequential fallback.
 #          A relaunch that the liveness sweep performs during an `only` run is
 #          always reported, because a digest composed before that run already
 #          printed the superseded endpoint record.
@@ -217,9 +220,9 @@ network_sweep_authorized() {
 # Concurrent per-item runner for the deferred network sweeps. Each worker's
 # stdout and stderr are captured to private files and replayed in original
 # order after every worker finishes, so concurrent probes cannot interleave
-# or mis-attribute SECONDMATE_LIVENESS / SECONDMATE_SYNC lines. Respawned ids
-# are collected from per-id files because background workers cannot mutate
-# the parent's SECONDMATE_RESPAWNED_IDS.
+# or mis-attribute SECONDMATE_LIVENESS / SECONDMATE_SYNC lines. Background
+# workers cannot mutate the parent's SECONDMATE_RESPAWNED_IDS; liveness queues
+# a needed relaunch to a per-id file and the parent respawns after wait.
 bootstrap_parallel_begin() {
   BOOTSTRAP_PAR_DIR=$(mktemp -d "${TMPDIR:-/tmp}/fm-bootstrap-par.XXXXXX") || return 1
   BOOTSTRAP_PAR_N=0
@@ -235,26 +238,44 @@ bootstrap_parallel_spawn() {
   printf '%s\n' "$!" > "$BOOTSTRAP_PAR_DIR/$BOOTSTRAP_PAR_N.pid"
 }
 
-bootstrap_parallel_finish() {
-  local i pid f
+bootstrap_parallel_wait() {
+  local i pid
   i=1
   while [ "$i" -le "$BOOTSTRAP_PAR_N" ]; do
     pid=$(cat "$BOOTSTRAP_PAR_DIR/$i.pid")
     wait "$pid" || true
     i=$((i + 1))
   done
+}
+
+bootstrap_parallel_replay() {
+  local i
   i=1
   while [ "$i" -le "$BOOTSTRAP_PAR_N" ]; do
     cat "$BOOTSTRAP_PAR_DIR/$i.out"
     cat "$BOOTSTRAP_PAR_DIR/$i.err" >&2
     i=$((i + 1))
   done
+}
+
+bootstrap_parallel_collect_respawned() {
+  local f
   for f in "$BOOTSTRAP_PAR_DIR"/respawned.*; do
     [ -f "$f" ] || continue
     SECONDMATE_RESPAWNED_IDS="$SECONDMATE_RESPAWNED_IDS $(tr -d '\n' < "$f")"
   done
+}
+
+bootstrap_parallel_cleanup() {
   rm -rf "$BOOTSTRAP_PAR_DIR"
   unset FM_BOOTSTRAP_PARALLEL_DIR BOOTSTRAP_PAR_DIR BOOTSTRAP_PAR_N
+}
+
+bootstrap_parallel_finish() {
+  bootstrap_parallel_wait
+  bootstrap_parallel_replay
+  bootstrap_parallel_collect_respawned
+  bootstrap_parallel_cleanup
 }
 
 secondmate_note_respawned() {  # <id>
@@ -669,6 +690,46 @@ report_relaunch() {  # <id> <cause> <where>
   echo "BOOTSTRAP_INFO: secondmate $1 relaunched after $2 ($3)"
 }
 
+secondmate_liveness_respawn() {  # <id> <cause> <where>
+  local id=$1 cause=$2 where=$3 out
+  if out=$(FM_SPAWN_NO_GUARD=1 "$FM_ROOT/bin/fm-spawn.sh" "$id" --secondmate 2>&1); then
+    secondmate_note_respawned "$id"
+    report_relaunch "$id" "$cause" "$where"
+  else
+    echo "SECONDMATE_LIVENESS: secondmate $id: respawn failed after $cause: $(first_line "$out")"
+  fi
+}
+
+# Parallel probe workers must not call fm-spawn.sh themselves: a fresh spawn
+# holds this home's task-set lock through publication, so a second concurrent
+# relaunch would refuse. Queue the need; the parent drains one at a time after
+# every probe finishes. Sequential fallback respawns inline.
+secondmate_liveness_queue_or_respawn() {  # <id> <cause> <where>
+  local id=$1 cause=$2 where=$3
+  if [ -n "${FM_BOOTSTRAP_PARALLEL_DIR:-}" ]; then
+    {
+      printf '%s\n' "$id"
+      printf '%s\n' "$cause"
+      printf '%s\n' "$where"
+    } > "$FM_BOOTSTRAP_PARALLEL_DIR/respawn-needed.$id"
+    return 0
+  fi
+  secondmate_liveness_respawn "$id" "$cause" "$where"
+}
+
+secondmate_liveness_drain_queued_respawns() {
+  local f id cause where
+  [ -n "${BOOTSTRAP_PAR_DIR:-}" ] || return 0
+  for f in "$BOOTSTRAP_PAR_DIR"/respawn-needed.*; do
+    [ -f "$f" ] || continue
+    id=$(sed -n '1p' "$f")
+    cause=$(sed -n '2p' "$f")
+    where=$(sed -n '3p' "$f")
+    [ -n "$id" ] || continue
+    secondmate_liveness_respawn "$id" "$cause" "$where"
+  done
+}
+
 secondmate_liveness_sweep() {
   # Idempotent secondmate liveness guarantee - SESSION START ONLY. The detailed
   # state machine and its only recovery-authorizing states are owned by
@@ -702,7 +763,15 @@ secondmate_liveness_sweep() {
       secondmate_liveness_one_timed "$meta" "$id" "$label"
     fi
   done
-  [ "$parallel" -eq 0 ] || bootstrap_parallel_finish
+  if [ "$parallel" -eq 1 ]; then
+    bootstrap_parallel_wait
+    bootstrap_parallel_replay
+    # Drain in this process so secondmate_note_respawned can update the parent
+    # list directly; queued workers never wrote respawned.* files.
+    unset FM_BOOTSTRAP_PARALLEL_DIR
+    secondmate_liveness_drain_queued_respawns
+    bootstrap_parallel_cleanup
+  fi
   return 0
 }
 
@@ -715,8 +784,8 @@ secondmate_liveness_one_timed() {  # <meta> <id> <label>
 
 # One secondmate's liveness check. Split out of the sweep so each is individually
 # timed; every `return` here was a `continue` in the loop and means exactly the
-# same thing - move on to the next secondmate. Respawned ids are recorded through
-# secondmate_note_respawned so a concurrent sweep can collect them after wait.
+# same thing - move on to the next secondmate. Parallel workers queue a needed
+# relaunch; sequential workers respawn inline. The parent records respawned ids.
 secondmate_liveness_one() {  # <meta> <id>
   local meta=$1 id=$2
   local window harness backend target agent_state out cause remote_host remote_rc readiness_reason route_out remote_backend
@@ -777,12 +846,7 @@ secondmate_liveness_one() {  # <meta> <id>
         ;;
       dead|missing)
         cause="remote endpoint $agent_state on its configured host"
-        if out=$(FM_SPAWN_NO_GUARD=1 "$FM_ROOT/bin/fm-spawn.sh" "$id" --secondmate 2>&1); then
-          secondmate_note_respawned "$id"
-          report_relaunch "$id" "$cause" "host=$remote_host"
-        else
-          echo "SECONDMATE_LIVENESS: secondmate $id: respawn failed after $cause: $(first_line "$out")"
-        fi
+        secondmate_liveness_queue_or_respawn "$id" "$cause" "host=$remote_host"
         ;;
       ambiguous|unreadable|unverified)
         echo "SECONDMATE_LIVENESS: secondmate $id: skipped: remote endpoint state is $agent_state on $remote_host"
@@ -814,12 +878,7 @@ secondmate_liveness_one() {  # <meta> <id>
       else
         cause="recorded endpoint confidently missing"
       fi
-      if out=$(FM_SPAWN_NO_GUARD=1 "$FM_ROOT/bin/fm-spawn.sh" "$id" --secondmate 2>&1); then
-        secondmate_note_respawned "$id"
-        report_relaunch "$id" "$cause" "backend=$backend"
-      else
-        echo "SECONDMATE_LIVENESS: secondmate $id: respawn failed after $cause: $(first_line "$out")"
-      fi
+      secondmate_liveness_queue_or_respawn "$id" "$cause" "backend=$backend"
       ;;
     ambiguous)
       echo "SECONDMATE_LIVENESS: secondmate $id: skipped: existing endpoint has ambiguous agent process (backend=$backend)"

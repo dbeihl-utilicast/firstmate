@@ -30,6 +30,9 @@
 #   - The sweep is naturally scoped to the primary: with no kind=secondmate
 #     meta present (a secondmate's own state/ never holds one, since
 #     secondmates never spawn secondmates), it is a silent no-op.
+#   - Concurrent dead-secondmate relaunches in one pass all come back: each
+#     spawn holds the home's task-set lock through publication, so the sweep
+#     must not strand later mates on that lock.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -540,6 +543,25 @@ test_sweep_noop_with_no_secondmate_meta() {
   pass "sweep: a silent no-op with no kind=secondmate meta present (a secondmate home's own natural scoping)"
 }
 
+test_sweep_respawns_two_dead_secondmates_without_self_contention() {
+  local w fb tmuxfb log out n
+  w=$(new_world sweep-two-dead)
+  add_sm_home "$w" sm1 firstmate:fm-sm1
+  add_sm_home "$w" sm2 firstmate:fm-sm2
+  fb=$(make_toolchain "$w"); tmuxfb=$(make_liveness_tmux "$w")
+  log="$w/calls.log"; : > "$log"
+
+  out=$(run_bootstrap "$tmuxfb:$fb" "$w/home" zsh "$log")
+
+  assert_not_contains "$out" "respawn failed" \
+    "concurrent dead-secondmate relaunches must not strand a mate"
+  assert_not_contains "$out" "task set is locked" \
+    "the sweep must not refuse a later relaunch on its own task-set lock"
+  n=$(grep -c 'new-window' "$log" || true)
+  [ "$n" -eq 2 ] || fail "expected two relaunches, got $n new-window calls"$'\n'"$(cat "$log")"$'\n'"--- bootstrap ---"$'\n'"$out"
+  pass "sweep: two dead secondmates in one pass both relaunch without task-set self-contention"
+}
+
 test_tmux_agent_state_classifies
 test_tmux_agent_state_rejects_malformed_targets_before_probe
 test_herdr_agent_state_preserves_husk_classifier
@@ -555,5 +577,6 @@ test_sweep_never_acts_on_unverified_harness_dead_reading
 test_sweep_converges_no_retouch_once_alive
 test_sweep_skipped_under_detect_only
 test_sweep_noop_with_no_secondmate_meta
+test_sweep_respawns_two_dead_secondmates_without_self_contention
 
 echo "# all fm-secondmate-liveness tests passed"
