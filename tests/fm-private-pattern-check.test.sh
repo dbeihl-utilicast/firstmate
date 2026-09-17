@@ -122,6 +122,21 @@ test_comments_and_blanks_are_ignored_around_a_real_pattern() {
   pass "blank lines and comments in the pattern list are ignored"
 }
 
+test_whitespace_padded_pattern_still_matches_unpadded_text() {
+  local repo out rc pattern padded_pattern
+  repo=$(fixture_repo)
+  pattern='UuU-fake-secret-marker-6602-do-not-reuse'
+  padded_pattern=$'  \t'"$pattern"$'  \t'
+  printf 'context line\n%s\n' "$pattern" > "$repo/secret4.txt"
+  git -C "$repo" add secret4.txt
+  fixture_commit "$repo" plant4
+  out=$(cd "$repo" && FM_PRIVATE_PATTERNS="$padded_pattern" "$SCRIPT" 2>&1); rc=$?
+  rm -rf "$repo"
+  [ "$rc" -eq 2 ] || fail "a pattern with incidental leading/trailing whitespace must still match unpadded text, got $rc: $out"
+  assert_contains "$out" "secret4.txt:2" "the padded pattern must still find the unpadded match"
+  pass "a pattern with incidental leading/trailing whitespace still matches unpadded text"
+}
+
 test_clean_tree_passes() {
   local repo out rc
   repo=$(fixture_repo)
@@ -157,5 +172,6 @@ test_comment_and_blank_only_var_fails
 test_invalid_pattern_fails_closed_instead_of_matching_nothing
 test_case_insensitive_match_by_default
 test_comments_and_blanks_are_ignored_around_a_real_pattern
+test_whitespace_padded_pattern_still_matches_unpadded_text
 test_clean_tree_passes
 test_diff_range_catches_a_planted_addition
