@@ -1004,6 +1004,66 @@ fm_pr_poll_merge_mark_notified() {  # <state> <id> <provider> <host> <path> <num
   fi
 }
 
+# Print "<is-draft>\t<read-ok>\t<head>" for the pull request or merge request
+# at <url>. is-draft is 1 only when the forge reports a draft, else 0.
+# read-ok is 1 only when the forge's draft field was actually retrieved and
+# parsed, so a caller can tell a proven "not draft" apart from a view that
+# could not be read (network blip, auth hiccup, missing gh/glab/jq) — is-draft
+# stays 0 in both cases, but read-ok distinguishes them. head is the GitHub
+# head SHA when valid, else empty, and stays last since a trailing empty TSV
+# field is the only one `read -r` with IFS=tab preserves reliably. GitLab
+# records no head here.
+# GitHub: one `gh pr view --json headRefOid,isDraft` (isDraft is gh's field).
+# GitLab: `glab mr view -F json`; the payload field is `draft` (boolean), the
+# GitLab Merge Request API name, which glab dumps unchanged.
+fm_pr_read_draft() {  # <url> [worktree]
+  local url=${1-} wt=${2-} raw head draft extra json
+  local is_draft=0 read_ok=0 view_head=
+  if [ -n "$url" ] && fm_pr_url_parse "$url"; then
+    case "$FM_PR_PROVIDER" in
+      github)
+        if command -v gh >/dev/null 2>&1 && [ -n "$wt" ] && [ -d "$wt" ]; then
+          if raw=$(cd "$wt" && gh pr view "$FM_PR_URL" --json headRefOid,isDraft \
+            -q '[.headRefOid, (.isDraft|tostring)] | @tsv' 2>/dev/null); then
+            case "$raw" in
+              ''|*$'\n'*) ;;
+              *)
+                IFS=$'\t' read -r head draft extra <<EOF
+$raw
+EOF
+                if [ -z "${extra:-}" ]; then
+                  case "$draft" in
+                    true) read_ok=1; is_draft=1 ;;
+                    false) read_ok=1 ;;
+                  esac
+                  [ "$read_ok" = 1 ] && fm_pr_head_valid "$head" && view_head=$head
+                fi
+                ;;
+            esac
+          fi
+        fi
+        ;;
+      gitlab)
+        if command -v glab >/dev/null 2>&1; then
+          json=$(GITLAB_HOST="$FM_PR_HOST" glab mr view "$FM_PR_NUMBER" \
+            -R "https://$FM_PR_HOST/$FM_PR_PATH" -F json 2>/dev/null) || json=
+          if [ -n "$json" ] && command -v jq >/dev/null 2>&1; then
+            if draft=$(printf '%s' "$json" | jq -r \
+              'if type == "object" then (.draft == true) else "not-an-object" end' \
+              2>/dev/null); then
+              case "$draft" in
+                true) read_ok=1; is_draft=1 ;;
+                false) read_ok=1 ;;
+              esac
+            fi
+          fi
+        fi
+        ;;
+    esac
+  fi
+  printf '%s\t%s\t%s\n' "$is_draft" "$read_ok" "$view_head"
+}
+
 # Removed at teardown alongside the other per-task PR-poll artifacts
 # (bin/fm-teardown.sh) so a retired task id leaves no residue behind.
 fm_pr_poll_merge_notified_remove() {  # <state> <id>

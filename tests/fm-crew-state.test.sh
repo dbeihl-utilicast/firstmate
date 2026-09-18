@@ -170,7 +170,15 @@ case "${1:-}" in
 esac
 exit 0
 SH
-  chmod +x "$fb/no-mistakes" "$fb/tmux" "$fb/herdr"
+  cat > "$fb/gh" <<'SH'
+#!/usr/bin/env bash
+exit 1
+SH
+  cat > "$fb/glab" <<'SH'
+#!/usr/bin/env bash
+exit 1
+SH
+  chmod +x "$fb/no-mistakes" "$fb/tmux" "$fb/herdr" "$fb/gh" "$fb/glab"
   printf '%s\n' "$fb"
 }
 
@@ -468,6 +476,44 @@ run:
 EOF
 }
 
+run_checks_passed() {  # <branch>
+  cat <<EOF
+run:
+  id: "01RUN"
+  branch: $1
+  status: completed
+  head: "${FM_FAKE_RUN_HEAD:-abc1234}"
+  pr: "https://github.com/o/r/pull/2"
+  findings: none
+outcome: checks-passed
+EOF
+}
+
+# gh mock for fm-crew-state's draft view. Prints head\\tdraft when isDraft is
+# requested, matching fm_pr_read_draft's TSV query.
+write_crew_state_gh_draft() {  # <dir> <true|false>
+  local dir=$1 draft=$2
+  cat > "$dir/fakebin/gh" <<SH
+#!/usr/bin/env bash
+case " \$* " in
+  *"isDraft"*) printf '%s\\t%s\\n' 0123456789abcdef0123456789abcdef01234567 '$draft' ; exit 0 ;;
+esac
+exit 1
+SH
+  chmod +x "$dir/fakebin/gh"
+}
+
+# gh mock whose isDraft view fails outright (network blip, auth hiccup), so
+# fm_pr_read_draft cannot prove either state and read-ok stays 0.
+write_crew_state_gh_unreadable() {  # <dir>
+  local dir=$1
+  cat > "$dir/fakebin/gh" <<'SH'
+#!/usr/bin/env bash
+exit 1
+SH
+  chmod +x "$dir/fakebin/gh"
+}
+
 run_fixing_ci_running() {  # <branch>
   cat <<EOF
 run:
@@ -755,6 +801,72 @@ EOF
   pass "ci-monitoring run with checks already green surfaces done"
 }
 
+test_checks_passed_draft_pr_says_draft() {
+  reset_fakes
+  local d; d=$(new_case checks-passed-draft)
+  make_repo_on_branch "$d/wt" fm/feat-cpdraft
+  make_fakebin "$d" >/dev/null
+  write_crew_state_gh_draft "$d" true
+  fm_write_meta "$d/state/feat-cpdraft.meta" "window=fm:fm-feat-cpdraft" "worktree=$d/wt" "kind=ship"
+  FM_FAKE_AXI_STATUS="$(run_checks_passed fm/feat-cpdraft)"
+  local out; out=$(run_crew_state "$d" feat-cpdraft)
+  assert_contains "$out" "state: done" "checks-passed draft run -> done"
+  assert_contains "$out" "checks green: PR draft" "checks-passed draft keeps checks green and says draft"
+  assert_not_contains "$out" "PR ready" "checks-passed draft must not say ready"
+  pass "checks-passed draft PR is reported as draft, not ready"
+}
+
+test_checks_passed_open_pr_says_ready() {
+  reset_fakes
+  local d; d=$(new_case checks-passed-open)
+  make_repo_on_branch "$d/wt" fm/feat-cpopen
+  make_fakebin "$d" >/dev/null
+  write_crew_state_gh_draft "$d" false
+  fm_write_meta "$d/state/feat-cpopen.meta" "window=fm:fm-feat-cpopen" "worktree=$d/wt" "kind=ship"
+  FM_FAKE_AXI_STATUS="$(run_checks_passed fm/feat-cpopen)"
+  local out; out=$(run_crew_state "$d" feat-cpopen)
+  assert_contains "$out" "checks green: PR ready for review" "open checks-passed PR still says ready"
+  assert_not_contains "$out" "PR draft" "open checks-passed PR must not say draft"
+  pass "checks-passed open PR is still reported as ready for review"
+}
+
+test_checks_passed_unreadable_view_says_unknown() {
+  reset_fakes
+  local d; d=$(new_case checks-passed-unreadable)
+  make_repo_on_branch "$d/wt" fm/feat-cpunreadable
+  make_fakebin "$d" >/dev/null
+  write_crew_state_gh_unreadable "$d"
+  fm_write_meta "$d/state/feat-cpunreadable.meta" "window=fm:fm-feat-cpunreadable" "worktree=$d/wt" "kind=ship"
+  FM_FAKE_AXI_STATUS="$(run_checks_passed fm/feat-cpunreadable)"
+  local out; out=$(run_crew_state "$d" feat-cpunreadable)
+  assert_contains "$out" "state: done" "checks-passed unreadable-view run -> done"
+  assert_contains "$out" "checks green: PR draft status unknown, verify before treating as ready" \
+    "checks-passed unreadable view says draft status unknown"
+  assert_not_contains "$out" "PR ready" "unreadable view must not say ready"
+  pass "checks-passed PR whose forge view is unreadable is reported as unknown, not ready"
+}
+
+test_ci_green_draft_pr_says_draft() {
+  reset_fakes
+  local d; d=$(new_case ci-green-draft)
+  make_repo_on_branch "$d/wt" fm/feat-cidraft
+  make_fakebin "$d" >/dev/null
+  write_crew_state_gh_draft "$d" true
+  fm_write_meta "$d/state/feat-cidraft.meta" "window=fm:fm-feat-cidraft" "worktree=$d/wt" "kind=ship"
+  FM_FAKE_AXI_STATUS="$(run_ci_monitoring fm/feat-cidraft)"
+  FM_FAKE_CI_LOGS=$(cat <<'EOF'
+CI checks running, waiting for results...
+all CI checks passed - still monitoring until merged or closed
+EOF
+)
+  local out; out=$(run_crew_state "$d" feat-cidraft)
+  assert_contains "$out" "state: done" "green ci-monitor draft run -> done"
+  assert_contains "$out" "checks green: PR draft (still monitoring for merge/close)" \
+    "green ci-monitor draft keeps checks green and says draft"
+  assert_not_contains "$out" "PR ready" "green ci-monitor draft must not say ready"
+  pass "ci-monitoring draft PR with checks green is reported as draft"
+}
+
 test_top_level_ci_checks_green_surfaces_done() {
   reset_fakes
   local d; d=$(new_case top-level-ci-green)
@@ -971,6 +1083,24 @@ daemon shutting down"
   assert_contains "$out" "https://github.com/o/r/pull/203" "PR URL surfaced from the run"
   assert_not_contains "$out" "state: failed" "monitor death must not read as a failed run"
   pass "orphaned ci monitor after green reads as held-for-merge done"
+}
+
+test_terminal_failed_ci_orphan_draft_pr_says_draft() {
+  reset_fakes
+  local d; d=$(new_case failed-ci-orphan-draft)
+  make_repo_on_branch "$d/wt" fm/feat-ci-orphan-draft
+  make_fakebin "$d" >/dev/null
+  write_crew_state_gh_draft "$d" true
+  fm_write_meta "$d/state/feat-ci-orphan-draft.meta" "window=fm:fm-feat-ci-orphan-draft" "worktree=$d/wt" "kind=ship"
+  FM_FAKE_AXI_STATUS="$(run_failed_ci_orphan fm/feat-ci-orphan-draft)"
+  FM_FAKE_CI_LOGS="all CI checks passed - still monitoring until merged or closed
+daemon shutting down"
+  local out; out=$(run_crew_state "$d" feat-ci-orphan-draft)
+  assert_contains "$out" "state: done" "orphaned ci monitor with a draft PR still reads done"
+  assert_contains "$out" "checks green: PR draft (ci monitor ended)" \
+    "orphaned ci monitor recovery must say draft, not held for merge"
+  assert_not_contains "$out" "held for merge" "a draft PR must not be announced as held for merge"
+  pass "orphaned ci monitor with a draft PR reports draft instead of held-for-merge"
 }
 
 test_terminal_failed_ci_orphan_status_only_reads_done() {
@@ -2556,6 +2686,10 @@ test_scalar_gate_parked_not_superseded
 test_gate_block_parked_not_superseded
 test_ci_ready_done_log_beats_monitoring_run
 test_ci_monitoring_checks_green_surfaces_done
+test_checks_passed_draft_pr_says_draft
+test_checks_passed_open_pr_says_ready
+test_checks_passed_unreadable_view_says_unknown
+test_ci_green_draft_pr_says_draft
 test_top_level_ci_checks_green_surfaces_done
 test_ci_monitoring_no_checks_terminal_surfaces_done
 test_ci_monitoring_green_then_rearm_stays_working
@@ -2569,6 +2703,7 @@ test_top_level_fixing_done_log_stays_working
 test_terminal_passed
 test_terminal_failed
 test_terminal_failed_ci_orphan_after_green_reads_done
+test_terminal_failed_ci_orphan_draft_pr_says_draft
 test_terminal_failed_ci_orphan_status_only_reads_done
 test_terminal_failed_ci_genuine_red_stays_failed
 test_terminal_failed_ci_orphan_second_failed_step_stays_failed

@@ -234,13 +234,18 @@ fi
 # bin/fm-review-diff.sh resolves the head from the remote when none is recorded.
 # bin/fm-pr-merge.sh reads a GitLab head live at merge time for the same reason,
 # and treats a recorded value that disagrees as stale rather than authoritative.
+# The same GitHub view now also returns isDraft, and a GitLab view returns
+# draft, so registration can say draft instead of ready.
 PR_HEAD=
-if [ "$PROVIDER" = github ] && [ -n "$WT" ] && [ -d "$WT" ] && command -v gh >/dev/null 2>&1; then
-  if REMOTE_HEAD=$(cd "$WT" && gh pr view "$URL" --json headRefOid -q .headRefOid 2>/dev/null) \
-    && fm_pr_head_valid "$REMOTE_HEAD"; then
-    PR_HEAD=$REMOTE_HEAD
-  fi
-fi
+PR_DRAFT=0
+PR_DRAFT_READ_OK=0
+view_head=
+{
+  IFS=$'\t' read -r PR_DRAFT PR_DRAFT_READ_OK view_head
+} <<EOF
+$(fm_pr_read_draft "$URL" "$WT")
+EOF
+[ -z "$view_head" ] || PR_HEAD=$view_head
 
 META_TMP=
 META_LOCK=
@@ -297,13 +302,22 @@ fm_pr_poll_publish_prepared || {
   exit 1
 }
 # In a secondmate home the registration itself is a captain-facing fact:
-# publish the child's PR-ready line with the canonical URL just recorded, so it
+# publish the child's PR line with the canonical URL just recorded, so it
 # reaches the parent whether or not the mate model appends anything
-# (bin/fm-parent-channel-lib.sh). A main home has no channel and this is a
-# silent no-op there. The poll is armed either way; a channel that cannot be
-# written is reported as actionable, and bin/fm-inactive-reconcile.sh still
-# delivers the child's own ready line on the next supervision poll.
-READY_LINE="done [key=child-pr-$ID]: child $ID PR ready: $URL"
+# (bin/fm-parent-channel-lib.sh). A draft PR says draft; an open PR says
+# ready; a view that could not be read at all says draft status unknown, so a
+# transient forge failure never gets announced as ready. A main home has no
+# channel and this is a silent no-op there. The poll is armed either way; a
+# channel that cannot be written is reported as actionable, and
+# bin/fm-inactive-reconcile.sh still delivers the child's own ready line on
+# the next supervision poll.
+if [ "${PR_DRAFT_READ_OK:-0}" != 1 ]; then
+  READY_LINE="done [key=child-pr-$ID]: child $ID PR draft status unknown, verify before treating as ready: $URL"
+elif [ "${PR_DRAFT:-0}" = 1 ]; then
+  READY_LINE="done [key=child-pr-$ID]: child $ID PR draft: $URL"
+else
+  READY_LINE="done [key=child-pr-$ID]: child $ID PR ready: $URL"
+fi
 PR_MODE=$(grep '^mode=' "$META" | tail -1 | cut -d= -f2- || true)
 PR_YOLO=$(grep '^yolo=' "$META" | tail -1 | cut -d= -f2- || true)
 [ -z "$PR_MODE" ] || READY_LINE="$READY_LINE mode=$(fm_parent_channel_clean_note "$PR_MODE")"
@@ -312,6 +326,6 @@ READY_RC=0
 fm_parent_channel_report "$FM_HOME" "$STATE" "$READY_LINE" || READY_RC=$?
 case "$READY_RC" in
   0|1) ;;
-  *) printf 'actionable: PR %s is registered but its ready line did not reach the parent channel (rc=%s)\n' "$URL" "$READY_RC" >&2 ;;
+  *) printf 'actionable: PR %s is registered but its parent-channel line did not reach the parent (rc=%s)\n' "$URL" "$READY_RC" >&2 ;;
 esac
 printf 'armed: state/%s.check.sh\n' "$ID"

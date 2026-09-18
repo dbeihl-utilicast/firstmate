@@ -347,7 +347,7 @@ test_classifier_primitives() {
     && fail "working: ... merged #N wrongly recognized as captain-relevant"
   status_is_captain_relevant "working: rebased onto predecessor #76" \
     && fail "working: predecessor prose wrongly recognized as captain-relevant"
-  status_is_captain_relevant "working: PR ready checks green merged ready in branch" \
+  status_is_captain_relevant "working: PR ready PR draft checks green merged ready in branch" \
     && fail "working: free-text tokens wrongly recognized as captain-relevant"
   status_is_captain_relevant "done: PR https://x/pull/76 checks green" \
     || fail "genuine done: checks green not captain-relevant"
@@ -358,6 +358,8 @@ test_classifier_primitives() {
   status_is_captain_relevant "merged" || fail "legacy bare merged free-text not captain-relevant"
   status_is_captain_relevant "PR ready https://x/pull/2" \
     || fail "legacy bare PR ready free-text not captain-relevant"
+  status_is_captain_relevant "PR draft https://x/pull/2" \
+    || fail "legacy bare PR draft free-text not captain-relevant"
   [ "$(window_to_task "sess:fm-fix-login-k3")" = "fix-login-k3" ] || fail "window_to_task did not strip session+fm- prefix"
   fm_write_meta "$state/herdr-task.meta" "window=default:w1:p2" "backend=herdr"
   [ "$(window_to_task "default:w1:p2" "$state")" = "herdr-task" ] || fail "window_to_task did not resolve opaque backend target through metadata"

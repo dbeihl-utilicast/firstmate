@@ -265,6 +265,7 @@ case "\${1:-} \${2:-}" in
   "pr view")
     case " \$* " in
       *"state,headRefOid,url"*) printf '%s\t%s\t%s\n' 'MERGED' '$head' 'https://github.com/example/repo/pull/7' ; exit 0 ;;
+      *"isDraft"*) printf '%s\tfalse\n' '$head' ; exit 0 ;;
       *"headRefOid"*) printf '%s\n' '$head' ; exit 0 ;;
     esac
     ;;
@@ -1894,6 +1895,189 @@ test_secondmate_pr_registration_publishes_ready_line() {
     || fail "main-pr-ready: a main home reported a channel problem"
   [ ! -e "$case_dir/state/parent-replies.status" ] || fail "main-pr-ready: a main home wrote a parent reply"
   pass "fm-pr-check publishes the PR-ready line on a secondmate's parent channel once"
+}
+
+# A GitHub pull request that is still a draft. The view answers isDraft when
+# that field is requested, so the registration path prints "PR draft".
+add_gh_pr_open_draft_for_head() {
+  local case_dir=$1 head=$2
+  cat > "$case_dir/fakebin/gh-axi" <<'SH'
+#!/usr/bin/env bash
+case "${1:-} ${2:-}" in
+  "pr view")
+    printf '%s\n' "pull_request:" "  number: 7" "  state: open" "  isDraft: true" ; exit 0 ;;
+esac
+exit 0
+SH
+  cat > "$case_dir/fakebin/gh" <<SH
+#!/usr/bin/env bash
+case "\${1:-} \${2:-}" in
+  "pr view")
+    case " \$* " in
+      *"isDraft"*) printf '%s\ttrue\n' '$head' ; exit 0 ;;
+      *"headRefOid"*) printf '%s\n' '$head' ; exit 0 ;;
+    esac
+    ;;
+esac
+echo "error: pull request not found" >&2
+exit 1
+SH
+  chmod +x "$case_dir/fakebin/gh-axi" "$case_dir/fakebin/gh"
+}
+
+# Registering a draft PR must not tell the parent the pull request is ready
+# to merge. The forge's draft flag is the signal; the line must say draft.
+test_secondmate_pr_registration_publishes_draft_not_ready() {
+  local case_dir pr_head channel url
+  url=https://github.com/example/repo/pull/7
+  case_dir=$(make_case mate-pr-draft)
+  configure_secondmate_home "$case_dir" local "$case_dir/parent"
+  mkdir -p "$case_dir/parent/state"
+  channel="$case_dir/parent/state/mate-x.status"
+  write_meta "$case_dir" no-mistakes ship
+  wt_commit_file "$case_dir" feature.txt hello "add feature"
+  pr_head=$(git -C "$case_dir/wt" rev-parse HEAD)
+  add_gh_pr_open_draft_for_head "$case_dir" "$pr_head"
+
+  FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$case_dir/state" \
+    PATH="$case_dir/fakebin:$PATH" "$PR_CHECK" task-x1 "$url" > "$case_dir/pr-check.out" 2> "$case_dir/pr-check.err" \
+    || fail "mate-pr-draft: fm-pr-check failed: $(cat "$case_dir/pr-check.err")"
+  grep -q '^armed:' "$case_dir/pr-check.out" || fail "mate-pr-draft: poll was not armed"
+  assert_grep "done [key=child-pr-task-x1]: child task-x1 PR draft: $url mode=no-mistakes" "$channel" \
+    "mate-pr-draft: the parent channel did not say draft"
+  if grep -q 'PR ready' "$channel"; then
+    fail "mate-pr-draft: a draft PR was announced as ready: $(cat "$channel")"
+  fi
+  pass "fm-pr-check publishes a draft PR as draft, not ready, on the parent channel"
+}
+
+# GitLab merge request JSON uses `draft` (boolean), matching glab -F json.
+add_glab_mr_draft() {
+  local case_dir=$1
+  cat > "$case_dir/fakebin/glab" <<'SH'
+#!/usr/bin/env bash
+if [[ " $* " == *" -F json "* ]]; then
+  printf '{"iid":7,"state":"opened","draft":true}\n'
+  exit 0
+fi
+printf 'title:\tfixture\nstate:\topened\n'
+exit 0
+SH
+  chmod +x "$case_dir/fakebin/glab"
+}
+
+test_secondmate_gitlab_draft_registration_publishes_draft_not_ready() {
+  local case_dir channel url
+  url=https://gitlab.com/example/repo/-/merge_requests/7
+  case_dir=$(make_case mate-mr-draft)
+  configure_secondmate_home "$case_dir" local "$case_dir/parent"
+  mkdir -p "$case_dir/parent/state"
+  channel="$case_dir/parent/state/mate-x.status"
+  write_meta "$case_dir" no-mistakes ship
+  wt_commit_file "$case_dir" feature.txt hello "add feature"
+  add_glab_mr_draft "$case_dir"
+
+  FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$case_dir/state" \
+    PATH="$case_dir/fakebin:$PATH" "$PR_CHECK" task-x1 "$url" > "$case_dir/pr-check.out" 2> "$case_dir/pr-check.err" \
+    || fail "mate-mr-draft: fm-pr-check failed: $(cat "$case_dir/pr-check.err")"
+  grep -q '^armed:' "$case_dir/pr-check.out" || fail "mate-mr-draft: poll was not armed"
+  assert_grep "done [key=child-pr-task-x1]: child task-x1 PR draft: $url mode=no-mistakes" "$channel" \
+    "mate-mr-draft: the parent channel did not say draft"
+  if grep -q 'PR ready' "$channel"; then
+    fail "mate-mr-draft: a draft merge request was announced as ready: $(cat "$channel")"
+  fi
+  pass "fm-pr-check publishes a draft GitLab merge request as draft, not ready"
+}
+
+# The forge view fails outright (network blip, auth hiccup): `gh pr view`
+# exits nonzero for every query, so fm_pr_read_draft cannot prove either
+# state. Registration must not fall open to "ready" in that gap.
+add_gh_pr_view_unreadable() {
+  local case_dir=$1
+  cat > "$case_dir/fakebin/gh-axi" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+  cat > "$case_dir/fakebin/gh" <<'SH'
+#!/usr/bin/env bash
+case "${1:-} ${2:-}" in
+  "pr view") echo "error: pull request not found" >&2 ; exit 1 ;;
+esac
+exit 0
+SH
+  chmod +x "$case_dir/fakebin/gh-axi" "$case_dir/fakebin/gh"
+}
+
+test_secondmate_pr_registration_unreadable_view_says_unknown() {
+  local case_dir channel url
+  url=https://github.com/example/repo/pull/7
+  case_dir=$(make_case mate-pr-unreadable)
+  configure_secondmate_home "$case_dir" local "$case_dir/parent"
+  mkdir -p "$case_dir/parent/state"
+  channel="$case_dir/parent/state/mate-x.status"
+  write_meta "$case_dir" no-mistakes ship
+  wt_commit_file "$case_dir" feature.txt hello "add feature"
+  add_gh_pr_view_unreadable "$case_dir"
+
+  FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$case_dir/state" \
+    PATH="$case_dir/fakebin:$PATH" "$PR_CHECK" task-x1 "$url" > "$case_dir/pr-check.out" 2> "$case_dir/pr-check.err" \
+    || fail "mate-pr-unreadable: fm-pr-check failed: $(cat "$case_dir/pr-check.err")"
+  grep -q '^armed:' "$case_dir/pr-check.out" || fail "mate-pr-unreadable: poll was not armed"
+  assert_grep "done [key=child-pr-task-x1]: child task-x1 PR draft status unknown, verify before treating as ready: $url mode=no-mistakes" \
+    "$channel" "mate-pr-unreadable: the parent channel did not say draft status unknown"
+  if grep -q 'PR ready' "$channel"; then
+    fail "mate-pr-unreadable: an unreadable forge view was announced as ready: $(cat "$channel")"
+  fi
+  pass "fm-pr-check publishes draft status unknown when the forge view cannot be read"
+}
+
+# The forge view succeeds but `.isDraft` comes back neither "true" nor
+# "false" (a null/absent field surviving `tostring`, a permissions-limited
+# view, a GraphQL anomaly). fm_pr_read_draft must not treat this as a proven
+# non-draft; registration must say unknown, not ready.
+add_gh_pr_view_malformed_draft() {
+  local case_dir=$1 head=$2
+  cat > "$case_dir/fakebin/gh-axi" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+  cat > "$case_dir/fakebin/gh" <<SH
+#!/usr/bin/env bash
+case "\${1:-} \${2:-}" in
+  "pr view")
+    case " \$* " in
+      *"isDraft"*) printf '%s\tnull\n' '$head' ; exit 0 ;;
+      *"headRefOid"*) printf '%s\n' '$head' ; exit 0 ;;
+    esac
+    ;;
+esac
+echo "error: pull request not found" >&2
+exit 1
+SH
+  chmod +x "$case_dir/fakebin/gh-axi" "$case_dir/fakebin/gh"
+}
+
+test_secondmate_pr_registration_malformed_draft_says_unknown() {
+  local case_dir channel url pr_head
+  url=https://github.com/example/repo/pull/7
+  case_dir=$(make_case mate-pr-malformed-draft)
+  configure_secondmate_home "$case_dir" local "$case_dir/parent"
+  mkdir -p "$case_dir/parent/state"
+  channel="$case_dir/parent/state/mate-x.status"
+  write_meta "$case_dir" no-mistakes ship
+  wt_commit_file "$case_dir" feature.txt hello "add feature"
+  pr_head=$(git -C "$case_dir/wt" rev-parse HEAD)
+  add_gh_pr_view_malformed_draft "$case_dir" "$pr_head"
+
+  FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$case_dir/state" \
+    PATH="$case_dir/fakebin:$PATH" "$PR_CHECK" task-x1 "$url" > "$case_dir/pr-check.out" 2> "$case_dir/pr-check.err" \
+    || fail "mate-pr-malformed-draft: fm-pr-check failed: $(cat "$case_dir/pr-check.err")"
+  assert_grep "done [key=child-pr-task-x1]: child task-x1 PR draft status unknown, verify before treating as ready: $url mode=no-mistakes" \
+    "$channel" "mate-pr-malformed-draft: the parent channel did not say draft status unknown"
+  if grep -q 'PR ready' "$channel"; then
+    fail "mate-pr-malformed-draft: a malformed isDraft value was announced as ready: $(cat "$channel")"
+  fi
+  pass "fm-pr-check publishes draft status unknown when isDraft is neither true nor false"
 }
 
 # Tearing a child down inside a secondmate home delivers the child's final
@@ -3762,6 +3946,10 @@ test_no_mistakes_origin_remote_allows
 test_no_mistakes_truly_unpushed_refuses
 test_local_only_force_overrides_unpushed
 test_secondmate_pr_registration_publishes_ready_line
+test_secondmate_pr_registration_publishes_draft_not_ready
+test_secondmate_gitlab_draft_registration_publishes_draft_not_ready
+test_secondmate_pr_registration_unreadable_view_says_unknown
+test_secondmate_pr_registration_malformed_draft_says_unknown
 test_secondmate_home_teardown_delivers_final_line_or_refuses
 test_teardown_missing_busy_sidecar_completes
 test_herdr_teardown_clears_escalation_marker
