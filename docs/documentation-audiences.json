@@ -1,7 +1,13 @@
 {
   "version": 1,
   "scope": {
-    "trackedPatterns": ["*.md", "*.mdx", "*.rst", "*.txt", "docs/examples/*"],
+    "trackedPatterns": [
+      "*.md",
+      "*.mdx",
+      "*.rst",
+      "*.txt",
+      "docs/examples/*"
+    ],
     "description": "Tracked Markdown-like prose, including symlinked aliases, plus copyable documentation examples. Script headers, executable configuration, generated JSON evidence, and legal text keep their existing code/config/legal owners."
   },
   "allowedAudiences": [
@@ -12,7 +18,11 @@
     "maintainer-verification",
     "agent-runtime"
   ],
-  "setupAudiences": ["public-product", "operator-current", "operator-example"],
+  "setupAudiences": [
+    "public-product",
+    "operator-current",
+    "operator-example"
+  ],
   "readmeSetupTargets": [
     "docs/configuration.md",
     "docs/wedge-alarm.md",
@@ -195,10 +205,6 @@
       "audience": "agent-runtime"
     },
     {
-      "path": ".agents/skills/harness-adapters/references/harness/gemini.md",
-      "audience": "agent-runtime"
-    },
-    {
       "path": ".agents/skills/harness-adapters/references/harness/grok.md",
       "audience": "agent-runtime"
     },
@@ -207,31 +213,11 @@
       "audience": "agent-runtime"
     },
     {
-      "path": ".agents/skills/harness-adapters/references/harness/kimi.md",
-      "audience": "agent-runtime"
-    },
-    {
-      "path": ".agents/skills/harness-adapters/references/harness/muse.md",
-      "audience": "agent-runtime"
-    },
-    {
-      "path": ".agents/skills/harness-adapters/references/harness/omp.md",
-      "audience": "agent-runtime"
-    },
-    {
-      "path": ".agents/skills/harness-adapters/references/harness/opencode.md",
-      "audience": "agent-runtime"
-    },
-    {
       "path": ".agents/skills/harness-adapters/references/harness/pi.md",
       "audience": "agent-runtime"
     },
     {
       "path": ".agents/skills/harness-adapters/references/harness/qwen.md",
-      "audience": "agent-runtime"
-    },
-    {
-      "path": ".agents/skills/harness-adapters/references/harness/rovo.md",
       "audience": "agent-runtime"
     },
     {
@@ -316,6 +302,10 @@
     },
     {
       "path": "docs/architecture.md",
+      "audience": "maintainer-architecture"
+    },
+    {
+      "path": "docs/fork-adapter-set.md",
       "audience": "maintainer-architecture"
     },
     {
@@ -447,14 +437,6 @@
       "audience": "agent-runtime"
     },
     {
-      "path": "docs/supervision-protocols/omp.md",
-      "audience": "agent-runtime"
-    },
-    {
-      "path": "docs/supervision-protocols/opencode.md",
-      "audience": "agent-runtime"
-    },
-    {
       "path": "docs/supervision-protocols/pi.md",
       "audience": "agent-runtime"
     },
@@ -491,10 +473,6 @@
       "audience": "maintainer-verification"
     },
     {
-      "path": "docs/verification/muse.md",
-      "audience": "maintainer-verification"
-    },
-    {
       "path": "docs/verification/process-event-sources.md",
       "audience": "maintainer-verification"
     },
@@ -504,10 +482,6 @@
     },
     {
       "path": "docs/verification/qwen.md",
-      "audience": "maintainer-verification"
-    },
-    {
-      "path": "docs/verification/rovo.md",
       "audience": "maintainer-verification"
     },
     {

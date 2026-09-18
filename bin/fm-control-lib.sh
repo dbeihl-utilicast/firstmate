@@ -63,7 +63,7 @@ fm_control_verb_allowed() {  # <verb>
 # than guessed at, exactly as a spawn on it would be.
 fm_control_harness_supported() {  # <harness>
   case "${1-}" in
-    claude|codex|codex-foundry-luna|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|qwen|agy) return 0 ;;
+    claude|codex|codex-foundry-luna|pi|pi-signed|grok|cursor|qwen|agy) return 0 ;;
   esac
   return 1
 }
@@ -97,9 +97,9 @@ fm_control_harness_family() {  # <recorded-harness>
   esac
 }
 
-# Which task kinds an adapter is verified to run. muse, gemini, rovo, qwen, and
-# agy are crewmate/scout adapters only: none has a primary supervision protocol,
-# and bin/fm-spawn.sh refuses a --secondmate launch on any of them. The control
+# Which task kinds an adapter is verified to run. qwen and agy are
+# crewmate/scout adapters only: neither has a primary supervision protocol,
+# and bin/fm-spawn.sh refuses a --secondmate launch on either of them. The control
 # plane asks this BEFORE it stops anything, so an incompatible relaunch target is
 # refused while the current agent is still running rather than after it has
 # been stopped.
@@ -107,7 +107,7 @@ fm_control_harness_supports_kind() {  # <harness> <kind>
   local harness=${1-} kind=${2-}
   fm_control_harness_supported "$harness" || return 1
   case "$harness" in
-    muse|gemini|rovo|qwen|agy|codex-foundry-luna) [ "$kind" != secondmate ] || return 1 ;;
+    qwen|agy|codex-foundry-luna) [ "$kind" != secondmate ] || return 1 ;;
   esac
   return 0
 }

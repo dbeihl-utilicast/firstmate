@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Detect the agent harness this process tree runs on.
-# Usage: fm-harness.sh                  print own harness: claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|qwen|agy|unknown
+# Usage: fm-harness.sh                  print own harness: claude|codex|pi|pi-signed|grok|cursor|qwen|agy|unknown
+#                                        Detection still names retired adapters (kimi, muse, omp, opencode, rovo, gemini) so leaked markers are not misread as a kept harness; dispatch refuses them. See docs/fork-adapter-set.md.
 #        fm-harness.sh crew             print the effective CREWMATE harness
 #                                        (config/crew-harness; "default" resolves to own)
 #        fm-harness.sh secondmate       print the harness the PRIMARY uses to launch
