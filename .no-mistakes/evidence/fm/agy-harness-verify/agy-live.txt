@@ -1,0 +1,6 @@
+BOOTSTRAP_INFO: live agy version: 1.2.6
+ok - real agy renders the busy footer for an interactive worker turn
+ok - real agy interrupts one running turn with one Escape and remains interactive
+ok - real agy releases its busy footer after interruption
+ok - real agy resolves the separate --model and --effort flags it was launched with
+ok - real agy exits after /quit

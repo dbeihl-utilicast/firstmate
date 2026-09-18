@@ -1,0 +1,44 @@
+=== fm-agy-harness
+ok - fm-spawn.sh: stale dialog text never hides a trust prompt this launch actually raised
+ok - fm-spawn.sh: a boundary the capture cannot carry fails closed instead of trusting scrollback
+ok - fm-spawn.sh: agy's launch clears every marker fm-harness.sh ranks above its own
+ok - fm-spawn.sh: an unobserved launch boundary refuses with the reason it actually has
+ok - fm-spawn.sh: a boundary seen once still scopes the launch after agy takes the screen
+ok - fm-spawn.sh: agy records unsupported effort but does not pass it to the CLI
+=== fm-quota-choose
+ok - missing applicable quota is not positive
+ok - any exhausted applicable scope vetoes dispatch
+ok - named model quota matches exact identity only
+ok - invalid availability status fails closed
+ok - helper reuses the captured quota snapshot
+# all fm-quota-choose tests passed
+=== fm-tmux-agent-liveness
+ok - agy composer: an idle agy pane reads empty behind its own process identity
+ok - agy composer: real typed text in an agy pane still reads pending
+ok - agy composer: an identical screen stays unknown when the pane is not agy
+ok - agy composer: a stale agy screen over a dead shell never reads empty
+ok - tmux capture: -J returns a wrapped boundary row whole
+ok - tmux capture: without -J the same row is split, which is the hole the join closes
+=== fm-bootstrap
+fatal: not a git repository (or any of the parent directories): .git
+fatal: not a git repository (or any of the parent directories): .git
+fatal: not a git repository (or any of the parent directories): .git
+fatal: not a git repository (or any of the parent directories): .git
+fatal: not a git repository (or any of the parent directories): .git
+ok - bootstrap strictly validates 63 V2 policy cases, including the declared top-tier task-shape ceiling
+=== fm-spawn-dispatch-profile
+ok - claude omits the config-dir prefix when firstmate runs with the single-store default
+ok - non-claude harnesses do not receive the claude CLAUDE_CONFIG_DIR prefix
+ok - a claude crewmate launch carries the attribution-off policy in its own settings
+ok - a claude secondmate launch carries the attribution-off policy too
+ok - active crew-dispatch profile does not block secondmate launches
+# all fm-spawn-dispatch-profile tests passed
+=== fm-control
+ok - fm-control exit: an interrupt-stopped agent satisfies the gone-state postcondition
+ok - fm-control exit: a stubborn agent reports delivered input and an unconfirmed exit
+ok - fm-control interrupt: grok reports delivery without claiming cancellation
+ok - fm-control interrupt: grok's idle footer does not confirm cancellation
+ok - fm-control: a lifecycle command to a secondmate is unmarked and opens no reply expectation
+ok - fm-control's arrival leaves fm-send's from-firstmate marking untouched
+
+[exited with code 0]
