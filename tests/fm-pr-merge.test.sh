@@ -160,7 +160,7 @@ printf '%s\n' "\$*" >> "\$FM_TEST_GH_LOG"
 case "\${1:-} \${2:-}" in
   "pr view")
     case " \$* " in
-      *headRefOid*) printf '%s\n' '$head' ; exit 0 ;;
+      *headRefOid*) printf '%s\tfalse\n' '$head' ; exit 0 ;;
       *statusCheckRollup*) cat "\$FM_TEST_GH_ADMIN_PRECHECK" ; exit 0 ;;
     esac
     ;;
@@ -227,7 +227,7 @@ printf '%s\n' "\$*" >> "\$FM_TEST_GH_LOG"
 case "\${1:-} \${2:-}" in
   "pr view")
     case " \$* " in
-      *headRefOid*) printf '%s\n' '$head' ; exit 0 ;;
+      *headRefOid*) printf '%s\tfalse\n' '$head' ; exit 0 ;;
     esac
     ;;
   "api graphql")
@@ -852,7 +852,7 @@ printf '%s\n' "$*" >> "$FM_TEST_GH_LOG"
 case "${1:-} ${2:-}" in
   "pr view")
     case " $* " in
-      *headRefOid*) printf '%s\n' 8484848484848484848484848484848484848484 ; exit 0 ;;
+      *headRefOid*) printf '%s\tfalse\n' 8484848484848484848484848484848484848484 ; exit 0 ;;
     esac
     ;;
   "api graphql")
@@ -1931,7 +1931,7 @@ printf '%s\n' "\$*" >> "\$FM_TEST_GH_LOG"
 case "\${1:-} \${2:-}" in
   "pr view")
     case " \$* " in
-      *headRefOid*) printf '%s\n' '5151515151515151515151515151515151515151' ; exit 0 ;;
+      *headRefOid*) printf '%s\tfalse\n' '5151515151515151515151515151515151515151' ; exit 0 ;;
       *statusCheckRollup*)
         prev=""
         filter=""
@@ -2179,7 +2179,7 @@ printf '%s\n' "$*" >> "$FM_TEST_GH_LOG"
 case "${1:-} ${2:-}" in
   "pr view")
     case " $* " in
-      *headRefOid*) printf '%s\n' '8181818181818181818181818181818181818181' ; exit 0 ;;
+      *headRefOid*) printf '%s\tfalse\n' '8181818181818181818181818181818181818181' ; exit 0 ;;
       *statusCheckRollup*) cat "$FM_TEST_GH_ADMIN_PRECHECK" ; exit 0 ;;
     esac
     ;;
