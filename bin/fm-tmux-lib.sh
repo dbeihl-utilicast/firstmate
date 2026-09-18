@@ -138,7 +138,7 @@ EOF
 # it (a pi separator pair under the cursor), so the common read never pays
 # for the process probe.
 fm_tmux_composer_state() {  # <target> -> empty|pending|pending-unproven|unknown
-  local target=$1 cy pane verdict identity
+  local target=$1 cy pane verdict identity agy
   cy=$(fm_tmux_composer_cursor_row "$target") || { printf 'unknown'; return 0; }
   case "$cy" in ''|*[!0-9]*) printf 'unknown'; return 0 ;; esac
   pane=$(fm_tmux_composer_capture "$target") || { printf 'unknown'; return 0; }
@@ -162,7 +162,31 @@ fm_tmux_composer_state() {  # <target> -> empty|pending|pending-unproven|unknown
   if [ "$verdict" = unknown ] && fm_tmux_pane_is_cursor "$target"; then
     verdict=$(fm_composer_classify_screen "$(fm_tmux_composer_caps)" "$pane" '')
   fi
+  # A bare `>` between dividers is ambiguous without agy's process identity.
+  # Apply its classifier only here so other harnesses retain their strict
+  # blank-row posture.
+  if [ "$verdict" = unknown ] && fm_tmux_pane_is_agy "$target"; then
+    agy=$(fm_composer_classify_agy_divider_pair \
+      "$(printf '%s\n' "$pane" | fm_composer_strip_ansi)" "$cy") && verdict=$agy
+  fi
   printf '%s' "$verdict"
+}
+
+# True when the foreground process group contains agy 1.2.6's exact native name.
+# Foreground scoping ensures a stale divider screen over a shell cannot read
+# empty after agy exits.
+fm_tmux_pane_is_agy() {  # <target>
+  local target=$1 tty pgid tpgid comm
+  tty=$(tmux display-message -p -t "$target" '#{pane_tty}' 2>/dev/null) || return 1
+  case "$tty" in /dev/*) ;; *) return 1 ;; esac
+  while read -r _ pgid tpgid comm; do
+    [ -n "$comm" ] || continue
+    [ "$pgid" = "$tpgid" ] || continue
+    [ "${comm##*/}" = agy ] && return 0
+  done <<EOF
+$(LC_ALL=C ps -t "${tty#/dev/}" -o pid=,pgid=,tpgid=,comm= 2>/dev/null)
+EOF
+  return 1
 }
 
 # fm_tmux_pane_is_cursor: true when the pane's FOREGROUND process group contains

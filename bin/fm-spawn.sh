@@ -135,7 +135,7 @@
 #   profile consultation. A --secondmate spawn is exempt and resolves the SECONDMATE
 #   harness (config/secondmate-harness -> config/crew-harness -> own), so the
 #   secondmate-vs-crewmate split is DURABLE across every respawn (recovery,
-#   /updatefirstmate, restart). A bare adapter name (claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|qwen|codex-foundry-luna)
+#   /updatefirstmate, restart). A bare adapter name (claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|qwen|agy|codex-foundry-luna)
 #   overrides it for this spawn (either kind). codex-foundry-luna is codex itself,
 #   repointed at the Azure AI Foundry `gpt-5.6-luna` deployment, named by this
 #   home's local config/foundry-luna.json (docs/configuration.md "Foundry Luna
@@ -1402,7 +1402,7 @@ if [ "$RELAUNCH" -eq 1 ]; then
   }
 elif [ "$KIND" = secondmate ]; then
   case "${POS[1]:-}" in
-    ''|claude|codex|codex-foundry-luna|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|qwen)
+    ''|claude|codex|codex-foundry-luna|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|qwen|agy)
       ARG3=${POS[1]:-}
       ;;
     *' '*)
@@ -1626,6 +1626,10 @@ launch_template() {
     # Its turn-end and busy-state signals do NOT ride the launch command:
     # they are project hooks written into the worktree below.
     gemini) printf '%s' 'env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS GEMINI_CLI_TRUST_WORKSPACE=true GEMINI_CLI_SYSTEM_SETTINGS_PATH=__GEMINISETTINGS__ gemini -y __MODELFLAG__"$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
+    # Antigravity starts an interactive turn through --prompt-interactive.
+    # Its permission bypass is per worker invocation, never a user-wide setting.
+    # A fresh worktree trust dialog is handled only after its exact text appears.
+    agy) printf '%s' 'env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS -u GEMINI_CLI -u ATLASSIAN_AGENT_TYPE -u ROVODEV_CLI agy --dangerously-skip-permissions __MODELFLAG____EFFORTFLAG__--prompt-interactive="$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
     # qwen (Qwen Code): a positional query is one-shot headless and exits
     # (verified, 0.23.0: `qwen -y --model ... "<brief>"` printed "No auth type
     # is selected... before running in non-interactive mode" and dropped to a
@@ -1758,7 +1762,7 @@ case "$ARG3" in
     ;;
 esac
 
-# muse, gemini, and qwen are verified as CREWMATE/SCOUT adapters only. A
+# muse, gemini, qwen, and agy are verified as CREWMATE/SCOUT adapters only. A
 # secondmate is
 # a firstmate instance, so it needs a primary supervision protocol.
 # gemini has none: docs/supervision-protocols/ carries no gemini wake protocol
@@ -1769,7 +1773,7 @@ esac
 # asyncRewake handlers that firstmate's primary turn-end supervision is built on
 # (muse 0.1.0-R708.1). Refusing here keeps that gap loud instead of standing up a
 # secondmate whose supervision cycle could never be armed.
-if [ "$KIND" = secondmate ] && { [ "$HARNESS" = muse ] || [ "$HARNESS" = gemini ] || [ "$HARNESS" = qwen ]; }; then
+if [ "$KIND" = secondmate ] && { [ "$HARNESS" = muse ] || [ "$HARNESS" = gemini ] || [ "$HARNESS" = qwen ] || [ "$HARNESS" = agy ]; }; then
   echo "error: $HARNESS is a verified crewmate/scout adapter only and cannot run a secondmate; it has no primary supervision protocol. Select a harness verified for secondmates." >&2
   exit 1
 fi
@@ -1780,6 +1784,12 @@ fi
 # standing one up with no way to arm its watch cycle.
 if [ "$KIND" = secondmate ] && [ "$HARNESS" = rovo ]; then
   echo "error: rovo is a verified crewmate/scout adapter only and cannot run a secondmate; it has no primary supervision protocol. Select a harness verified for secondmates." >&2
+  exit 1
+fi
+
+# agy's verified composer and liveness evidence is tmux-specific.
+if [ "$HARNESS" = agy ] && [ "$BACKEND" != tmux ]; then
+  echo "error: agy is verified only for tmux crewmate/scout work; select --backend tmux or a harness verified for $BACKEND." >&2
   exit 1
 fi
 
@@ -1819,6 +1829,12 @@ case "$HARNESS" in
     if [ "$RAW_LAUNCH" -eq 0 ]; then
       QWEN_BIN=$(fm_qwen_launch_preflight) || exit 1
     fi
+    ;;
+  agy)
+    command -v agy >/dev/null 2>&1 || {
+      echo "error: agy executable not found on PATH; install the Antigravity CLI or select a different verified harness" >&2
+      exit 1
+    }
     ;;
   cursor)
     # `cursor` is not the CLI name, and the legacy alias `agent` is far too
@@ -2014,7 +2030,7 @@ model_flag_for_harness() {
   local harness=$1 model=$2
   [ -n "$model" ] && [ "$model" != default ] || return 0
   case "$harness" in
-    claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|qwen)
+    claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|qwen|agy)
       printf -- '--model %s ' "$(shell_quote "$model")"
       ;;
   esac
@@ -2045,6 +2061,11 @@ effort_flag_for_harness() {
       # than passing a known-bad value.
       case "$effort" in
         low|medium|high) printf -- '--reasoning-effort %s ' "$(shell_quote "$effort")" ;;
+      esac
+      ;;
+    agy)
+      case "$effort" in
+        low|medium|high) printf -- '--effort %s ' "$(shell_quote "$effort")" ;;
       esac
       ;;
     pi|pi-signed)
@@ -3288,6 +3309,69 @@ rovo_endpoint_cleanup() {
   fm_backend_kill "$BACKEND" "$T" "$tab_id" "fm-$ID" 2>/dev/null || true
 }
 
+# agy may stop at workspace trust after receiving its brief.
+# Scope the exact trust response and delivery evidence below this launch's
+# shell boundary.
+agy_capture() {
+  tmux capture-pane -p -J -t "$T" -S -120 2>/dev/null || true
+}
+
+agy_delivery_is_confirmed() {  # <plain-pane-capture>
+  local pane=$1
+  printf '%s\n' "$pane" | fm_busy_agy_tail_busy && return 0
+  [ -n "${AGY_BRIEF_MARKER:-}" ] || return 1
+  printf '%s\n' "$pane" | grep -Fq "$AGY_BRIEF_MARKER"
+}
+
+agy_brief_marker() {  # <brief-file>
+  LC_ALL=C awk '
+    { sub(/[[:space:]]+$/, ""); sub(/^[[:space:]]+/, "") }
+    NF { line = $0 }
+    END { if (length(line) >= 24) print substr(line, 1, 60) }
+  ' "$1" 2>/dev/null
+}
+
+agy_post_launch_pane() {  # <plain-pane-capture>
+  printf '%s\n' "$1" | LC_ALL=C awk -v marker="$AGY_LAUNCH_BOUNDARY" '
+    index($0, marker) { buf = ""; found = 1; next }
+    { buf = buf $0 "\n" }
+    END { printf "%s", buf; if (!found) exit 1 }
+  '
+}
+
+agy_wait_for_delivery() {
+  local pane raw i=0 accepted=0 seen=0 max=${FM_AGY_READY_POLLS:-60} interval=${FM_AGY_POLL_INTERVAL:-0.5}
+  while [ "$i" -lt "$max" ]; do
+    raw=$(agy_capture)
+    if pane=$(agy_post_launch_pane "$raw"); then
+      seen=1
+    elif [ "$seen" = 1 ]; then
+      pane=$raw
+    else
+      pane=
+    fi
+    if printf '%s\n' "$pane" | grep -Fq 'Do you trust the contents of this project?'; then
+      if [ "$accepted" -eq 0 ] \
+         && printf '%s\n' "$pane" | grep -Fq 'Yes, I trust this folder'; then
+        spawn_send_key "$T" Enter || return 1
+        accepted=1
+      fi
+    elif agy_delivery_is_confirmed "$pane"; then
+      return 0
+    fi
+    i=$((i + 1))
+    [ "$i" -ge "$max" ] || sleep "$interval"
+  done
+  [ "$seen" = 1 ] || return 2
+  return 1
+}
+
+agy_spawn_fail() {  # <detail>
+  printf 'failed: %s\n' "$1" >> "$STATE/$ID.status"
+  echo "error: $1; inspect window $T" >&2
+  rovo_endpoint_cleanup
+}
+
 if [ "$RELAUNCH" -eq 1 ]; then
   # No worktree is acquired: the recorded one is reused as-is. What must be
   # proven instead is that the adopted endpoint's shell is actually sitting in
@@ -4190,8 +4274,8 @@ case "$HARNESS" in
 esac
 LAUNCH=${LAUNCH//__WORKTREE__/$sq_worktree}
 case "$HARNESS" in
-  claude|codex|codex-foundry-luna|opencode|pi|pi-signed|grok|kimi|gemini|muse|rovo|qwen)
-    LAUNCH="env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI $LAUNCH"
+  claude|codex|codex-foundry-luna|opencode|pi|pi-signed|grok|kimi|gemini|muse|rovo|qwen|agy)
+    LAUNCH="env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI -u ANTIGRAVITY_AGENT $LAUNCH"
     ;;
 esac
 # Crewmate panes are created by a long-lived tmux/herdr daemon that does not
@@ -4287,6 +4371,10 @@ if [ -n "$SPAWN_TRACEPARENT" ]; then
   fi
 fi
 LAUNCH=$(spawn_launch_environment "$LAUNCH") || exit 1
+if [ "$HARNESS" = agy ]; then
+  AGY_LAUNCH_BOUNDARY="export FM_TASK_ID=$ID"
+  AGY_BRIEF_MARKER=$(agy_brief_marker "$BRIEF")
+fi
 sleep 0.3
 spawn_send_literal "$T" "$LAUNCH"
 sleep 0.3
@@ -4340,6 +4428,18 @@ if [ "$HARNESS" = rovo ]; then
   fi
   if ! rovo_wait_for_delivery; then
     rovo_spawn_fail "rovo brief pointer delivery was not confirmed in window $T"
+    exit 1
+  fi
+fi
+if [ "$HARNESS" = agy ]; then
+  AGY_DELIVERY_RC=0
+  agy_wait_for_delivery || AGY_DELIVERY_RC=$?
+  if [ "$AGY_DELIVERY_RC" -eq 2 ]; then
+    agy_spawn_fail "agy's launch boundary was never observed in window $T, so no captured screen could be attributed to this launch and its delivery was never established either way"
+    exit 1
+  fi
+  if [ "$AGY_DELIVERY_RC" -ne 0 ]; then
+    agy_spawn_fail "agy did not accept the launch brief after its verified trust-and-busy check in window $T"
     exit 1
   fi
 fi

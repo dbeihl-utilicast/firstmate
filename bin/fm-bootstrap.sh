@@ -1167,14 +1167,14 @@ crew_dispatch_validate() {
     return 0
   fi
   err=$(jq -r '
-    def verified($h): ["claude","codex","codex-foundry-luna","opencode","pi","pi-signed","grok","kimi","cursor","muse","rovo","omp","qwen"] | index($h);
+    def verified($h): ["claude","codex","codex-foundry-luna","opencode","pi","pi-signed","grok","kimi","cursor","muse","rovo","omp","qwen","agy"] | index($h);
     def effort_ok($h; $m; $e):
       if $e == null then true
       elif ($e | type) != "string" then false
       elif $e == "ultra" then (($h == "pi" or $h == "pi-signed") and (($m | type) == "string") and ($m | startswith("codex-native/")) and ($m | length) > 13)
       elif $h == "claude" then (["low","medium","high","xhigh","max"] | index($e))
       elif $h == "codex" or $h == "codex-foundry-luna" then (["low","medium","high","xhigh"] | index($e))
-      elif $h == "grok" then (["low","medium","high"] | index($e))
+      elif $h == "grok" or $h == "agy" then (["low","medium","high"] | index($e))
       elif $h == "pi" or $h == "pi-signed" or $h == "omp" then (["low","medium","high","xhigh","max"] | index($e))
       elif $h == "muse" then (["low","medium","high","xhigh","max"] | index($e))
       elif $h == "rovo" then (["low","medium","high","max"] | index($e))
@@ -1215,7 +1215,7 @@ crew_dispatch_validate() {
       else .
       end;
     def v2_model_class_names: ["ordinary", "astra", "fable"];
-    def v2_builtin_ordinary_models: ["gpt-5.6-terra", "sonnet", "claude-sonnet-5", "gpt-5.6-sol-xhigh", "grok-4.6", "cursor-grok-4.6-high-fast", "composer-2.5", "gpt-5.6-luna", "claude-opus-5"];
+    def v2_builtin_ordinary_models: ["gpt-5.6-terra", "sonnet", "claude-sonnet-5", "gpt-5.6-sol-xhigh", "grok-4.6", "cursor-grok-4.6-high-fast", "composer-2.5", "gpt-5.6-luna", "claude-opus-5", "gemini-3.8-flash-low"];
     def v2_top_tier_class:
       split("/")[-1] as $model
       | if ($model | test("astra"; "i")) then "astra"
