@@ -74,8 +74,7 @@ The divider pair is not proof by itself, so the rule lives behind agy's own fore
 `quota-axi --provider agy` returned a provider row keyed `agy` with plan `Google AI Pro`, carrying `gemini_5h`, `gemini_weekly`, `claude_gpt_5h`, and `claude_gpt_weekly` windows.
 That single account-scoped row is the evidence for the `agy` provider family in `bin/fm-quota-choose.sh`, rather than any inference from the model names `agy models` lists.
 With Antigravity not running, the same read reported `state.status: stale` and the default snapshot carried agy only in its attention section (`stale`, `unresolved_windows`).
-That is the ordinary state before an agy worker is launched, so requiring measured headroom would leave agy permanently unselectable; an agy candidate whose quota cannot be measured therefore stays eligible and the helper discloses the missing measurement on stderr rather than reporting it as available capacity.
-agy is the only harness that reads that way, and a known-exhausted runway still vetoes it.
+An agy candidate whose quota cannot be measured is ineligible in `bin/fm-quota-choose.sh`, like every other harness, so agy is selectable only while Antigravity is running and the row reports measured headroom.
 
 ## Linux availability
 
