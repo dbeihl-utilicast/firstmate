@@ -834,7 +834,7 @@ test_secondmate_relaunch_ignores_invalid_configured_effort_before_stop() {
   pass "fm-control relaunch: invalid configured effort is ignored before stop"
 }
 
-# muse is a verified adapter, but only for crewmates and scouts: it has no
+# agy is a verified adapter, but only for crewmates and scouts: it has no
 # primary supervision protocol, so bin/fm-spawn.sh refuses it for a secondmate.
 # That refusal alone is not enough here, because the launch owner is reached
 # only AFTER the running agent has been stopped - a secondmate would be left
@@ -865,7 +865,7 @@ test_secondmate_relaunch_onto_a_crewmate_only_adapter_refuses_before_stop() {
   } > "$home/state/sm7.meta"
   printf '%s\n' "fm-sm7" > "$dir/fake/windows"
   printf '%s' "$dir/smhome" > "$dir/fake/cwd"
-  out=$(run_control "$dir" sm7 relaunch --harness muse); rc=$?
+  out=$(run_control "$dir" sm7 relaunch --harness agy); rc=$?
   expect_code 1 "$rc" "a crewmate-only adapter should refuse a secondmate relaunch"
   assert_contains "$out" "not verified to run a secondmate task" \
     "the refusal should name the kind the adapter cannot run"
