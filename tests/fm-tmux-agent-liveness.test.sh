@@ -155,6 +155,8 @@ assert_sources_disagree() {  # <target> <label>
 
 NODE_BIN=$(command -v node 2>/dev/null || true)
 if [ -n "$NODE_BIN" ]; then
+  ln -s "$NODE_BIN" "$LAB/bin/node"
+  NODE_BIN="$LAB/bin/node"
   cat > "$LAB/bin/qwen" <<'JS'
 setInterval(() => {}, 30000);
 JS
