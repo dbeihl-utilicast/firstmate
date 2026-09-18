@@ -30,10 +30,6 @@ MUSE_POSITIVE="$LAB/muse-positive.json"
 AGY_POSITIVE="$LAB/agy-positive.json"
 AGY_CLAUDE_MODEL="$LAB/agy-claude-model.json"
 AGY_EXHAUSTED="$LAB/agy-exhausted.json"
-AGY_UNMEASURABLE="$LAB/agy-unmeasurable.json"
-AGY_UNKNOWN_EXHAUSTED="$LAB/agy-unknown-exhausted.json"
-AGY_UNMEASURABLE_ERR="$LAB/agy-unmeasurable.err"
-AGY_MEASURED_ERR="$LAB/agy-measured.err"
 TOON="$LAB/quota.toon"
 RENDERER_TOON="$LAB/renderer-quota.toon"
 EMPTY_TOON="$LAB/empty-quota.toon"
@@ -586,42 +582,6 @@ if out=$(call_choose --snapshot "$AGY_EXHAUSTED" --candidate agy:default 2>/dev/
 fi
 [ "$out" = "none" ] || fail "exhausted agy quota returned: $out"
 ok "agy uses its own Antigravity quota"
-
-# Antigravity not running is the ordinary pre-launch state, so an agy candidate
-# whose quota cannot be measured stays eligible and the missing measurement is
-# disclosed on stderr rather than presented on stdout as available capacity.
-jq '.providers += [{"provider":"agy","windows":[],"quotaSemantics":{"status":"unknown","effectiveAvailability":[]}}]' \
-  "$LAB/captured.json" > "$AGY_UNMEASURABLE"
-out=$(call_choose --snapshot "$AGY_UNMEASURABLE" --candidate agy:default 2>"$AGY_UNMEASURABLE_ERR")
-rc=$?
-[ "$rc" -eq 0 ] || fail "unmeasurable agy quota must stay eligible, rc=$rc"
-[ "$out" = "agy default" ] || fail "unmeasurable agy quota returned: $out"
-grep -Fq 'note: agy quota is unmeasured in this snapshot' "$AGY_UNMEASURABLE_ERR" \
-  || fail "unmeasurable agy selection did not disclose the missing measurement: $(cat "$AGY_UNMEASURABLE_ERR")"
-ok "unmeasurable agy quota stays eligible with an explicit uncertainty disclosure"
-
-# Unknown is not capacity: a measured selection must carry no such disclosure.
-out=$(call_choose --snapshot "$AGY_POSITIVE" --candidate agy:gemini-3.8-flash-low 2>"$AGY_MEASURED_ERR")
-[ "$out" = "agy gemini-3.8-flash-low" ] || fail "measured agy candidate returned: $out"
-[ ! -s "$AGY_MEASURED_ERR" ] \
-  || fail "a measured agy selection must not claim unmeasured quota: $(cat "$AGY_MEASURED_ERR")"
-ok "a measured agy selection carries no uncertainty disclosure"
-
-# The exhausted veto still outranks the eligibility carve-out.
-jq '.providers += [{"provider":"agy","windows":[],"quotaSemantics":{"status":"unknown","effectiveAvailability":[{"scope":"all_models","status":"unknown","runway":{"status":"exhausted_now"}}]}}]' \
-  "$LAB/captured.json" > "$AGY_UNKNOWN_EXHAUSTED"
-if out=$(call_choose --snapshot "$AGY_UNKNOWN_EXHAUSTED" --candidate agy:default 2>/dev/null); then
-  fail "agy dispatched on an exhausted_now runway"
-fi
-[ "$out" = "none" ] || fail "exhausted agy runway returned: $out"
-ok "an exhausted agy runway still vetoes, unmeasured or not"
-
-# Routing is otherwise unchanged: unknown quota stays ineligible elsewhere.
-if out=$(call_choose --snapshot "$AGY_UNMEASURABLE" --candidate cursor:default 2>/dev/null); then
-  fail "the agy carve-out leaked into another harness"
-fi
-[ "$out" = "none" ] || fail "non-agy unknown quota returned: $out"
-ok "the unmeasured carve-out is agy-only"
 
 jq '.providers += [.providers[] | select(.provider == "claude")]' "$LAB/captured.json" > "$DUPLICATE"
 if err=$(call_choose --snapshot "$DUPLICATE" --candidate claude:default 2>&1); then

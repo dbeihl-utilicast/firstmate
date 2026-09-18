@@ -9,15 +9,9 @@
 # in order, it maps <harness> to its primary provider family, then applies the
 # provider-wide scopes and exact model or product scopes for <model>. A candidate
 # is eligible only when no applicable runway is `exhausted_now` and its known
-# effective percent remaining is greater than zero, with the single agy
-# exception below. The first eligible candidate is printed as
-# "<harness> <model>" and the script exits 0.
+# effective percent remaining is greater than zero. The first eligible
+# candidate is printed as "<harness> <model>" and the script exits 0.
 # If no candidate is quota-eligible, it prints "none" and exits 1.
-#
-# stdout stays exactly those two fields. When a candidate is selected without
-# measured headroom, the uncertainty is disclosed on stderr as
-# "note: <provider> quota is unmeasured in this snapshot; ...", so a caller
-# reading stdout is never told unmeasured quota is available capacity.
 #
 # Candidates are accepted as `--candidate <harness:model>` or as positional
 # colon-separated arguments, with earlier candidates preferred.
@@ -52,8 +46,6 @@
 # the agent-side gates, not measured headroom.
 #
 # agy's own provider row measures its Gemini and Claude/GPT windows.
-# Unknown quota remains eligible with stderr disclosure because its row is stale
-# while Antigravity is stopped; known exhaustion still vetoes it.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -389,7 +381,6 @@ for c in "${CANDIDATES[@]}"; do
 done
 
 chosen="none"
-unmeasured_provider=
 for c in "${CANDIDATES[@]}"; do
   harness=${c%%:*}
   model=${c#*:}
@@ -414,18 +405,7 @@ for c in "${CANDIDATES[@]}"; do
     chosen="$harness $model"
     break
   fi
-  if [ "$harness" = agy ] && printf '%s\n' "$effective" | jq -e '
-    (.status == "unknown") and ((.runway.status // "") != "exhausted_now")
-  ' >/dev/null 2>&1; then
-    chosen="$harness $model"
-    unmeasured_provider=$provider
-    break
-  fi
 done
 
-if [ -n "$unmeasured_provider" ]; then
-  printf 'note: %s quota is unmeasured in this snapshot; selected without measured headroom\n' \
-    "$unmeasured_provider" >&2
-fi
 printf '%s\n' "$chosen"
 [ "$chosen" != "none" ]

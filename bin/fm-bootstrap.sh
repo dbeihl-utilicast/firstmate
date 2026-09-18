@@ -1215,7 +1215,7 @@ crew_dispatch_validate() {
       else .
       end;
     def v2_model_class_names: ["ordinary", "astra", "fable"];
-    def v2_builtin_ordinary_models: ["gpt-5.6-terra", "sonnet", "claude-sonnet-5", "gpt-5.6-sol-xhigh", "grok-4.6", "cursor-grok-4.6-high-fast", "composer-2.5", "gpt-5.6-luna", "claude-opus-5", "gemini-3.8-flash-low"];
+    def v2_builtin_ordinary_models: ["gpt-5.6-terra", "sonnet", "claude-sonnet-5", "gpt-5.6-sol-xhigh", "grok-4.6", "cursor-grok-4.6-high-fast", "composer-2.5", "gpt-5.6-luna", "claude-opus-5"];
     def v2_top_tier_class:
       split("/")[-1] as $model
       | if ($model | test("astra"; "i")) then "astra"
