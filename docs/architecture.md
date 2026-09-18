@@ -285,6 +285,7 @@ The harness references own [profile precedence and static fallback](../.agents/s
 ## One-shot Antigravity print path
 
 [`bin/fm-agy-print.sh`](../bin/fm-agy-print.sh) is a Firstmate-owned one-shot helper for review and second-reading, deliberately separate from `fm-spawn` and the harness-adapter tree.
+[`bin/fm-agy-second-read.sh`](../bin/fm-agy-second-read.sh) is its single scout-report use, writing the schema-owned verdict beside the report.
 The [`agy-print` skill](../.agents/skills/agy-print/SKILL.md) owns when to invoke it and its non-worker boundary; the helper's header and `--help` own the exact invocation, output, and gating contract.
 
 ## Optional secondmates
