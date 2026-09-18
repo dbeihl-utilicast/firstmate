@@ -59,6 +59,10 @@ ln -s "$SLEEP_BIN" "$LAB/bin/notaharness"
 ln -s "$SLEEP_BIN" "$LAB/bin/omp"
 ln -s "$SLEEP_BIN" "$LAB/bin/ompd"
 ln -s "$SLEEP_BIN" "$LAB/bin/comp"
+# agy is another exact native binary name; the decoy keeps this short token
+# from growing into a substring match.
+ln -s "$SLEEP_BIN" "$LAB/bin/agy"
+ln -s "$SLEEP_BIN" "$LAB/bin/agylike"
 # muse's installed binary is muse-bin-<version>: the launcher execs it, so the
 # version is the LIVE process name and it changes on every auto-update. Unlike
 # Claude Code's version-named binary there is no `muse` path component to fall
@@ -151,6 +155,8 @@ assert_sources_disagree() {  # <target> <label>
 
 NODE_BIN=$(command -v node 2>/dev/null || true)
 if [ -n "$NODE_BIN" ]; then
+  ln -s "$NODE_BIN" "$LAB/bin/node"
+  NODE_BIN="$LAB/bin/node"
   cat > "$LAB/bin/qwen" <<'JS'
 setInterval(() => {}, 30000);
 JS
@@ -212,6 +218,18 @@ for decoy in ompd comp; do
     || fail "'$decoy' merely contains 'omp' and must not classify as a live agent pane"
 done
 pass "tmux liveness: unrelated omp-containing command names stay ambiguous"
+
+# --- agy's bare binary name -------------------------------------------------
+
+new_window agy "$LAB/bin/agy" 900
+wait_for_state "$SESSION:agy" alive \
+  || fail "agy's bare binary name must classify alive"
+pass "tmux liveness: agy's bare binary name classifies alive"
+
+new_window decoy-agylike "$LAB/bin/agylike" 900
+wait_for_state "$SESSION:decoy-agylike" ambiguous \
+  || fail "agylike must not classify as a live agy pane"
+pass "tmux liveness: unrelated agy-containing command names stay ambiguous"
 
 # --- a version name blinds one source ---------------------------------------
 # Giving a genuine harness-named executable the version-string argv[0] that
@@ -390,6 +408,108 @@ fi
 [ "$(fm_tmux_composer_state "$SESSION:cursor-exited")" != empty ] \
   || fail "a dead-shell pane still showing Cursor's composer must never read empty"
 pass "cursor composer: a stale Cursor screen over a dead shell never reads empty"
+
+# --- agy's composer: the divider pair alone is NOT container proof ----------
+# Antigravity draws a bare `>` row between two full-width dividers. A shell
+# prompt sitting between two rules renders the same bytes, so the shared
+# classifier must keep answering `unknown` for the shape and only a pane whose
+# foreground process is genuinely agy may read it. These cases drive the two
+# signals apart the same way the Cursor cases above do: the SAME screen, with
+# only the process identity changed, must produce a different verdict.
+
+agy_screen() {  # <composer-text>
+  local rule
+  rule=$(printf '\xe2\x94\x80%.0s' $(seq 1 60))
+  printf '%s\n> %s\n%s\n  ctrl+? shortcuts   Gemini 3.8 Flash\n\033[3A' "$rule" "$1" "$rule"
+}
+
+open_agy_pane() {  # <window> <binary> <composer-text>
+  local window=$1 binary=$2 text=$3 i=0
+  new_window "$window" bash -c "$(declare -f agy_screen); agy_screen '$text'; exec '$binary' 900"
+  while [ "$i" -lt 100 ]; do
+    case "$("$REAL_TMUX" -L "$SOCKET" display-message -p -t "$SESSION:$window" '#{cursor_y}' 2>/dev/null)" in
+      1) return 0 ;;
+    esac
+    sleep 0.1
+    i=$((i + 1))
+  done
+  fail "pane $window never parked its cursor on the agy composer row"
+}
+
+open_agy_pane agy-idle "$LAB/bin/agy" ''
+fm_tmux_pane_is_agy "$SESSION:agy-idle" \
+  || fail "a pane whose foreground process is agy must be identified as agy"
+case "$(cursor_anchored_verdict "$SESSION:agy-idle")" in
+  empty|pending) fail "the shared classifier must stay blind to the divider pair, or this case proves nothing about the harness gate" ;;
+esac
+[ "$(fm_tmux_composer_state "$SESSION:agy-idle")" = empty ] \
+  || fail "an idle agy composer must read empty; without it every away-mode escalation defers forever"
+pass "agy composer: an idle agy pane reads empty behind its own process identity"
+
+open_agy_pane agy-typed "$LAB/bin/agy" 'half typed captain text'
+[ "$(fm_tmux_composer_state "$SESSION:agy-typed")" = pending ] \
+  || fail "real unsubmitted text in an agy composer must read pending, never empty"
+pass "agy composer: real typed text in an agy pane still reads pending"
+
+# The SAME rendered screen, with only the foreground process identity changed.
+open_agy_pane agy-decoy "$LAB/bin/agylike" ''
+if fm_tmux_pane_is_agy "$SESSION:agy-decoy"; then
+  fail "a pane running a non-agy binary must not be identified as agy"
+fi
+[ "$(fm_tmux_composer_state "$SESSION:agy-decoy")" = unknown ] \
+  || fail "the divider-pair rule must be gated on agy's own process identity; every other harness keeps the strict posture"
+pass "agy composer: an identical screen stays unknown when the pane is not agy"
+
+# A dead shell showing agy's leftover composer: typing an escalation there would
+# run it as a shell command, and a bare `>` between two rules is exactly the
+# shell-glyph shape the fleet refuses to call empty.
+new_window agy-exited bash -c "$(declare -f agy_screen); agy_screen ''; exec /bin/sh"
+for _ in $(seq 1 100); do
+  case "$("$REAL_TMUX" -L "$SOCKET" display-message -p -t "$SESSION:agy-exited" '#{cursor_y}' 2>/dev/null)" in
+    1) break ;;
+  esac
+  sleep 0.1
+done
+if fm_tmux_pane_is_agy "$SESSION:agy-exited"; then
+  fail "a pane whose agy process exited must not still identify as agy"
+fi
+[ "$(fm_tmux_composer_state "$SESSION:agy-exited")" != empty ] \
+  || fail "a dead-shell pane still showing agy's composer must never read empty"
+pass "agy composer: a stale agy screen over a dead shell never reads empty"
+
+# --- the wrapped-line capture contract agy's delivery gate depends on --------
+# bin/fm-spawn.sh scopes agy's delivery signals to the `export FM_TASK_ID=<id>`
+# row typed just before the launch command. A shell line longer than the pane
+# is stored by tmux as several rows, so that scoping only holds if the capture
+# joins them. This pins the tmux behaviour the gate relies on, in both
+# directions, so a capture that quietly stopped joining cannot go unnoticed.
+
+BOUNDARY="export FM_TASK_ID=agy-wrap-contract-0123456789abcdef"
+new_window wrapcontract bash -c "printf '%s\n' '$BOUNDARY'; exec '$SLEEP_BIN' 900"
+"$REAL_TMUX" -L "$SOCKET" resize-window -t "$SESSION:wrapcontract" -x 40 -y 20 2>/dev/null \
+  || "$REAL_TMUX" -L "$SOCKET" resize-pane -t "$SESSION:wrapcontract" -x 40 2>/dev/null || true
+for _ in $(seq 1 100); do
+  case "$("$REAL_TMUX" -L "$SOCKET" capture-pane -p -J -t "$SESSION:wrapcontract" 2>/dev/null)" in
+    *"$BOUNDARY"*) break ;;
+  esac
+  sleep 0.1
+done
+
+joined=$("$REAL_TMUX" -L "$SOCKET" capture-pane -p -J -t "$SESSION:wrapcontract" -S -120 2>/dev/null)
+split=$("$REAL_TMUX" -L "$SOCKET" capture-pane -p -t "$SESSION:wrapcontract" -S -120 2>/dev/null)
+printf '%s\n' "$joined" | grep -Fq "$BOUNDARY" \
+  || fail "a joined capture must return a wrapped boundary row whole, or agy's delivery scoping cannot work"
+pass "tmux capture: -J returns a wrapped boundary row whole"
+
+pane_width=$("$REAL_TMUX" -L "$SOCKET" display-message -p -t "$SESSION:wrapcontract" '#{pane_width}' 2>/dev/null)
+if [ "${pane_width:-0}" -lt "${#BOUNDARY}" ]; then
+  if printf '%s\n' "$split" | grep -Fq "$BOUNDARY"; then
+    fail "this case proves nothing unless the unjoined capture really splits the row"
+  fi
+  pass "tmux capture: without -J the same row is split, which is the hole the join closes"
+else
+  printf 'ok - skip: pane did not narrow below the boundary width (%s)\n' "$pane_width"
+fi
 
 cleanup_all
 trap - EXIT

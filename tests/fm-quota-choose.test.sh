@@ -27,6 +27,9 @@ NO_APPLICABLE="$LAB/no-applicable.json"
 APPLICABLE_VETO="$LAB/applicable-veto.json"
 MUSE_EXHAUSTED="$LAB/muse-exhausted.json"
 MUSE_POSITIVE="$LAB/muse-positive.json"
+AGY_POSITIVE="$LAB/agy-positive.json"
+AGY_CLAUDE_MODEL="$LAB/agy-claude-model.json"
+AGY_EXHAUSTED="$LAB/agy-exhausted.json"
 TOON="$LAB/quota.toon"
 RENDERER_TOON="$LAB/renderer-quota.toon"
 EMPTY_TOON="$LAB/empty-quota.toon"
@@ -247,10 +250,10 @@ fi
 [ "$err" = "error: unknown harness: bogus" ] || fail "unknown harness returned: $err"
 ok "unknown harness fails closed"
 
-if err=$(call_choose --snapshot "$LAB/captured.json" --candidate claude:default --candidate agy:default 2>&1); then
+if err=$(call_choose --snapshot "$LAB/captured.json" --candidate claude:default --candidate gemini:default 2>&1); then
   fail "trailing unsupported harness was hidden by an earlier selection"
 fi
-[ "$err" = "error: unknown harness: agy" ] || fail "trailing unsupported harness returned: $err"
+[ "$err" = "error: unknown harness: gemini" ] || fail "trailing unsupported harness returned: $err"
 
 if err=$(call_choose --snapshot "$LAB/captured.json" --candidate claude:default --candidate 'claude:' 2>&1); then
   fail "trailing empty model was hidden by an earlier selection"
@@ -551,11 +554,34 @@ fi
 [ "$out" = "none" ] || fail "exhausted Meta quota returned: $out"
 ok "Muse uses Meta quota"
 
-if err=$(call_choose --snapshot "$LAB/captured.json" --candidate agy:default 2>&1); then
+if err=$(call_choose --snapshot "$LAB/captured.json" --candidate gemini:default 2>&1); then
   fail "unsupported harness unexpectedly dispatched"
 fi
-[ "$err" = "error: unknown harness: agy" ] || fail "unsupported harness returned: $err"
+[ "$err" = "error: unknown harness: gemini" ] || fail "unsupported harness returned: $err"
 ok "unsupported harness is rejected"
+
+jq '.providers += [{"provider":"agy","windows":[],"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":92,"runway":{"status":"through_reset"}}]}}]' \
+  "$LAB/captured.json" > "$AGY_POSITIVE"
+out=$(call_choose --snapshot "$AGY_POSITIVE" --candidate agy:gemini-3.8-flash-low)
+[ "$out" = "agy gemini-3.8-flash-low" ] || fail "supported agy candidate returned: $out"
+ok "agy candidate reaches quota selection on its own provider row"
+
+# agy's own row measures its Claude/GPT windows too, so a claude-* model under
+# agy must follow the agy row rather than the separate claude subscription row.
+jq '(.providers[] | select(.provider == "claude") | .quotaSemantics.effectiveAvailability) =
+      [{"scope":"all_models","status":"known","effectivePercentRemaining":0,"runway":{"status":"exhausted_now"}}]' \
+  "$AGY_POSITIVE" > "$AGY_CLAUDE_MODEL"
+out=$(call_choose --snapshot "$AGY_CLAUDE_MODEL" --candidate agy:claude-sonnet-4-6)
+[ "$out" = "agy claude-sonnet-4-6" ] || fail "agy claude-model candidate followed the wrong provider row: $out"
+ok "an agy claude-* model follows agy's row, not the claude subscription row"
+
+jq '.providers += [{"provider":"agy","windows":[],"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":0,"runway":{"status":"exhausted_now"}}]}}]' \
+  "$LAB/captured.json" > "$AGY_EXHAUSTED"
+if out=$(call_choose --snapshot "$AGY_EXHAUSTED" --candidate agy:default 2>/dev/null); then
+  fail "agy candidate dispatched with exhausted Antigravity quota"
+fi
+[ "$out" = "none" ] || fail "exhausted agy quota returned: $out"
+ok "agy uses its own Antigravity quota"
 
 jq '.providers += [.providers[] | select(.provider == "claude")]' "$LAB/captured.json" > "$DUPLICATE"
 if err=$(call_choose --snapshot "$DUPLICATE" --candidate claude:default 2>&1); then
