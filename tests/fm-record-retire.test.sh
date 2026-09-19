@@ -313,24 +313,58 @@ test_ship_report_does_not_prove_landed_work() {
   make_case "$dir"
   cat > "$dir/fakebin/gh-axi" <<'SH'
 #!/usr/bin/env bash
-printf '  state: open\n  merged: no\n'
+cat "${FM_PR_VIEW_FIXTURE:?}"
 SH
   chmod +x "$dir/fakebin/gh-axi"
   fm_write_meta "$dir/home/state/old.meta" \
     "window=fm:fm-old" "endpoint_task_id=old" "worktree=$dir/pool/3/repo" \
     "project=$dir/project" "kind=ship" "mode=no-mistakes" "spawn_gen=old-incarnation" \
     "pr=https://github.com/o/r/pull/7" "branch=fm/retire-record"
-  run_retire "$dir" >/dev/null 2>&1 || rc=$?
-  expect_code 1 "$rc" "a ship report with an open PR must not retire"
-  [ -f "$dir/home/state/old.meta" ] || fail "an unlanded ship record was retired from a report"
 
-  printf '  state: merged\n  merged: yes\n' > "$dir/pr.out"
-  printf '#!/usr/bin/env bash\ncat "%s/pr.out"\n' "$dir" > "$dir/fakebin/gh-axi"
+  cat > "$dir/pr-open.out" <<'EOF'
+pull_request:
+  number: 61
+  title: "fix(bin): refuse duplicate-claim fresh spawn and hold copy reservation through worker launch"
+  state: open
+  author: dbeihl-utilicast
+  draft: yes
+  merged: no
+  checks: "6 passed, 0 failed, 15 total"
+EOF
+  FM_PR_VIEW_FIXTURE="$dir/pr-open.out" run_retire "$dir" >/dev/null 2>&1 || rc=$?
+  expect_code 1 "$rc" "a ship report with an open PR must not retire"
+  [ -f "$dir/home/state/old.meta" ] || fail "an open ship record was retired from a report"
+
+  cat > "$dir/pr-closed.out" <<'EOF'
+pull_request:
+  number: 56
+  title: "feat(bin): add atomic inbox take and resend dedup"
+  state: closed
+  author: dbeihl-utilicast
+  draft: no
+  merged: no
+  checks: "0 passed, 0 failed - this PR has no CI checks configured"
+EOF
   rc=0
-  run_retire "$dir" >/dev/null 2>&1 || rc=$?
+  FM_PR_VIEW_FIXTURE="$dir/pr-closed.out" run_retire "$dir" >/dev/null 2>&1 || rc=$?
+  expect_code 1 "$rc" "a ship report with a closed-unmerged PR must not retire"
+  [ -f "$dir/home/state/old.meta" ] || fail "a closed-unmerged ship record was retired from a report"
+
+  cat > "$dir/pr-merged.out" <<'EOF'
+pull_request:
+  number: 60
+  title: "fix(bin): bind record-only retirement to spawn generation and guard id reuse"
+  state: merged
+  author: dbeihl-utilicast
+  draft: no
+  merged: "2026-09-19T15:55:08Z"
+  checks: "18 passed, 0 failed, 18 total"
+EOF
+  rc=0
+  FM_PR_VIEW_FIXTURE="$dir/pr-merged.out" run_retire "$dir" >/dev/null 2>&1 || rc=$?
   expect_code 0 "$rc" "a merged PR proves landed ship work"
   [ ! -e "$dir/home/state/old.meta" ] || fail "a landed ship record stayed active"
-  pass "record retirement: a ship report alone never proves landed work"
+  pass "record retirement: GitHub PR state distinguishes landed ship work"
 }
 
 # A PR number is not globally unique. The repository in the recorded URL must
