@@ -905,8 +905,15 @@ SPAWN_TASK_SET_LOCK=
 SPAWN_TASK_SET_LOCK_HELD=0
 SPAWN_TREEHOUSE_PROJECT_LOCK=
 SPAWN_TREEHOUSE_PROJECT_LOCK_HELD=0
+SPAWN_CUSTODY_LOCK=
+SPAWN_CUSTODY_LOCK_HELD=0
 RELAUNCH_REPLACEMENT_PENDING=0
 RELAUNCH_REPLACEMENT_BUSY_GEN=
+RELAUNCH_ENDPOINT_PENDING=0
+RELAUNCH_ENDPOINT_JOURNAL=
+RELAUNCH_ENDPOINT_TARGET=
+RELAUNCH_ENDPOINT_BACKEND=
+RELAUNCH_ENDPOINT_ADOPTED=0
 RELAUNCH_REPLACEMENT_HARNESS=
 RELAUNCH_REPLACEMENT_STATE=
 RELAUNCH_REPLACEMENT_WT=
@@ -941,7 +948,17 @@ parse_orca_worktree_result() {
 }
 
 spawn_abort_cleanup() {
-  local status=$?
+  local status=$? endpoint_state
+  if [ "$RELAUNCH_ENDPOINT_PENDING" = 1 ]; then
+    RELAUNCH_ENDPOINT_PENDING=0
+    fm_backend_kill "$RELAUNCH_ENDPOINT_BACKEND" "$RELAUNCH_ENDPOINT_TARGET" >/dev/null 2>&1 || true
+    endpoint_state=$(fm_backend_agent_state "$RELAUNCH_ENDPOINT_BACKEND" "$RELAUNCH_ENDPOINT_TARGET")
+    if [ "$endpoint_state" = missing ]; then
+      rm -f -- "$RELAUNCH_ENDPOINT_JOURNAL" 2>/dev/null || true
+    else
+      echo "warning: replacement endpoint $RELAUNCH_ENDPOINT_TARGET remains '$endpoint_state'; retaining $RELAUNCH_ENDPOINT_JOURNAL for retry reconciliation" >&2
+    fi
+  fi
   if [ "$RELAUNCH_REPLACEMENT_PENDING" = 1 ] \
      && [ "$SPAWN_META_PUBLISH_STARTED" = 1 ] \
      && [ -n "$SPAWN_META_TMP" ] \
@@ -1047,6 +1064,10 @@ spawn_abort_cleanup() {
   if [ "$SPAWN_TREEHOUSE_PROJECT_LOCK_HELD" = 1 ]; then
     SPAWN_TREEHOUSE_PROJECT_LOCK_HELD=0
     fm_lock_release "$SPAWN_TREEHOUSE_PROJECT_LOCK" || true
+  fi
+  if [ "$SPAWN_CUSTODY_LOCK_HELD" = 1 ]; then
+    SPAWN_CUSTODY_LOCK_HELD=0
+    fm_lock_release "$SPAWN_CUSTODY_LOCK" || true
   fi
   if [ "$SPAWN_TASK_SET_LOCK_HELD" = 1 ]; then
     SPAWN_TASK_SET_LOCK_HELD=0
@@ -1302,6 +1323,142 @@ record_custody_preflight() {  # <worktree>
   fm_custody_capture "$1" && fm_custody_record "$STATE/$ID.custody"
 }
 
+relaunch_endpoint_journal_field() {  # <key>
+  local key=$1 count
+  count=$(grep -c "^${key}=" "$RELAUNCH_ENDPOINT_JOURNAL" 2>/dev/null || true)
+  [ "$count" = 1 ] || return 1
+  grep "^${key}=" "$RELAUNCH_ENDPOINT_JOURNAL" | cut -d= -f2-
+}
+
+relaunch_endpoint_journal_publish() {
+  local tmp="$RELAUNCH_ENDPOINT_JOURNAL.tmp.${BASHPID:-$$}"
+  {
+    echo 'v1'
+    echo "task=$ID"
+    echo "backend=$BACKEND"
+    echo "endpoint=$T"
+    echo "worktree=$RELAUNCH_WT"
+    echo "branch=$CUSTODY_BRANCH"
+    echo "head=$CUSTODY_HEAD"
+    [ "$BACKEND" != tmux ] || echo "target_handle=$WT_TARGET"
+    if [ "$BACKEND" = herdr ]; then
+      echo "herdr_session=$HERDR_SES"
+      echo "herdr_workspace_id=$HERDR_WORKSPACE_ID"
+      echo "herdr_tab_id=$HERDR_TAB_ID"
+      echo "herdr_pane_id=$HERDR_PANE_ID"
+    fi
+  } > "$tmp" && mv -f "$tmp" "$RELAUNCH_ENDPOINT_JOURNAL"
+}
+
+# Returns 0 when a prior replacement endpoint was adopted and 1 when no
+# endpoint remains, so the caller may create exactly one replacement.
+relaunch_endpoint_journal_reconcile() {
+  local task backend endpoint worktree branch head state target_handle
+  if [ ! -e "$RELAUNCH_ENDPOINT_JOURNAL" ] && [ ! -L "$RELAUNCH_ENDPOINT_JOURNAL" ]; then
+    return 1
+  fi
+  [ -f "$RELAUNCH_ENDPOINT_JOURNAL" ] && [ ! -L "$RELAUNCH_ENDPOINT_JOURNAL" ] || return 2
+  task=$(relaunch_endpoint_journal_field task) || return 2
+  backend=$(relaunch_endpoint_journal_field backend) || return 2
+  endpoint=$(relaunch_endpoint_journal_field endpoint) || return 2
+  worktree=$(relaunch_endpoint_journal_field worktree) || return 2
+  branch=$(relaunch_endpoint_journal_field branch) || return 2
+  head=$(relaunch_endpoint_journal_field head) || return 2
+  [ "$task" = "$ID" ] && [ "$backend" = "$BACKEND" ] \
+    && [ "$worktree" = "$RELAUNCH_WT" ] \
+    && [ "$branch" = "$CUSTODY_BRANCH" ] && [ "$head" = "$CUSTODY_HEAD" ] || return 2
+  state=$(fm_backend_agent_state "$backend" "$endpoint")
+  case "$state" in
+    dead)
+      T=$endpoint
+      case "$backend" in
+        tmux)
+          target_handle=$(relaunch_endpoint_journal_field target_handle) || return 2
+          WT_TARGET=$target_handle
+          ;;
+        herdr)
+          HERDR_SES=$(relaunch_endpoint_journal_field herdr_session) || return 2
+          HERDR_WORKSPACE_ID=$(relaunch_endpoint_journal_field herdr_workspace_id) || return 2
+          HERDR_TAB_ID=$(relaunch_endpoint_journal_field herdr_tab_id) || return 2
+          HERDR_PANE_ID=$(relaunch_endpoint_journal_field herdr_pane_id) || return 2
+          WT_TARGET=$T
+          ;;
+      esac
+      RELAUNCH_ENDPOINT_TARGET=$T
+      RELAUNCH_ENDPOINT_BACKEND=$BACKEND
+      RELAUNCH_ENDPOINT_PENDING=1
+      return 0
+      ;;
+    alive)
+      fm_backend_kill "$backend" "$endpoint" >/dev/null 2>&1 || true
+      [ "$(fm_backend_agent_state "$backend" "$endpoint")" = missing ] || return 2
+      rm -f -- "$RELAUNCH_ENDPOINT_JOURNAL" || return 2
+      return 1
+      ;;
+    missing)
+      rm -f -- "$RELAUNCH_ENDPOINT_JOURNAL" || return 2
+      return 1
+      ;;
+    *) return 2 ;;
+  esac
+}
+
+# Prints the conflicting task and returns 0 when another readable task record
+# claims this physical copy. Recovery permits a positively agent-free record;
+# fresh allocation requires the other record to be retired first. The caller
+# holds the canonical custody lock through worker publication.
+spawn_copy_claim_refusal() {  # <worktree> <recover|fresh>
+  local wt=$1 mode=$2 canonical meta other_id other_wt other_canonical occupancy state target
+  canonical=$(CDPATH='' cd -P -- "$wt" 2>/dev/null && pwd -P) || return 0
+  for meta in "$STATE"/*.meta; do
+    [ -e "$meta" ] || [ -L "$meta" ] || continue
+    [ -f "$meta" ] && [ ! -L "$meta" ] && [ -r "$meta" ] || continue
+    other_id=${meta##*/}
+    other_id=${other_id%.meta}
+    [ "$other_id" != "$ID" ] || continue
+    other_wt=$(fm_meta_get "$meta" worktree)
+    [ -n "$other_wt" ] || continue
+    other_canonical=$(CDPATH='' cd -P -- "$other_wt" 2>/dev/null && pwd -P) || continue
+    [ "$other_canonical" = "$canonical" ] || continue
+    if [ -e "$STATE/$other_id.relaunch-endpoint" ] || [ -L "$STATE/$other_id.relaunch-endpoint" ]; then
+      echo "task $other_id also names this copy and has an unreconciled replacement endpoint journal"
+      return 0
+    fi
+    if [ "$mode" = fresh ]; then
+      echo "task $other_id still claims this copy; retire that task record before reallocation"
+      return 0
+    fi
+    occupancy=$(
+      if ! fm_backend_validate_task_endpoint "$meta" "$other_id" >/dev/null 2>&1; then
+        printf 'unreadable\tunknown\n'
+        exit 0
+      fi
+      if ! fm_control_backend_state_verified "$FM_BACKEND_VALIDATED_BACKEND" \
+        || ! fm_backend_source "$FM_BACKEND_VALIDATED_BACKEND" >/dev/null 2>&1; then
+        printf 'unreadable\t%s\n' "$FM_BACKEND_VALIDATED_TARGET"
+        exit 0
+      fi
+      state=$(fm_backend_agent_state "$FM_BACKEND_VALIDATED_BACKEND" "$FM_BACKEND_VALIDATED_TARGET" 2>/dev/null) \
+        || state=unreadable
+      printf '%s\t%s\n' "$state" "$FM_BACKEND_VALIDATED_TARGET"
+    )
+    state=${occupancy%%$'\t'*}
+    target=${occupancy#*$'\t'}
+    case "$state" in
+      dead|missing) ;;
+      alive)
+        echo "task $other_id already has a live worker in this copy at $target"
+        return 0
+        ;;
+      *)
+        echo "task $other_id also names this copy, but its endpoint '$target' cannot be read safely"
+        return 0
+        ;;
+    esac
+  done
+  return 1
+}
+
 # --relaunch adoption: every identity axis comes from the task's own validated
 # durable record, never from the command line, so a relaunch can only ever
 # re-launch the task it names. The endpoint identity check is the same shared
@@ -1369,7 +1526,28 @@ if [ "$RELAUNCH" -eq 1 ]; then
       exit 1
     }
   fi
-  if [ "$RELAUNCH_STATE" = missing ]; then
+  if [ "$BACKEND" = herdr ]; then
+    # Capture the launching process's pane before loading the vanished task's
+    # recorded pane. The latter is never a valid placement parent.
+    RELAUNCH_LAUNCHER_PANE=${HERDR_PANE_ID:-}
+    HERDR_SES=$(fm_meta_get "$RELAUNCH_META" herdr_session)
+    HERDR_WORKSPACE_ID=$(fm_meta_get "$RELAUNCH_META" herdr_workspace_id)
+    HERDR_TAB_ID=$(fm_meta_get "$RELAUNCH_META" herdr_tab_id)
+    HERDR_PANE_ID=$(fm_meta_get "$RELAUNCH_META" herdr_pane_id)
+  fi
+  SPAWN_CUSTODY_LOCK=$(fm_custody_lock_path "$STATE" "$RELAUNCH_WT") || {
+    echo "error: task $ID's copy identity cannot be resolved for custody" >&2
+    exit 1
+  }
+  custody_owner=$(cat "$SPAWN_CUSTODY_LOCK/pid" 2>/dev/null || true)
+  if [ "$custody_owner" = "$PPID" ] && fm_pid_alive "$custody_owner"; then
+    : # fm-control holds this exact copy lock across the child relaunch.
+  else
+    fm_lock_acquire_wait "$SPAWN_CUSTODY_LOCK" || exit 1
+    SPAWN_CUSTODY_LOCK_HELD=1
+  fi
+  RELAUNCH_ENDPOINT_JOURNAL="$STATE/$ID.relaunch-endpoint"
+  if [ "$RELAUNCH_STATE" = missing ] || [ -e "$RELAUNCH_ENDPOINT_JOURNAL" ] || [ -L "$RELAUNCH_ENDPOINT_JOURNAL" ]; then
     record_custody_preflight "$RELAUNCH_WT" || {
       echo "error: task $ID's copy cannot be inspected for custody before missing-endpoint recovery" >&2
       exit 1
@@ -1378,13 +1556,22 @@ if [ "$RELAUNCH" -eq 1 ]; then
       echo "error: task $ID's endpoint is missing, but $RELAUNCH_REFUSAL" >&2
       exit 1
     fi
+    if [ -e "$RELAUNCH_ENDPOINT_JOURNAL" ] || [ -L "$RELAUNCH_ENDPOINT_JOURNAL" ]; then
+      if relaunch_endpoint_journal_reconcile; then
+        RELAUNCH_ENDPOINT_ADOPTED=1
+        RELAUNCH_STATE=dead
+      else
+        reconcile_status=$?
+        [ "$reconcile_status" -eq 1 ] || {
+          echo "error: task $ID's replacement endpoint journal cannot be reconciled safely" >&2
+          exit 1
+        }
+      fi
+    fi
   fi
-  if [ "$BACKEND" = herdr ]; then
-    RELAUNCH_LAUNCHER_PANE=${HERDR_PANE_ID:-}
-    HERDR_SES=$(fm_meta_get "$RELAUNCH_META" herdr_session)
-    HERDR_WORKSPACE_ID=$(fm_meta_get "$RELAUNCH_META" herdr_workspace_id)
-    HERDR_TAB_ID=$(fm_meta_get "$RELAUNCH_META" herdr_tab_id)
-    HERDR_PANE_ID=$(fm_meta_get "$RELAUNCH_META" herdr_pane_id)
+  if RELAUNCH_COPY_OCCUPANCY=$(spawn_copy_claim_refusal "$RELAUNCH_WT" recover); then
+    echo "error: task $ID cannot relaunch because $RELAUNCH_COPY_OCCUPANCY; refusing rather than starting a second worker in one copy" >&2
+    exit 1
   fi
   # With no explicit harness, a relaunch reuses the harness already recorded
   # for this task. It must NOT fall through to the fresh-spawn config
@@ -2306,7 +2493,7 @@ spawn_worktree_has_origin_config() {  # <worktree>
   return 1
 }
 
-freshen_spawn_worktree_base() {  # <worktree>
+freshen_spawn_worktree_base_locked() {  # <worktree>
   local worktree=$1 default target expected actual status refusal
   record_custody_preflight "$worktree" || {
     echo "error: could not record custody for pooled worktree '$worktree' before refreshing its base" >&2
@@ -2360,7 +2547,9 @@ freshen_spawn_worktree_base() {  # <worktree>
     echo "error: could not preserve local commits of pooled worktree '$worktree' under a custody ref; refusing to reset it" >&2
     return 1
   }
-  [ -z "${CUSTODY_REF:-}" ] || fm_custody_record "$STATE/$ID.custody"
+  if [ -n "${CUSTODY_REF:-}" ] || [ -n "${CUSTODY_VALIDATION_REF:-}" ]; then
+    fm_custody_record "$STATE/$ID.custody"
+  fi
   if ! git -C "$worktree" reset --hard "$target" >/dev/null; then
     echo "error: could not reset pooled worktree '$worktree' to '$target'; refusing to launch from a potentially stale base" >&2
     return 1
@@ -2370,6 +2559,28 @@ freshen_spawn_worktree_base() {  # <worktree>
     echo "error: pooled worktree '$worktree' is at '${actual:-unknown}', not current '$target' ('$expected'); refusing to launch" >&2
     return 1
   fi
+}
+
+freshen_spawn_worktree_base() {  # <worktree>
+  local worktree=$1 status refusal
+  SPAWN_CUSTODY_LOCK=$(fm_custody_lock_path "$STATE" "$worktree") || {
+    echo "error: could not resolve custody identity for pooled worktree '$worktree'" >&2
+    return 1
+  }
+  fm_lock_acquire_wait "$SPAWN_CUSTODY_LOCK" || return 1
+  SPAWN_CUSTODY_LOCK_HELD=1
+  if refusal=$(spawn_copy_claim_refusal "$worktree" fresh); then
+    echo "error: pooled worktree '$worktree' cannot be allocated because $refusal" >&2
+    status=1
+  else
+    freshen_spawn_worktree_base_locked "$worktree"
+    status=$?
+  fi
+  if [ "$status" -ne 0 ]; then
+    SPAWN_CUSTODY_LOCK_HELD=0
+    fm_lock_release "$SPAWN_CUSTODY_LOCK" || status=1
+  fi
+  return "$status"
 }
 
 herdr_projection_meta_field_exact() {  # <meta> <key>
@@ -2494,7 +2705,9 @@ if [ "$RELAUNCH" -eq 1 ]; then
   # tmux window cannot be adopted, so recreate only its endpoint against the
   # exact recorded copy. The control transaction has already captured custody
   # and refused ambiguous endpoint reads; no fresh worktree is allocated here.
-  T=$RELAUNCH_TARGET
+  if [ "$RELAUNCH_ENDPOINT_ADOPTED" != 1 ]; then
+    T=$RELAUNCH_TARGET
+  fi
   [ "$KIND" = secondmate ] || WT=$RELAUNCH_WT
   SES=${T%%:*}
   if [ "$RELAUNCH_STATE" = missing ]; then
@@ -2503,6 +2716,10 @@ if [ "$RELAUNCH" -eq 1 ]; then
         WID=$(fm_backend_tmux_create_task "$SES" "$W" "$WT") || exit 1
         T="$SES:$W"
         WT_TARGET=$WID
+        RELAUNCH_ENDPOINT_TARGET=$T
+        RELAUNCH_ENDPOINT_BACKEND=$BACKEND
+        RELAUNCH_ENDPOINT_PENDING=1
+        relaunch_endpoint_journal_publish || exit 1
         ;;
       herdr)
         HERDR_LABEL_HOME=$FM_HOME
@@ -2527,6 +2744,11 @@ EOF
           exit 1
         }
         T="$HERDR_SES:$HERDR_PANE_ID"
+        WT_TARGET=$T
+        RELAUNCH_ENDPOINT_TARGET=$T
+        RELAUNCH_ENDPOINT_BACKEND=$BACKEND
+        RELAUNCH_ENDPOINT_PENDING=1
+        relaunch_endpoint_journal_publish || exit 1
         ;;
       *)
         echo "error: task $ID's endpoint is positively missing on $BACKEND, but this backend has no verified same-copy endpoint recreation path" >&2
@@ -2534,7 +2756,11 @@ EOF
         ;;
     esac
   else
-    WT_TARGET=$T
+    : "${WT_TARGET:=$T}"
+  fi
+  if [ -n "${FM_TEST_RELAUNCH_ENDPOINT_READY:-}" ]; then
+    printf '%s\n' "${BASHPID:-$$}" > "$FM_TEST_RELAUNCH_ENDPOINT_READY"
+    while [ ! -e "${FM_TEST_RELAUNCH_ENDPOINT_RELEASE:?}" ]; do sleep 0.01; done
   fi
 else
 case "$BACKEND" in
@@ -3551,8 +3777,14 @@ if [ "$RELAUNCH" -eq 1 ]; then
     exit 1
   fi
   RELAUNCH_REPLACEMENT_PENDING=0
+  RELAUNCH_ENDPOINT_PENDING=0
+  [ -z "$RELAUNCH_ENDPOINT_JOURNAL" ] || rm -f -- "$RELAUNCH_ENDPOINT_JOURNAL"
   SPAWN_META_PUBLISH_STARTED=0
   SPAWN_META_TMP=
+  if [ "$SPAWN_CUSTODY_LOCK_HELD" = 1 ]; then
+    SPAWN_CUSTODY_LOCK_HELD=0
+    fm_lock_release "$SPAWN_CUSTODY_LOCK" || exit 1
+  fi
 fi
 # A dispatch or relaunch keeps the per-task meta lock through launch delivery.
 # The backlog mutation is deliberately the final fallible commit below, so
@@ -3729,6 +3961,10 @@ if [ "$HARNESS" = agy ]; then
     agy_spawn_fail "agy did not accept the launch brief after its verified trust-and-busy check in window $T"
     exit 1
   fi
+fi
+if [ "$RELAUNCH" -eq 0 ] && [ "$SPAWN_CUSTODY_LOCK_HELD" = 1 ]; then
+  SPAWN_CUSTODY_LOCK_HELD=0
+  fm_lock_release "$SPAWN_CUSTODY_LOCK" || exit 1
 fi
 if [ "$KIND" = secondmate ] && [ "${FM_SKIP_SECONDMATE_INHERIT:-0}" != 1 ]; then
   if ! fm_config_reread_discard_pending "$PROJ_ABS" "$ID" "$FM_HOME"; then

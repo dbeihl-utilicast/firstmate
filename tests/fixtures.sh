@@ -95,7 +95,9 @@ fm_test_fake_gh_axi() {
 # Spawn-world tmux: pane_current_path from FM_FAKE_PANE_PATH, session named
 # firstmate, window ops succeed, send-keys succeed. When FM_FAKE_LAUNCH_LOG is
 # set, each send-keys -l payload is appended one per line. Optional
-# FM_FAKE_DUPLICATE_WINDOW is printed from list-windows.
+# FM_FAKE_DUPLICATE_WINDOW is printed from list-windows. FM_FAKE_PANE_PATH_MAP,
+# when set, is a file of `<window-target> <path>` lines giving a task its own
+# pane path so a batch can be handed one pooled copy per task.
 #
 # The pane path defaults to empty when FM_FAKE_PANE_PATH is unset. Window
 # cleanup and option operations are no-ops. Launch logging is env-gated, so
@@ -109,7 +111,14 @@ if [ -n "${FM_FAKE_TMUX_COMMAND_LOG:-}" ]; then
   printf '%s\n' "$*" >> "$FM_FAKE_TMUX_COMMAND_LOG"
 fi
 case "$*" in
-  *"#{pane_current_path}"*) printf '%s\n' "${FM_FAKE_PANE_PATH:-}"; exit 0 ;;
+  *"#{pane_current_path}"*)
+    if [ -n "${FM_FAKE_PANE_PATH_MAP:-}" ] && mapped=$(awk -v t="${4:-}" '$1 == t { print $2; exit }' "$FM_FAKE_PANE_PATH_MAP") && [ -n "$mapped" ]; then
+      printf '%s\n' "$mapped"
+    else
+      printf '%s\n' "${FM_FAKE_PANE_PATH:-}"
+    fi
+    exit 0
+    ;;
 esac
 case "${1:-}" in
   display-message) printf 'firstmate\n'; exit 0 ;;

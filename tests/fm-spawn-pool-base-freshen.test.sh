@@ -59,6 +59,38 @@ run_spawn() {
     "$id" "$PROJECT_DIR" "$@"
 }
 
+test_fresh_spawn_refuses_a_copy_claimed_by_another_task() {
+  local rec id prior out status=0 launches
+  id='pool-duplicate-claim-r15'
+  prior='pool-existing-r15'
+  rec=$(make_case duplicate-claim "$id")
+  read_case_record "$rec"
+  cat > "$HOME_DIR/state/$prior.meta" <<EOF
+window=firstmate:fm-$prior
+endpoint_task_id=$prior
+worktree=$POOL_DIR
+project=$PROJECT_DIR
+harness=codex
+kind=ship
+mode=no-mistakes
+yolo=off
+tasktmp=/tmp/fm-$prior
+model=default
+effort=default
+EOF
+
+  out=$(FM_FAKE_DUPLICATE_WINDOW="fm-$prior" FM_FAKE_LAUNCH_LOG="$CASE_DIR/launch.log" \
+    run_spawn "$id" --scout) || status=$?
+  expect_code 1 "$status" "a fresh spawn must refuse a pool copy another task still claims"$'\n'"$out"
+  assert_contains "$out" "$prior" "the duplicate-copy refusal should name the existing task"
+  launches=$(grep -c 'encode launch-brief' "$CASE_DIR/launch.log" 2>/dev/null || printf 0)
+  [ "$launches" = 0 ] || fail "an occupied pooled copy received $launches new worker launches"
+  if [ "${FM_TEST_EVIDENCE:-0}" = 1 ]; then
+    printf 'prior_workers=1\nnew_launches=%s\ntotal_workers=%s\n' "$launches" "$((1 + launches))"
+  fi
+  pass "a fresh spawn refuses a copy still claimed by another task"
+}
+
 test_remote_seeded_home_spawns_from_treehouse_pool() {
   local rec id out status lock
   id='pool-remote-seeded-r13'
@@ -183,6 +215,7 @@ test_stale_pool_base_refreshes_before_branching() {
       "$branch_head" "$current" "$(cat "$POOL_DIR/advanced-main.txt")"
   fi
 
+  rm -f "$HOME_DIR/state/$id.meta"
   id='pool-current-base-repeat-r1'
   fm_test_spawn_brief "$HOME_DIR" "$id"
   out=$(run_spawn "$id" --mode no-mistakes --yolo off)
@@ -528,6 +561,7 @@ strand_submodule_pin_via_spawn() {  # <seed-id>
     || fail "the first spawn did not move the pooled base across the moved submodule pin"
   [ "$(git -C "$POOL_DIR/ui" rev-parse HEAD)" = "$SUBPIN1" ] \
     || fail "the first spawn did not strand the submodule on the pin the old base recorded"
+  rm -f "$HOME_DIR/state/$id.meta"
 }
 
 test_stale_submodule_pin_explains_itself() {
@@ -724,6 +758,80 @@ test_local_only_commits_progress_once_preserved_under_a_custody_ref() {
   pass "local-only commits are preserved under a custody ref before the pool advances"
 }
 
+test_terminal_validation_head_refuses_reset_until_preserved() {
+  local rec id out status validation_head ref
+  id='pool-terminal-validation-r14'
+  rec=$(make_case terminal-validation "$id")
+  read_case_record "$rec"
+  git -C "$POOL_DIR" checkout --quiet -b "fm/$id"
+  printf 'validation-only fix\n' > "$POOL_DIR/validation-fix.txt"
+  git -C "$POOL_DIR" add validation-fix.txt
+  git -C "$POOL_DIR" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' commit -qm validation-fix
+  validation_head=$(git -C "$POOL_DIR" rev-parse HEAD)
+  git -C "$POOL_DIR" reset --hard HEAD^ >/dev/null
+  git -C "$POOL_DIR" remote add no-mistakes "file://$CASE_DIR/origin.git"
+  cat > "$FAKEBIN_DIR/no-mistakes" <<EOF
+#!/usr/bin/env bash
+if [ "\${1:-}" = axi ] && [ "\${2:-}" = status ]; then
+  printf 'status: failed\noutcome: failed\nhead: %s\nbranch_sync:\n  state: local_ahead\n' "$validation_head"
+  exit 0
+fi
+exit 1
+EOF
+  chmod +x "$FAKEBIN_DIR/no-mistakes"
+
+  out=$(run_spawn "$id" --mode no-mistakes --yolo off)
+  status=$?
+  [ "$status" -ne 0 ] || fail "spawn reset a completed or failed validation head"
+  assert_contains "$out" "$validation_head" "spawn did not name the terminal validation head"
+  [ "$(git -C "$POOL_DIR" rev-parse --verify "$validation_head")" = "$validation_head" ] \
+    || fail "spawn discarded the terminal validation commit object"
+  [ "$(git -C "$POOL_DIR" rev-parse HEAD)" != "$(git -C "$POOL_DIR" rev-parse origin/main)" ] \
+    || fail "spawn reset the copy despite an unpreserved terminal validation head"
+  [ -z "$(git -C "$POOL_DIR" for-each-ref "refs/fm-custody/$id/")" ] \
+    || fail "a refused terminal validation reset created a custody ref"
+
+  out=$(FM_CUSTODY_PRESERVE=1 run_spawn "$id" --mode no-mistakes --yolo off)
+  status=$?
+  expect_code 0 "$status" "spawn should progress after preserving a terminal validation head"$'\n'"$out"
+  ref=$(git -C "$POOL_DIR" for-each-ref --format='%(refname)' "refs/fm-custody/$id/*/validation")
+  [ -n "$ref" ] || fail "terminal validation head was not preserved under refs/fm-custody"
+  [ "$(git -C "$POOL_DIR" rev-parse "$ref")" = "$validation_head" ] \
+    || fail "terminal validation custody ref points at the wrong commit"
+  assert_grep "validation_ref=$ref" "$HOME_DIR/state/$id.custody" \
+    "custody record omits the terminal validation preserving ref"
+  pass "completed and failed attributable validation heads refuse reset until preserved"
+}
+
+test_terminal_validation_head_already_on_a_remote_freshens_normally() {
+  local rec id out status pushed
+  id='pool-terminal-pushed-r15'
+  rec=$(make_case terminal-pushed "$id")
+  read_case_record "$rec"
+  git -C "$POOL_DIR" fetch --quiet origin
+  pushed=$(git -C "$POOL_DIR" rev-parse "origin/$DEFAULT_BRANCH")
+  [ "$pushed" != "$INITIAL_SHA" ] || fail "fixture did not advance the remote default branch"
+  git -C "$POOL_DIR" remote add no-mistakes "file://$CASE_DIR/origin.git"
+  cat > "$FAKEBIN_DIR/no-mistakes" <<EOF
+#!/usr/bin/env bash
+if [ "\${1:-}" = axi ] && [ "\${2:-}" = status ]; then
+  printf 'status: completed\noutcome: merged\nhead: %s\nbranch_sync:\n  state: in_sync\n' "$pushed"
+  exit 0
+fi
+exit 1
+EOF
+  chmod +x "$FAKEBIN_DIR/no-mistakes"
+
+  out=$(run_spawn "$id" --mode no-mistakes --yolo off)
+  status=$?
+  expect_code 0 "$status" "a terminal run head already on a remote blocked the pool freshen"$'\n'"$out"
+  [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$pushed" ] \
+    || fail "the pool did not advance to the pushed head"
+  [ -z "$(git -C "$POOL_DIR" for-each-ref "refs/fm-custody/$id/")" ] \
+    || fail "a remote-reachable terminal head was needlessly preserved"
+  pass "a terminal run head already on a remote does not block a pool freshen"
+}
+
 test_validation_owned_head_refuses_reset() {
   local rec id out status before
   id='pool-validation-head-r5'
@@ -758,6 +866,7 @@ EOF
   pass "a validation-owned or unreadable validation head refuses a pool reset"
 }
 
+test_fresh_spawn_refuses_a_copy_claimed_by_another_task
 test_remote_seeded_home_spawns_from_treehouse_pool
 test_linked_spawning_home_rejects_primary_before_refresh
 test_stale_pool_base_refreshes_before_branching
@@ -779,6 +888,8 @@ test_stale_pin_carrying_real_work_is_not_called_stale
 test_stale_pin_beside_other_dirt_reports_one_verdict
 test_local_only_commits_refuse_reset_with_head_unchanged
 test_local_only_commits_progress_once_preserved_under_a_custody_ref
+test_terminal_validation_head_refuses_reset_until_preserved
+test_terminal_validation_head_already_on_a_remote_freshens_normally
 test_validation_owned_head_refuses_reset
 
 echo "# all fm-spawn-pool-base-freshen tests passed"
