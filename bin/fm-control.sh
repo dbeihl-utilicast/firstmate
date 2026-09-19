@@ -156,6 +156,8 @@ die() {  # <message>
 
 CONTROL_LOCK=
 CONTROL_LOCK_HELD=0
+CUSTODY_LOCK=
+CUSTODY_LOCK_HELD=0
 RELAUNCH_ACTIVE=0
 RELAUNCH_PHASE=start
 
@@ -164,6 +166,10 @@ control_cleanup() {
   if [ "$RELAUNCH_ACTIVE" = 1 ] \
      && declare -F relaunch_rollback >/dev/null 2>&1; then
     relaunch_rollback || true
+  fi
+  if [ "$CUSTODY_LOCK_HELD" = 1 ]; then
+    CUSTODY_LOCK_HELD=0
+    fm_lock_release "$CUSTODY_LOCK" || true
   fi
   if [ "$CONTROL_LOCK_HELD" = 1 ]; then
     CONTROL_LOCK_HELD=0
@@ -836,6 +842,13 @@ do_relaunch() {
   else
     note_line="note=none"
   fi
+  [ -n "$WT" ] || die "task $ID has no recorded worktree; refusing to relaunch without a recorded local copy to preserve"
+  [ -d "$WT" ] || die "task $ID's recorded worktree $WT is missing; refusing to relaunch and lose track of its work"
+  CUSTODY_LOCK=$(fm_custody_lock_path "$STATE" "$WT") \
+    || die "task $ID's copy identity cannot be resolved for custody"
+  fm_lock_acquire_wait "$CUSTODY_LOCK" \
+    || die "task $ID's copy custody lock could not be acquired"
+  CUSTODY_LOCK_HELD=1
   safe_checkpoint
   cp -p "$META" "$META_PRIOR" || die "could not preserve task $ID's durable record before relaunching"
   RELAUNCH_ACTIVE=1

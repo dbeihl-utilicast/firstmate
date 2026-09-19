@@ -62,23 +62,26 @@ It is not deterministic across the verified adapters: codex and grok resume only
    A recorded raw-command basename that differs from its resolved adapter cannot reproduce the command actually running, so relaunch refuses before the checkpoint unless the caller passes an explicit `--harness` to choose the replacement runtime deliberately.
    A harness change resets model and effort unless they are named too, because a model chosen for one adapter does not transfer to another.
 2. **Safe checkpoint.**
-   The recorded worktree must exist and be a worktree root; its branch, head, dirty and untracked state, and any recorded validation-owned head are recorded.
-   A positively missing endpoint is recoverable in its exact copy without moving HEAD or bytes, even when dirty or validation-owned; the custody record captures both, and pool reset or reallocation still refuses dirty bytes, local-only commits, and validation-owned heads. Unreadable validation state, unreadable or ambiguous endpoint reads never authorize recovery.
-   The backend then creates a replacement endpoint (a tmux window or a Herdr pane) against the recorded copy and branch, while the old durable record remains authoritative until the replacement record is published.
+   The recorded worktree must exist and be a worktree root; its branch, head, dirty and untracked state, and any attributable validation head are recorded.
+   A canonical-copy custody lock serializes this capture and recovery with every pooled-copy reset, even when two task records name the same path through different aliases.
+   A positively missing endpoint is recoverable in its exact copy without moving HEAD or bytes, even when dirty or validation-owned; the custody record captures both, and pool reset or reallocation still refuses dirty bytes, local-only commits, and attributable active or terminal validation heads until the commits are preserved under `refs/fm-custody`. Unreadable validation state, unreadable or ambiguous endpoint reads never authorize recovery.
+   The backend then creates a replacement endpoint (a tmux window or a Herdr pane) against the recorded copy and branch.
+   Its identity is journaled immediately, retried recovery reconciles that journal before creating anything else, and the old durable task record remains authoritative until replacement publication.
    For a `kind=secondmate` task, the home's identity marker must match and its child records must be readable, so a relaunch can never strand child work behind an unreadable home.
    A secondmate's own crewmates run in their own endpoints and outlive its relaunch; the relaunched secondmate reconciles them from its home's durable records at startup.
 3. **Record the note.**
    A ship or scout relaunch requires `--note`, because the replacement inherits the local copy but none of the conversation; the note is appended to the instructions it reads.
    A secondmate relaunch does not require one and never rewrites its standing charter.
 4. **Stop the old agent** through the `exit` verb, with its postcondition.
-5. **Launch the replacement** through its single owner, `bin/fm-spawn.sh --relaunch`, which adopts the recorded endpoint and worktree instead of creating either, clears the previous harness's per-task wiring, and arms a fresh busy generation.
+5. **Launch the replacement** through its single owner, `bin/fm-spawn.sh --relaunch`, which adopts an existing agent-free endpoint or recreates a positively missing endpoint in the recorded worktree, clears the previous harness's per-task wiring, and arms a fresh busy generation.
 
 Switching harness is therefore one ordinary relaunch rather than a separate mechanism.
 
 ### Failure and rollback
 
 - A refusal **before** the agent is stopped leaves the durable record and the instructions byte-identical.
-- A launch failure **after** the agent is stopped restores the prior durable record, keeps the progress note so a later recovery still has it, marks the journal `failed:launching`, and reports plainly that no agent is running and where the work is preserved.
+- A launch failure **after** the agent is stopped restores the prior durable record, keeps the progress note so a later recovery still has it, marks the control journal `failed:launching`, and reports plainly that no agent is running and where the work is preserved.
+  If a missing-endpoint replacement was already created, its separate endpoint journal lets cleanup remove that exact endpoint or lets the next retry adopt or remove it before creating another.
 - If the launch owner already published the new record but no running agent can be confirmed, the new record is kept: the task is recorded on the new harness with no agent confirmed, which is exactly what recovery reconciles.
   Rewriting it back to the old harness would be a second, worse inaccuracy.
 
