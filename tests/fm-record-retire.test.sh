@@ -45,10 +45,10 @@ SH
   printf 'in_flight\n' > "$dir/rows/destination"
   printf '%s\n' '# Backlog' > "$dir/home/data/backlog.md"
   fm_write_meta "$dir/home/state/old.meta" \
-    "window=fm-old" "endpoint_task_id=old" "worktree=$dir/pool/3/repo" \
+    "window=fm:fm-old" "endpoint_task_id=old" "worktree=$dir/pool/3/repo" \
     "project=$dir/project" "kind=scout" "mode=no-mistakes" "spawn_gen=old-incarnation"
   fm_write_meta "$dir/home/state/destination.meta" \
-    "window=fm-destination" "endpoint_task_id=destination" "worktree=$dir/pool/3/repo" \
+    "window=fm:fm-destination" "endpoint_task_id=destination" "worktree=$dir/pool/3/repo" \
     "project=$dir/project" "kind=ship" "mode=no-mistakes" "spawn_gen=destination-incarnation"
   printf 'finished scout report\n' > "$dir/home/data/old/report.md"
 }
@@ -194,8 +194,9 @@ test_record_only_retirement_ignores_finished_claimant() {
   mkdir -p "$dir/home/data/destination"
   printf 'finished\n' > "$dir/home/data/destination/report.md"
   printf 'done\n' > "$dir/rows/destination"
+  : > "$dir/tmux.windows"
   fm_write_meta "$dir/home/state/destination.meta" \
-    "window=fm-destination" "endpoint_task_id=destination" "worktree=$dir/pool/3/repo" \
+    "window=fm:fm-destination" "endpoint_task_id=destination" "worktree=$dir/pool/3/repo" \
     "project=$dir/project" "kind=scout" "mode=no-mistakes" "spawn_gen=destination-incarnation"
   run_retire "$dir" >/dev/null 2>&1 || rc=$?
   expect_code 1 "$rc" "a finished record is not an active slot claimant"
