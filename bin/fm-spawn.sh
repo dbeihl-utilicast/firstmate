@@ -1416,12 +1416,18 @@ spawn_copy_claim_refusal() {  # <worktree> <recover|fresh>
     other_id=${other_id%.meta}
     [ "$other_id" != "$ID" ] || continue
     if [ ! -f "$meta" ] || [ -L "$meta" ] || [ ! -r "$meta" ] || [ ! -s "$meta" ]; then
-      echo "task $other_id has a task record that cannot be read safely, so it may hold this copy"
+      echo "task $other_id has a task record that cannot be read safely, so it may hold this copy; repair or retire $meta, then retry"
       return 0
     fi
     other_wt=$(fm_meta_get "$meta" worktree)
-    [ -n "$other_wt" ] || continue
-    other_canonical=$(CDPATH='' cd -P -- "$other_wt" 2>/dev/null && pwd -P) || continue
+    if [ -z "$other_wt" ]; then
+      echo "task $other_id has a task record with no readable worktree, so it may hold this copy; repair or retire $meta, then retry"
+      return 0
+    fi
+    if ! other_canonical=$(CDPATH='' cd -P -- "$other_wt" 2>/dev/null && pwd -P); then
+      echo "task $other_id has a task record whose worktree '$other_wt' does not resolve, so it may hold this copy; repair or retire $meta, then retry"
+      return 0
+    fi
     [ "$other_canonical" = "$canonical" ] || continue
     if [ -e "$STATE/$other_id.relaunch-endpoint" ] || [ -L "$STATE/$other_id.relaunch-endpoint" ]; then
       echo "task $other_id also names this copy and has an unreconciled replacement endpoint journal"

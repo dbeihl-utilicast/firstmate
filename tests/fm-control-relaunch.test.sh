@@ -1876,7 +1876,7 @@ test_same_copy_record_with_unreadable_endpoint_refuses_recovery() {
   pass "missing endpoint: an unreadable same-copy record refuses recovery"
 }
 
-fresh_spawn_over_damaged_record() {  # <label> <damage: chmod|symlink|empty>
+fresh_spawn_over_damaged_record() {  # <label> <damage: chmod|symlink|empty|garbage|cut|dangling|dir|gone>
   local label=$1 damage=$2 dir holder fresh out rc=0 launches meta
   holder=rl-dmg-holder-$label
   fresh=rl-dmg-fresh-$label
@@ -1890,11 +1890,17 @@ fresh_spawn_over_damaged_record() {  # <label> <damage: chmod|symlink|empty>
     chmod) chmod 000 "$meta" ;;
     symlink) cp "$meta" "$dir/real-$holder.meta"; rm -f "$meta"; ln -s "$dir/real-$holder.meta" "$meta" ;;
     empty) : > "$meta" ;;
+    garbage) printf 'not a task record\n\x01\x02\n' > "$meta" ;;
+    cut) sed -n '/^worktree=/q;p' "$meta" > "$meta.cut"; mv "$meta.cut" "$meta"; [ -s "$meta" ] || fail "cut record came out empty" ;;
+    dangling) rm -f "$meta"; ln -s "$dir/nowhere.meta" "$meta" ;;
+    dir) rm -f "$meta"; mkdir "$meta" ;;
+    gone) sed -i 's|^worktree=.*|worktree=/nonexistent/copy|' "$meta" ;;
   esac
   out=$(run_spawn "$dir" "$fresh" "$dir/proj" --backend tmux --mode no-mistakes --yolo off --harness claude) || rc=$?
   chmod 600 "$meta" 2>/dev/null || true
   [ "$rc" -ne 0 ] || fail "spawn onto a copy held by a $damage task record exited 0"$'\n'"$out"
   assert_contains "$out" "$holder" "the refusal should name the task record that blocked the claim"
+  assert_contains "$out" "repair or retire" "the refusal should name the remedy"
   launches=$(grep -c 'encode launch-brief' "$dir/fake/literal" 2>/dev/null || true)
   [ "${launches:-0}" = 0 ] || fail "spawn over a $damage task record launched $launches workers"
   pass "a $damage task record blocks a fresh spawn onto its copy"
@@ -1903,6 +1909,12 @@ fresh_spawn_over_damaged_record() {  # <label> <damage: chmod|symlink|empty>
 test_fresh_spawn_refuses_when_holder_record_is_unreadable() { fresh_spawn_over_damaged_record chmod chmod; }
 test_fresh_spawn_refuses_when_holder_record_is_symlink() { fresh_spawn_over_damaged_record link symlink; }
 test_fresh_spawn_refuses_when_holder_record_is_truncated() { fresh_spawn_over_damaged_record empty empty; }
+
+test_fresh_spawn_refuses_when_holder_record_is_garbage() { fresh_spawn_over_damaged_record garbage garbage; }
+test_fresh_spawn_refuses_when_holder_record_is_cut_before_worktree() { fresh_spawn_over_damaged_record cut cut; }
+test_fresh_spawn_refuses_when_holder_record_is_dangling_symlink() { fresh_spawn_over_damaged_record dangling dangling; }
+test_fresh_spawn_refuses_when_holder_record_is_a_directory() { fresh_spawn_over_damaged_record dir dir; }
+test_fresh_spawn_refuses_when_holder_worktree_does_not_resolve() { fresh_spawn_over_damaged_record gone gone; }
 
 test_missing_clean_endpoint_recreates_the_endpoint_against_the_recorded_copy() {
   local dir out rc head_before
@@ -2042,6 +2054,11 @@ test_same_copy_record_with_unreadable_endpoint_refuses_recovery
 test_fresh_spawn_refuses_when_holder_record_is_unreadable
 test_fresh_spawn_refuses_when_holder_record_is_symlink
 test_fresh_spawn_refuses_when_holder_record_is_truncated
+test_fresh_spawn_refuses_when_holder_record_is_garbage
+test_fresh_spawn_refuses_when_holder_record_is_cut_before_worktree
+test_fresh_spawn_refuses_when_holder_record_is_dangling_symlink
+test_fresh_spawn_refuses_when_holder_record_is_a_directory
+test_fresh_spawn_refuses_when_holder_worktree_does_not_resolve
 test_missing_clean_endpoint_recreates_the_endpoint_against_the_recorded_copy
 test_missing_endpoint_with_unreadable_validation_refuses_before_any_note
 test_relaunch_reverifies_an_already_in_flight_item_instead_of_rewriting_it
