@@ -39,7 +39,6 @@ fm_task_retirement_complete() {  # <state-dir> <task-id>
   [ -n "$meta_gen" ] && [ "$meta_gen" = "$receipt_gen" ] || return 1
   runtime_state=$(fm_meta_get "$receipt" runtime_state)
   [ "$runtime_state" = retired ]
-  return 1
 }
 
 fm_task_retire_pr_artifacts_validate() {  # <state-dir> <task-id>

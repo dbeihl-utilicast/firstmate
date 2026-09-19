@@ -248,6 +248,28 @@ EOF
   pass "record retirement: incomplete retirement blocks same-id spawn"
 }
 
+test_spawn_allows_id_with_complete_retirement() {
+  local dir="$TMP_ROOT/spawn-complete" out rc=0
+  make_case "$dir"
+  mkdir -p "$dir/home/state/retired"
+  mv "$dir/home/state/old.meta" "$dir/home/state/retired/old.meta"
+  printf '%s\n' version=fm-record-retirement-v2 task_id=old spawn_gen=old-incarnation \
+    status=complete runtime_state=retired > "$dir/home/state/retired/old.receipt"
+  cat > "$dir/home/data/old/brief.md" <<'EOF'
+# Task
+## Captain's intent
+Exercise completed-retirement id reuse.
+
+## Firstmate spec
+Proceed past the retirement guard.
+EOF
+  out=$(FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$dir/home/state" \
+    FM_DATA_OVERRIDE="$dir/home/data" FM_CONFIG_OVERRIDE="$dir/home/config" \
+    PATH="$dir/fakebin:$PATH" "$SPAWN" old "$dir/project" --scout --harness codex 2>&1) || rc=$?
+  assert_not_contains "$out" "incomplete retirement" "a complete receipt must not block same-id spawn"
+  pass "record retirement: complete retirement allows same-id spawn"
+}
+
 # A failed metadata move must leave no receipt that could imply the still-live
 # record was retired.
 test_record_only_retirement_moves_identity_before_receipt() {
@@ -382,6 +404,7 @@ test_record_only_retirement_requires_positive_active_owner
 test_record_only_retirement_retry_repairs_receipt_and_sidecars
 test_record_only_retirement_retry_preserves_new_same_id_incarnation
 test_spawn_refuses_id_with_incomplete_retirement
+test_spawn_allows_id_with_complete_retirement
 test_record_only_retirement_moves_identity_before_receipt
 test_ship_report_does_not_prove_landed_work
 test_ship_merged_pr_proof_binds_full_repository_url
