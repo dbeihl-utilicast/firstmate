@@ -2251,7 +2251,8 @@ test_config_reread_cleanup_runs_after_mixed_delivery_failure() {
   real_mv=$(command -v mv)
   cat > "$fakebin/mv" <<SH
 #!/usr/bin/env bash
-if [ -f "\${1:-}" ] && grep -q '\.9999-fail' "\${1:-}" 2>/dev/null; then
+src="\${@: -2:1}"
+if [ -f "\$src" ] && grep -q '\.9999-fail' "\$src" 2>/dev/null; then
   exit 1
 fi
 exec "$real_mv" "\$@"

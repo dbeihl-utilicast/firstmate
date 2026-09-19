@@ -793,7 +793,7 @@ record_note() {
         echo
         echo "First, check your instruction inbox: run $SCRIPT_DIR/fm-inbox-take.sh"
         echo "$STATE/$ID.inbox, act on its printed instruction, and repeat until empty."
-        echo "The take acknowledges each record atomically; for manual recovery only, list"
+        echo "The take claims then acknowledges each record, replaying a dead or expired claim; for manual recovery only, list"
         echo "$STATE/$ID.inbox/*.msg, act in numeric order, then mv each into handled/."
         echo
         printf '%s\n' "$NOTE"

@@ -128,7 +128,7 @@ One `fm-send` doorbell was visible in the real composer as a submitted user line
 $ FM_HOME=<scratch-home> bin/fm-send.sh qwen-scout 'Reply PONG.'
 [exit 0; no output]
 $ tmux -L <isolated-socket> capture-pane -p -t <isolated-tmux-target>
-: Firstmate instruction waiting: run '<firstmate-root>/bin/fm-inbox-take.sh' '<scratch-home>/state/qwen-scout.inbox' to atomically take the next instruction, act on its printed body, then repeat until empty. Fallback: list '<scratch-home>/state/qwen-scout.inbox'/*.msg, read and act in numeric order, then mv each handled file to '<scratch-home>/state/qwen-scout.inbox'/handled/.
+: Firstmate instruction waiting: run '<firstmate-root>/bin/fm-inbox-take.sh' '<scratch-home>/state/qwen-scout.inbox' to claim and complete the next instruction safely, act on its printed body, then repeat until empty. A dead or expired claim replays. Fallback: list '<scratch-home>/state/qwen-scout.inbox'/*.msg, read and act in numeric order, then mv each handled file to '<scratch-home>/state/qwen-scout.inbox'/handled/.
 ```
 
 `bin/fm-control.sh` interrupt returned `interrupt-delivered ... verified=agent-alive cancel=unconfirmed`.
