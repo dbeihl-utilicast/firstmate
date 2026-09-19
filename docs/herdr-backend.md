@@ -283,7 +283,7 @@ Create replaces only a confidently dead or no-agent husk, creates the replacemen
 This prevents closing the workspace's last tab before a replacement exists.
 
 The generic Herdr agent-liveness probe reuses the same pane classifier, then applies one recovery-only exception.
-A structurally gone pane or a pane read from a session positively reported as having no running server becomes `missing`, a restored agent-less shell becomes `dead`, a registered agent becomes `alive`, and every other unexpected read becomes `unreadable`.
+A pane reported gone by one unambiguous `pane_not_found` reply (a malformed, multi-object, or contradictory reply does not count) or a pane read from a session positively reported as having no running server becomes `missing`, a restored agent-less shell becomes `dead`, a registered agent becomes `alive`, and every other unexpected read becomes `unreadable`.
 The stopped-server exception does not widen husk detection or any close authority; those paths still refuse an unreadable pane.
 Unlike tmux process-name inspection, native registration can classify Pi without guessing from a generic interpreter name.
 `tests/fm-backend-herdr-agent-exit-shell-e2e.test.sh` pins the live-Pi versus leftover-shell distinction; [`verification/runtime-backends.md`](verification/runtime-backends.md#agent-lifecycle-control) owns the versioned evidence.
