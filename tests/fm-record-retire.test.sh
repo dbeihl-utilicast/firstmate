@@ -204,6 +204,31 @@ test_record_only_retirement_ignores_finished_claimant() {
   pass "record retirement: only an active claimant proves slot ownership"
 }
 
+test_ship_report_does_not_prove_landed_work() {
+  local dir="$TMP_ROOT/ship-report" rc=0
+  make_case "$dir"
+  cat > "$dir/fakebin/gh-axi" <<'SH'
+#!/usr/bin/env bash
+printf '  state: open\n  merged: no\n'
+SH
+  chmod +x "$dir/fakebin/gh-axi"
+  fm_write_meta "$dir/home/state/old.meta" \
+    "window=fm:fm-old" "endpoint_task_id=old" "worktree=$dir/pool/3/repo" \
+    "project=$dir/project" "kind=ship" "mode=no-mistakes" "spawn_gen=old-incarnation" \
+    "pr=https://github.com/o/r/pull/7" "branch=fm/retire-record"
+  run_retire "$dir" >/dev/null 2>&1 || rc=$?
+  expect_code 1 "$rc" "a ship report with an open PR must not retire"
+  [ -f "$dir/home/state/old.meta" ] || fail "an unlanded ship record was retired from a report"
+
+  printf '  state: merged\n  merged: yes\n' > "$dir/pr.out"
+  printf '#!/usr/bin/env bash\ncat "%s/pr.out"\n' "$dir" > "$dir/fakebin/gh-axi"
+  rc=0
+  run_retire "$dir" >/dev/null 2>&1 || rc=$?
+  expect_code 0 "$rc" "a merged PR proves landed ship work"
+  [ ! -e "$dir/home/state/old.meta" ] || fail "a landed ship record stayed active"
+  pass "record retirement: a ship report alone never proves landed work"
+}
+
 test_retired_secondmate_is_excluded_from_broadcast_enumeration() {
   local dir="$TMP_ROOT/secondmate-broadcast" out
   make_case "$dir"
@@ -250,6 +275,7 @@ test_record_only_retirement_requires_closed_row_and_deliverable
 test_record_only_retirement_refuses_live_retiring_endpoint
 test_record_only_retirement_requires_positive_active_owner
 test_record_only_retirement_retry_repairs_receipt_and_sidecars
+test_ship_report_does_not_prove_landed_work
 test_record_only_retirement_ignores_finished_claimant
 test_retired_identity_is_not_a_send_destination
 test_record_only_retirement_refuses_its_still_owned_slot

@@ -457,7 +457,7 @@ record_endpoint_state() {  # <record> <task-id>
   fm_backend_agent_state "$FM_BACKEND_VALIDATED_BACKEND" "$FM_BACKEND_VALIDATED_TARGET"
 }
 
-record_ship_work_landed() {  # <record>
+record_ship_pr_merged() {  # <record>
   local rec=$1 pr number out project
   pr=$(fm_meta_get "$rec" pr)
   [ -n "$pr" ] || return 1
@@ -473,16 +473,35 @@ record_ship_work_landed() {  # <record>
   printf '%s\n' "$out" | grep -q '^[[:space:]]*merged: yes$'
 }
 
-# Finished means both lifecycle closure and durable delivery evidence. Endpoint
-# liveness is checked separately so a prematurely closed live task stays owned.
+record_ship_branch_on_default() {  # <record>
+  local rec=$1 project branch tip ref
+  project=$(fm_meta_get "$rec" project)
+  branch=$(fm_meta_get "$rec" branch)
+  [ -d "$project" ] && [ -n "$branch" ] || return 1
+  tip=$(git -C "$project" rev-parse --verify --quiet "refs/remotes/origin/$branch^{commit}" 2>/dev/null \
+    || git -C "$project" rev-parse --verify --quiet "refs/heads/$branch^{commit}" 2>/dev/null) || return 1
+  for ref in $(git -C "$project" symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null) \
+    refs/remotes/origin/main refs/remotes/origin/master; do
+    git -C "$project" rev-parse --verify --quiet "$ref" >/dev/null 2>&1 || continue
+    git -C "$project" merge-base --is-ancestor "$tip" "$ref" 2>/dev/null && return 0
+  done
+  return 1
+}
+
+# Finished means both lifecycle closure and durable delivery evidence: a scout's
+# report, or a ship's landed work. Endpoint liveness is checked separately so a
+# prematurely closed live task stays owned.
 record_proved_finished() {  # <record> <task-id>
   local rec=$1 rec_id=$2 rec_kind
   fm_backlog_row_probe "$DATA" "$rec_id" || return 1
   [ "${FM_BACKLOG_ROW_STATE%% *}" = "done" ] || return 1
-  [ -f "$DATA/$rec_id/report.md" ] && return 0
   rec_kind=$(fm_meta_get "$rec" kind)
   [ -n "$rec_kind" ] || rec_kind=ship
-  [ "$rec_kind" != scout ] && record_ship_work_landed "$rec"
+  if [ "$rec_kind" = scout ]; then
+    [ -f "$DATA/$rec_id/report.md" ]
+    return
+  fi
+  record_ship_pr_merged "$rec" || record_ship_branch_on_default "$rec"
 }
 
 record_proved_active() {  # <record> <task-id>
@@ -556,7 +575,7 @@ retire_record_only() {
     return 1
   fi
   if ! record_proved_finished "$source_meta" "$ID"; then
-    echo "REFUSED: task $ID needs both a closed backlog row and landed work or a present report; nothing was changed" >&2
+    echo "REFUSED: task $ID needs both a closed backlog row and a scout report or landed ship work; nothing was changed" >&2
     return 1
   fi
   endpoint_state=$(record_endpoint_state "$source_meta" "$ID")
