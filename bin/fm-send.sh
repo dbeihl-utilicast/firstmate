@@ -1115,13 +1115,8 @@ else
       echo "error: steer not sent to $INBOX_TASK_ID: the task retired or changed endpoint during target resolution" >&2
       exit 1
     fi
-    if [ "${FM_SEND_IDEMPOTENT:-0}" = 1 ]; then
-      INBOX_RECORD=$(fm_task_inbox_write_idempotent "$STATE" "$INBOX_TASK_ID" "$MESSAGE" \
-        "${FIRE_AND_FORGET_ID:+fire-and-forget}") || inbox_write_rc=$?
-    else
-      INBOX_RECORD=$(fm_task_inbox_write "$STATE" "$INBOX_TASK_ID" "$MESSAGE" \
-        "${FIRE_AND_FORGET_ID:+fire-and-forget}") || inbox_write_rc=$?
-    fi
+    INBOX_RECORD=$(fm_task_inbox_write_idempotent "$STATE" "$INBOX_TASK_ID" "$MESSAGE" \
+      "${FIRE_AND_FORGET_ID:+fire-and-forget}") || inbox_write_rc=$?
     if [ "${inbox_write_rc:-0}" -ne 0 ]; then
       fm_lock_release "$INBOX_META_LOCK"
       if [ "$PENDING_REPLY_CREATED" = 1 ] && [ -n "$PENDING_REPLY_CORR" ]; then
@@ -1160,6 +1155,13 @@ else
       fm_send_close_resolved_keys "$RESOLVE_ANSWER_TEXT" || exit 1
       fm_send_feed_resolved_holds "$RESOLVE_ANSWER_TEXT" || exit 1
     fi
+    case "$INBOX_RECORD" in
+      */handled/*)
+        echo "fm-send: identical steer was already taken at $INBOX_RECORD; the existing record stands" >&2
+        [ "${FM_SEND_PRINT_INBOX_RECORD:-0}" != 1 ] || printf '%s\n' "$INBOX_RECORD"
+        exit 0
+        ;;
+    esac
     # Ring the doorbell, best-effort: no ring outcome changes the exit status,
     # because the watcher owns loss detection from here, either through its
     # bounded re-ring ladder or direct unavailable-endpoint recovery.
