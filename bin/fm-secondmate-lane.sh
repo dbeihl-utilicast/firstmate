@@ -39,7 +39,9 @@ MARKER="$STATE/$ID.stopped"
 # shellcheck source=bin/fm-backend.sh
 . "$SCRIPT_DIR/fm-backend.sh"
 
-[ -f "$META" ] && grep -q '^kind=secondmate$' "$META" || die "no registered secondmate '$ID' in $STATE"
+if ! { [ -f "$META" ] && grep -q '^kind=secondmate$' "$META"; }; then
+  die "no registered secondmate '$ID' in $STATE"
+fi
 REMOTE_HOST=$(fm_meta_get "$META" remote_host)
 
 case "$VERB" in
