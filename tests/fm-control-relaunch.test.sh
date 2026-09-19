@@ -1773,6 +1773,34 @@ test_two_missing_records_for_one_copy_recover_at_most_one_worker() {
   pass "missing endpoint: two records naming one copy recover at most one worker"
 }
 
+test_crashed_unpublished_recovery_blocks_alias_record() {
+  local dir first second ready spawn_pid out rc=0 creates
+  first=rl-crash-a
+  second=rl-crash-b
+  dir=$(new_case crash-copy-alias "$first")
+  add_ship_task "$dir" "$first" claude
+  add_ship_task_alias "$dir" "$first" "$second"
+  : > "$dir/fake/windows"
+  ready="$dir/endpoint-ready"
+
+  FM_TEST_RELAUNCH_ENDPOINT_READY="$ready" FM_TEST_RELAUNCH_ENDPOINT_RELEASE="$dir/endpoint-release" \
+    run_control "$dir" "$first" relaunch --note "recover first vanished session" > "$dir/first.out" &
+  for _ in $(seq 1 200); do [ -s "$ready" ] && break; /bin/sleep 0.01; done
+  [ -s "$ready" ] || fail "first recovery did not reach the post-creation crash point"
+  spawn_pid=$(cat "$ready")
+  kill -KILL "$spawn_pid" 2>/dev/null || fail "could not kill first recovery before metadata publication"
+  wait 2>/dev/null || true
+  [ -f "$dir/home/state/$first.relaunch-endpoint" ] || fail "crash lost the first task's endpoint journal"
+
+  out=$(run_control "$dir" "$second" relaunch --note "recover alias record") || rc=$?
+  expect_code 1 "$rc" "an alias record should refuse while another task's journal is unreconciled"$'\n'"$out"
+  assert_contains "$out" "$first" "the refusal should name the task holding the journal"
+  [ -f "$dir/home/state/$first.relaunch-endpoint" ] || fail "alias recovery removed another task's journal"
+  creates=$(grep -c '^fm-rl-crash-' "$dir/fake/windows" 2>/dev/null || true)
+  [ "$creates" = 1 ] || fail "alias recovery created $creates workers for one copy"
+  pass "missing endpoint: another task's unpublished recovery journal blocks an alias record"
+}
+
 test_same_copy_record_with_unreadable_endpoint_refuses_recovery() {
   local dir first second out rc=0
   first=rl-unreadable-a
@@ -1923,6 +1951,7 @@ test_missing_endpoint_with_dirty_copy_recovers_in_place
 test_missing_endpoint_with_pipeline_only_head_recovers_in_place
 test_missing_endpoint_creation_survives_process_death_without_duplication
 test_two_missing_records_for_one_copy_recover_at_most_one_worker
+test_crashed_unpublished_recovery_blocks_alias_record
 test_same_copy_record_with_unreadable_endpoint_refuses_recovery
 test_missing_clean_endpoint_recreates_the_endpoint_against_the_recorded_copy
 test_missing_endpoint_with_unreadable_validation_refuses_before_any_note
