@@ -3,8 +3,8 @@
 # (bin/fm-task-inbox-lib.sh) and the watcher's re-ring ladder.
 #
 # The inbox+doorbell design replaces typed steer payloads with durable
-# sequenced records atomically taken into handled/ before their body is read;
-# the terminal carries only a constant doorbell line, and the watcher re-rings an
+# sequenced records claimed before their body is read and completed into
+# handled/ after output; the terminal carries only a constant doorbell line, and the watcher re-rings an
 # unacknowledged message before escalating once as an ordinary stale wake.
 # These tests pin the semantics with real processes:
 #   1. A message is written durably and appears in the inbox, byte-exact
@@ -322,6 +322,20 @@ test_idempotent_write_dedups_exact_body() {
   pass "inbox: the idempotent enqueue dedups only an exact still-unhandled re-run"
 }
 
+test_take_preserves_unread_before_invocation() {
+  local state rec out
+  state="$TMP_ROOT/take-crash-before/state"; mkdir -p "$state"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "survives before take")
+  out="$TMP_ROOT/take-crash-before/out"
+  if "$ROOT/bin/fm-inbox-take.sh" "$state/missing.inbox" > "$out" 2>/dev/null; then
+    fail "taking an absent inbox should not succeed"
+  fi
+  [ -f "$rec" ] || fail "a pre-take crash simulation moved the unread record"
+  [ ! -e "$state/t1.inbox/handled/001.msg" ] \
+    || fail "a pre-take crash simulation acknowledged the record"
+  pass "inbox take: a crash before take leaves the message unread"
+}
+
 test_take_recovers_a_taker_killed_after_claim() {
   local state rec fakebin out rc real_mv
   state="$TMP_ROOT/take-crash-after-claim/state"; mkdir -p "$state"
@@ -331,7 +345,8 @@ test_take_recovers_a_taker_killed_after_claim() {
   cat > "$fakebin/mv" <<'SH'
 #!/usr/bin/env bash
 set -u
-if [[ "${1:-}" == *.msg && "${2:-}" == */claimed/* ]]; then
+destination=${!#}
+if [[ "$destination" == */claimed/* ]]; then
   "$FM_REAL_MV" "$@"
   kill -KILL "$PPID"
   exit 99
@@ -356,10 +371,11 @@ SH
 }
 
 test_take_recovers_an_expired_live_claim() {
-  local state rec claim out
+  local state rec claim out identity
   state="$TMP_ROOT/take-expired-claim/state"; mkdir -p "$state"
   rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "expired claimant replay")
-  claim="$state/t1.inbox/claimed/$$-0-1"
+  identity=$(inbox_lib "$state" fm_task_inbox_process_identity "$$")
+  claim="$state/t1.inbox/claimed/$$-$identity-0-1"
   mkdir -p "$claim"
   mv "$rec" "$claim/001.msg"
   out=$(FM_TASK_INBOX_CLAIM_MAX_SECS=0 "$ROOT/bin/fm-inbox-take.sh" "$state/t1.inbox") \
@@ -375,7 +391,7 @@ test_watcher_rerings_an_abandoned_claim() {
   dir=$(setup_watch_case abandoned-claim)
   state="$dir/state"; out="$dir/watch.out"; log="$dir/send.log"; : > "$log"
   rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "claimed then abandoned")
-  claim="$state/t1.inbox/claimed/99999999-1-1"
+  claim="$state/t1.inbox/claimed/99999999-1-1-1"
   mkdir -p "$claim"
   mv "$rec" "$claim/001.msg"
   age_path "$claim/001.msg"
@@ -398,10 +414,11 @@ test_watcher_rerings_an_abandoned_claim() {
 }
 
 test_idempotent_write_dedups_claimed_record() {
-  local state rec claim r2 count
+  local state rec claim r2 count identity
   state="$TMP_ROOT/idem-claimed/state"; mkdir -p "$state"
   rec=$(inbox_lib "$state" fm_task_inbox_write_idempotent "$state" t1 "in flight body")
-  claim=$(inbox_lib "$state" fm_task_inbox_claim "$state/t1.inbox" "$$-$(date +%s)-1") \
+  identity=$(inbox_lib "$state" fm_task_inbox_process_identity "$$")
+  claim=$(inbox_lib "$state" fm_task_inbox_claim "$state/t1.inbox" "$$-$identity-$(date +%s)-1") \
     || fail "claim failed"
   r2=$(inbox_lib "$state" fm_task_inbox_write_idempotent "$state" t1 "in flight body") \
     || fail "resend during claim failed"
@@ -415,11 +432,150 @@ test_recovery_removes_empty_dead_claimant_dir() {
   local state dir
   state="$TMP_ROOT/empty-claimant/state"; mkdir -p "$state"
   inbox_lib "$state" fm_task_inbox_write "$state" t1 "x" >/dev/null
-  dir="$state/t1.inbox/claimed/99999999-1-1"
+  dir="$state/t1.inbox/claimed/99999999-1-1-1"
   mkdir -p "$dir"
   inbox_lib "$state" fm_task_inbox_recover_claims "$state/t1.inbox"
   [ ! -d "$dir" ] || fail "recovery left an empty dead claimant directory"
   pass "inbox: recovery removes an empty dead claimant directory"
+}
+
+test_recovery_during_sequence_scan_never_overwrites() {
+  local state dir claim scan release recovered writer recovery count
+  state="$TMP_ROOT/recover-allocation-race/state"; mkdir -p "$state"
+  dir="$state/t1.inbox"
+  inbox_lib "$state" fm_task_inbox_write "$state" t1 "ORIGINAL-INSTRUCTION" >/dev/null
+  claim="$dir/claimed/99999999-1-1-1"
+  mkdir -p "$claim"
+  mv "$dir/001.msg" "$claim/001.msg"
+  scan="$TMP_ROOT/recover-allocation-race/scanned"
+  release="$TMP_ROOT/recover-allocation-race/release"
+  recovered="$TMP_ROOT/recover-allocation-race/recovered"
+  FM_SCAN_MARKER="$scan" FM_SCAN_RELEASE="$release" bash -c '
+    . "$1"
+    fm_task_inbox_next_seq() {
+      local dir=$1 max=0 d f n
+      for f in "$dir"/*.msg; do
+        [ -e "$f" ] || continue
+        n=$(fm_task_inbox_seq_of "${f##*/}") || continue
+        [ "$n" -le "$max" ] || max=$n
+      done
+      : > "$FM_SCAN_MARKER"
+      while [ ! -e "$FM_SCAN_RELEASE" ]; do sleep 0.01; done
+      for d in "$dir/handled" "$dir/claimed"/*; do
+        [ -d "$d" ] || continue
+        for f in "$d"/*.msg; do
+          [ -e "$f" ] || continue
+          n=$(fm_task_inbox_seq_of "${f##*/}") || continue
+          [ "$n" -le "$max" ] || max=$n
+        done
+      done
+      printf "%03d" "$((max + 1))"
+    }
+    fm_task_inbox_write "$2" t1 "GENUINELY-NEW-INSTRUCTION"
+  ' _ "$ROOT/bin/fm-task-inbox-lib.sh" "$state" >/dev/null & writer=$!
+  while [ ! -e "$scan" ]; do sleep 0.01; done
+  (inbox_lib "$state" fm_task_inbox_recover_claims "$dir" && : > "$recovered") & recovery=$!
+  sleep 0.2
+  : > "$release"
+  wait "$writer" || fail "writer failed during recovery race"
+  wait "$recovery" || fail "recovery failed during allocation race"
+  count=$(find "$dir" -name '*.msg' | wc -l | tr -d ' ')
+  [ "$count" = 2 ] || fail "recovery during allocation lost a record; found $count"
+  grep -rqF "ORIGINAL-INSTRUCTION" "$dir" || fail "recovery during allocation overwrote the original instruction"
+  grep -rqF "GENUINELY-NEW-INSTRUCTION" "$dir" || fail "recovery during allocation lost the new instruction"
+  pass "inbox: recovery and allocation serialize without overwriting an instruction"
+}
+
+test_writer_retries_a_sequence_destination_collision() {
+  local state dir source result count
+  state="$TMP_ROOT/sequence-destination-collision/state"; mkdir -p "$state"
+  dir="$state/t1.inbox"
+  mkdir -p "$dir/handled"
+  source="$TMP_ROOT/sequence-destination-collision/existing.msg"
+  printf 'schema=fm-task-inbox.v1\nat=2026-09-19T00:00:00Z\n--\nEXISTING-INSTRUCTION' > "$source"
+  result=$(FM_COLLISION_SOURCE="$source" FM_COLLISION_MARKER="$source.used" bash -c '
+    . "$1"
+    eval "$(declare -f fm_task_inbox_next_seq | sed "1s/fm_task_inbox_next_seq/_original_fm_task_inbox_next_seq/")"
+    fm_task_inbox_next_seq() {
+      if [ ! -e "$FM_COLLISION_MARKER" ]; then
+        cp "$FM_COLLISION_SOURCE" "$1/001.msg"
+        : > "$FM_COLLISION_MARKER"
+        printf 001
+      else
+        _original_fm_task_inbox_next_seq "$1"
+      fi
+    }
+    fm_task_inbox_write "$2" t1 "NEW-INSTRUCTION"
+  ' _ "$ROOT/bin/fm-task-inbox-lib.sh" "$state") \
+    || fail "writer did not retry a sequence destination collision"
+  [ "$result" = "$dir/002.msg" ] || fail "writer did not allocate a new sequence after collision: $result"
+  grep -qF 'EXISTING-INSTRUCTION' "$dir/001.msg" || fail "writer overwrote an occupied sequence destination"
+  grep -qF 'NEW-INSTRUCTION' "$dir/002.msg" || fail "writer lost the new instruction while retrying allocation"
+  count=$(find "$dir" -maxdepth 1 -name '*.msg' | wc -l | tr -d ' ')
+  [ "$count" = 2 ] || fail "sequence collision retry should preserve two records, found $count"
+  pass "inbox: allocation refuses an occupied destination and retries with a new sequence"
+}
+
+test_dedup_restarts_after_recovery_and_reclaim() {
+  local state dir claim compared release relocated writer mover count result i
+  state="$TMP_ROOT/dedup-relocation-race/state"; mkdir -p "$state"
+  dir="$state/t1.inbox"
+  inbox_lib "$state" fm_task_inbox_write "$state" t1 "SAME-INSTRUCTION" >/dev/null
+  claim="$dir/claimed/99999999-1-1-1"
+  mkdir -p "$claim"
+  mv "$dir/001.msg" "$claim/001.msg"
+  compared="$TMP_ROOT/dedup-relocation-race/compared"
+  release="$TMP_ROOT/dedup-relocation-race/release"
+  relocated="$TMP_ROOT/dedup-relocation-race/relocated"
+  result="$TMP_ROOT/dedup-relocation-race/result"
+  FM_COMPARE_MARKER="$compared" FM_COMPARE_RELEASE="$release" bash -c '
+    . "$1"
+    eval "$(declare -f fm_task_inbox_body | sed "1s/fm_task_inbox_body/_original_fm_task_inbox_body/")"
+    fm_task_inbox_body() {
+      _original_fm_task_inbox_body "$1" || return 1
+      case "$1" in
+        */claimed/*)
+          : > "$FM_COMPARE_MARKER"
+          while [ ! -e "$FM_COMPARE_RELEASE" ]; do sleep 0.01; done ;;
+      esac
+    }
+    fm_task_inbox_write_idempotent "$2" t1 "SAME-INSTRUCTION"
+  ' _ "$ROOT/bin/fm-task-inbox-lib.sh" "$state" > "$result" & writer=$!
+  while [ ! -e "$compared" ]; do sleep 0.01; done
+  (
+    inbox_lib "$state" fm_task_inbox_recover_claims "$dir"
+    inbox_lib "$state" fm_task_inbox_claim "$dir" "$$-1-1-2" >/dev/null
+    : > "$relocated"
+  ) & mover=$!
+  i=0
+  while [ "$i" -lt 100 ] && [ ! -e "$relocated" ]; do sleep 0.01; i=$((i + 1)); done
+  : > "$release"
+  wait "$writer" || fail "idempotent resend failed during relocation race"
+  wait "$mover" || fail "recovery and re-claim failed during dedup race"
+  count=$(find "$dir" -name '*.msg' | wc -l | tr -d ' ')
+  [ "$count" = 1 ] || fail "recovery plus re-claim duplicated an identical resend; found $count"
+  [ -s "$result" ] || fail "dedup relocation race did not return the standing record"
+  pass "inbox: dedup follows recovery plus re-claim without creating a duplicate"
+}
+
+test_recovery_checks_process_start_identity_and_reports_malformed_claimants() {
+  local state dir claim identity err
+  state="$TMP_ROOT/claimant-identity/state"; mkdir -p "$state"
+  dir="$state/t1.inbox"
+  inbox_lib "$state" fm_task_inbox_write "$state" t1 "reused pid claim" >/dev/null
+  identity=$(inbox_lib "$state" fm_task_inbox_process_identity "$$") \
+    || fail "could not read the live test process identity"
+  claim="$dir/claimed/$$-$((identity + 1))-1-1"
+  mkdir -p "$claim"
+  mv "$dir/001.msg" "$claim/001.msg"
+  mkdir -p "$dir/claimed/not-a-claimant"
+  err="$TMP_ROOT/claimant-identity/recovery.err"
+  inbox_lib "$state" fm_task_inbox_recover_claims "$dir" 2> "$err" \
+    || fail "claim recovery failed while reporting malformed state"
+  [ -f "$dir/001.msg" ] || fail "a live reused PID with the wrong start identity kept a dead claim"
+  grep -qF "malformed claimant directory" "$err" \
+    || fail "recovery silently skipped a malformed claimant directory"
+  pass "inbox: recovery binds claims to process start identity and reports malformed claimant directories"
 }
 
 test_take_uses_lowest_sequence() {
@@ -845,11 +1001,16 @@ test_doorbell_is_a_shell_noop
 test_doorbell_rejects_terminal_controls
 test_ring_skips_dead_agent
 test_idempotent_write_dedups_exact_body
+test_take_preserves_unread_before_invocation
 test_take_recovers_a_taker_killed_after_claim
 test_take_recovers_an_expired_live_claim
 test_watcher_rerings_an_abandoned_claim
 test_idempotent_write_dedups_claimed_record
 test_recovery_removes_empty_dead_claimant_dir
+test_recovery_during_sequence_scan_never_overwrites
+test_writer_retries_a_sequence_destination_collision
+test_dedup_restarts_after_recovery_and_reclaim
+test_recovery_checks_process_start_identity_and_reports_malformed_claimants
 test_take_uses_lowest_sequence
 test_concurrent_takes_move_once
 test_idempotent_write_follows_concurrent_ack

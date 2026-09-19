@@ -40,15 +40,17 @@
 #   <exact message text; newlines are legal; a marked secondmate request keeps
 #    its from-firstmate marker and corr token verbatim in this body>
 #
-# Sequence numbers are never reused within a task: allocation scans both the
-# inbox root and handled/, so a message is processed at most once per worker
-# lifetime even if every doorbell is duplicated. fm_task_inbox_claim moves the
+# Sequence numbers are never reused within a task: allocation scans the inbox
+# root, claimed/, and handled/. The .seq.lock serializes every record transition
+# among those locations with allocation and deduplication, and every destination
+# move refuses to replace an existing record. fm_task_inbox_claim moves the
 # lowest unhandled record into a claimant directory before it is read, and
 # fm_task_inbox_complete_claim moves it into handled/ only after its body was
 # returned. A later take returns an abandoned claim to the inbox when its owner
-# is gone or its lease expires, so a taker crash replays rather than loses work.
-# Concurrent writers serialize on .seq.lock; the worst racing outcome is
-# ordering, never loss.
+# process is gone, its process-start identity changed, or its lease expires, so
+# a taker crash replays rather than loses work. Lease expiry can replay an
+# instruction while the original taker is still alive; callers must tolerate
+# duplicate delivery.
 #
 # Re-ring ladder (fm_task_inbox_due_action): an unhandled message older than
 # FM_TASK_INBOX_GRACE_SECS is due one delivery attempt per grace period; an
@@ -155,22 +157,43 @@ fm_task_inbox_lock_acquire() {  # <lock-path>
   done
 }
 
-# Write one record into the next sequence slot: temp-write, then atomic
-# rename. Prints the record path. Caller must hold .seq.lock.
+# Move one record without replacing an existing destination. Caller must hold
+# .seq.lock, so the existence check and portable mv -n form one serialized
+# no-clobber transition even on platforms without renameat2.
+_fm_task_inbox_move_no_clobber_locked() {  # <source> <destination>
+  local source=$1 destination=$2
+  [ -e "$source" ] && [ ! -L "$source" ] || return 1
+  [ ! -e "$destination" ] && [ ! -L "$destination" ] || return 2
+  mv -n "$source" "$destination" || return 1
+  [ ! -e "$source" ] && [ ! -L "$source" ] && [ -f "$destination" ] || return 2
+}
+
+# Write one record into the next sequence slot: temp-write, then an atomic
+# no-clobber rename. Prints the record path. Caller must hold .seq.lock.
 _fm_task_inbox_write_record_locked() {  # <inbox-dir> <text> [delivery-mode]
-  local dir=$1 text=$2 delivery_mode=${3:-} seq tmp rec status=0
-  seq=$(fm_task_inbox_next_seq "$dir")
-  rec="$dir/$seq.msg"
+  local dir=$1 text=$2 delivery_mode=${3:-} seq tmp rec move_status
   tmp=$(mktemp "$dir/.staging.XXXXXX") || return 1
-  {
+  if ! {
     printf 'schema=%s\n' "$FM_TASK_INBOX_SCHEMA"
     printf 'at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     [ "$delivery_mode" != fire-and-forget ] || printf 'delivery=fire-and-forget\n'
     printf -- '--\n'
     printf '%s' "$text"
-  } > "$tmp" && mv "$tmp" "$rec" || status=1
-  [ "$status" -eq 0 ] || { rm -f "$tmp"; return 1; }
-  printf '%s' "$rec"
+  } > "$tmp"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  while :; do
+    seq=$(fm_task_inbox_next_seq "$dir") || { rm -f "$tmp"; return 1; }
+    rec="$dir/$seq.msg"
+    move_status=0
+    _fm_task_inbox_move_no_clobber_locked "$tmp" "$rec" || move_status=$?
+    case "$move_status" in
+      0) printf '%s' "$rec"; return 0 ;;
+      2) continue ;;
+      *) rm -f "$tmp"; return 1 ;;
+    esac
+  done
 }
 
 # Durably enqueue one steer: temp-write, then atomic rename into the next
@@ -197,35 +220,59 @@ fm_task_inbox_write() {  # <state-dir> <task-id> <text> [delivery-mode]
 # practice because a marked secondmate request embeds a per-request correlation
 # token in its body.
 fm_task_inbox_write_idempotent() {  # <state-dir> <task-id> <text> [delivery-mode] [dedup-handled]
-  local state=$1 task=$2 text=$3 delivery_mode=${4:-} dedup_handled=${5:-0} dir lock want have f rec='' reused=0 status=0
+  local state=$1 task=$2 text=$3 delivery_mode=${4:-} dedup_handled=${5:-0} dir lock want have f rec='' reused=0 relocated=0 relocated_base='' status=0
   dir=$(fm_task_inbox_dir "$state" "$task")
   mkdir -p "$dir/handled" || return 1
   lock="$dir/.seq.lock"
   fm_task_inbox_lock_acquire "$lock" || return 1
   if want=$(mktemp "$dir/.dedup.XXXXXX") && have=$(mktemp "$dir/.dedup.XXXXXX"); then
     if printf '%s' "$text" > "$want"; then
-      for f in "$dir"/*.msg "$dir/claimed"/*/*.msg "$dir/handled"/*.msg; do
-        [ -e "$f" ] || continue
-        [ "$dedup_handled" = 1 ] || [ "${f%/*}" != "$dir/handled" ] || continue
-        if [ "$delivery_mode" = fire-and-forget ]; then
-          fm_task_inbox_is_fire_and_forget "$f" || continue
-        elif fm_task_inbox_is_fire_and_forget "$f"; then
-          continue
-        fi
-        fm_task_inbox_body "$f" > "$have" 2>/dev/null || continue
-        cmp -s "$want" "$have" || continue
-        if [ ! -e "$f" ]; then
-          if [ -f "$dir/handled/${f##*/}" ]; then
-            f="$dir/handled/${f##*/}"
-          elif [ -f "$dir/${f##*/}" ]; then
-            f="$dir/${f##*/}"
-          else
+      # The lock prevents library-owned relocation. A manual fallback move can
+      # still race this scan, so restart the whole search whenever a candidate
+      # vanishes rather than guessing which root or claimant now owns it.
+      while :; do
+        relocated=0
+        for f in "$dir"/*.msg "$dir/claimed"/*/*.msg "$dir/handled"/*.msg; do
+          [ -e "$f" ] || continue
+          if [ "${f%/*}" = "$dir/handled" ] && [ "$dedup_handled" != 1 ] \
+            && [ "${f##*/}" != "$relocated_base" ]; then
             continue
           fi
-        fi
-        rec=$f
-        reused=1
-        break
+          if [ "$delivery_mode" = fire-and-forget ]; then
+            if ! fm_task_inbox_is_fire_and_forget "$f"; then
+              if [ ! -e "$f" ]; then
+                relocated=1
+                relocated_base=${f##*/}
+                break
+              fi
+              continue
+            fi
+          elif fm_task_inbox_is_fire_and_forget "$f"; then
+            continue
+          elif [ ! -e "$f" ]; then
+            relocated=1
+            relocated_base=${f##*/}
+            break
+          fi
+          if ! fm_task_inbox_body "$f" > "$have" 2>/dev/null; then
+            if [ ! -e "$f" ]; then
+              relocated=1
+              relocated_base=${f##*/}
+              break
+            fi
+            continue
+          fi
+          cmp -s "$want" "$have" || continue
+          if [ ! -e "$f" ]; then
+            relocated=1
+            relocated_base=${f##*/}
+            break
+          fi
+          rec=$f
+          reused=1
+          break
+        done
+        [ "$relocated" = 1 ] || break
       done
     else
       status=1
@@ -246,40 +293,79 @@ fm_task_inbox_write_idempotent() {  # <state-dir> <task-id> <text> [delivery-mod
   printf '%s' "$rec"
 }
 
-# Return abandoned claims to the inbox before selecting new work. A claim is
-# abandoned when its tagged process no longer exists or it exceeds the bounded
-# FM_TASK_INBOX_CLAIM_MAX_SECS lease. Completion and recovery race only through
-# rename: one wins, while the loser sees its source disappear. A late claimant
-# may therefore cause replay after its lease, never silent loss.
-fm_task_inbox_recover_claims() {  # <inbox-dir>
-  local dir=$1 max claim_dir claim pid epoch dest
+# Stable numeric identity for one live process start. ps lstart is available on
+# both macOS and Linux; hashing its fixed English timestamp keeps claimant paths
+# portable and distinguishes PID reuse without parsing platform-specific dates.
+fm_task_inbox_process_identity() {  # <pid>
+  local pid=$1 started
+  case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+  started=$(LC_ALL=C ps -o lstart= -p "$pid" 2>/dev/null) || return 1
+  [ -n "$started" ] || return 1
+  printf '%s' "$started" | cksum | awk '{print $1}'
+}
+
+# Return abandoned claims to the inbox before selecting new work. Caller must
+# hold .seq.lock. A valid claimant is <pid>-<process-start-id>-<epoch>-<nonce>.
+# Malformed directories are reported and preserved for operator inspection.
+_fm_task_inbox_recover_claims_locked() {  # <inbox-dir>
+  local dir=$1 max claim_dir claimant pid identity epoch nonce extra malformed live_identity age claim dest move_status
   [ -d "$dir/claimed" ] || return 0
   max=$(fm_task_inbox_claim_max_secs)
   for claim_dir in "$dir/claimed"/*; do
     [ -d "$claim_dir" ] || continue
-    claim=${claim_dir##*/}
-    pid=${claim%%-*}
-    epoch=${claim#*-}
-    epoch=${epoch%%-*}
-    case "$pid" in ''|*[!0-9]*) continue ;; esac
-    case "$epoch" in ''|*[!0-9]*) continue ;; esac
-    if ! kill -0 "$pid" 2>/dev/null || [ "$(fm_path_age "$claim_dir")" -ge "$max" ]; then
-      rmdir "$claim_dir" 2>/dev/null || true
+    claimant=${claim_dir##*/}
+    pid=''
+    identity=''
+    epoch=''
+    nonce=''
+    extra=''
+    IFS=- read -r pid identity epoch nonce extra <<EOF
+$claimant
+EOF
+    if [ -n "$extra" ]; then
+      printf 'warning: malformed claimant directory: %s\n' "$claim_dir" >&2
+      continue
     fi
+    case "$pid" in ''|*[!0-9]*) malformed=1 ;; *) malformed=0 ;; esac
+    case "$identity" in ''|*[!0-9]*) malformed=1 ;; esac
+    case "$epoch" in ''|*[!0-9]*) malformed=1 ;; esac
+    case "$nonce" in ''|*[!0-9]*) malformed=1 ;; esac
+    if [ "$malformed" = 1 ]; then
+      printf 'warning: malformed claimant directory: %s\n' "$claim_dir" >&2
+      continue
+    fi
+    live_identity=$(fm_task_inbox_process_identity "$pid" 2>/dev/null || true)
+    age=$(fm_path_age "$claim_dir")
+    if [ "$live_identity" = "$identity" ] && [ "$age" -lt "$max" ]; then
+      continue
+    fi
+    rmdir "$claim_dir" 2>/dev/null || true
     for claim in "$claim_dir"/*.msg; do
       [ -f "$claim" ] || continue
-      if kill -0 "$pid" 2>/dev/null && [ "$(fm_path_age "$claim_dir")" -lt "$max" ]; then
-        continue
-      fi
       dest="$dir/${claim##*/}"
-      [ ! -e "$dest" ] && [ ! -L "$dest" ] || continue
-      if mv "$claim" "$dest" 2>/dev/null; then
-        rmdir "$claim_dir" 2>/dev/null || true
-      elif [ -e "$claim" ]; then
-        return 1
-      fi
+      move_status=0
+      _fm_task_inbox_move_no_clobber_locked "$claim" "$dest" || move_status=$?
+      case "$move_status" in
+        0) rmdir "$claim_dir" 2>/dev/null || true ;;
+        2)
+          printf 'warning: recovered claim destination already exists: %s\n' "$dest" >&2
+          return 1 ;;
+        *) return 1 ;;
+      esac
     done
   done
+}
+
+# Return abandoned claims while serialized with allocation, deduplication,
+# claim, and completion.
+fm_task_inbox_recover_claims() {  # <inbox-dir>
+  local dir=$1 lock status=0
+  [ -d "$dir" ] || return 0
+  lock="$dir/.seq.lock"
+  fm_task_inbox_lock_acquire "$lock" || return 1
+  _fm_task_inbox_recover_claims_locked "$dir" || status=1
+  fm_lock_release "$lock"
+  return "$status"
 }
 
 # Atomically claim the lowest-numbered unhandled record into <claimant>'s
@@ -287,47 +373,56 @@ fm_task_inbox_recover_claims() {  # <inbox-dir>
 # print the body from that path and complete it separately after successful
 # output; no record means there was nothing to claim.
 fm_task_inbox_claim() {  # <inbox-dir> <claimant>
-  local dir=$1 claimant=$2 f n best='' best_n=0 claim_dir dest
+  local dir=$1 claimant=$2 f n best='' best_n=0 claim_dir dest lock status=1 move_status
   case "$claimant" in *[!0-9-]*|*-|'' ) return 1 ;; esac
   [ -d "$dir" ] && [ -d "$dir/handled" ] || return 1
-  fm_task_inbox_recover_claims "$dir" || return 1
-  mkdir -p "$dir/claimed/$claimant" || return 1
-  claim_dir="$dir/claimed/$claimant"
-  while :; do
-    best=''
-    best_n=0
-    for f in "$dir"/*.msg; do
-      [ -f "$f" ] || continue
-      n=$(fm_task_inbox_seq_of "${f##*/}") || continue
-      if [ -z "$best" ] || [ "$n" -lt "$best_n" ]; then
-        best=$f
-        best_n=$n
-      fi
+  lock="$dir/.seq.lock"
+  fm_task_inbox_lock_acquire "$lock" || return 1
+  if _fm_task_inbox_recover_claims_locked "$dir" && mkdir -p "$dir/claimed/$claimant"; then
+    claim_dir="$dir/claimed/$claimant"
+    while :; do
+      best=''
+      best_n=0
+      for f in "$dir"/*.msg; do
+        [ -f "$f" ] || continue
+        n=$(fm_task_inbox_seq_of "${f##*/}") || continue
+        if [ -z "$best" ] || [ "$n" -lt "$best_n" ]; then
+          best=$f
+          best_n=$n
+        fi
+      done
+      [ -n "$best" ] || { rmdir "$claim_dir" 2>/dev/null || true; break; }
+      dest="$claim_dir/${best##*/}"
+      move_status=0
+      _fm_task_inbox_move_no_clobber_locked "$best" "$dest" || move_status=$?
+      case "$move_status" in
+        0) status=0; break ;;
+        2) continue ;;
+        *) break ;;
+      esac
     done
-    [ -n "$best" ] || { rmdir "$claim_dir" 2>/dev/null || true; return 1; }
-    dest="$claim_dir/${best##*/}"
-    [ ! -e "$dest" ] && [ ! -L "$dest" ] || return 1
-    if mv "$best" "$dest" 2>/dev/null; then
-      printf '%s' "$dest"
-      return 0
-    fi
-    # A concurrent claimant may have won. Retry only when its source vanished.
-    [ -e "$best" ] || continue
-    return 1
-  done
+  fi
+  fm_lock_release "$lock"
+  [ "$status" -eq 0 ] || return 1
+  printf '%s' "$dest"
 }
 
 # Complete one successfully read claim by moving it to handled/. This is the
 # acknowledgement step, intentionally after body output so a crashed claimant
 # leaves a recoverable claim rather than hiding an unacted instruction.
 fm_task_inbox_complete_claim() {  # <inbox-dir> <claimed-record>
-  local dir=$1 claim=$2 dest
+  local dir=$1 claim=$2 dest lock status=1
   case "$claim" in "$dir/claimed/"*/*.msg) ;; *) return 1 ;; esac
-  [ -f "$claim" ] || return 1
+  [ -d "$dir" ] || return 1
+  lock="$dir/.seq.lock"
+  fm_task_inbox_lock_acquire "$lock" || return 1
   dest="$dir/handled/${claim##*/}"
-  [ ! -e "$dest" ] && [ ! -L "$dest" ] || return 1
-  mv "$claim" "$dest" || return 1
-  rmdir "${claim%/*}" 2>/dev/null || true
+  if _fm_task_inbox_move_no_clobber_locked "$claim" "$dest"; then
+    rmdir "${claim%/*}" 2>/dev/null || true
+    status=0
+  fi
+  fm_lock_release "$lock"
+  return "$status"
 }
 
 # The exact enqueued text back out of a record.
