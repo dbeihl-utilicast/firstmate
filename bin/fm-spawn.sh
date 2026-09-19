@@ -413,6 +413,10 @@ fi
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 # shellcheck source=bin/fm-treehouse-lib.sh
 . "$SCRIPT_DIR/fm-treehouse-lib.sh"
+# shellcheck source=bin/fm-nm-run-lib.sh
+. "$SCRIPT_DIR/fm-nm-run-lib.sh"
+# shellcheck source=bin/fm-custody-lib.sh
+. "$SCRIPT_DIR/fm-custody-lib.sh"
 fm_backlog_directory_present "$STATE" "state directory" || {
   echo "error: spawn refused: $FM_BACKLOG_TRANSITION_ERROR" >&2
   exit 1
@@ -1278,6 +1282,10 @@ ARG3=
 FIRSTMATE_HOME=
 RAW_LAUNCH=0
 
+record_custody_preflight() {  # <worktree>
+  fm_custody_capture "$1" && fm_custody_record "$STATE/$ID.custody"
+}
+
 # --relaunch adoption: every identity axis comes from the task's own validated
 # durable record, never from the command line, so a relaunch can only ever
 # re-launch the task it names. The endpoint identity check is the same shared
@@ -1318,10 +1326,13 @@ if [ "$RELAUNCH" -eq 1 ]; then
     exit 1
   }
   RELAUNCH_STATE=$(fm_backend_agent_state "$BACKEND" "$RELAUNCH_TARGET")
-  [ "$RELAUNCH_STATE" = dead ] || {
-    echo "error: task $ID's endpoint reads '$RELAUNCH_STATE'; a relaunch requires a positively agent-free endpoint (stop the agent first with bin/fm-control.sh $ID exit)" >&2
-    exit 1
-  }
+  case "$RELAUNCH_STATE" in
+    dead|missing) ;;
+    *)
+      echo "error: task $ID's endpoint reads '$RELAUNCH_STATE'; a relaunch requires a positively agent-free endpoint or a positively missing endpoint (stop the agent first with bin/fm-control.sh $ID exit)" >&2
+      exit 1
+      ;;
+  esac
   RELAUNCH_PRIOR_HARNESS=$(fm_meta_get "$RELAUNCH_META" harness)
   KIND=$(fm_meta_get "$RELAUNCH_META" kind)
   [ -n "$KIND" ] || KIND=ship
@@ -1342,7 +1353,18 @@ if [ "$RELAUNCH" -eq 1 ]; then
       exit 1
     }
   fi
+  if [ "$RELAUNCH_STATE" = missing ]; then
+    record_custody_preflight "$RELAUNCH_WT" || {
+      echo "error: task $ID's copy cannot be inspected for custody before missing-endpoint recovery" >&2
+      exit 1
+    }
+    if RELAUNCH_REFUSAL=$(fm_custody_refusal recover); then
+      echo "error: task $ID's endpoint is missing, but $RELAUNCH_REFUSAL" >&2
+      exit 1
+    fi
+  fi
   if [ "$BACKEND" = herdr ]; then
+    RELAUNCH_LAUNCHER_PANE=${HERDR_PANE_ID:-}
     HERDR_SES=$(fm_meta_get "$RELAUNCH_META" herdr_session)
     HERDR_WORKSPACE_ID=$(fm_meta_get "$RELAUNCH_META" herdr_workspace_id)
     HERDR_TAB_ID=$(fm_meta_get "$RELAUNCH_META" herdr_tab_id)
@@ -2269,7 +2291,11 @@ spawn_worktree_has_origin_config() {  # <worktree>
 }
 
 freshen_spawn_worktree_base() {  # <worktree>
-  local worktree=$1 default target expected actual status
+  local worktree=$1 default target expected actual status refusal
+  record_custody_preflight "$worktree" || {
+    echo "error: could not record custody for pooled worktree '$worktree' before refreshing its base" >&2
+    return 1
+  }
   status=$(git -C "$worktree" -c core.quotePath=false status --porcelain) || {
     echo "error: could not inspect pooled worktree '$worktree' before refreshing its base" >&2
     return 1
@@ -2306,6 +2332,19 @@ freshen_spawn_worktree_base() {  # <worktree>
     echo "error: '$target' is not a commit for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
     return 1
   }
+  record_custody_preflight "$worktree" || {
+    echo "error: could not record custody for pooled worktree '$worktree' before resetting its base" >&2
+    return 1
+  }
+  if refusal=$(fm_custody_refusal reset); then
+    echo "error: pooled worktree '$worktree' is not disposable: $refusal; refusing to reset it" >&2
+    return 1
+  fi
+  fm_custody_preserve "$worktree" "$ID" || {
+    echo "error: could not preserve local commits of pooled worktree '$worktree' under a custody ref; refusing to reset it" >&2
+    return 1
+  }
+  [ -z "${CUSTODY_REF:-}" ] || fm_custody_record "$STATE/$ID.custody"
   if ! git -C "$worktree" reset --hard "$target" >/dev/null; then
     echo "error: could not reset pooled worktree '$worktree' to '$target'; refusing to launch from a potentially stale base" >&2
     return 1
@@ -2435,16 +2474,52 @@ fi
 
 W="fm-$ID"
 if [ "$RELAUNCH" -eq 1 ]; then
-  # Adopt the recorded endpoint instead of creating one. This is what keeps a
-  # relaunch a REPLACEMENT rather than a second copy of the task: no new
-  # terminal, no second worktree, and every uncommitted change left exactly
-  # where the previous agent left it.
+  # A positively agent-free endpoint is adopted in place. A positively missing
+  # tmux window cannot be adopted, so recreate only its endpoint against the
+  # exact recorded copy. The control transaction has already captured custody
+  # and refused ambiguous endpoint reads; no fresh worktree is allocated here.
   T=$RELAUNCH_TARGET
-  # A secondmate's home already resolved WT above through the same validation a
-  # fresh secondmate spawn uses; every other kind takes the recorded worktree.
   [ "$KIND" = secondmate ] || WT=$RELAUNCH_WT
-  WT_TARGET=$T
   SES=${T%%:*}
+  if [ "$RELAUNCH_STATE" = missing ]; then
+    case "$BACKEND" in
+      tmux)
+        WID=$(fm_backend_tmux_create_task "$SES" "$W" "$WT") || exit 1
+        T="$SES:$W"
+        WT_TARGET=$WID
+        ;;
+      herdr)
+        HERDR_LABEL_HOME=$FM_HOME
+        HERDR_LAUNCHER_RELATIONSHIP=launcher-home
+        if [ "$KIND" = secondmate ]; then
+          HERDR_LABEL_HOME=$WT
+          HERDR_LAUNCHER_RELATIONSHIP=other-home
+        fi
+        HERDR_CONTAINER_RAW=$(
+          if [ -n "$RELAUNCH_LAUNCHER_PANE" ]; then export HERDR_PANE_ID=$RELAUNCH_LAUNCHER_PANE; else unset HERDR_PANE_ID; fi
+          FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_container_ensure "$WT" "$HERDR_LAUNCHER_RELATIONSHIP"
+        ) || exit 1
+        CONTAINER=${HERDR_CONTAINER_RAW%%$'\t'*}
+        HERDR_SES=${CONTAINER%%:*}
+        HERDR_WORKSPACE_ID=${CONTAINER#*:}
+        HERDR_TASK_IDS=$(FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_create_task "$CONTAINER" "$W" "$WT" "${HERDR_CONTAINER_RAW#*$'\t'}") || exit 1
+        read -r HERDR_TAB_ID HERDR_PANE_ID <<EOF
+$HERDR_TASK_IDS
+EOF
+        [ -n "$HERDR_TAB_ID" ] && [ -n "$HERDR_PANE_ID" ] || {
+          echo "error: herdr did not return a tab/pane id for $W" >&2
+          exit 1
+        }
+        T="$HERDR_SES:$HERDR_PANE_ID"
+        ;;
+      *)
+        echo "error: task $ID's endpoint is positively missing on $BACKEND, but this backend has no verified same-copy endpoint recreation path" >&2
+        exit 1
+        ;;
+    esac
+  else
+    WT_TARGET=$T
+  fi
 else
 case "$BACKEND" in
   tmux)
