@@ -3,19 +3,19 @@
 # (bin/fm-task-inbox-lib.sh) and the watcher's re-ring ladder.
 #
 # The inbox+doorbell design replaces typed steer payloads with durable
-# sequenced records acknowledged by an atomic mv into handled/; the terminal
-# carries only a constant doorbell line, and the watcher re-rings an
+# sequenced records atomically taken into handled/ before their body is read;
+# the terminal carries only a constant doorbell line, and the watcher re-rings an
 # unacknowledged message before escalating once as an ordinary stale wake.
 # These tests pin the semantics with real processes:
 #   1. A message is written durably and appears in the inbox, byte-exact
 #      including newlines, with a doorbell naming the inbox glob, numeric order,
 #      and handled/.
-#   2. Sequencing dedups per worker lifetime: the handled mv retires a record,
-#      re-acking it is a no-op, and an acknowledged sequence is never reissued.
-#      The idempotent enqueue (the remote steer leg's primitive) additionally
-#      dedups an exact-body re-run onto the existing record, handled or not.
-#   3. Concurrent writers serialize on the sequence lock: no clobbered records.
-#   4. The re-ring ladder: within grace is quiet, past grace rings, ring
+#   2. An atomic take preserves unread records before invocation and lets one
+#      concurrent taker move and read the lowest record exactly once.
+#   3. Sequencing dedups a still-unhandled exact-body resend, while a different
+#      body or a body taken earlier becomes a new record.
+#   4. Concurrent writers serialize on the sequence lock: no clobbered records.
+#   5. The re-ring ladder: within grace is quiet, past grace rings, ring
 #      spacing holds, a spent budget escalates exactly once, and an
 #      acknowledgement resets the ladder for the next message.
 #   5. A real fm-watch.sh subprocess re-rings the doorbell for an unhandled
@@ -282,7 +282,7 @@ test_ring_skips_dead_agent() {
 }
 
 test_idempotent_write_dedups_exact_body() {
-  local state r1 r2 r3 r4 count text
+  local state r1 r2 r3 r4 r5 r6 count text
   state="$TMP_ROOT/idem/state"; mkdir -p "$state"
   text=$'re-runnable steer\nsecond line'
   r1=$(inbox_lib "$state" fm_task_inbox_write_idempotent "$state" t1 "$text") \
@@ -300,17 +300,79 @@ test_idempotent_write_dedups_exact_body() {
   r3=$(inbox_lib "$state" fm_task_inbox_write_idempotent "$state" t1 $'re-runnable steer\nsecond line changed') \
     || fail "idempotent write of a different body failed"
   [ "$r3" = "$state/t1.inbox/002.msg" ] || fail "a different body should enqueue a new record, got $r3"
-  # A body the worker already acknowledged still dedups: the re-run reports
-  # the handled record rather than re-delivering an instruction that was
-  # already acted on.
+  # Only an unhandled duplicate converges. Once the worker took the record,
+  # repeating the body is a new instruction and gets the next sequence.
   mv "$r1" "$state/t1.inbox/handled/"
   r4=$(inbox_lib "$state" fm_task_inbox_write_idempotent "$state" t1 "$text") \
     || fail "idempotent re-run after the ack failed"
-  [ "$r4" = "$state/t1.inbox/handled/001.msg" ] \
-    || fail "a re-run of an acknowledged steer should land on the handled record, got $r4"
+  [ "$r4" = "$state/t1.inbox/003.msg" ] \
+    || fail "a re-run after an acknowledged steer should create a new record, got $r4"
   count=$(find "$state/t1.inbox" -maxdepth 1 -name '*.msg' | wc -l | tr -d ' ')
-  [ "$count" = 1 ] || fail "a re-run of an acknowledged steer must not re-enqueue it, found $count unhandled records"
-  pass "inbox: the idempotent enqueue dedups an exact re-run onto the same record, handled or not"
+  [ "$count" = 2 ] || fail "a distinct post-take instruction should enqueue, found $count unhandled records"
+  # A resend-recovery caller opts into handled dedup: the same body after the
+  # take converges on the taken record and writes nothing.
+  r5=$(inbox_lib "$state" fm_task_inbox_write_idempotent "$state" t1 $'re-runnable steer\nsecond line changed' "" 1)     || fail "idempotent resend with handled dedup failed"
+  [ "$r5" = "$state/t1.inbox/002.msg" ] || fail "handled-dedup resend of an unhandled body should reuse it, got $r5"
+  mv "$r3" "$state/t1.inbox/handled/"
+  r6=$(inbox_lib "$state" fm_task_inbox_write_idempotent "$state" t1 $'re-runnable steer\nsecond line changed' "" 1) \
+    || fail "idempotent resend after take failed"
+  [ "$r6" = "$state/t1.inbox/handled/002.msg" ] || fail "handled-dedup resend after take should reuse the taken record, got $r6"
+  [ ! -e "$state/t1.inbox/004.msg" ] && [ ! -e "$state/t1.inbox/005.msg" ] \
+    || fail "handled-dedup resend after take must not write a new record"
+  pass "inbox: the idempotent enqueue dedups only an exact still-unhandled re-run"
+}
+
+test_take_preserves_unread_before_invocation() {
+  local state rec out
+  state="$TMP_ROOT/take-crash-before/state"; mkdir -p "$state"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "survives before take")
+  # A worker dying before it invokes the take command leaves the durable record
+  # untouched; there is no pre-take acknowledgement side effect.
+  out="$TMP_ROOT/take-crash-before/out"
+  if "$ROOT/bin/fm-inbox-take.sh" "$state/missing.inbox" > "$out" 2>/dev/null; then
+    fail "taking an absent inbox should not succeed"
+  fi
+  [ -f "$rec" ] || fail "a pre-take crash simulation moved the unread record"
+  [ ! -e "$state/t1.inbox/handled/001.msg" ] \
+    || fail "a pre-take crash simulation acknowledged the record"
+  pass "inbox take: a crash before take leaves the message unread"
+}
+
+test_take_uses_lowest_sequence() {
+  local state first second out
+  state="$TMP_ROOT/take-order/state"; mkdir -p "$state"
+  first=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "first instruction")
+  second=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "second instruction")
+  out=$("$ROOT/bin/fm-inbox-take.sh" "$state/t1.inbox") \
+    || fail "taking the next instruction failed"
+  [ "$out" = "first instruction" ] || fail "take did not return the lowest record body: $out"
+  [ -f "$state/t1.inbox/handled/001.msg" ] && [ -f "$second" ] \
+    || fail "take did not move only the lowest record"
+  [ ! -e "$first" ] || fail "take left the lowest record unread"
+  pass "inbox take: the lowest unhandled record is moved before its body is returned"
+}
+
+test_concurrent_takes_move_once() {
+  local state first p1 p2 out1 out2 successes body
+  state="$TMP_ROOT/take-race/state"; mkdir -p "$state"
+  first=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "only instruction")
+  out1="$TMP_ROOT/take-race/one.out"
+  out2="$TMP_ROOT/take-race/two.out"
+  "$ROOT/bin/fm-inbox-take.sh" "$state/t1.inbox" > "$out1" 2>/dev/null & p1=$!
+  "$ROOT/bin/fm-inbox-take.sh" "$state/t1.inbox" > "$out2" 2>/dev/null & p2=$!
+  wait "$p1" || true
+  wait "$p2" || true
+  successes=0
+  for body in "$(cat "$out1")" "$(cat "$out2")"; do
+    [ -z "$body" ] || successes=$((successes + 1))
+  done
+  [ "$successes" = 1 ] || fail "only one concurrent taker may receive a single record, got $successes bodies"
+  [ ! -e "$first" ] || fail "the winning take left the record unread"
+  [ -f "$state/t1.inbox/handled/001.msg" ] \
+    || fail "the winning take did not move the record exactly once"
+  [ "$(find "$state/t1.inbox/handled" -name '*.msg' | wc -l | tr -d ' ')" = 1 ] \
+    || fail "concurrent takes produced duplicate handled records"
+  pass "inbox take: concurrent takers atomically move each record exactly once"
 }
 
 test_idempotent_write_follows_concurrent_ack() {
@@ -335,10 +397,10 @@ test_idempotent_write_follows_concurrent_ack() {
   ' _ "$ROOT/bin/fm-task-inbox-lib.sh" "$state" "$text") \
     || fail "idempotent enqueue failed while acknowledgement moved its candidate"
   [ "$result" = "$state/t1.inbox/handled/${rec##*/}" ] \
-    || fail "dedup did not follow the concurrently acknowledged record: $result"
+    || fail "dedup did not follow the concurrently taken record: $result"
   count=$(find "$state/t1.inbox" -name '*.msg' | wc -l | tr -d ' ')
-  [ "$count" = 1 ] || fail "acknowledgement racing dedup created a duplicate record"
-  pass "inbox: idempotent enqueue follows a record concurrently moved to handled"
+  [ "$count" = 1 ] || fail "a duplicate racing its take should not create another record"
+  pass "inbox: an enqueue racing a take follows the record already acknowledged"
 }
 
 test_handled_mv_dedups_by_sequence() {
@@ -512,8 +574,8 @@ test_watcher_rerings_idle_pane_quietly() {
     sleep 0.1
     i=$((i + 1))
   done
-  grep -qF "Firstmate instruction waiting: list '$state/t1.inbox'/*.msg" "$log" \
-    || { kill "$pid" 2>/dev/null; fail "the watcher never re-rang the doorbell:"$'\n'"$(cat "$log")"; }
+  grep -qF "fm-inbox-take.sh' '$state/t1.inbox'" "$log" \
+    || { kill "$pid" 2>/dev/null; fail "the watcher never re-rang the atomic-take doorbell:"$'\n'"$(cat "$log")"; }
   kill -0 "$pid" 2>/dev/null \
     || fail "a healthy re-ring must not wake firstmate (watcher exited):"$'\n'"$(cat "$out")"
   [ ! -s "$state/.wake-queue" ] \
@@ -699,6 +761,9 @@ test_doorbell_is_a_shell_noop
 test_doorbell_rejects_terminal_controls
 test_ring_skips_dead_agent
 test_idempotent_write_dedups_exact_body
+test_take_preserves_unread_before_invocation
+test_take_uses_lowest_sequence
+test_concurrent_takes_move_once
 test_idempotent_write_follows_concurrent_ack
 test_handled_mv_dedups_by_sequence
 test_concurrent_writers_never_clobber
