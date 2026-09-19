@@ -64,7 +64,7 @@ It is not deterministic across the verified adapters: codex and grok resume only
 2. **Safe checkpoint.**
    The recorded worktree must exist and be a worktree root; its branch, head, dirty and untracked state, and any recorded validation-owned head are recorded.
    A positively missing endpoint is recoverable in its exact copy without moving HEAD or bytes, even when dirty or validation-owned; the custody record captures both, and pool reset or reallocation still refuses dirty bytes, local-only commits, and validation-owned heads. Unreadable validation state, unreadable or ambiguous endpoint reads never authorize recovery.
-   Tmux then creates a replacement window against the recorded copy and branch, while the old durable record remains authoritative until the replacement record is published.
+   The backend then creates a replacement endpoint (a tmux window or a Herdr pane) against the recorded copy and branch, while the old durable record remains authoritative until the replacement record is published.
    For a `kind=secondmate` task, the home's identity marker must match and its child records must be readable, so a relaunch can never strand child work behind an unreadable home.
    A secondmate's own crewmates run in their own endpoints and outlive its relaunch; the relaunched secondmate reconciles them from its home's durable records at startup.
 3. **Record the note.**
@@ -102,7 +102,7 @@ Switching harness is therefore one ordinary relaunch rather than a separate mech
 - An ambiguous or unreadable endpoint state refuses.
   Only a positively classified state acts.
 - `fm-spawn --relaunch` independently refuses unless the recorded endpoint is positively agent-free or positively missing, so a replacement can never join a live agent.
-  A missing endpoint records custody, then tmux creates a replacement window against the recorded copy; unreadable validation state refuses.
+  A missing endpoint records custody and follows the safe-checkpoint recovery above; unreadable validation state refuses.
   It also requires the shell to be in the recorded worktree: tmux refuses immediately when it is not, while Herdr sends one `cd` to the recorded path and refuses unless a subsequent path read confirms the move.
 
 ## Capability matrix
