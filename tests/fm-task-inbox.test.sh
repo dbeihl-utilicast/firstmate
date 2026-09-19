@@ -370,6 +370,58 @@ test_take_recovers_an_expired_live_claim() {
   pass "inbox take: an expired claim replays even while its tagged process lives"
 }
 
+test_watcher_rerings_an_abandoned_claim() {
+  local dir state out log pid rec claim i=0
+  dir=$(setup_watch_case abandoned-claim)
+  state="$dir/state"; out="$dir/watch.out"; log="$dir/send.log"; : > "$log"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "claimed then abandoned")
+  claim="$state/t1.inbox/claimed/99999999-1-1"
+  mkdir -p "$claim"
+  mv "$rec" "$claim/001.msg"
+  age_path "$claim/001.msg"
+  watch_bg "$state" "$dir/fakebin" "$out" \
+    FM_SEND_LOG="$log" FM_FAKE_TMUX_CAPTURE="$(idle_capture "$dir")" \
+    FM_TASK_INBOX_RING_MAX=99
+  pid=$!
+  while [ "$i" -lt 100 ]; do
+    grep -qF 'Firstmate instruction waiting' "$log" 2>/dev/null && break
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 0.1
+    i=$((i + 1))
+  done
+  kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+  grep -qF 'Firstmate instruction waiting' "$log" \
+    || fail "the watcher never re-rang for a dead taker's abandoned claim:"$'\n'"$(cat "$log")"
+  [ -f "$rec" ] || fail "the abandoned claim was not returned to the inbox"
+  [ ! -d "$claim" ] || fail "the emptied claimant directory was not removed"
+  pass "watcher: an abandoned claim returns to the inbox and is re-rung"
+}
+
+test_idempotent_write_dedups_claimed_record() {
+  local state rec claim r2 count
+  state="$TMP_ROOT/idem-claimed/state"; mkdir -p "$state"
+  rec=$(inbox_lib "$state" fm_task_inbox_write_idempotent "$state" t1 "in flight body")
+  claim=$(inbox_lib "$state" fm_task_inbox_claim "$state/t1.inbox" "$$-$(date +%s)-1") \
+    || fail "claim failed"
+  r2=$(inbox_lib "$state" fm_task_inbox_write_idempotent "$state" t1 "in flight body") \
+    || fail "resend during claim failed"
+  [ "$r2" = "$claim" ] || fail "resend of a claimed body should reuse the claim, got $r2"
+  count=$(find "$state/t1.inbox" -name '*.msg' -not -path '*/handled/*' | wc -l | tr -d ' ')
+  [ "$count" = 1 ] || fail "resend of a claimed body enqueued a duplicate, found $count records"
+  pass "inbox: an identical resend of a claimed record does not enqueue a duplicate"
+}
+
+test_recovery_removes_empty_dead_claimant_dir() {
+  local state dir
+  state="$TMP_ROOT/empty-claimant/state"; mkdir -p "$state"
+  inbox_lib "$state" fm_task_inbox_write "$state" t1 "x" >/dev/null
+  dir="$state/t1.inbox/claimed/99999999-1-1"
+  mkdir -p "$dir"
+  inbox_lib "$state" fm_task_inbox_recover_claims "$state/t1.inbox"
+  [ ! -d "$dir" ] || fail "recovery left an empty dead claimant directory"
+  pass "inbox: recovery removes an empty dead claimant directory"
+}
+
 test_take_uses_lowest_sequence() {
   local state first second out
   state="$TMP_ROOT/take-order/state"; mkdir -p "$state"
@@ -795,6 +847,9 @@ test_ring_skips_dead_agent
 test_idempotent_write_dedups_exact_body
 test_take_recovers_a_taker_killed_after_claim
 test_take_recovers_an_expired_live_claim
+test_watcher_rerings_an_abandoned_claim
+test_idempotent_write_dedups_claimed_record
+test_recovery_removes_empty_dead_claimant_dir
 test_take_uses_lowest_sequence
 test_concurrent_takes_move_once
 test_idempotent_write_follows_concurrent_ack

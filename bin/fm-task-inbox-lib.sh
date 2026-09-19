@@ -204,9 +204,9 @@ fm_task_inbox_write_idempotent() {  # <state-dir> <task-id> <text> [delivery-mod
   fm_task_inbox_lock_acquire "$lock" || return 1
   if want=$(mktemp "$dir/.dedup.XXXXXX") && have=$(mktemp "$dir/.dedup.XXXXXX"); then
     if printf '%s' "$text" > "$want"; then
-      for f in "$dir"/*.msg "$dir/handled"/*.msg; do
+      for f in "$dir"/*.msg "$dir/claimed"/*/*.msg "$dir/handled"/*.msg; do
         [ -e "$f" ] || continue
-        [ "$dedup_handled" = 1 ] || [ "${f%/*}" = "$dir" ] || continue
+        [ "$dedup_handled" = 1 ] || [ "${f%/*}" != "$dir/handled" ] || continue
         if [ "$delivery_mode" = fire-and-forget ]; then
           fm_task_inbox_is_fire_and_forget "$f" || continue
         elif fm_task_inbox_is_fire_and_forget "$f"; then
@@ -215,8 +215,13 @@ fm_task_inbox_write_idempotent() {  # <state-dir> <task-id> <text> [delivery-mod
         fm_task_inbox_body "$f" > "$have" 2>/dev/null || continue
         cmp -s "$want" "$have" || continue
         if [ ! -e "$f" ]; then
-          f="$dir/handled/${f##*/}"
-          [ -f "$f" ] || continue
+          if [ -f "$dir/handled/${f##*/}" ]; then
+            f="$dir/handled/${f##*/}"
+          elif [ -f "$dir/${f##*/}" ]; then
+            f="$dir/${f##*/}"
+          else
+            continue
+          fi
         fi
         rec=$f
         reused=1
@@ -258,6 +263,9 @@ fm_task_inbox_recover_claims() {  # <inbox-dir>
     epoch=${epoch%%-*}
     case "$pid" in ''|*[!0-9]*) continue ;; esac
     case "$epoch" in ''|*[!0-9]*) continue ;; esac
+    if ! kill -0 "$pid" 2>/dev/null || [ "$(fm_path_age "$claim_dir")" -ge "$max" ]; then
+      rmdir "$claim_dir" 2>/dev/null || true
+    fi
     for claim in "$claim_dir"/*.msg; do
       [ -f "$claim" ] || continue
       if kill -0 "$pid" 2>/dev/null && [ "$(fm_path_age "$claim_dir")" -lt "$max" ]; then
@@ -282,8 +290,8 @@ fm_task_inbox_claim() {  # <inbox-dir> <claimant>
   local dir=$1 claimant=$2 f n best='' best_n=0 claim_dir dest
   case "$claimant" in *[!0-9-]*|*-|'' ) return 1 ;; esac
   [ -d "$dir" ] && [ -d "$dir/handled" ] || return 1
-  mkdir -p "$dir/claimed/$claimant" || return 1
   fm_task_inbox_recover_claims "$dir" || return 1
+  mkdir -p "$dir/claimed/$claimant" || return 1
   claim_dir="$dir/claimed/$claimant"
   while :; do
     best=''
@@ -410,6 +418,7 @@ fm_task_inbox_is_fire_and_forget() {  # <record-path>
 fm_task_inbox_oldest_unhandled() {  # <state-dir> <task-id>
   local dir best='' best_n=0 f n
   dir=$(fm_task_inbox_dir "$1" "$2")
+  fm_task_inbox_recover_claims "$dir" || true
   for f in "$dir"/*.msg; do
     [ -e "$f" ] || continue
     fm_task_inbox_is_fire_and_forget "$f" && continue
