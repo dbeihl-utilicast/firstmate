@@ -1,0 +1,44 @@
+LAB SESSION: fm-lab-custody-a-2244160
+ORIGINAL ENDPOINT: fm-lab-custody-a-2244160:w1:p2 (tab w1:t2)
+BEFORE: branch=lostw HEAD=aa5b692ac44a4c6850e1b302c57f8e3e9cdba704
+da1d406535ee775a7830d4a450c16876caf9a4aedbd8dc458f77532c5f6cac27  /tmp/fm-custody-a.RJXFg8/wt/unfinished.txt
+ce73ab006c14072c690409063541b55ab14ee05a86ace1941bbeebcc89d7341b  /tmp/fm-custody-a.RJXFg8/wt/README.md
+status:  M README.md
+?? unfinished.txt
+--- kill pane (session vanishes) ---
+{"id":"cli:pane:close","result":{"type":"ok"}}
+pane gone (backend proves absent)
+agent_state: missing
+--- fm-control relaunch ---
+warning: /tmp/fm-custody-a.RJXFg8/home/data/lostw/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+error: herdr launcher pane 'w1:p2' has no injected socket identity; refusing to place a worker from an unverifiable parent identity
+error: the replacement agent for lostw could not be launched on codex
+error: lostw's agent was stopped but the replacement did not launch; no agent is running, and its work plus the recorded progress note are preserved at /tmp/fm-custody-a.RJXFg8/wt
+rc=1
+--- AFTER ---
+AFTER: branch=lostw HEAD=aa5b692ac44a4c6850e1b302c57f8e3e9cdba704
+da1d406535ee775a7830d4a450c16876caf9a4aedbd8dc458f77532c5f6cac27  /tmp/fm-custody-a.RJXFg8/wt/unfinished.txt
+ce73ab006c14072c690409063541b55ab14ee05a86ace1941bbeebcc89d7341b  /tmp/fm-custody-a.RJXFg8/wt/README.md
+status:  M README.md
+?? unfinished.txt
+HEAD UNCHANGED
+BYTES UNCHANGED
+window=fm-lab-custody-a-2244160:w1:p2
+worktree=/tmp/fm-custody-a.RJXFg8/wt
+herdr_tab_id=w1:t2
+herdr_pane_id=w1:p2
+--- custody record ---
+worktree_head=aa5b692ac44a4c6850e1b302c57f8e3e9cdba704
+worktree_dirty=yes
+validation_head=none
+recorded=2026-09-19T12:07:27Z
+branch=lostw
+head=aa5b692ac44a4c6850e1b302c57f8e3e9cdba704
+dirty=yes
+untracked=yes
+local_only=1
+validation_head=none
+custody_ref=none
+--
+--- live panes ---
+{"id":"cli:pane:list","result":{"panes":[],"type":"pane_list"}}

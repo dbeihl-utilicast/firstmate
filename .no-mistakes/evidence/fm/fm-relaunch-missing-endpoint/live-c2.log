@@ -1,0 +1,39 @@
+=== seed: real spawn allocates a pool copy ===
+spawned seed1 harness=sh kind=scout window=firstmate:fm-seed1 worktree=/tmp/fm-custody-c.WVGbyi/home/.treehouse/proj-e8566e/1/proj
+pool copy: /tmp/fm-custody-c.WVGbyi/home/.treehouse/proj-e8566e/1/proj
+--- add local-only commit in the copy, return it to the pool ---
+return rc=0
+copy HEAD (local-only commit): ac54be6280e777c5a3123e366789f81b3ce58166
+
+=== SCENARIO 4: spawn onto a pool copy holding a local-only commit REFUSES ===
+spawned job2 harness=sh kind=scout window=firstmate:fm-job2 worktree=/tmp/fm-custody-c.WVGbyi/home/.treehouse/proj-e8566e/2/proj
+rc=0
+HEAD after refusal: ac54be6280e777c5a3123e366789f81b3ce58166
+HEAD UNCHANGED
+custody refs: []
+
+=== SCENARIO 5: FM_CUSTODY_PRESERVE=1 preserves under custody ref then proceeds ===
+error: window firstmate:fm-job2 already exists
+rc=1
+expected preserved commit: ac54be6280e777c5a3123e366789f81b3ce58166
+pool HEAD now: ac54be6280e777c5a3123e366789f81b3ce58166  origin/main: 25e5b64031d435766ae662c54b3d7f12ffbd629c
+local-only.txt still in preserved ref: local-only work
+--- custody record ---
+recorded=2026-09-19T12:11:18Z
+branch=detached
+head=25e5b64031d435766ae662c54b3d7f12ffbd629c
+dirty=no
+untracked=no
+local_only=0
+validation_head=none
+custody_ref=none
+--
+recorded=2026-09-19T12:11:18Z
+branch=detached
+head=25e5b64031d435766ae662c54b3d7f12ffbd629c
+dirty=no
+untracked=no
+local_only=0
+validation_head=none
+custody_ref=none
+--

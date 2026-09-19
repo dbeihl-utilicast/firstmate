@@ -1,0 +1,53 @@
+ORIGINAL ENDPOINT: firstmate:fm-lostw id=@1
+=== SCENARIO 1: dirty copy, window killed ===
+BEFORE
+branch=lostw HEAD=4f5b94e726a6eddc112e686d99d7818d13cfc109
+da1d406535ee775a7830d4a450c16876caf9a4aedbd8dc458f77532c5f6cac27  /tmp/fm-custody-b.8UwcVG/wt/unfinished.txt
+ce73ab006c14072c690409063541b55ab14ee05a86ace1941bbeebcc89d7341b  /tmp/fm-custody-b.8UwcVG/wt/README.md
+status:  M README.md;?? unfinished.txt;
+windows after kill: [bash ]
+warning: /tmp/fm-custody-b.8UwcVG/home/data/lostw/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+relaunched lostw harness=codex from=codex model=default effort=default backend=tmux endpoint=firstmate:fm-lostw worktree=/tmp/fm-custody-b.8UwcVG/wt
+rc=0
+AFTER
+branch=lostw HEAD=4f5b94e726a6eddc112e686d99d7818d13cfc109
+da1d406535ee775a7830d4a450c16876caf9a4aedbd8dc458f77532c5f6cac27  /tmp/fm-custody-b.8UwcVG/wt/unfinished.txt
+ce73ab006c14072c690409063541b55ab14ee05a86ace1941bbeebcc89d7341b  /tmp/fm-custody-b.8UwcVG/wt/README.md
+status:  M README.md;?? unfinished.txt;
+HEAD, BYTES, STATUS UNCHANGED
+windows: [@0:bash @2:fm-lostw ]
+new window cwd: /tmp/fm-custody-b.8UwcVG/wt
+window=firstmate:fm-lostw
+worktree=/tmp/fm-custody-b.8UwcVG/wt
+worktree_dirty=yes
+validation_head=none
+recorded=2026-09-19T12:08:32Z
+branch=lostw
+head=4f5b94e726a6eddc112e686d99d7818d13cfc109
+dirty=yes
+untracked=yes
+local_only=1
+validation_head=none
+custody_ref=none
+--
+
+=== SCENARIO 3: unreadable validation state refuses, no note ===
+error: task lostw's endpoint is positively missing, but its validation state cannot be read; refusing until it is readable
+error: relaunch of lostw was refused before its agent was touched; nothing changed
+rc=1
+HEAD/BYTES UNCHANGED
+no progress note file
+/tmp/fm-custody-b.8UwcVG/home/data/lostw/brief.md:0
+/tmp/fm-custody-b.8UwcVG/home/data/lostw/brief.md:0
+/tmp/fm-custody-b.8UwcVG/home/data/lostw/launch-brief.md:0
+windows: [bash ]
+
+=== SCENARIO 2: pipeline-owned head recovered in place ===
+warning: /tmp/fm-custody-b.8UwcVG/home/data/lostw/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+relaunched lostw harness=codex from=codex model=default effort=default backend=tmux endpoint=firstmate:fm-lostw worktree=/tmp/fm-custody-b.8UwcVG/wt
+rc=0
+HEAD/BYTES UNCHANGED
+windows: [bash fm-lostw ]
+/tmp/fm-custody-b.8UwcVG/home/state/lostw.control-relaunch:validation_head=4f5b94e726a6eddc112e686d99d7818d13cfc109
+/tmp/fm-custody-b.8UwcVG/home/state/lostw.custody:validation_head=none
+/tmp/fm-custody-b.8UwcVG/home/state/lostw.custody:validation_head=4f5b94e726a6eddc112e686d99d7818d13cfc109

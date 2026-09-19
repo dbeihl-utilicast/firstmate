@@ -1,0 +1,42 @@
+LAB SESSION: fm-lab-custody-a-2363895
+ORIGINAL ENDPOINT: fm-lab-custody-a-2363895:w1:p2 (tab w1:t2)
+BEFORE: branch=lostw HEAD=c07d13996c41a7f99c3191c79dd8ee242ca6a75a
+da1d406535ee775a7830d4a450c16876caf9a4aedbd8dc458f77532c5f6cac27  /tmp/fm-custody-a.pXSbuh/wt/unfinished.txt
+ce73ab006c14072c690409063541b55ab14ee05a86ace1941bbeebcc89d7341b  /tmp/fm-custody-a.pXSbuh/wt/README.md
+status:  M README.md
+?? unfinished.txt
+--- kill pane (session vanishes) ---
+{"id":"cli:pane:close","result":{"type":"ok"}}
+pane gone (backend proves absent)
+agent_state: missing
+--- fm-control relaunch ---
+warning: /tmp/fm-custody-a.pXSbuh/home/data/lostw/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+relaunched lostw harness=codex from=codex model=default effort=default backend=herdr endpoint=fm-lab-custody-a-2363895:w2:p2 worktree=/tmp/fm-custody-a.pXSbuh/wt
+rc=0
+--- AFTER ---
+AFTER: branch=lostw HEAD=c07d13996c41a7f99c3191c79dd8ee242ca6a75a
+da1d406535ee775a7830d4a450c16876caf9a4aedbd8dc458f77532c5f6cac27  /tmp/fm-custody-a.pXSbuh/wt/unfinished.txt
+ce73ab006c14072c690409063541b55ab14ee05a86ace1941bbeebcc89d7341b  /tmp/fm-custody-a.pXSbuh/wt/README.md
+status:  M README.md
+?? unfinished.txt
+HEAD UNCHANGED
+BYTES UNCHANGED
+window=fm-lab-custody-a-2363895:w2:p2
+worktree=/tmp/fm-custody-a.pXSbuh/wt
+herdr_tab_id=w2:t2
+herdr_pane_id=w2:p2
+--- custody record ---
+worktree_head=c07d13996c41a7f99c3191c79dd8ee242ca6a75a
+worktree_dirty=yes
+validation_head=none
+recorded=2026-09-19T12:08:22Z
+branch=lostw
+head=c07d13996c41a7f99c3191c79dd8ee242ca6a75a
+dirty=yes
+untracked=yes
+local_only=1
+validation_head=none
+custody_ref=none
+--
+--- live panes ---
+{"id":"cli:pane:list","result":{"panes":[{"agent":"codex","agent_status":"blocked","cwd":"/tmp/fm-custody-a.pXSbuh/wt","focused":true,"foreground_cwd":"/tmp/fm-custody-a.pXSbuh/wt","pane_id":"w2:p2","revision":1,"scroll":{"max_offset_from_bottom":9,"offset_from_bottom":0,"viewport_rows":39},"tab_id":"w2:t2","terminal_id":"term_65bd4df92a6bb4","terminal_title":"dbeihl@spark-cd19: /tmp/fm-custody-a.pXSbuh/wt","terminal_title_stripped":"dbeihl@spark-cd19: /tmp/fm-custody-a.pXSbuh/wt","workspace_id":"w2"}],"type":"pane_list"}}

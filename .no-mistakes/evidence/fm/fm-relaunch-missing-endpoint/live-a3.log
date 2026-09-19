@@ -1,0 +1,43 @@
+LAB SESSION: fm-lab-custody-a-2295859
+ORIGINAL ENDPOINT: fm-lab-custody-a-2295859:w1:p2 (tab w1:t2)
+BEFORE: branch=lostw HEAD=881e6d08f1a0ed891d7accdc215a2a3dbbaa0f2c
+da1d406535ee775a7830d4a450c16876caf9a4aedbd8dc458f77532c5f6cac27  /tmp/fm-custody-a.5FZ3V3/wt/unfinished.txt
+ce73ab006c14072c690409063541b55ab14ee05a86ace1941bbeebcc89d7341b  /tmp/fm-custody-a.5FZ3V3/wt/README.md
+status:  M README.md
+?? unfinished.txt
+--- kill pane (session vanishes) ---
+{"id":"cli:pane:close","result":{"type":"ok"}}
+pane gone (backend proves absent)
+agent_state: missing
+--- fm-control relaunch ---
+warning: /tmp/fm-custody-a.5FZ3V3/home/data/lostw/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+error: the replacement agent for lostw did not come up within 8s (endpoint reads 'missing')
+error: lostw was relaunched on codex but no running agent could be confirmed; its work is preserved at /tmp/fm-custody-a.5FZ3V3/wt
+rc=1
+--- AFTER ---
+AFTER: branch=lostw HEAD=881e6d08f1a0ed891d7accdc215a2a3dbbaa0f2c
+da1d406535ee775a7830d4a450c16876caf9a4aedbd8dc458f77532c5f6cac27  /tmp/fm-custody-a.5FZ3V3/wt/unfinished.txt
+ce73ab006c14072c690409063541b55ab14ee05a86ace1941bbeebcc89d7341b  /tmp/fm-custody-a.5FZ3V3/wt/README.md
+status:  M README.md
+?? unfinished.txt
+HEAD UNCHANGED
+BYTES UNCHANGED
+window=fm-lab-custody-a-2295859:w2:p2
+worktree=/tmp/fm-custody-a.5FZ3V3/wt
+herdr_tab_id=w2:t2
+herdr_pane_id=w2:p2
+--- custody record ---
+worktree_head=881e6d08f1a0ed891d7accdc215a2a3dbbaa0f2c
+worktree_dirty=yes
+validation_head=none
+recorded=2026-09-19T12:07:50Z
+branch=lostw
+head=881e6d08f1a0ed891d7accdc215a2a3dbbaa0f2c
+dirty=yes
+untracked=yes
+local_only=1
+validation_head=none
+custody_ref=none
+--
+--- live panes ---
+{"id":"cli:pane:list","result":{"panes":[{"agent":"codex","agent_status":"blocked","cwd":"/tmp/fm-custody-a.5FZ3V3/wt","focused":true,"foreground_cwd":"/tmp/fm-custody-a.5FZ3V3/wt","pane_id":"w2:p2","revision":1,"scroll":{"max_offset_from_bottom":9,"offset_from_bottom":0,"viewport_rows":39},"tab_id":"w2:t2","terminal_id":"term_65bd4ddb53ddd4","terminal_title":"dbeihl@spark-cd19: /tmp/fm-custody-a.5FZ3V3/wt","terminal_title_stripped":"dbeihl@spark-cd19: /tmp/fm-custody-a.5FZ3V3/wt","workspace_id":"w2"}],"type":"pane_list"}}
