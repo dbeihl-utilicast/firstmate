@@ -45,6 +45,12 @@
 # opt-in guard family (FM_*_LIVE_E2E=1) and record the result in
 # docs/verification/runtime-backends.md, rather than assuming the shape here.
 #
+# The same project entry also carries Claude Code's external-imports prompt
+# state. A worktree whose CLAUDE.md imports a file outside it (AGENTS.md via
+# @~/...) raises a second interactive prompt that wedges the worker the same
+# way. WarningShown true with Approved false suppresses it with the declined
+# answer firstmate would give by hand; imports are never approved here.
+#
 # Only the launching user's own store is written: the projects entry for the
 # worktree path in ${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json, which must be a
 # regular file this uid owns. Every unrelated key and project entry is
@@ -228,6 +234,8 @@ const attempt = () => {
     entry = {};
   }
   entry.hasTrustDialogAccepted = true;
+  entry.hasClaudeMdExternalIncludesWarningShown = true;
+  entry.hasClaudeMdExternalIncludesApproved = false;
   projects[worktree] = entry;
   // Unpredictable name plus an exclusive create: the config directory may be
   // writable by another local account, and a predictable path could be
@@ -250,7 +258,12 @@ const attempt = () => {
     if (!renamed) fs.rmSync(tmp, { force: true });
   }
   const back = JSON.parse(fs.readFileSync(store, "utf8"));
-  return back.projects?.[worktree]?.hasTrustDialogAccepted === true ? "recorded" : "dropped";
+  const got = back.projects?.[worktree];
+  return got?.hasTrustDialogAccepted === true &&
+    got.hasClaudeMdExternalIncludesWarningShown === true &&
+    got.hasClaudeMdExternalIncludesApproved === false
+    ? "recorded"
+    : "dropped";
 };
 try {
   for (let i = 0; i < 3; i += 1) {

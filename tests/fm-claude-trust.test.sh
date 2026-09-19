@@ -281,6 +281,25 @@ JSON
   pass "fm-claude-trust.sh: preserves unrelated store content"
 }
 
+test_external_imports_prompt_is_suppressed_with_the_safe_answer() {
+  local rec store
+  rec=$(make_case imports)
+  read_case "$rec"
+  store="$CONFIG/.claude.json"
+  cat > "$store" <<JSON
+{"numStartups":7,"projects":{"$WT":{"allowedTools":["Bash"]},"/other/path":{"hasTrustDialogAccepted":false,"hasClaudeMdExternalIncludesWarningShown":false,"hasClaudeMdExternalIncludesApproved":false}}}
+JSON
+  run_trust "$CONFIG" "$WT" "$PROJ" >/dev/null || fail "registration failed against an existing store"
+  assert_store_value "$store" true "the external-imports warning was not marked shown" projects "$WT" hasClaudeMdExternalIncludesWarningShown
+  assert_store_value "$store" false "external imports were approved instead of declined" projects "$WT" hasClaudeMdExternalIncludesApproved
+  assert_store_value "$store" true "trust was not recorded beside the imports keys" projects "$WT" hasTrustDialogAccepted
+  assert_store_value "$store" '["Bash"]' "the entry's own keys were lost" projects "$WT" allowedTools
+  assert_store_value "$store" 7 "an unrelated top-level key was changed" numStartups
+  assert_store_value "$store" false "another project's imports warning was touched" projects /other/path hasClaudeMdExternalIncludesWarningShown
+  assert_store_value "$store" false "another project's trust was touched" projects /other/path hasTrustDialogAccepted
+  pass "fm-claude-trust.sh: suppresses the external-imports prompt with the declined answer"
+}
+
 test_symlinked_store_to_a_foreign_owned_target_is_refused() {
   local rec out
   rec=$(make_case symlink-foreign)
@@ -453,6 +472,7 @@ test_missing_directory_is_refused
 test_foreign_project_worktree_is_refused
 test_worktree_subdirectory_is_refused
 test_unrelated_store_content_is_preserved
+test_external_imports_prompt_is_suppressed_with_the_safe_answer
 test_symlinked_store_to_a_foreign_owned_target_is_refused
 test_symlinked_store_to_an_owned_target_is_accepted
 test_corrupt_store_fails_closed
