@@ -258,6 +258,8 @@ SUB_HOME_PARENT_MARKER=".fm-secondmate-parent"
 . "$SCRIPT_DIR/fm-gate-refuse-lib.sh"
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
+# shellcheck source=bin/fm-task-retire-lib.sh
+. "$SCRIPT_DIR/fm-task-retire-lib.sh"
 # shellcheck source=bin/fm-public-followup-lib.sh
 . "$SCRIPT_DIR/fm-public-followup-lib.sh"
 # shellcheck source=bin/fm-secondmate-registry-lib.sh
@@ -337,16 +339,22 @@ is_treehouse_pool_slot() {  # <project> <worktree>
 }
 
 META="$STATE/$ID.meta"
+RETIRE_META="$STATE/retired/$ID.meta"
+LOCK_META=$META
+if [ "$RECORD_ONLY_RETIRE" = 1 ] && [ ! -e "$META" ] && [ ! -L "$META" ] \
+   && [ -f "$RETIRE_META" ] && [ ! -L "$RETIRE_META" ]; then
+  LOCK_META=$RETIRE_META
+fi
 TREEHOUSE_PROJECT_LOCK=
 TREEHOUSE_PROJECT_LOCK_HELD=0
 TREEHOUSE_SLOT_LOCK_REQUIRED=0
-if [ -f "$META" ] && [ ! -L "$META" ]; then
-  TEARDOWN_LOCK_KIND=$(fm_meta_get "$META" kind)
+if [ -f "$LOCK_META" ] && [ ! -L "$LOCK_META" ]; then
+  TEARDOWN_LOCK_KIND=$(fm_meta_get "$LOCK_META" kind)
   [ -n "$TEARDOWN_LOCK_KIND" ] || TEARDOWN_LOCK_KIND=ship
-  TEARDOWN_LOCK_BACKEND=$(fm_meta_get "$META" backend)
+  TEARDOWN_LOCK_BACKEND=$(fm_meta_get "$LOCK_META" backend)
   [ -n "$TEARDOWN_LOCK_BACKEND" ] || TEARDOWN_LOCK_BACKEND=tmux
-  TEARDOWN_LOCK_WT=$(fm_meta_get "$META" worktree)
-  TEARDOWN_LOCK_PROJECT=$(fm_meta_get "$META" project)
+  TEARDOWN_LOCK_WT=$(fm_meta_get "$LOCK_META" worktree)
+  TEARDOWN_LOCK_PROJECT=$(fm_meta_get "$LOCK_META" project)
   if [ "$TEARDOWN_LOCK_KIND" != secondmate ] \
      && [ "$TEARDOWN_LOCK_BACKEND" != orca ] \
      && is_treehouse_pool_slot "$TEARDOWN_LOCK_PROJECT" "$TEARDOWN_LOCK_WT"; then
@@ -419,57 +427,128 @@ CONTROL_LOCK_HELD=1
 fm_refuse_if_gate_agent
 FM_LOCK_LOG_PREFIX=teardown
 
-retire_sidecars() {
-  local sidecars="$STATE/retired/$ID.sidecars" name
-  mkdir -p -- "$sidecars" && chmod 700 -- "$sidecars" || return 1
-  for name in "$ID.check.sh" "$ID.check-trust" "$ID.pr-poll" "$ID.pr-poll-registration" \
-    "$ID.pr-poll-retirement" "$ID.pr-poll-rearm-notified" "$ID.inbox" \
-    "$ID.turn-ended" "$ID.progress" ".lease-$ID"; do
-    [ -e "$STATE/$name" ] || [ -L "$STATE/$name" ] || continue
-    mv -- "$STATE/$name" "$sidecars/$name" || {
-      echo "error: task $ID is inactive but sidecar $name could not be archived; rerun --retire-record to finish" >&2
-      return 1
-    }
-  done
-}
-
-if [ "$RECORD_ONLY_RETIRE" = 1 ] && [ ! -e "$META" ] && [ ! -L "$META" ] \
-   && [ -f "$STATE/retired/$ID.meta" ] && [ ! -L "$STATE/retired/$ID.meta" ]; then
-  retire_sidecars || exit 1
-  echo "record-only retirement $ID resumed and complete"
-  exit 0
+if [ "$RECORD_ONLY_RETIRE" != 1 ]; then
+  fm_backlog_record_present "$META" "task record" "$STATE" || {
+    echo "error: teardown refused: $FM_BACKLOG_TRANSITION_ERROR" >&2
+    exit 1
+  }
+elif [ ! -f "$META" ] || [ -L "$META" ]; then
+  [ -f "$RETIRE_META" ] && [ ! -L "$RETIRE_META" ] || {
+    echo "error: record-only retirement has neither an active nor archived task record for $ID" >&2
+    exit 1
+  }
 fi
-
-fm_backlog_record_present "$META" "task record" "$STATE" || {
-  echo "error: teardown refused: $FM_BACKLOG_TRANSITION_ERROR" >&2
-  exit 1
-}
-META_LOCK=$(fm_meta_lock_path "$META") || exit 1
+META_LOCK=$(fm_meta_lock_path "$STATE/$ID.meta") || exit 1
 fm_lock_acquire_wait "$META_LOCK"
 META_LOCK_HELD=1
-fm_backlog_record_present "$META" "task record" "$STATE" || {
-  echo "error: teardown refused after locking: $FM_BACKLOG_TRANSITION_ERROR" >&2
-  exit 1
-}
+if [ "$RECORD_ONLY_RETIRE" != 1 ]; then
+  fm_backlog_record_present "$META" "task record" "$STATE" || {
+    echo "error: teardown refused after locking: $FM_BACKLOG_TRANSITION_ERROR" >&2
+    exit 1
+  }
+fi
 
-# Archive a stale identity, its sidecars, and a receipt; ordinary teardown
-# behavior never runs, so no endpoint is killed and no reused slot is returned.
-record_proved_finished() {
-  local rec=$1 rec_id=$2 rec_kind
-  rec_kind=$(fm_meta_get "$rec" kind)
-  [ -n "$rec_kind" ] || rec_kind=ship
-  if [ "$rec_kind" = scout ] && [ -f "$DATA/$rec_id/report.md" ]; then
+record_endpoint_state() {  # <record> <task-id>
+  local rec=$1 rec_id=$2
+  if ! fm_backend_validate_task_endpoint "$rec" "$rec_id" >/dev/null 2>&1; then
+    printf 'unreadable'
     return 0
   fi
-  fm_backlog_row_probe "$DATA" "$rec_id" && [ "${FM_BACKLOG_ROW_STATE%% *}" = "done" ]
+  fm_backend_agent_state "$FM_BACKEND_VALIDATED_BACKEND" "$FM_BACKEND_VALIDATED_TARGET"
+}
+
+record_ship_pr_merged() {  # <record>
+  local rec=$1 pr number out project
+  pr=$(fm_meta_get "$rec" pr)
+  [ -n "$pr" ] || return 1
+  case "$pr" in
+    *'/pull/'*) number=${pr##*/pull/}; number=${number%%[!0-9]*} ;;
+    [0-9]*) number=${pr%%[!0-9]*} ;;
+    *) return 1 ;;
+  esac
+  [ -n "$number" ] || return 1
+  project=$(fm_meta_get "$rec" project)
+  [ -d "$project" ] || return 1
+  out=$(cd "$project" && gh-axi pr view "$number" 2>/dev/null) || return 1
+  printf '%s\n' "$out" | grep -q '^[[:space:]]*merged: yes$'
+}
+
+record_ship_branch_on_default() {  # <record>
+  local rec=$1 project branch tip ref
+  project=$(fm_meta_get "$rec" project)
+  branch=$(fm_meta_get "$rec" branch)
+  [ -d "$project" ] && [ -n "$branch" ] || return 1
+  tip=$(git -C "$project" rev-parse --verify --quiet "refs/remotes/origin/$branch^{commit}" 2>/dev/null \
+    || git -C "$project" rev-parse --verify --quiet "refs/heads/$branch^{commit}" 2>/dev/null) || return 1
+  for ref in $(git -C "$project" symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null) \
+    refs/remotes/origin/main refs/remotes/origin/master; do
+    git -C "$project" rev-parse --verify --quiet "$ref" >/dev/null 2>&1 || continue
+    git -C "$project" merge-base --is-ancestor "$tip" "$ref" 2>/dev/null && return 0
+  done
+  return 1
+}
+
+# Finished means both lifecycle closure and durable delivery evidence: a scout's
+# report, or a ship's landed work. Endpoint liveness is checked separately so a
+# prematurely closed live task stays owned.
+record_proved_finished() {  # <record> <task-id>
+  local rec=$1 rec_id=$2 rec_kind
+  fm_backlog_row_probe "$DATA" "$rec_id" || return 1
+  [ "${FM_BACKLOG_ROW_STATE%% *}" = "done" ] || return 1
+  rec_kind=$(fm_meta_get "$rec" kind)
+  [ -n "$rec_kind" ] || rec_kind=ship
+  if [ "$rec_kind" = scout ]; then
+    [ -f "$DATA/$rec_id/report.md" ]
+    return
+  fi
+  record_ship_pr_merged "$rec" || record_ship_branch_on_default "$rec"
+}
+
+record_proved_active() {  # <record> <task-id>
+  local rec=$1 rec_id=$2 row_state endpoint_state
+  [ ! -e "$STATE/$rec_id.stopped" ] || return 1
+  if fm_backlog_row_probe "$DATA" "$rec_id"; then
+    row_state=${FM_BACKLOG_ROW_STATE%% *}
+    [ "$row_state" = "done" ] || return 0
+  fi
+  endpoint_state=$(record_endpoint_state "$rec" "$rec_id")
+  [ "$endpoint_state" = alive ]
+}
+
+record_retirement_receipt_write() {  # <receipt> <slot> <owners> <prepared|complete>
+  local receipt=$1 slot=$2 owners=$3 status=$4 tmp="$1.tmp.$$"
+  [ ! -e "$receipt" ] || { [ -f "$receipt" ] && [ ! -L "$receipt" ]; } || return 1
+  (umask 077
+    {
+      printf 'version=fm-record-retirement-v1\n'
+      printf 'task_id=%s\n' "$ID"
+      printf 'retired_epoch=%s\n' "$(date +%s)"
+      printf 'reason=reused-treehouse-slot\n'
+      printf 'slot=%s\n' "$slot"
+      printf 'active_owners=%s\n' "$owners"
+      printf 'status=%s\n' "$status"
+    } > "$tmp" && mv -f -- "$tmp" "$receipt"
+  ) || { rm -f -- "$tmp"; return 1; }
+}
+
+record_retirement_receipt_valid() {  # <receipt> <slot> <owners> <status>
+  local receipt=$1 slot=$2 owners=$3 status=$4
+  [ -f "$receipt" ] && [ ! -L "$receipt" ] || return 1
+  [ "$(grep -cxF 'version=fm-record-retirement-v1' "$receipt")" -eq 1 ] \
+    && [ "$(grep -cxF "task_id=$ID" "$receipt")" -eq 1 ] \
+    && [ "$(grep -c '^retired_epoch=[0-9][0-9]*$' "$receipt")" -eq 1 ] \
+    && [ "$(grep -cxF 'reason=reused-treehouse-slot' "$receipt")" -eq 1 ] \
+    && [ "$(grep -cxF "slot=$slot" "$receipt")" -eq 1 ] \
+    && [ "$(grep -cxF "active_owners=$owners" "$receipt")" -eq 1 ] \
+    && [ "$(grep -cxF "status=$status" "$receipt")" -eq 1 ]
 }
 
 retire_record_only() {
-  local kind wt project slot other other_id other_path other_slot owners="" retired receipt
-  kind=$(fm_meta_get "$META" kind)
-  [ -n "$kind" ] || kind=ship
-  wt=$(fm_meta_get "$META" worktree)
-  project=$(fm_meta_get "$META" project)
+  local source_meta=$META wt project slot other other_id other_path other_slot other_project
+  local owners="" retired receipt sidecars endpoint_state busy_gen
+  if [ -f "$RETIRE_META" ] && [ ! -L "$RETIRE_META" ]; then source_meta=$RETIRE_META; fi
+  wt=$(fm_meta_get "$source_meta" worktree)
+  project=$(fm_meta_get "$source_meta" project)
   if ! is_treehouse_pool_slot "$project" "$wt"; then
     echo "REFUSED: record-only retirement requires a live Treehouse pool slot; nothing was changed" >&2
     return 1
@@ -482,23 +561,31 @@ retire_record_only() {
     [ -f "$other" ] && [ ! -L "$other" ] || continue
     [ "$other" != "$META" ] || continue
     other_path=$(fm_meta_get "$other" worktree)
-    [ -n "$other_path" ] || other_path=$(fm_meta_get "$other" home)
     [ -n "$other_path" ] || continue
     other_slot=$(CDPATH='' cd -- "$other_path" 2>/dev/null && pwd -P) || continue
     [ "$other_slot" = "$slot" ] || continue
+    other_project=$(fm_meta_get "$other" project)
+    is_treehouse_pool_slot "$other_project" "$other_path" || continue
     other_id=$(basename "$other" .meta)
-    [ ! -e "$STATE/$other_id.stopped" ] || continue
-    ! record_proved_finished "$other" "$other_id" || continue
+    record_proved_active "$other" "$other_id" || continue
     owners="$owners${owners:+,}$other_id"
   done
   if [ -z "$owners" ]; then
-    echo "REFUSED: no active record claims pool slot $slot; record-only retirement would hide an unreconciled slot, so nothing was changed" >&2
+    echo "REFUSED: no positively proved active record claims pool slot $slot; nothing was changed" >&2
     return 1
   fi
-  if ! record_proved_finished "$META" "$ID"; then
-    echo "REFUSED: task $ID is not proved finished by a scout report or closed backlog row; nothing was changed" >&2
+  if ! record_proved_finished "$source_meta" "$ID"; then
+    echo "REFUSED: task $ID needs both a closed backlog row and a scout report or landed ship work; nothing was changed" >&2
     return 1
   fi
+  endpoint_state=$(record_endpoint_state "$source_meta" "$ID")
+  case "$endpoint_state" in
+    dead|missing) ;;
+    *)
+      echo "REFUSED: task $ID's endpoint reads '$endpoint_state', not confidently gone; nothing was changed" >&2
+      return 1
+      ;;
+  esac
   retired="$STATE/retired"
   if [ -e "$retired" ] || [ -L "$retired" ]; then
     [ -d "$retired" ] && [ ! -L "$retired" ] || {
@@ -508,26 +595,30 @@ retire_record_only() {
   else
     mkdir -m 700 -- "$retired" || return 1
   fi
-  [ ! -e "$retired/$ID.meta" ] && [ ! -L "$retired/$ID.meta" ] || {
-    echo "REFUSED: retirement audit already exists for $ID; nothing was changed" >&2
-    return 1
-  }
-  if ! mv -- "$META" "$retired/$ID.meta"; then
-    return 1
+  sidecars="$retired/$ID.sidecars"
+  if [ -e "$sidecars" ] || [ -L "$sidecars" ]; then
+    [ -d "$sidecars" ] && [ ! -L "$sidecars" ] || return 1
+  else
+    mkdir -m 700 -- "$sidecars" || return 1
   fi
   receipt="$retired/$ID.receipt"
-  if ! {
-    printf 'version=fm-record-retirement-v1\n'
-    printf 'task_id=%s\n' "$ID"
-    printf 'retired_epoch=%s\n' "$(date +%s)"
-    printf 'reason=reused-treehouse-slot\n'
-    printf 'slot=%s\n' "$slot"
-    printf 'active_owners=%s\n' "$owners"
-  } > "$receipt"; then
-    echo "error: task $ID was made inactive but its retirement receipt could not be written at $receipt" >&2
+  if ! record_retirement_receipt_write "$receipt" "$slot" "$owners" prepared \
+     || ! record_retirement_receipt_valid "$receipt" "$slot" "$owners" prepared; then
+    echo "error: retirement receipt could not be safely prepared at $receipt" >&2
     return 1
   fi
-  retire_sidecars || return 1
+  if [ "$source_meta" = "$META" ]; then
+    [ ! -e "$RETIRE_META" ] && [ ! -L "$RETIRE_META" ] || return 1
+    mv -- "$META" "$RETIRE_META" || return 1
+    source_meta=$RETIRE_META
+  fi
+  busy_gen=$(fm_meta_get "$source_meta" busy_gen)
+  fm_task_retire_runtime "$STATE" "$ID" "$SCRIPT_DIR" archive "$sidecars" "$busy_gen" || return 1
+  if ! record_retirement_receipt_write "$receipt" "$slot" "$owners" complete \
+     || ! record_retirement_receipt_valid "$receipt" "$slot" "$owners" complete; then
+    echo "error: retirement receipt could not be completed at $receipt" >&2
+    return 1
+  fi
   echo "record-only retirement $ID complete (slot retained for $owners)"
 }
 
@@ -1344,57 +1435,6 @@ remove_kimi_turnend_auth() {
   path=$(fm_control_harness_turnend_auth_path kimi "$token") || return 1
   [ -n "$path" ] || return 0
   rm -f -- "$path"
-}
-
-retire_busy_state() {
-  local state_dir=$1 id=$2 gen=${3:-}
-  if [ -n "$gen" ]; then
-    "$SCRIPT_DIR/fm-busy-event.sh" retire "$state_dir" "$id" --gen "$gen"
-  elif [ -f "$state_dir/$id.busy-gen" ]; then
-    "$SCRIPT_DIR/fm-busy-event.sh" retire "$state_dir" "$id" --current-gen
-  fi
-}
-
-validate_pr_poll_cleanup() {
-  local state_dir=$1 id=$2 state_device artifact has_artifact=0
-  fm_task_id_path_safe "$id" || return 0
-  for artifact in "$state_dir/$id.check.sh" "$state_dir/$id.pr-poll" \
-    "$state_dir/$id.pr-poll-registration" "$state_dir/$id.pr-poll-retirement" \
-    "$state_dir/$id.pr-poll-rearm-notified" "$state_dir/$id.check-trust"; do
-    [ -e "$artifact" ] || [ -L "$artifact" ] || continue
-    has_artifact=1
-  done
-  [ "$has_artifact" -eq 1 ] || return 0
-  [ -d "$state_dir" ] && [ ! -L "$state_dir" ] || return 1
-  state_device=$(fm_pr_file_device "$state_dir") || return 1
-  for artifact in "$state_dir/$id.check.sh" "$state_dir/$id.pr-poll" \
-    "$state_dir/$id.pr-poll-registration" "$state_dir/$id.pr-poll-retirement" \
-    "$state_dir/$id.pr-poll-rearm-notified" "$state_dir/$id.check-trust"; do
-    [ -e "$artifact" ] || [ -L "$artifact" ] || continue
-    if [ ! -f "$artifact" ] || [ -L "$artifact" ] \
-      || [ "$(fm_pr_file_device "$artifact")" != "$state_device" ] \
-      || [ "$(fm_pr_file_link_count "$artifact")" != 1 ]; then
-      echo "REFUSED: unsafe task PR-check artifact; preserving task state." >&2
-      return 1
-    fi
-  done
-  if [ -e "$state_dir/$id.pr-poll-retirement" ] \
-    || [ -L "$state_dir/$id.pr-poll-retirement" ]; then
-    fm_pr_poll_retirement_state_valid "$state_dir" "$id" || {
-      echo "REFUSED: invalid PR-poll retirement receipt; preserving task state." >&2
-      return 1
-    }
-  fi
-}
-
-remove_pr_poll_artifacts() {
-  local state_dir=$1 id=$2
-  validate_pr_poll_cleanup "$state_dir" "$id" || return 1
-  fm_pr_poll_retirement_recover_one "$state_dir" "$id" "$SCRIPT_DIR/fm-pr-poll.sh" || return 1
-  fm_pr_poll_merge_notified_remove "$state_dir" "$id" || return 1
-  rm -f "$state_dir/$id.check.sh" "$state_dir/$id.pr-poll" \
-    "$state_dir/$id.pr-poll-registration" "$state_dir/$id.pr-poll-retirement" \
-    "$state_dir/$id.pr-poll-rearm-notified" "$state_dir/$id.check-trust" || return 1
 }
 
 # Resolve the PR number for a worktree branch via gh-axi. Echoes the number on a
@@ -2857,7 +2897,7 @@ validate_firstmate_home_children_removal() {
     [ -e "$child_meta" ] || continue
     child_id=$(basename "$child_meta" .meta)
     fm_backend_validate_task_endpoint "$child_meta" "$child_id" || return 1
-    validate_pr_poll_cleanup "$sub_state" "$child_id" || return 1
+    fm_task_retire_pr_artifacts_validate "$sub_state" "$child_id" || return 1
     child_wt=$(meta_value "$child_meta" worktree)
     child_kind=$(meta_value "$child_meta" kind)
     [ -n "$child_kind" ] || child_kind=ship
@@ -3094,21 +3134,12 @@ cleanup_firstmate_home_children() {
     fi
     remove_grok_turnend_auth "$sub_state" "$child_id" || return 1
     remove_kimi_turnend_auth "$sub_state" "$child_id" || return 1
-    remove_pr_poll_artifacts "$sub_state" "$child_id" || return 1
     child_busy_gen=$(meta_value "$child_meta" busy_gen)
     if [ -z "$child_busy_gen" ]; then
       child_busy_gen=$(cat "$sub_state/$child_id.busy-gen" 2>/dev/null || true)
     fi
-    retire_busy_state "$sub_state" "$child_id" "$child_busy_gen" || return 1
-    status_retire_presentation_task "$sub_state" "$child_id" || return 1
+    fm_task_retire_runtime "$sub_state" "$child_id" "$SCRIPT_DIR" delete '' "$child_busy_gen" || return 1
     fm_backlog_atomic_transition remove "$sub_state/$child_id.meta" "task record" "$sub_state" || return 1
-    rm -f "$sub_state/$child_id.turn-ended" "$sub_state/$child_id.progress" \
-      "$sub_state/$child_id.pi-ext.ts" "$sub_state/$child_id.omp-ext.ts" \
-      "$sub_state/$child_id.grok-turnend-token" "$sub_state/$child_id.grok-home" \
-      "$sub_state/$child_id.kimi-turnend-token" \
-      "$sub_state/$child_id.muse-session" "$sub_state/$child_id.muse-session-current" \
-      "$sub_state/$child_id.cursor-session" "$sub_state/$child_id.reconcile-nudged" \
-      "$sub_state/.$child_id.branch-outcome-index" "$sub_state/$child_id.nm-fix-rounds"
   done
 }
 
@@ -3129,7 +3160,7 @@ remove_secondmate_registry_entry() {
 
 require_exclusive_task_worktree_slot || exit 1
 
-validate_pr_poll_cleanup "$STATE" "$ID" || exit 1
+fm_task_retire_pr_artifacts_validate "$STATE" "$ID" || exit 1
 
 if [ "$KIND" = secondmate ]; then
   LOCAL_REGISTRY_LOCK=$(secondmate_registry_lock_path "$STATE")
@@ -3506,24 +3537,10 @@ fm_backend_clear_transition "$BACKEND" "$STATE" "$T" || true
 # Remove the per-task temp root (/tmp/fm-<id>/, incl. its gotmp/) recorded by spawn.
 # Read before the state-file rm below; empty (pre-fix tasks without tasktmp=) is a no-op.
 [ -n "$TASK_TMP" ] && rm -rf "$TASK_TMP"
-remove_pr_poll_artifacts "$STATE" "$ID" || exit 1
-retire_busy_state "$STATE" "$ID" "$BUSY_GEN" || exit 1
-status_retire_presentation_task "$STATE" "$ID" || exit 1
-rm -f "$STATE/$ID.turn-ended" "$STATE/$ID.progress" \
-  "$STATE/$ID.pi-ext.ts" "$STATE/$ID.omp-ext.ts" "$STATE/$ID.grok-turnend-token" \
-  "$STATE/$ID.grok-home" \
-  "$STATE/$ID.kimi-turnend-token" "$STATE/$ID.muse-session" \
-  "$STATE/$ID.muse-session-current" "$STATE/$ID.cursor-session" \
-  "$STATE/$ID.control-relaunch" "$STATE/$ID.control-relaunch.meta-prior" \
-  "$STATE/$ID.control-relaunch.brief-prior" "$STATE/$ID.control-relaunch.note" \
-  "$STATE/$ID.reconcile-nudged" "$STATE/$ID.gemini-settings.json" \
-  "$STATE/$ID.qwen-settings.json" \
-  "$STATE/.$ID.branch-outcome-index" "$STATE/$ID.pr-refresh-state" "$STATE/$ID.stopped" \
-  "$STATE/$ID.pr-refresh-refused" "$STATE/$ID.nm-fix-rounds"
 # The steering inbox (bin/fm-task-inbox-lib.sh) is runtime state for the
 # retired endpoint; teardown only runs after landing is confirmed, so any
 # leftover unhandled steer here is moot rather than unlanded work.
-rm -rf "$STATE/$ID.inbox"
+fm_task_retire_runtime "$STATE" "$ID" "$SCRIPT_DIR" delete '' "$BUSY_GEN" || exit 1
 # The record is gone, so the backlog must not still show this task in flight
 # when teardown reports success. Still under this task's meta lock, so a steer
 # racing the same id stays serialized exactly as it was before. A captain-held
