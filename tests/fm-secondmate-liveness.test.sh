@@ -585,9 +585,9 @@ test_sweep_herdr_unreadable_replies_never_relaunch_or_acquire() {
     [ ! -e "$w/home/state/sm1.control-relaunch" ] \
       || fail "a $pane_state Herdr pane read must not start a relaunch transaction"
   done <<'EOF'
-malformed\trunning
-contradictory\trunning
-unreadable\tunreadable
+malformed	running
+contradictory	running
+unreadable	unreadable
 EOF
 
   pass "sweep: malformed, contradictory, and failed Herdr reads never authorize recovery"
