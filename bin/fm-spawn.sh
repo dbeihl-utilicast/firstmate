@@ -1403,10 +1403,13 @@ relaunch_endpoint_journal_reconcile() {
   esac
 }
 
-# Prints the conflicting task and returns 0 when another readable task record
-# claims this physical copy. Recovery permits a positively agent-free record;
-# fresh allocation requires the other record to be retired first. The caller
-# holds the canonical custody lock through worker publication.
+# Prints the conflicting task and returns 0 when another task record claims
+# this physical copy or cannot be shown not to: unreadable, symlinked,
+# non-regular, empty, or worktree-less records refuse. Remote-routed records
+# (remote_host or window=remote:*) and records whose absolute worktree no
+# longer exists on this host do not claim it. Recovery permits a positively
+# agent-free record; fresh allocation requires the other record to be retired
+# first. The caller holds the canonical custody lock through worker publication.
 spawn_copy_claim_refusal() {  # <worktree> <recover|fresh>
   local wt=$1 mode=$2 canonical meta other_id other_wt other_canonical occupancy state target
   canonical=$(CDPATH='' cd -P -- "$wt" 2>/dev/null && pwd -P) || return 0
@@ -1416,16 +1419,22 @@ spawn_copy_claim_refusal() {  # <worktree> <recover|fresh>
     other_id=${other_id%.meta}
     [ "$other_id" != "$ID" ] || continue
     if [ ! -f "$meta" ] || [ -L "$meta" ] || [ ! -r "$meta" ] || [ ! -s "$meta" ]; then
-      echo "task $other_id has a task record that cannot be read safely, so it may hold this copy; repair or retire $meta, then retry"
+      echo "task $other_id has a task record that cannot be read safely, so it may hold this copy; the operator must repair or inspect $meta, then retry"
       return 0
+    fi
+    if [ -n "$(fm_meta_get "$meta" remote_host)" ] || [[ "$(fm_meta_get "$meta" window)" == remote:* ]]; then
+      continue
     fi
     other_wt=$(fm_meta_get "$meta" worktree)
     if [ -z "$other_wt" ]; then
-      echo "task $other_id has a task record with no readable worktree, so it may hold this copy; repair or retire $meta, then retry"
+      echo "task $other_id has a task record with no readable worktree, so it may hold this copy; the operator must repair or inspect $meta, then retry"
       return 0
     fi
     if ! other_canonical=$(CDPATH='' cd -P -- "$other_wt" 2>/dev/null && pwd -P); then
-      echo "task $other_id has a task record whose worktree '$other_wt' does not resolve, so it may hold this copy; repair or retire $meta, then retry"
+      if [[ "$other_wt" == /* ]] && [ ! -e "$other_wt" ] && [ ! -L "$other_wt" ]; then
+        continue
+      fi
+      echo "task $other_id has a task record whose worktree '$other_wt' cannot be resolved, so it may hold this copy; the operator must repair or inspect $meta, then retry"
       return 0
     fi
     [ "$other_canonical" = "$canonical" ] || continue

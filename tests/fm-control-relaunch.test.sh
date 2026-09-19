@@ -1900,7 +1900,8 @@ fresh_spawn_over_damaged_record() {  # <label> <damage: chmod|symlink|empty|garb
   chmod 600 "$meta" 2>/dev/null || true
   [ "$rc" -ne 0 ] || fail "spawn onto a copy held by a $damage task record exited 0"$'\n'"$out"
   assert_contains "$out" "$holder" "the refusal should name the task record that blocked the claim"
-  assert_contains "$out" "repair or retire" "the refusal should name the remedy"
+  assert_contains "$out" "operator must repair or inspect $meta" "the refusal should name the remedy and the record"
+  assert_not_contains "$out" "retire" "the refusal must not advise retiring the record"
   launches=$(grep -c 'encode launch-brief' "$dir/fake/literal" 2>/dev/null || true)
   [ "${launches:-0}" = 0 ] || fail "spawn over a $damage task record launched $launches workers"
   pass "a $damage task record blocks a fresh spawn onto its copy"
@@ -1914,7 +1915,31 @@ test_fresh_spawn_refuses_when_holder_record_is_garbage() { fresh_spawn_over_dama
 test_fresh_spawn_refuses_when_holder_record_is_cut_before_worktree() { fresh_spawn_over_damaged_record cut cut; }
 test_fresh_spawn_refuses_when_holder_record_is_dangling_symlink() { fresh_spawn_over_damaged_record dangling dangling; }
 test_fresh_spawn_refuses_when_holder_record_is_a_directory() { fresh_spawn_over_damaged_record dir dir; }
-test_fresh_spawn_refuses_when_holder_worktree_does_not_resolve() { fresh_spawn_over_damaged_record gone gone; }
+
+fresh_spawn_past_record() {  # <label> <remote|gone>
+  local label=$1 kind=$2 dir holder fresh out rc=0 meta
+  holder=rl-ok-holder-$label
+  fresh=rl-ok-fresh-$label
+  dir=$(new_case "unclaimed-$label" "$holder")
+  add_ship_task "$dir" "$holder" claude
+  mkdir -p "$dir/home/data/$fresh"
+  cp "$dir/home/data/$holder/brief.md" "$dir/home/data/$fresh/brief.md"
+  : > "$dir/fake/windows"
+  meta="$dir/home/state/$holder.meta"
+  case "$kind" in
+    remote)
+      sed -i 's|^worktree=.*|worktree=/srv/remote-host/home|' "$meta"
+      printf 'remote_host=build-box\nwindow=remote:%s\n' "$holder" >> "$meta"
+      ;;
+    gone) sed -i 's|^worktree=.*|worktree=/nonexistent/copy|' "$meta" ;;
+  esac
+  out=$(run_spawn "$dir" "$fresh" "$dir/proj" --backend tmux --mode no-mistakes --yolo off --harness claude) || rc=$?
+  assert_not_contains "$out" "may hold this copy" "a $kind record must not be treated as holding this copy"
+  pass "a $kind task record does not block a fresh spawn"
+}
+
+test_fresh_spawn_ignores_remote_routed_record() { fresh_spawn_past_record remote remote; }
+test_fresh_spawn_ignores_record_whose_copy_was_removed() { fresh_spawn_past_record gone gone; }
 
 test_missing_clean_endpoint_recreates_the_endpoint_against_the_recorded_copy() {
   local dir out rc head_before
@@ -2058,7 +2083,8 @@ test_fresh_spawn_refuses_when_holder_record_is_garbage
 test_fresh_spawn_refuses_when_holder_record_is_cut_before_worktree
 test_fresh_spawn_refuses_when_holder_record_is_dangling_symlink
 test_fresh_spawn_refuses_when_holder_record_is_a_directory
-test_fresh_spawn_refuses_when_holder_worktree_does_not_resolve
+test_fresh_spawn_ignores_remote_routed_record
+test_fresh_spawn_ignores_record_whose_copy_was_removed
 test_missing_clean_endpoint_recreates_the_endpoint_against_the_recorded_copy
 test_missing_endpoint_with_unreadable_validation_refuses_before_any_note
 test_relaunch_reverifies_an_already_in_flight_item_instead_of_rewriting_it
