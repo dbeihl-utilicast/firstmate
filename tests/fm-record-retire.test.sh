@@ -16,6 +16,7 @@ make_case() {
   touch "$dir/home/state/.last-watcher-beat" "$dir/pool/treehouse-state.json"
   git init -q "$dir/project"
   git -C "$dir/project" -c user.email=t@t -c user.name=t commit -q --allow-empty -m baseline
+  git -C "$dir/project" remote add origin https://github.com/o/r.git
   git -C "$dir/project" worktree add -q -b fm/retire-record "$dir/pool/3/repo"
   cat > "$dir/fakebin/treehouse" <<'SH'
 #!/usr/bin/env bash
@@ -178,14 +179,66 @@ test_record_only_retirement_retry_repairs_receipt_and_sidecars() {
   mv "$dir/home/state/old.meta" "$dir/home/state/retired/old.meta"
   printf '#!/bin/sh\n' > "$dir/home/state/old.check.sh"
   printf 'done: unread\n' > "$dir/home/state/old.status"
+  # Retirement already started when metadata became inactive. Its completion
+  # must not depend on the replacement still being active later.
+  rm -f "$dir/home/state/destination.meta" "$dir/rows/destination"
+  : > "$dir/tmux.windows"
   run_retire "$dir" >/dev/null 2>&1 || rc=$?
-  expect_code 0 "$rc" "retry should finish an interrupted record retirement"
+  expect_code 0 "$rc" "retry should finish after the replacement owner disappears"
   [ -f "$dir/home/state/retired/old.receipt" ] || fail "retry did not repair the audit receipt"
   grep -q '^status=complete$' "$dir/home/state/retired/old.receipt" \
     || fail "retry did not validate a complete receipt"
   [ ! -e "$dir/home/state/old.check.sh" ] || fail "retry left polling active"
   [ ! -e "$dir/home/state/old.status" ] || fail "retry left status ringing active"
-  pass "record retirement: retry repairs receipt and completes runtime retirement"
+  pass "record retirement: retry repairs receipt without re-proving a claimant"
+}
+
+# A retry after same-id reuse must bind to the archived spawn generation and
+# leave every runtime artifact of the newer generation untouched.
+test_record_only_retirement_retry_preserves_new_same_id_incarnation() {
+  local dir="$TMP_ROOT/same-id-reuse" rc=0 before_meta before_status before_progress
+  make_case "$dir"
+  mkdir -p "$dir/home/state/retired/old.sidecars"
+  mv "$dir/home/state/old.meta" "$dir/home/state/retired/old.meta"
+  fm_write_meta "$dir/home/state/old.meta" \
+    "window=fm:fm-old" "endpoint_task_id=old" "worktree=$dir/pool/3/repo" \
+    "project=$dir/project" "kind=ship" "mode=no-mistakes" "spawn_gen=new-incarnation"
+  printf 'working: new incarnation\n' > "$dir/home/state/old.status"
+  printf 'new progress\n' > "$dir/home/state/old.progress"
+  printf '%s\n' fm-old fm-destination > "$dir/tmux.windows"
+  before_meta=$(cat "$dir/home/state/old.meta")
+  before_status=$(cat "$dir/home/state/old.status")
+  before_progress=$(cat "$dir/home/state/old.progress")
+  run_retire "$dir" >/dev/null 2>&1 || rc=$?
+  expect_code 0 "$rc" "retry should complete without touching a newer same-id incarnation"
+  [ "$(cat "$dir/home/state/old.meta")" = "$before_meta" ] || fail "retry changed newer metadata"
+  [ "$(cat "$dir/home/state/old.status")" = "$before_status" ] || fail "retry changed newer status"
+  [ "$(cat "$dir/home/state/old.progress")" = "$before_progress" ] || fail "retry changed newer progress"
+  grep -q '^spawn_gen=old-incarnation$' "$dir/home/state/retired/old.receipt" \
+    || fail "receipt is not bound to the retired incarnation"
+  pass "record retirement: retry cannot consume a newer same-id incarnation"
+}
+
+# A failed metadata move must leave no receipt that could imply the still-live
+# record was retired.
+test_record_only_retirement_moves_identity_before_receipt() {
+  local dir="$TMP_ROOT/meta-first" rc=0 real_mv
+  make_case "$dir"
+  real_mv=$(command -v mv)
+  cat > "$dir/fakebin/mv" <<SH
+#!/usr/bin/env bash
+case "\${*: -1}" in
+  */retired/old.meta) exit 1 ;;
+esac
+exec "$real_mv" "\$@"
+SH
+  chmod +x "$dir/fakebin/mv"
+  run_retire "$dir" >/dev/null 2>&1 || rc=$?
+  expect_code 1 "$rc" "a failed metadata retirement must stop the transaction"
+  [ -f "$dir/home/state/old.meta" ] || fail "failed move removed the active identity"
+  [ ! -e "$dir/home/state/retired/old.receipt" ] \
+    || fail "receipt appeared before the identity became inactive"
+  pass "record retirement: metadata becomes inactive before receipt publication"
 }
 
 test_record_only_retirement_ignores_finished_claimant() {
@@ -227,6 +280,26 @@ SH
   expect_code 0 "$rc" "a merged PR proves landed ship work"
   [ ! -e "$dir/home/state/old.meta" ] || fail "a landed ship record stayed active"
   pass "record retirement: a ship report alone never proves landed work"
+}
+
+# A PR number is not globally unique. The repository in the recorded URL must
+# match the project remote before a merged result can prove landing.
+test_ship_merged_pr_proof_binds_full_repository_url() {
+  local dir="$TMP_ROOT/pr-repository" rc=0
+  make_case "$dir"
+  cat > "$dir/fakebin/gh-axi" <<'SH'
+#!/usr/bin/env bash
+printf '  state: merged\n  merged: yes\n'
+SH
+  chmod +x "$dir/fakebin/gh-axi"
+  fm_write_meta "$dir/home/state/old.meta" \
+    "window=fm:fm-old" "endpoint_task_id=old" "worktree=$dir/pool/3/repo" \
+    "project=$dir/project" "kind=ship" "mode=no-mistakes" "spawn_gen=old-incarnation" \
+    "pr=https://github.com/other/repository/pull/7" "branch=fm/not-on-default"
+  run_retire "$dir" >/dev/null 2>&1 || rc=$?
+  expect_code 1 "$rc" "a same-number merged PR in another repository must not prove landing"
+  [ -f "$dir/home/state/old.meta" ] || fail "cross-repository PR evidence retired the record"
+  pass "record retirement: merged PR proof binds owner, repository, and number"
 }
 
 test_retired_secondmate_is_excluded_from_broadcast_enumeration() {
@@ -275,7 +348,10 @@ test_record_only_retirement_requires_closed_row_and_deliverable
 test_record_only_retirement_refuses_live_retiring_endpoint
 test_record_only_retirement_requires_positive_active_owner
 test_record_only_retirement_retry_repairs_receipt_and_sidecars
+test_record_only_retirement_retry_preserves_new_same_id_incarnation
+test_record_only_retirement_moves_identity_before_receipt
 test_ship_report_does_not_prove_landed_work
+test_ship_merged_pr_proof_binds_full_repository_url
 test_record_only_retirement_ignores_finished_claimant
 test_retired_identity_is_not_a_send_destination
 test_record_only_retirement_refuses_its_still_owned_slot
