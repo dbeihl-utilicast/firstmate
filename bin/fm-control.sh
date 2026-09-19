@@ -855,7 +855,7 @@ do_relaunch() {
       exit_result=$(do_exit)
       ;;
     missing)
-      exit_result=endpoint-missing
+      exit_result='endpoint-missing'
       ;;
     *) die "task $ID's endpoint reads '$state' rather than a positively recoverable state; refusing to recover" ;;
   esac
