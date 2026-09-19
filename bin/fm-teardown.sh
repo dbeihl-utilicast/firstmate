@@ -457,18 +457,39 @@ record_endpoint_state() {  # <record> <task-id>
   fm_backend_agent_state "$FM_BACKEND_VALIDATED_BACKEND" "$FM_BACKEND_VALIDATED_TARGET"
 }
 
-record_ship_pr_merged() {  # <record>
-  local rec=$1 pr number out project
-  pr=$(fm_meta_get "$rec" pr)
-  [ -n "$pr" ] || return 1
-  case "$pr" in
-    *'/pull/'*) number=${pr##*/pull/}; number=${number%%[!0-9]*} ;;
-    [0-9]*) number=${pr%%[!0-9]*} ;;
+github_repo_slug() {  # <GitHub remote or PR URL>
+  local value=$1 path owner repo rest
+  case "$value" in
+    https://github.com/*) path=${value#https://github.com/} ;;
+    git@github.com:*) path=${value#git@github.com:} ;;
+    ssh://git@github.com/*) path=${value#ssh://git@github.com/} ;;
     *) return 1 ;;
   esac
-  [ -n "$number" ] || return 1
+  owner=${path%%/*}
+  rest=${path#*/}
+  [ "$rest" != "$path" ] || return 1
+  repo=${rest%%/*}
+  repo=${repo%.git}
+  [ -n "$owner" ] && [ -n "$repo" ] || return 1
+  printf '%s/%s\n' "$owner" "$repo" | tr '[:upper:]' '[:lower:]'
+}
+
+record_ship_pr_merged() {  # <record>
+  local rec=$1 pr path owner repo number project origin recorded_slug origin_slug out
+  pr=$(fm_meta_get "$rec" pr)
+  case "$pr" in https://github.com/*/*/pull/[0-9]*) ;; *) return 1 ;; esac
+  path=${pr#https://github.com/}
+  owner=${path%%/*}; path=${path#*/}
+  repo=${path%%/*}; path=${path#*/pull/}
+  number=$path
+  case "$owner/$repo/$number" in *[!A-Za-z0-9._/-]*) return 1 ;; esac
+  case "$number" in ''|*[!0-9]*) return 1 ;; esac
+  recorded_slug=$(github_repo_slug "https://github.com/$owner/$repo") || return 1
   project=$(fm_meta_get "$rec" project)
   [ -d "$project" ] || return 1
+  origin=$(git -C "$project" remote get-url origin 2>/dev/null) || return 1
+  origin_slug=$(github_repo_slug "$origin") || return 1
+  [ "$recorded_slug" = "$origin_slug" ] || return 1
   out=$(cd "$project" && gh-axi pr view "$number" 2>/dev/null) || return 1
   printf '%s\n' "$out" | grep -q '^[[:space:]]*merged: yes$'
 }
@@ -515,38 +536,60 @@ record_proved_active() {  # <record> <task-id>
   [ "$endpoint_state" = alive ]
 }
 
-record_retirement_receipt_write() {  # <receipt> <slot> <owners> <prepared|complete>
-  local receipt=$1 slot=$2 owners=$3 status=$4 tmp="$1.tmp.$$"
+record_spawn_gen() {  # <record>
+  local rec=$1 count value
+  count=$(grep -c '^spawn_gen=' "$rec" 2>/dev/null || true)
+  [ "$count" -eq 1 ] || return 1
+  value=$(fm_meta_get "$rec" spawn_gen)
+  [ -n "$value" ] || return 1
+  case "$value" in *[!A-Za-z0-9._-]*) return 1 ;; esac
+  printf '%s' "$value"
+}
+
+record_retirement_receipt_write() {  # <receipt> <slot> <owners> <spawn-gen> <status> <runtime-state>
+  local receipt=$1 slot=$2 owners=$3 spawn_gen=$4 status=$5 runtime_state=$6 tmp="$1.tmp.$$"
   [ ! -e "$receipt" ] || { [ -f "$receipt" ] && [ ! -L "$receipt" ]; } || return 1
   (umask 077
     {
-      printf 'version=fm-record-retirement-v1\n'
+      printf 'version=fm-record-retirement-v2\n'
       printf 'task_id=%s\n' "$ID"
+      printf 'spawn_gen=%s\n' "$spawn_gen"
       printf 'retired_epoch=%s\n' "$(date +%s)"
       printf 'reason=reused-treehouse-slot\n'
       printf 'slot=%s\n' "$slot"
       printf 'active_owners=%s\n' "$owners"
       printf 'status=%s\n' "$status"
+      printf 'runtime_state=%s\n' "$runtime_state"
     } > "$tmp" && mv -f -- "$tmp" "$receipt"
   ) || { rm -f -- "$tmp"; return 1; }
 }
 
-record_retirement_receipt_valid() {  # <receipt> <slot> <owners> <status>
-  local receipt=$1 slot=$2 owners=$3 status=$4
+record_retirement_receipt_valid() {  # <receipt> <slot> <owners> <spawn-gen> <status> <runtime-state>
+  local receipt=$1 slot=$2 owners=$3 spawn_gen=$4 status=$5 runtime_state=$6
   [ -f "$receipt" ] && [ ! -L "$receipt" ] || return 1
-  [ "$(grep -cxF 'version=fm-record-retirement-v1' "$receipt")" -eq 1 ] \
+  [ "$(grep -cxF 'version=fm-record-retirement-v2' "$receipt")" -eq 1 ] \
     && [ "$(grep -cxF "task_id=$ID" "$receipt")" -eq 1 ] \
+    && [ "$(grep -cxF "spawn_gen=$spawn_gen" "$receipt")" -eq 1 ] \
     && [ "$(grep -c '^retired_epoch=[0-9][0-9]*$' "$receipt")" -eq 1 ] \
     && [ "$(grep -cxF 'reason=reused-treehouse-slot' "$receipt")" -eq 1 ] \
     && [ "$(grep -cxF "slot=$slot" "$receipt")" -eq 1 ] \
     && [ "$(grep -cxF "active_owners=$owners" "$receipt")" -eq 1 ] \
-    && [ "$(grep -cxF "status=$status" "$receipt")" -eq 1 ]
+    && [ "$(grep -cxF "status=$status" "$receipt")" -eq 1 ] \
+    && [ "$(grep -cxF "runtime_state=$runtime_state" "$receipt")" -eq 1 ]
 }
 
 retire_record_only() {
   local source_meta=$META wt project slot other other_id other_path other_slot other_project
-  local owners="" retired receipt sidecars endpoint_state busy_gen
-  if [ -f "$RETIRE_META" ] && [ ! -L "$RETIRE_META" ]; then source_meta=$RETIRE_META; fi
+  local owners="" retired receipt sidecars endpoint_state busy_gen spawn_gen active_spawn_gen
+  local resuming=0 skip_runtime=0 runtime_state=retired receipt_spawn
+  if [ -f "$RETIRE_META" ] && [ ! -L "$RETIRE_META" ]; then
+    source_meta=$RETIRE_META
+    resuming=1
+  fi
+  spawn_gen=$(record_spawn_gen "$source_meta") || {
+    echo "REFUSED: record-only retirement requires one exact spawn generation; nothing was changed" >&2
+    return 1
+  }
   wt=$(fm_meta_get "$source_meta" worktree)
   project=$(fm_meta_get "$source_meta" project)
   if ! is_treehouse_pool_slot "$project" "$wt"; then
@@ -557,36 +600,72 @@ retire_record_only() {
     echo "REFUSED: record-only retirement cannot canonicalize its recorded pool slot; nothing was changed" >&2
     return 1
   }
-  for other in "$STATE"/*.meta; do
-    [ -f "$other" ] && [ ! -L "$other" ] || continue
-    [ "$other" != "$META" ] || continue
-    other_path=$(fm_meta_get "$other" worktree)
-    [ -n "$other_path" ] || continue
-    other_slot=$(CDPATH='' cd -- "$other_path" 2>/dev/null && pwd -P) || continue
-    [ "$other_slot" = "$slot" ] || continue
-    other_project=$(fm_meta_get "$other" project)
-    is_treehouse_pool_slot "$other_project" "$other_path" || continue
-    other_id=$(basename "$other" .meta)
-    record_proved_active "$other" "$other_id" || continue
-    owners="$owners${owners:+,}$other_id"
-  done
-  if [ -z "$owners" ]; then
-    echo "REFUSED: no positively proved active record claims pool slot $slot; nothing was changed" >&2
-    return 1
-  fi
-  if ! record_proved_finished "$source_meta" "$ID"; then
-    echo "REFUSED: task $ID needs both a closed backlog row and a scout report or landed ship work; nothing was changed" >&2
-    return 1
-  fi
-  endpoint_state=$(record_endpoint_state "$source_meta" "$ID")
-  case "$endpoint_state" in
-    dead|missing) ;;
-    *)
-      echo "REFUSED: task $ID's endpoint reads '$endpoint_state', not confidently gone; nothing was changed" >&2
-      return 1
-      ;;
-  esac
   retired="$STATE/retired"
+  receipt="$retired/$ID.receipt"
+  if [ "$resuming" = 1 ]; then
+    # The destructive authorization was consumed when the metadata moved. A
+    # retry completes that exact incarnation without depending on a claimant
+    # that may legitimately have finished or disappeared in the meantime.
+    if [ -f "$receipt" ] && [ ! -L "$receipt" ]; then
+      receipt_spawn=$(fm_meta_get "$receipt" spawn_gen)
+      [ -z "$receipt_spawn" ] || [ "$receipt_spawn" = "$spawn_gen" ] || {
+        echo "REFUSED: retirement receipt belongs to another spawn generation; nothing was changed" >&2
+        return 1
+      }
+      owners=$(fm_meta_get "$receipt" active_owners)
+      case "$owners" in *[!A-Za-z0-9._,-]*) owners= ;; esac
+    elif [ -e "$receipt" ] || [ -L "$receipt" ]; then
+      echo "REFUSED: retirement receipt is not a regular file; nothing was changed" >&2
+      return 1
+    fi
+    [ -n "$owners" ] || owners=unavailable-after-interruption
+    if [ -e "$META" ] || [ -L "$META" ]; then
+      [ -f "$META" ] && [ ! -L "$META" ] || {
+        echo "REFUSED: newer same-id metadata is unsafe; nothing was changed" >&2
+        return 1
+      }
+      active_spawn_gen=$(record_spawn_gen "$META") || {
+        echo "REFUSED: newer same-id metadata has no exact spawn generation; nothing was changed" >&2
+        return 1
+      }
+      [ "$active_spawn_gen" != "$spawn_gen" ] || {
+        echo "REFUSED: active and archived records claim the same spawn generation; nothing was changed" >&2
+        return 1
+      }
+      skip_runtime=1
+      runtime_state=preserved-new-incarnation
+    fi
+  else
+    for other in "$STATE"/*.meta; do
+      [ -f "$other" ] && [ ! -L "$other" ] || continue
+      [ "$other" != "$META" ] || continue
+      other_path=$(fm_meta_get "$other" worktree)
+      [ -n "$other_path" ] || continue
+      other_slot=$(CDPATH='' cd -- "$other_path" 2>/dev/null && pwd -P) || continue
+      [ "$other_slot" = "$slot" ] || continue
+      other_project=$(fm_meta_get "$other" project)
+      is_treehouse_pool_slot "$other_project" "$other_path" || continue
+      other_id=$(basename "$other" .meta)
+      record_proved_active "$other" "$other_id" || continue
+      owners="$owners${owners:+,}$other_id"
+    done
+    if [ -z "$owners" ]; then
+      echo "REFUSED: no positively proved active record claims pool slot $slot; nothing was changed" >&2
+      return 1
+    fi
+    if ! record_proved_finished "$source_meta" "$ID"; then
+      echo "REFUSED: task $ID needs both a closed backlog row and a scout report or landed ship work; nothing was changed" >&2
+      return 1
+    fi
+    endpoint_state=$(record_endpoint_state "$source_meta" "$ID")
+    case "$endpoint_state" in
+      dead|missing) ;;
+      *)
+        echo "REFUSED: task $ID's endpoint reads '$endpoint_state', not confidently gone; nothing was changed" >&2
+        return 1
+        ;;
+    esac
+  fi
   if [ -e "$retired" ] || [ -L "$retired" ]; then
     [ -d "$retired" ] && [ ! -L "$retired" ] || {
       echo "REFUSED: retirement audit directory is unsafe at $retired; nothing was changed" >&2
@@ -601,21 +680,24 @@ retire_record_only() {
   else
     mkdir -m 700 -- "$sidecars" || return 1
   fi
-  receipt="$retired/$ID.receipt"
-  if ! record_retirement_receipt_write "$receipt" "$slot" "$owners" prepared \
-     || ! record_retirement_receipt_valid "$receipt" "$slot" "$owners" prepared; then
-    echo "error: retirement receipt could not be safely prepared at $receipt" >&2
-    return 1
-  fi
-  if [ "$source_meta" = "$META" ]; then
+  if [ "$resuming" = 0 ]; then
     [ ! -e "$RETIRE_META" ] && [ ! -L "$RETIRE_META" ] || return 1
+    # This rename is the retirement boundary. No receipt or sidecar can make a
+    # still-active record appear retired before its identity leaves state/*.meta.
     mv -- "$META" "$RETIRE_META" || return 1
     source_meta=$RETIRE_META
   fi
-  busy_gen=$(fm_meta_get "$source_meta" busy_gen)
-  fm_task_retire_runtime "$STATE" "$ID" "$SCRIPT_DIR" archive "$sidecars" "$busy_gen" || return 1
-  if ! record_retirement_receipt_write "$receipt" "$slot" "$owners" complete \
-     || ! record_retirement_receipt_valid "$receipt" "$slot" "$owners" complete; then
+  if ! record_retirement_receipt_write "$receipt" "$slot" "$owners" "$spawn_gen" prepared "$runtime_state" \
+     || ! record_retirement_receipt_valid "$receipt" "$slot" "$owners" "$spawn_gen" prepared "$runtime_state"; then
+    echo "error: retirement receipt could not be safely prepared at $receipt" >&2
+    return 1
+  fi
+  if [ "$skip_runtime" = 0 ]; then
+    busy_gen=$(fm_meta_get "$source_meta" busy_gen)
+    fm_task_retire_runtime "$STATE" "$ID" "$SCRIPT_DIR" archive "$sidecars" "$busy_gen" || return 1
+  fi
+  if ! record_retirement_receipt_write "$receipt" "$slot" "$owners" "$spawn_gen" complete "$runtime_state" \
+     || ! record_retirement_receipt_valid "$receipt" "$slot" "$owners" "$spawn_gen" complete "$runtime_state"; then
     echo "error: retirement receipt could not be completed at $receipt" >&2
     return 1
   fi
