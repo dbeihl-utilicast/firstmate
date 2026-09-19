@@ -24,7 +24,8 @@
 #
 # Layout under <state-dir>:
 #   <task>.inbox/NNN.msg       one durable steer, numeric sequence, atomic rename
-#   <task>.inbox/handled/      atomic take moves one record here as acknowledgement
+#   <task>.inbox/claimed/      live take claims, one claimant directory per taker
+#   <task>.inbox/handled/      completed take acknowledgement records
 #   <task>.inbox/.seq.lock     serializes sequence allocation across writers
 #                              (the session and the away daemon)
 #   <task>.inbox/.ring-state   watcher re-ring ladder: "<msg>\t<count>\t<epoch>"
@@ -41,10 +42,13 @@
 #
 # Sequence numbers are never reused within a task: allocation scans both the
 # inbox root and handled/, so a message is processed at most once per worker
-# lifetime even if every doorbell is duplicated. fm_task_inbox_take moves the
-# lowest unhandled record into handled/ before returning its body, so concurrent
-# takers have exactly one winner. Concurrent writers serialize on .seq.lock;
-# the worst racing outcome is ordering, never loss.
+# lifetime even if every doorbell is duplicated. fm_task_inbox_claim moves the
+# lowest unhandled record into a claimant directory before it is read, and
+# fm_task_inbox_complete_claim moves it into handled/ only after its body was
+# returned. A later take returns an abandoned claim to the inbox when its owner
+# is gone or its lease expires, so a taker crash replays rather than loses work.
+# Concurrent writers serialize on .seq.lock; the worst racing outcome is
+# ordering, never loss.
 #
 # Re-ring ladder (fm_task_inbox_due_action): an unhandled message older than
 # FM_TASK_INBOX_GRACE_SECS is due one delivery attempt per grace period; an
@@ -84,6 +88,7 @@ FM_TASK_INBOX_SCHEMA='fm-task-inbox.v1'
 FM_TASK_INBOX_GRACE_DEFAULT=90
 FM_TASK_INBOX_RING_MAX_DEFAULT=3
 FM_TASK_INBOX_LOCK_WAIT_DEFAULT=5
+FM_TASK_INBOX_CLAIM_MAX_DEFAULT=300
 
 fm_task_inbox_grace_secs() {
   local g=${FM_TASK_INBOX_GRACE_SECS:-$FM_TASK_INBOX_GRACE_DEFAULT}
@@ -95,6 +100,12 @@ fm_task_inbox_ring_max() {
   local m=${FM_TASK_INBOX_RING_MAX:-$FM_TASK_INBOX_RING_MAX_DEFAULT}
   case "$m" in ''|*[!0-9]*) m=$FM_TASK_INBOX_RING_MAX_DEFAULT ;; esac
   printf '%s' "$m"
+}
+
+fm_task_inbox_claim_max_secs() {
+  local max=${FM_TASK_INBOX_CLAIM_MAX_SECS:-$FM_TASK_INBOX_CLAIM_MAX_DEFAULT}
+  case "$max" in ''|*[!0-9]*) max=$FM_TASK_INBOX_CLAIM_MAX_DEFAULT ;; esac
+  printf '%s' "$max"
 }
 
 fm_task_inbox_dir() {  # <state-dir> <task-id>
@@ -117,7 +128,8 @@ fm_task_inbox_seq_of() {  # <basename>
 # acknowledged sequence is never reissued. Caller must hold .seq.lock.
 fm_task_inbox_next_seq() {  # <inbox-dir>
   local dir=$1 max=0 d f n
-  for d in "$dir" "$dir/handled"; do
+  for d in "$dir" "$dir/handled" "$dir/claimed"/*; do
+    [ -d "$d" ] || continue
     for f in "$d"/*.msg; do
       [ -e "$f" ] || continue
       n=$(fm_task_inbox_seq_of "${f##*/}") || continue
@@ -229,13 +241,50 @@ fm_task_inbox_write_idempotent() {  # <state-dir> <task-id> <text> [delivery-mod
   printf '%s' "$rec"
 }
 
-# Atomically take the lowest-numbered unhandled record. The successful rename
-# into handled/ is the acknowledgement, and only its winner receives the record
-# path. A concurrent loser retries from the remaining records; no record means
-# there was nothing to take. The caller reads the body only after this succeeds.
-fm_task_inbox_take() {  # <inbox-dir>
-  local dir=$1 f n best='' best_n=0 dest
+# Return abandoned claims to the inbox before selecting new work. A claim is
+# abandoned when its tagged process no longer exists or it exceeds the bounded
+# FM_TASK_INBOX_CLAIM_MAX_SECS lease. Completion and recovery race only through
+# rename: one wins, while the loser sees its source disappear. A late claimant
+# may therefore cause replay after its lease, never silent loss.
+fm_task_inbox_recover_claims() {  # <inbox-dir>
+  local dir=$1 max claim_dir claim pid epoch dest
+  [ -d "$dir/claimed" ] || return 0
+  max=$(fm_task_inbox_claim_max_secs)
+  for claim_dir in "$dir/claimed"/*; do
+    [ -d "$claim_dir" ] || continue
+    claim=${claim_dir##*/}
+    pid=${claim%%-*}
+    epoch=${claim#*-}
+    epoch=${epoch%%-*}
+    case "$pid" in ''|*[!0-9]*) continue ;; esac
+    case "$epoch" in ''|*[!0-9]*) continue ;; esac
+    for claim in "$claim_dir"/*.msg; do
+      [ -f "$claim" ] || continue
+      if kill -0 "$pid" 2>/dev/null && [ "$(fm_path_age "$claim_dir")" -lt "$max" ]; then
+        continue
+      fi
+      dest="$dir/${claim##*/}"
+      [ ! -e "$dest" ] && [ ! -L "$dest" ] || continue
+      if mv "$claim" "$dest" 2>/dev/null; then
+        rmdir "$claim_dir" 2>/dev/null || true
+      elif [ -e "$claim" ]; then
+        return 1
+      fi
+    done
+  done
+}
+
+# Atomically claim the lowest-numbered unhandled record into <claimant>'s
+# directory. Only the rename winner receives a claimed path. The caller must
+# print the body from that path and complete it separately after successful
+# output; no record means there was nothing to claim.
+fm_task_inbox_claim() {  # <inbox-dir> <claimant>
+  local dir=$1 claimant=$2 f n best='' best_n=0 claim_dir dest
+  case "$claimant" in *[!0-9-]*|*-|'' ) return 1 ;; esac
   [ -d "$dir" ] && [ -d "$dir/handled" ] || return 1
+  mkdir -p "$dir/claimed/$claimant" || return 1
+  fm_task_inbox_recover_claims "$dir" || return 1
+  claim_dir="$dir/claimed/$claimant"
   while :; do
     best=''
     best_n=0
@@ -247,18 +296,30 @@ fm_task_inbox_take() {  # <inbox-dir>
         best_n=$n
       fi
     done
-    [ -n "$best" ] || return 1
-    dest="$dir/handled/${best##*/}"
+    [ -n "$best" ] || { rmdir "$claim_dir" 2>/dev/null || true; return 1; }
+    dest="$claim_dir/${best##*/}"
     [ ! -e "$dest" ] && [ ! -L "$dest" ] || return 1
     if mv "$best" "$dest" 2>/dev/null; then
       printf '%s' "$dest"
       return 0
     fi
-    # A second taker may have won the rename. Retry only when this candidate
-    # disappeared; a surviving record signals an actual filesystem failure.
+    # A concurrent claimant may have won. Retry only when its source vanished.
     [ -e "$best" ] || continue
     return 1
   done
+}
+
+# Complete one successfully read claim by moving it to handled/. This is the
+# acknowledgement step, intentionally after body output so a crashed claimant
+# leaves a recoverable claim rather than hiding an unacted instruction.
+fm_task_inbox_complete_claim() {  # <inbox-dir> <claimed-record>
+  local dir=$1 claim=$2 dest
+  case "$claim" in "$dir/claimed/"*/*.msg) ;; *) return 1 ;; esac
+  [ -f "$claim" ] || return 1
+  dest="$dir/handled/${claim##*/}"
+  [ ! -e "$dest" ] && [ ! -L "$dest" ] || return 1
+  mv "$claim" "$dest" || return 1
+  rmdir "${claim%/*}" 2>/dev/null || true
 }
 
 # The exact enqueued text back out of a record.
@@ -289,7 +350,7 @@ fm_task_inbox_doorbell_line() {  # <record-path>
   esac
   quoted=$(printf '%s' "$abs" | sed "s/'/'\\\\''/g")
   take_bin=$(printf '%s/fm-inbox-take.sh' "$_FM_TASK_INBOX_LIB_DIR" | sed "s/'/'\\\\''/g")
-  printf ": Firstmate instruction waiting: run '%s' '%s' to atomically take the next instruction, act on its printed body, then repeat until empty. Fallback: list '%s'/*.msg, read and act in numeric order, then mv each handled file to '%s'/handled/." \
+  printf ": Firstmate instruction waiting: run '%s' '%s' to claim and complete the next instruction safely, act on its printed body, then repeat until empty. A dead or expired claim replays. Fallback: list '%s'/*.msg, read and act in numeric order, then mv each handled file to '%s'/handled/." \
     "$take_bin" "$quoted" "$quoted" "$quoted"
 }
 

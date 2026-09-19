@@ -227,7 +227,7 @@ IFS= read -r -d '' INBOX_SECTION <<EOF || true
 # Firstmate instruction inbox
 Firstmate steers you through durable message files in $INBOX_DIR.
 When a terminal message says an instruction is waiting there - and at any natural checkpoint when you are unsure - run \`$INBOX_TAKE $INBOX_DIR\` to atomically take the next instruction, act on its printed body, and repeat until it finds no message.
-The take moves the record into \`handled/\` as its acknowledgement, so a successful take is never re-rung. For manual recovery only, list $INBOX_DIR/*.msg, read and act on each in numeric order, then move it with \`mv $INBOX_DIR/NNN.msg $INBOX_DIR/handled/\`. An empty or absent inbox needs no action.
+The take claims the record, prints its body, then moves it into \`handled/\` as acknowledgement; if its claimant dies or expires, the next take replays it. For manual recovery only, list $INBOX_DIR/*.msg, read and act on each in numeric order, then move it with \`mv $INBOX_DIR/NNN.msg $INBOX_DIR/handled/\`. An empty or absent inbox needs no action.
 EOF
 INBOX_SECTION=${INBOX_SECTION%$'\n'}
 

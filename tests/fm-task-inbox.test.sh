@@ -322,20 +322,52 @@ test_idempotent_write_dedups_exact_body() {
   pass "inbox: the idempotent enqueue dedups only an exact still-unhandled re-run"
 }
 
-test_take_preserves_unread_before_invocation() {
-  local state rec out
-  state="$TMP_ROOT/take-crash-before/state"; mkdir -p "$state"
-  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "survives before take")
-  # A worker dying before it invokes the take command leaves the durable record
-  # untouched; there is no pre-take acknowledgement side effect.
-  out="$TMP_ROOT/take-crash-before/out"
-  if "$ROOT/bin/fm-inbox-take.sh" "$state/missing.inbox" > "$out" 2>/dev/null; then
-    fail "taking an absent inbox should not succeed"
-  fi
-  [ -f "$rec" ] || fail "a pre-take crash simulation moved the unread record"
-  [ ! -e "$state/t1.inbox/handled/001.msg" ] \
-    || fail "a pre-take crash simulation acknowledged the record"
-  pass "inbox take: a crash before take leaves the message unread"
+test_take_recovers_a_taker_killed_after_claim() {
+  local state rec fakebin out rc real_mv
+  state="$TMP_ROOT/take-crash-after-claim/state"; mkdir -p "$state"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "survives a dead taker")
+  fakebin="$TMP_ROOT/take-crash-after-claim/fakebin"; mkdir -p "$fakebin"
+  real_mv=$(command -v mv)
+  cat > "$fakebin/mv" <<'SH'
+#!/usr/bin/env bash
+set -u
+if [[ "${1:-}" == *.msg && "${2:-}" == */claimed/* ]]; then
+  "$FM_REAL_MV" "$@"
+  kill -KILL "$PPID"
+  exit 99
+fi
+exec "$FM_REAL_MV" "$@"
+SH
+  chmod +x "$fakebin/mv"
+  out="$TMP_ROOT/take-crash-after-claim/out"
+  rc=0
+  PATH="$fakebin:$PATH" FM_REAL_MV="$real_mv" "$ROOT/bin/fm-inbox-take.sh" "$state/t1.inbox" > "$out" 2>/dev/null || rc=$?
+  [ "$rc" -ne 0 ] || fail "fault injection should kill the taker after its claim"
+  [ ! -e "$rec" ] || fail "the claimed record remained in the inbox after the injected crash"
+  find "$state/t1.inbox/claimed" -name 001.msg -type f | grep -q . \
+    || fail "the injected crash did not leave a recoverable claim"
+  out=$("$ROOT/bin/fm-inbox-take.sh" "$state/t1.inbox") \
+    || fail "the next taker did not recover the abandoned claim"
+  [ "$out" = "survives a dead taker" ] || fail "recovered take returned the wrong body: $out"
+  [ -f "$state/t1.inbox/handled/001.msg" ] \
+    || fail "the recovered take did not complete the original record"
+  [ ! -e "$rec" ] || fail "the recovered take left the record pending"
+  pass "inbox take: a taker killed after claim is recovered and replayed"
+}
+
+test_take_recovers_an_expired_live_claim() {
+  local state rec claim out
+  state="$TMP_ROOT/take-expired-claim/state"; mkdir -p "$state"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "expired claimant replay")
+  claim="$state/t1.inbox/claimed/$$-0-1"
+  mkdir -p "$claim"
+  mv "$rec" "$claim/001.msg"
+  out=$(FM_TASK_INBOX_CLAIM_MAX_SECS=0 "$ROOT/bin/fm-inbox-take.sh" "$state/t1.inbox") \
+    || fail "the next taker did not reclaim an expired live claim"
+  [ "$out" = "expired claimant replay" ] || fail "expired claim returned the wrong body: $out"
+  [ -f "$state/t1.inbox/handled/001.msg" ] \
+    || fail "the expired claim was not completed after replay"
+  pass "inbox take: an expired claim replays even while its tagged process lives"
 }
 
 test_take_uses_lowest_sequence() {
@@ -761,7 +793,8 @@ test_doorbell_is_a_shell_noop
 test_doorbell_rejects_terminal_controls
 test_ring_skips_dead_agent
 test_idempotent_write_dedups_exact_body
-test_take_preserves_unread_before_invocation
+test_take_recovers_a_taker_killed_after_claim
+test_take_recovers_an_expired_live_claim
 test_take_uses_lowest_sequence
 test_concurrent_takes_move_once
 test_idempotent_write_follows_concurrent_ack
