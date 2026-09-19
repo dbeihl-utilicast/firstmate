@@ -123,7 +123,8 @@ case "${1:-}" in
       esac
     done
     printf '%s\n' "$name" >> "$D/windows"
-    printf '@1\n'
+    printf 'zsh' > "$D/command"
+    printf '@%s\n' "$(wc -l < "$D/windows" | tr -d ' ')"
     exit 0 ;;
   set-window-option) exit 0 ;;
 esac
@@ -200,6 +201,8 @@ run_control() {  # <case-dir> <args...>
     FM_FAKE_TRACE_RELEASE="${FM_FAKE_TRACE_RELEASE:-}" \
     FM_FAKE_META_WRITER_READY="${FM_FAKE_META_WRITER_READY:-}" \
     FM_FAKE_TRACE_EXPORTED="${FM_FAKE_TRACE_EXPORTED:-}" \
+    FM_TEST_RELAUNCH_ENDPOINT_READY="${FM_TEST_RELAUNCH_ENDPOINT_READY:-}" \
+    FM_TEST_RELAUNCH_ENDPOINT_RELEASE="${FM_TEST_RELAUNCH_ENDPOINT_RELEASE:-}" \
     "$CONTROL" "$@" 2>&1
 }
 
@@ -1689,6 +1692,40 @@ EOF
   pass "missing endpoint: pipeline-owned head is recovered in place without moving it"
 }
 
+test_missing_endpoint_creation_survives_process_death_without_duplication() {
+  local dir id ready release spawn_pid job_pid out rc creates
+  id=rl-missing-crash
+  dir=$(new_case missing-crash "$id")
+  add_ship_task "$dir" "$id" claude
+  : > "$dir/fake/windows"
+  printf 'schema=prior-custody\n' > "$dir/home/state/$id.custody"
+  ready="$dir/endpoint-ready"
+  release="$dir/endpoint-release"
+
+  FM_TEST_RELAUNCH_ENDPOINT_READY="$ready" FM_TEST_RELAUNCH_ENDPOINT_RELEASE="$release" \
+    run_control "$dir" "$id" relaunch --note "recover vanished session" > "$dir/first.out" &
+  job_pid=$!
+  for _ in $(seq 1 200); do [ -s "$ready" ] && break; /bin/sleep 0.01; done
+  [ -s "$ready" ] || fail "replacement did not reach the post-creation crash point"
+  spawn_pid=$(cat "$ready")
+  kill -KILL "$spawn_pid" 2>/dev/null || fail "could not kill replacement between endpoint creation and publication"
+  wait "$job_pid" 2>/dev/null || true
+  [ -f "$dir/home/state/$id.relaunch-endpoint" ] \
+    || fail "process death lost the only record of the replacement endpoint"
+  assert_grep 'schema=prior-custody' "$dir/home/state/$id.custody" \
+    "process death replaced the original custody record"
+
+  out=$(run_control "$dir" "$id" relaunch --note "retry vanished session recovery"); rc=$?
+  expect_code 0 "$rc" "retry should reconcile the recorded replacement endpoint"$'\n'"$out"
+  creates=$(grep -c '^fm-rl-missing-crash$' "$dir/fake/windows" 2>/dev/null || true)
+  [ "$creates" = 1 ] || fail "retry created $creates replacement endpoints for one copy"
+  [ ! -e "$dir/home/state/$id.relaunch-endpoint" ] \
+    || fail "published retry left a stale replacement-endpoint journal"
+  assert_grep 'schema=prior-custody' "$dir/home/state/$id.custody" \
+    "successful retry replaced the original custody record"
+  pass "missing endpoint: process death is reconciled without a second worker"
+}
+
 test_missing_clean_endpoint_recreates_the_endpoint_against_the_recorded_copy() {
   local dir out rc head_before
   dir=$(new_case missing-clean rl-missing-clean)
@@ -1819,6 +1856,7 @@ test_spawn_relaunch_refuses_an_unrecorded_task
 test_spawn_relaunch_refuses_a_pane_outside_the_worktree
 test_missing_endpoint_with_dirty_copy_recovers_in_place
 test_missing_endpoint_with_pipeline_only_head_recovers_in_place
+test_missing_endpoint_creation_survives_process_death_without_duplication
 test_missing_clean_endpoint_recreates_the_endpoint_against_the_recorded_copy
 test_missing_endpoint_with_unreadable_validation_refuses_before_any_note
 test_relaunch_reverifies_an_already_in_flight_item_instead_of_rewriting_it
