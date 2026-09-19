@@ -447,6 +447,9 @@ fm_task_inbox_body() {  # <record-path>
 # the pane's line discipline.
 fm_task_inbox_doorbell_line() {  # <record-path>
   local dir=${1%/*} abs quoted take_bin LC_ALL=C
+  case "$dir" in
+    */claimed/*) dir=${dir%/claimed/*} ;;
+  esac
   abs=$(cd "$dir" 2>/dev/null && pwd) || abs=$dir
   case "$abs" in
     *[![:print:]]*) return 1 ;;

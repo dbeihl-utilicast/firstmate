@@ -116,6 +116,24 @@ record_body() {  # <record>
   bash -c '. "$1"; fm_task_inbox_body "$2"' _ "$ROOT/bin/fm-task-inbox-lib.sh" "$2"
 }
 
+test_resend_of_claimed_record_rings_inbox_root() {
+  local dir err typed claimed
+  dir=$(setup_case dedupheld); err="$dir/send.err"
+  run_send "$dir" "$err" -- t1 "hold this" || fail "the first send should succeed"
+  claimed="$dir/home/state/t1.inbox/claimed/taker1"
+  mkdir -p "$claimed"
+  mv "$dir/home/state/t1.inbox/001.msg" "$claimed/001.msg"
+  run_send "$dir" "$err" -- t1 "hold this" || fail "a resend of a claimed body should succeed"
+  [ ! -e "$dir/home/state/t1.inbox/002.msg" ] || fail "a resend of a claimed body must not enqueue a duplicate"
+  typed=$(cat "$dir/send.log")
+  assert_contains "$typed" "fm-inbox-take.sh' '$dir/home/state/t1.inbox'" \
+    "the doorbell should name the inbox root"
+  case "$typed" in
+    *"/claimed/"*) fail "the doorbell must not name a claimant directory:"$'\n'"$typed" ;;
+  esac
+  pass "fm-send inbox: a claimed-record dedup rings the canonical inbox root"
+}
+
 test_text_steer_rides_inbox() {
   local dir err rc rec body typed
   dir=$(setup_case rides); err="$dir/send.err"
@@ -354,6 +372,7 @@ test_unwritable_inbox_fails_loudly() {
   pass "fm-send inbox: an unwritable record is a loud local failure that leaves no false expectation"
 }
 
+test_resend_of_claimed_record_rings_inbox_root
 test_text_steer_rides_inbox
 test_opt_in_record_receipt
 test_multiline_steer_is_legal

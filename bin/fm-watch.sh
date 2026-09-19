@@ -1613,7 +1613,7 @@ pr_refresh_record_state() {  # <task-id> <record>; prints pending|resolved|missi
   dir="$STATE/$id.inbox"
   if [ -f "$dir/handled/$record" ]; then
     printf resolved
-  elif [ -f "$dir/$record" ]; then
+  elif [ -f "$dir/$record" ] || compgen -G "$dir/claimed/*/$record" >/dev/null; then
     printf pending
   # The acknowledgement move may land between the two reads.
   elif [ -f "$dir/handled/$record" ]; then
