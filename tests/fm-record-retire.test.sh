@@ -424,6 +424,28 @@ EOF
   expect_code 1 "$rc" "a merged block that is not pull_request must not retire"
   [ -f "$dir/home/state/old.meta" ] || fail "a non-pull_request block retired the record"
 
+  cat > "$dir/pr-number-outside.out" <<'EOF'
+head_ref:
+  number: 7
+pull_request:
+  state: merged
+EOF
+  rc=0
+  FM_PR_VIEW_FIXTURE="$dir/pr-number-outside.out" run_retire "$dir" >/dev/null 2>&1 || rc=$?
+  expect_code 1 "$rc" "a number found only outside the pull_request block must not retire"
+  [ -f "$dir/home/state/old.meta" ] || fail "an out-of-scope number retired the record"
+
+  cat > "$dir/pr-state-outside.out" <<'EOF'
+pull_request:
+  number: 7
+head_ref:
+  state: merged
+EOF
+  rc=0
+  FM_PR_VIEW_FIXTURE="$dir/pr-state-outside.out" run_retire "$dir" >/dev/null 2>&1 || rc=$?
+  expect_code 1 "$rc" "a state found only outside the pull_request block must not retire"
+  [ -f "$dir/home/state/old.meta" ] || fail "an out-of-scope state retired the record"
+
   cat > "$dir/pr-dup-state-last.out" <<'EOF'
 pull_request:
   number: 7
