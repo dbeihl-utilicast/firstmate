@@ -121,6 +121,22 @@ test_record_only_retirement_ignores_finished_claimant() {
   pass "record retirement: only an active claimant proves slot ownership"
 }
 
+test_retired_secondmate_is_excluded_from_broadcast_enumeration() {
+  local dir="$TMP_ROOT/secondmate-broadcast" out
+  make_case "$dir"
+  fm_write_meta "$dir/home/state/destination.meta" \
+    "window=fm-destination" "kind=secondmate" "home=$dir/destination-home"
+  mkdir -p "$dir/home/state/retired"
+  mv "$dir/home/state/old.meta" "$dir/home/state/retired/old.meta"
+  out=$(FM_HOME="$dir/home" bash -c '. "$1/bin/fm-ff-lib.sh"; live_secondmate_meta_records "$2"' _ "$ROOT" "$dir/home/state")
+  assert_contains "$out" "destination|$dir/destination-home|fm-destination" \
+    "the live destination should be enumerated once"
+  assert_not_contains "$out" "old|" "a retired lane must not be enumerated for broadcast"
+  pass "record retirement: a moved lane has one live broadcast destination"
+}
+
+test_retired_secondmate_is_excluded_from_broadcast_enumeration
+
 test_record_only_retirement_preserves_reused_slot
 test_record_only_retirement_moves_polling_sidecars
 test_record_only_retirement_ignores_finished_claimant

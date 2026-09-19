@@ -440,7 +440,7 @@ record_proved_finished() {
 }
 
 retire_record_only() {
-  local kind wt project slot other other_id other_path other_slot owners="" retired receipt sidecars name moved=""
+  local kind wt project slot other other_id other_path other_slot owners="" retired receipt sidecars name restored moved=""
   kind=$(fm_meta_get "$META" kind)
   [ -n "$kind" ] || kind=ship
   wt=$(fm_meta_get "$META" worktree)
@@ -494,14 +494,14 @@ retire_record_only() {
     "$ID.turn-ended" "$ID.progress" ".lease-$ID"; do
     [ -e "$STATE/$name" ] || [ -L "$STATE/$name" ] || continue
     if ! mv -- "$STATE/$name" "$sidecars/$name"; then
-      for name in $moved; do mv -- "$sidecars/$name" "$STATE/$name" || true; done
+      for restored in $moved; do mv -- "$sidecars/$restored" "$STATE/$restored" || true; done
       rmdir "$sidecars" 2>/dev/null || true
       return 1
     fi
     moved="$moved $name"
   done
   if ! mv -- "$META" "$retired/$ID.meta"; then
-    for name in $moved; do mv -- "$sidecars/$name" "$STATE/$name" || true; done
+    for restored in $moved; do mv -- "$sidecars/$restored" "$STATE/$restored" || true; done
     rmdir "$sidecars" 2>/dev/null || true
     return 1
   fi
