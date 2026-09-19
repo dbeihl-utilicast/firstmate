@@ -1,0 +1,20 @@
+ok - fm_backend_tmux_agent_state: separates live, dead, missing, ambiguous, and unreadable
+ok - fm_backend_tmux_agent_state: rejects malformed targets before probing tmux
+ok - fm_backend_agent_state: routes tmux/Herdr and keeps Zellij unverified
+ok - sweep: a confirmed-dead secondmate endpoint is killed and respawned
+ok - sweep: an already-live secondmate is untouched and distinguishable in verbose diagnostics
+ok - sweep: an authoritatively missing Pi secondmate window is relaunched
+ok - sweep: an authoritatively missing pi-signed secondmate window is relaunched
+ok - sweep: an existing ambiguous Pi process prevents duplicate recovery
+ok - sweep: transient target unreadability never licenses recovery
+ok - sweep: failed relaunch diagnostics distinguish a confidently missing endpoint
+ok - sweep: an unverified harness blocks recovery with a concrete diagnostic
+ok - sweep: idempotent by construction - a live secondmate is never re-touched on a later run
+not ok - a stopped mate should be reported as held down (missing: 'secondmate sm1 stopped by the captain')
+--- output ---
+BOOTSTRAP_INFO: crew harness override active: codex
+BOOTSTRAP_INFO: tasks-axi available
+BOOTSTRAP_INFO: secondmate sm1 relaunched after recorded endpoint confidently missing (backend=tmux)
+BOOTSTRAP_INFO: secondmate sm2 relaunched after recorded endpoint confidently missing (backend=tmux)
+SECONDMATE_SYNC: secondmate sm1: skipped: primary default-branch commit cannot be resolved
+SECONDMATE_SYNC: secondmate sm2: skipped: primary default-branch commit cannot be resolved
