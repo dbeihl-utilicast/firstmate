@@ -421,7 +421,7 @@ FM_LOCK_LOG_PREFIX=teardown
 
 retire_sidecars() {
   local sidecars="$STATE/retired/$ID.sidecars" name
-  mkdir -p -m 700 -- "$sidecars" || return 1
+  mkdir -p -- "$sidecars" && chmod 700 -- "$sidecars" || return 1
   for name in "$ID.check.sh" "$ID.check-trust" "$ID.pr-poll" "$ID.pr-poll-registration" \
     "$ID.pr-poll-retirement" "$ID.pr-poll-rearm-notified" "$ID.inbox" \
     "$ID.turn-ended" "$ID.progress" ".lease-$ID"; do
