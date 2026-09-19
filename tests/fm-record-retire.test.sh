@@ -350,6 +350,25 @@ EOF
   expect_code 1 "$rc" "a ship report with a closed-unmerged PR must not retire"
   [ -f "$dir/home/state/old.meta" ] || fail "a closed-unmerged ship record was retired from a report"
 
+  cat > "$dir/pr-spoof.out" <<'EOF'
+pull_request:
+  number: 63
+  title: "docs: explain why state: merged is not proof"
+  state: open
+  author: dbeihl-utilicast
+  draft: yes
+  merged: no
+  body: |
+    Notes for reviewers.
+    state: merged
+  state: merged
+  checks: "1 passed, 0 failed, 1 total"
+EOF
+  rc=0
+  FM_PR_VIEW_FIXTURE="$dir/pr-spoof.out" run_retire "$dir" >/dev/null 2>&1 || rc=$?
+  expect_code 1 "$rc" "an open PR whose text contains state: merged must not retire"
+  [ -f "$dir/home/state/old.meta" ] || fail "a spoofed open ship record was retired"
+
   cat > "$dir/pr-merged.out" <<'EOF'
 pull_request:
   number: 60
