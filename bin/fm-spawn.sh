@@ -1278,6 +1278,25 @@ ARG3=
 FIRSTMATE_HOME=
 RAW_LAUNCH=0
 
+# Record the exact copy before freshening a pooled slot or recreating an absent
+# endpoint. The record is diagnostic evidence, never authorization to discard.
+record_custody_preflight() {  # <worktree> [task-meta]
+  local worktree=$1 meta=${2:-} status branch head validation_head
+  status=$(git -C "$worktree" -c core.quotePath=false status --porcelain) || return 1
+  branch=$(git -C "$worktree" symbolic-ref --quiet --short HEAD 2>/dev/null || printf detached)
+  head=$(git -C "$worktree" rev-parse --verify HEAD 2>/dev/null || printf unborn)
+  validation_head=
+  [ -z "$meta" ] || validation_head=$(fm_meta_get "$meta" pipeline_owned_head)
+  CUSTODY_DIRTY=no
+  CUSTODY_UNTRACKED=no
+  [ -z "$status" ] || CUSTODY_DIRTY=yes
+  if printf '%s\n' "$status" | grep -q '^?? '; then CUSTODY_UNTRACKED=yes; fi
+  {
+    printf 'branch=%s\nhead=%s\ndirty=%s\nuntracked=%s\nvalidation_head=%s\n' \
+      "$branch" "$head" "$CUSTODY_DIRTY" "$CUSTODY_UNTRACKED" "${validation_head:-none}"
+  } > "$STATE/$ID.custody.tmp" && mv -f "$STATE/$ID.custody.tmp" "$STATE/$ID.custody" || return 1
+}
+
 # --relaunch adoption: every identity axis comes from the task's own validated
 # durable record, never from the command line, so a relaunch can only ever
 # re-launch the task it names. The endpoint identity check is the same shared
@@ -1318,10 +1337,13 @@ if [ "$RELAUNCH" -eq 1 ]; then
     exit 1
   }
   RELAUNCH_STATE=$(fm_backend_agent_state "$BACKEND" "$RELAUNCH_TARGET")
-  [ "$RELAUNCH_STATE" = dead ] || {
-    echo "error: task $ID's endpoint reads '$RELAUNCH_STATE'; a relaunch requires a positively agent-free endpoint (stop the agent first with bin/fm-control.sh $ID exit)" >&2
-    exit 1
-  }
+  case "$RELAUNCH_STATE" in
+    dead|missing) ;;
+    *)
+      echo "error: task $ID's endpoint reads '$RELAUNCH_STATE'; a relaunch requires a positively agent-free endpoint or a positively missing endpoint (stop the agent first with bin/fm-control.sh $ID exit)" >&2
+      exit 1
+      ;;
+  esac
   RELAUNCH_PRIOR_HARNESS=$(fm_meta_get "$RELAUNCH_META" harness)
   KIND=$(fm_meta_get "$RELAUNCH_META" kind)
   [ -n "$KIND" ] || KIND=ship
@@ -1339,6 +1361,20 @@ if [ "$RELAUNCH" -eq 1 ]; then
     PROJ=$(fm_meta_get "$RELAUNCH_META" project)
     [ -n "$PROJ" ] || {
       echo "error: task $ID has no recorded project; refusing to relaunch" >&2
+      exit 1
+    }
+  fi
+  if [ "$RELAUNCH_STATE" = missing ]; then
+    record_custody_preflight "$RELAUNCH_WT" "$RELAUNCH_META" || {
+      echo "error: task $ID's copy cannot be inspected for custody before missing-endpoint recovery" >&2
+      exit 1
+    }
+    [ "$CUSTODY_DIRTY" = no ] || {
+      echo "error: task $ID's endpoint is missing but its copy has uncommitted or untracked bytes; refusing to recreate an endpoint until those bytes are archived or the copy is proven disposable" >&2
+      exit 1
+    }
+    [ "$(fm_meta_get "$RELAUNCH_META" pipeline_owned_head)" = "" ] || {
+      echo "error: task $ID's endpoint is missing but validation owns a recorded head; refusing to recreate an endpoint until that validation result is reconciled" >&2
       exit 1
     }
   fi
@@ -2270,6 +2306,10 @@ spawn_worktree_has_origin_config() {  # <worktree>
 
 freshen_spawn_worktree_base() {  # <worktree>
   local worktree=$1 default target expected actual status
+  record_custody_preflight "$worktree" || {
+    echo "error: could not record custody for pooled worktree '$worktree' before refreshing its base" >&2
+    return 1
+  }
   status=$(git -C "$worktree" -c core.quotePath=false status --porcelain) || {
     echo "error: could not inspect pooled worktree '$worktree' before refreshing its base" >&2
     return 1
@@ -2435,16 +2475,24 @@ fi
 
 W="fm-$ID"
 if [ "$RELAUNCH" -eq 1 ]; then
-  # Adopt the recorded endpoint instead of creating one. This is what keeps a
-  # relaunch a REPLACEMENT rather than a second copy of the task: no new
-  # terminal, no second worktree, and every uncommitted change left exactly
-  # where the previous agent left it.
+  # A positively agent-free endpoint is adopted in place. A positively missing
+  # tmux window cannot be adopted, so recreate only its endpoint against the
+  # exact recorded copy. The control transaction has already captured custody
+  # and refused ambiguous endpoint reads; no fresh worktree is allocated here.
   T=$RELAUNCH_TARGET
-  # A secondmate's home already resolved WT above through the same validation a
-  # fresh secondmate spawn uses; every other kind takes the recorded worktree.
   [ "$KIND" = secondmate ] || WT=$RELAUNCH_WT
-  WT_TARGET=$T
   SES=${T%%:*}
+  if [ "$RELAUNCH_STATE" = missing ]; then
+    [ "$BACKEND" = tmux ] || {
+      echo "error: task $ID's endpoint is positively missing on $BACKEND, but this backend has no verified same-copy endpoint recreation path" >&2
+      exit 1
+    }
+    WID=$(fm_backend_tmux_create_task "$SES" "$W" "$WT") || exit 1
+    T="$SES:$W"
+    WT_TARGET=$WID
+  else
+    WT_TARGET=$T
+  fi
 else
 case "$BACKEND" in
   tmux)
