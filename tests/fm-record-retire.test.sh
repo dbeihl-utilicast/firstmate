@@ -27,11 +27,23 @@ SH
 case "${1:-}" in
   list-panes) printf '%%1\n' ;;
   display-message) printf 'claude\n' ;;
-  list-windows) printf 'fm-destination\n' ;;
+  list-windows) cat "${FM_TMUX_WINDOWS:?}" ;;
 esac
 exit 0
 SH
-  chmod +x "$dir/fakebin/treehouse" "$dir/fakebin/tmux"
+  cat > "$dir/fakebin/tasks-axi" <<'SH'
+#!/usr/bin/env bash
+id=${2:-}
+state_file="${FM_ROW_STATE_DIR:?}/$id"
+[ -f "$state_file" ] || { printf 'code: NOT_FOUND\n'; exit 1; }
+printf '  state: %s\n  held: no\n  blocked: no\n' "$(cat "$state_file")"
+SH
+  chmod +x "$dir/fakebin/treehouse" "$dir/fakebin/tmux" "$dir/fakebin/tasks-axi"
+  printf 'fm-destination\n' > "$dir/tmux.windows"
+  mkdir -p "$dir/rows"
+  printf 'done\n' > "$dir/rows/old"
+  printf 'in_flight\n' > "$dir/rows/destination"
+  printf '%s\n' '# Backlog' > "$dir/home/data/backlog.md"
   fm_write_meta "$dir/home/state/old.meta" \
     "window=fm-old" "endpoint_task_id=old" "worktree=$dir/pool/3/repo" \
     "project=$dir/project" "kind=scout" "mode=no-mistakes" "spawn_gen=old-incarnation"
@@ -45,7 +57,8 @@ run_retire() {
   local dir=$1
   FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$dir/home/state" \
     FM_DATA_OVERRIDE="$dir/home/data" FM_CONFIG_OVERRIDE="$dir/home/config" \
-    FM_TREEHOUSE_CALLS="$dir/treehouse.calls" PATH="$dir/fakebin:$PATH" \
+    FM_TREEHOUSE_CALLS="$dir/treehouse.calls" FM_TMUX_WINDOWS="$dir/tmux.windows" \
+    FM_ROW_STATE_DIR="$dir/rows" PATH="$dir/fakebin:$PATH" \
     "$TEARDOWN" old --retire-record
 }
 
@@ -98,13 +111,81 @@ test_record_only_retirement_moves_polling_sidecars() {
   local dir="$TMP_ROOT/sidecars" rc=0
   make_case "$dir"
   printf '#!/bin/sh\n' > "$dir/home/state/old.check.sh"
+  printf 'done: unread\n' > "$dir/home/state/old.status"
+  printf 'refresh\n' > "$dir/home/state/old.pr-refresh-state"
+  printf 'rounds\n' > "$dir/home/state/old.nm-fix-rounds"
   mkdir -p "$dir/home/state/old.inbox"
   run_retire "$dir" >/dev/null 2>&1 || rc=$?
   expect_code 0 "$rc" "retirement should succeed"
   [ ! -e "$dir/home/state/old.check.sh" ] || fail "a retired identity is still polled"
+  [ ! -e "$dir/home/state/old.status" ] || fail "a retired identity can still ring from unread status"
+  [ ! -e "$dir/home/state/old.pr-refresh-state" ] || fail "a retired identity kept refresh state"
+  [ ! -e "$dir/home/state/old.nm-fix-rounds" ] || fail "a retired identity kept validation state"
   [ ! -e "$dir/home/state/old.inbox" ] || fail "a retired identity kept its inbox"
   [ -f "$dir/home/state/retired/old.sidecars/old.check.sh" ] || fail "retired sidecar lacks audit copy"
-  pass "record retirement: polling and routing sidecars retire with the record"
+  pass "record retirement: polling, status, and routing sidecars retire with the record"
+}
+
+# A closed row is necessary but does not by itself prove that the deliverable
+# exists. This protects against prematurely closed, unlanded work.
+test_record_only_retirement_requires_closed_row_and_deliverable() {
+  local dir="$TMP_ROOT/finished-proof" rc=0
+  make_case "$dir"
+  rm -f "$dir/home/data/old/report.md"
+  run_retire "$dir" >/dev/null 2>&1 || rc=$?
+  expect_code 1 "$rc" "a closed row without landed work or a report must not retire"
+  [ -f "$dir/home/state/old.meta" ] || fail "weak finished proof retired an unlanded record"
+
+  printf 'in_flight\n' > "$dir/rows/old"
+  printf 'report exists but row remains open\n' > "$dir/home/data/old/report.md"
+  rc=0
+  run_retire "$dir" >/dev/null 2>&1 || rc=$?
+  expect_code 1 "$rc" "a report without a closed row must not retire"
+  [ -f "$dir/home/state/old.meta" ] || fail "an open record retired from report presence alone"
+  pass "record retirement: finished proof requires closure and a deliverable"
+}
+
+# The stale record itself must no longer have a live endpoint, even when its
+# backlog and deliverable look complete.
+test_record_only_retirement_refuses_live_retiring_endpoint() {
+  local dir="$TMP_ROOT/live-old" rc=0
+  make_case "$dir"
+  printf '%s\n' fm-old fm-destination > "$dir/tmux.windows"
+  run_retire "$dir" >/dev/null 2>&1 || rc=$?
+  expect_code 1 "$rc" "a live retiring endpoint must not be orphaned"
+  [ -f "$dir/home/state/old.meta" ] || fail "a live endpoint lost its metadata"
+  pass "record retirement: the retiring endpoint must be gone"
+}
+
+# Ownership is positive evidence, not the absence of finished evidence.
+test_record_only_retirement_requires_positive_active_owner() {
+  local dir="$TMP_ROOT/positive-owner" rc=0
+  make_case "$dir"
+  rm -f "$dir/rows/destination"
+  : > "$dir/tmux.windows"
+  run_retire "$dir" >/dev/null 2>&1 || rc=$?
+  expect_code 1 "$rc" "a dead claimant with no backlog row is not an active owner"
+  [ -f "$dir/home/state/old.meta" ] || fail "an unproved claimant authorized retirement"
+  pass "record retirement: replacement ownership is positively proved"
+}
+
+# Recovery must converge after metadata moved but before receipt and sidecar
+# retirement completed.
+test_record_only_retirement_retry_repairs_receipt_and_sidecars() {
+  local dir="$TMP_ROOT/retry" rc=0
+  make_case "$dir"
+  mkdir -p "$dir/home/state/retired/old.sidecars"
+  mv "$dir/home/state/old.meta" "$dir/home/state/retired/old.meta"
+  printf '#!/bin/sh\n' > "$dir/home/state/old.check.sh"
+  printf 'done: unread\n' > "$dir/home/state/old.status"
+  run_retire "$dir" >/dev/null 2>&1 || rc=$?
+  expect_code 0 "$rc" "retry should finish an interrupted record retirement"
+  [ -f "$dir/home/state/retired/old.receipt" ] || fail "retry did not repair the audit receipt"
+  grep -q '^status=complete$' "$dir/home/state/retired/old.receipt" \
+    || fail "retry did not validate a complete receipt"
+  [ ! -e "$dir/home/state/old.check.sh" ] || fail "retry left polling active"
+  [ ! -e "$dir/home/state/old.status" ] || fail "retry left status ringing active"
+  pass "record retirement: retry repairs receipt and completes runtime retirement"
 }
 
 test_record_only_retirement_ignores_finished_claimant() {
@@ -112,6 +193,7 @@ test_record_only_retirement_ignores_finished_claimant() {
   make_case "$dir"
   mkdir -p "$dir/home/data/destination"
   printf 'finished\n' > "$dir/home/data/destination/report.md"
+  printf 'done\n' > "$dir/rows/destination"
   fm_write_meta "$dir/home/state/destination.meta" \
     "window=fm-destination" "endpoint_task_id=destination" "worktree=$dir/pool/3/repo" \
     "project=$dir/project" "kind=scout" "mode=no-mistakes" "spawn_gen=destination-incarnation"
@@ -163,6 +245,10 @@ test_retired_secondmate_is_excluded_from_broadcast_enumeration
 
 test_record_only_retirement_preserves_reused_slot
 test_record_only_retirement_moves_polling_sidecars
+test_record_only_retirement_requires_closed_row_and_deliverable
+test_record_only_retirement_refuses_live_retiring_endpoint
+test_record_only_retirement_requires_positive_active_owner
+test_record_only_retirement_retry_repairs_receipt_and_sidecars
 test_record_only_retirement_ignores_finished_claimant
 test_retired_identity_is_not_a_send_destination
 test_record_only_retirement_refuses_its_still_owned_slot
