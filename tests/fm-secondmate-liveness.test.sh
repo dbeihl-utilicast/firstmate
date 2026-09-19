@@ -22,6 +22,8 @@
 #   - bin/fm-bootstrap.sh's secondmate_liveness_sweep recovers only dead or
 #     missing endpoints, keeps successful recovery and already-live results
 #     silent by default, and reports ambiguous and unreadable targets distinctly.
+#   - A mate with state/<id>.stopped is never probed or relaunched, whatever
+#     its endpoint reads (bin/fm-secondmate-lane.sh owns the marker).
 #   - The sweep converges: once a secondmate reads alive, a later run never
 #     re-touches it (idempotent by construction, not by remembering what it
 #     already did).
@@ -525,6 +527,28 @@ test_sweep_converges_no_retouch_once_alive() {
   pass "sweep: idempotent by construction - a live secondmate is never re-touched on a later run"
 }
 
+test_sweep_leaves_stopped_secondmate_down() {
+  local w fb tmuxfb log out
+  w=$(new_world sweep-stopped)
+  add_sm_home "$w" sm1 firstmate:fm-sm1 pi
+  add_sm_home "$w" sm2 firstmate:fm-sm2 pi
+  printf 'stopped\n' > "$w/home/state/sm1.stopped"
+  fb=$(make_toolchain "$w"); tmuxfb=$(make_liveness_tmux "$w")
+  log="$w/calls.log"; : > "$log"
+
+  out=$(run_bootstrap "$tmuxfb:$fb" "$w/home" missing "$log" FM_BOOTSTRAP_VERBOSE_FACTS=1)
+
+  assert_contains "$out" "secondmate sm1 stopped by the captain" "a stopped mate should be reported as held down"
+  assert_not_contains "$(cat "$log")" "fm-sm1" "a stopped mate with a missing endpoint must never be relaunched or killed"
+  assert_contains "$(cat "$log")" "fm-sm2" "an unstopped mate beside it must still be recovered"
+  [ -e "$w/home/state/sm1.stopped" ] || fail "the sweep must never clear the stopped marker"
+
+  : > "$log"
+  out=$(run_bootstrap "$tmuxfb:$fb" "$w/home" missing "$log")
+  assert_not_contains "$(cat "$log")" "fm-sm1" "repeated sweeps must keep the stopped mate down"
+  pass "sweep: a stopped secondmate with a missing endpoint stays down"
+}
+
 test_sweep_skipped_under_detect_only() {
   local w fb tmuxfb log out
   w=$(new_world sweep-detect-only)
@@ -593,6 +617,7 @@ test_sweep_never_acts_on_transient_unreadability
 test_sweep_reports_missing_endpoint_relaunch_failure
 test_sweep_never_acts_on_unverified_harness_dead_reading
 test_sweep_converges_no_retouch_once_alive
+test_sweep_leaves_stopped_secondmate_down
 test_sweep_skipped_under_detect_only
 test_sweep_noop_with_no_secondmate_meta
 test_sweep_respawns_two_dead_secondmates_without_self_contention
