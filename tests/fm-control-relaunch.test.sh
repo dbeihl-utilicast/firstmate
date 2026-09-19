@@ -1693,7 +1693,7 @@ EOF
 }
 
 test_missing_endpoint_creation_survives_process_death_without_duplication() {
-  local dir id ready release spawn_pid job_pid out rc creates
+  local dir id ready release spawn_pid out rc creates
   id=rl-missing-crash
   dir=$(new_case missing-crash "$id")
   add_ship_task "$dir" "$id" claude
@@ -1704,12 +1704,11 @@ test_missing_endpoint_creation_survives_process_death_without_duplication() {
 
   FM_TEST_RELAUNCH_ENDPOINT_READY="$ready" FM_TEST_RELAUNCH_ENDPOINT_RELEASE="$release" \
     run_control "$dir" "$id" relaunch --note "recover vanished session" > "$dir/first.out" &
-  job_pid=$!
   for _ in $(seq 1 200); do [ -s "$ready" ] && break; /bin/sleep 0.01; done
   [ -s "$ready" ] || fail "replacement did not reach the post-creation crash point"
   spawn_pid=$(cat "$ready")
   kill -KILL "$spawn_pid" 2>/dev/null || fail "could not kill replacement between endpoint creation and publication"
-  wait "$job_pid" 2>/dev/null || true
+  wait 2>/dev/null || true
   [ -f "$dir/home/state/$id.relaunch-endpoint" ] \
     || fail "process death lost the only record of the replacement endpoint"
   assert_grep 'schema=prior-custody' "$dir/home/state/$id.custody" \
