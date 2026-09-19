@@ -1364,6 +1364,7 @@ if [ "$RELAUNCH" -eq 1 ]; then
     fi
   fi
   if [ "$BACKEND" = herdr ]; then
+    RELAUNCH_LAUNCHER_PANE=${HERDR_PANE_ID:-}
     HERDR_SES=$(fm_meta_get "$RELAUNCH_META" herdr_session)
     HERDR_WORKSPACE_ID=$(fm_meta_get "$RELAUNCH_META" herdr_workspace_id)
     HERDR_TAB_ID=$(fm_meta_get "$RELAUNCH_META" herdr_tab_id)
@@ -2494,7 +2495,10 @@ if [ "$RELAUNCH" -eq 1 ]; then
           HERDR_LABEL_HOME=$WT
           HERDR_LAUNCHER_RELATIONSHIP=other-home
         fi
-        HERDR_CONTAINER_RAW=$(FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_container_ensure "$WT" "$HERDR_LAUNCHER_RELATIONSHIP") || exit 1
+        HERDR_CONTAINER_RAW=$(
+          if [ -n "$RELAUNCH_LAUNCHER_PANE" ]; then export HERDR_PANE_ID=$RELAUNCH_LAUNCHER_PANE; else unset HERDR_PANE_ID; fi
+          FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_container_ensure "$WT" "$HERDR_LAUNCHER_RELATIONSHIP"
+        ) || exit 1
         CONTAINER=${HERDR_CONTAINER_RAW%%$'\t'*}
         HERDR_SES=${CONTAINER%%:*}
         HERDR_WORKSPACE_ID=${CONTAINER#*:}
