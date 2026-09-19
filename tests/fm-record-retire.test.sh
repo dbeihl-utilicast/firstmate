@@ -397,6 +397,66 @@ EOF
   expect_code 1 "$rc" "a merged PR with a different number must not retire the record"
   [ -f "$dir/home/state/old.meta" ] || fail "a number-mismatched merged PR retired the record"
 
+  cat > "$dir/pr-scope.out" <<'EOF'
+extra:
+  number: 7
+  state: merged
+pull_request:
+  number: 7
+  state: open
+  merged: no
+trailer:
+  number: 7
+  state: merged
+EOF
+  rc=0
+  FM_PR_VIEW_FIXTURE="$dir/pr-scope.out" run_retire "$dir" >/dev/null 2>&1 || rc=$?
+  expect_code 1 "$rc" "merged fields outside the pull_request block must not retire"
+  [ -f "$dir/home/state/old.meta" ] || fail "an out-of-scope merged block retired the record"
+
+  cat > "$dir/pr-wrong-block.out" <<'EOF'
+head_ref:
+  number: 7
+  state: merged
+EOF
+  rc=0
+  FM_PR_VIEW_FIXTURE="$dir/pr-wrong-block.out" run_retire "$dir" >/dev/null 2>&1 || rc=$?
+  expect_code 1 "$rc" "a merged block that is not pull_request must not retire"
+  [ -f "$dir/home/state/old.meta" ] || fail "a non-pull_request block retired the record"
+
+  cat > "$dir/pr-dup-state-last.out" <<'EOF'
+pull_request:
+  number: 7
+  state: open
+  state: merged
+EOF
+  rc=0
+  FM_PR_VIEW_FIXTURE="$dir/pr-dup-state-last.out" run_retire "$dir" >/dev/null 2>&1 || rc=$?
+  expect_code 1 "$rc" "a duplicate state line with merged last must not retire"
+  [ -f "$dir/home/state/old.meta" ] || fail "duplicate state (merged last) retired the record"
+
+  cat > "$dir/pr-dup-state-first.out" <<'EOF'
+pull_request:
+  number: 7
+  state: merged
+  state: open
+EOF
+  rc=0
+  FM_PR_VIEW_FIXTURE="$dir/pr-dup-state-first.out" run_retire "$dir" >/dev/null 2>&1 || rc=$?
+  expect_code 1 "$rc" "a duplicate state line with merged first must not retire"
+  [ -f "$dir/home/state/old.meta" ] || fail "duplicate state (merged first) retired the record"
+
+  cat > "$dir/pr-dup-number.out" <<'EOF'
+pull_request:
+  number: 7
+  number: 7
+  state: merged
+EOF
+  rc=0
+  FM_PR_VIEW_FIXTURE="$dir/pr-dup-number.out" run_retire "$dir" >/dev/null 2>&1 || rc=$?
+  expect_code 1 "$rc" "a duplicate number line must not retire"
+  [ -f "$dir/home/state/old.meta" ] || fail "duplicate number retired the record"
+
   cat > "$dir/pr-merged.out" <<'EOF'
 pull_request:
   number: 7
