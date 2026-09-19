@@ -47,7 +47,7 @@ This touches only the firstmate repo and its own worktrees, never anything under
 
    The two second-mate sets are disjoint and the script owns the split; do not re-derive it.
    `restart-secondmates:` carries every live mate the pass left on the latest commit, whether it advanced or was already there.
-   A mate reaches neither set only because its home was skipped, because it has no live endpoint recorded here, or because its endpoint was positively classified as dead or missing - none of those need any action from you.
+   A mate reaches neither set only because its home was skipped, because it has no live endpoint recorded here, or because the captain stopped the lane (`state/<id>.stopped`), or because its endpoint was positively classified as dead or missing - none of those need any action from you.
 
 2. **Re-read AGENTS.md if your own instructions changed.**
    When the updater printed `reread-firstmate: yes`, the tracked instruction surface (`AGENTS.md`, `bin/`, or `.agents/skills/`) just advanced under you.
@@ -74,6 +74,7 @@ This touches only the firstmate repo and its own worktrees, never anything under
      Never report one of these as a clean reload.
      When the reason says the agent was still mid-turn, re-run this command for just that mate once its turn ends.
    - `unreached: <id>: <reason>` - no safe running outcome could be confirmed, including an ambiguous relaunch result.
+   - `skipped: <id>: ...` - the captain stopped that lane (`state/<id>.stopped`), so it was neither restarted nor nudged; only `bin/fm-secondmate-lane.sh reopen` brings it back.
 
 4. **Send the re-read message to the rest.**
    For every target on the `nudge-secondmates:` line (do nothing when it says `none`), send the one-line re-read steer:
