@@ -1412,10 +1412,13 @@ spawn_copy_claim_refusal() {  # <worktree> <recover|fresh>
   canonical=$(CDPATH='' cd -P -- "$wt" 2>/dev/null && pwd -P) || return 0
   for meta in "$STATE"/*.meta; do
     [ -e "$meta" ] || [ -L "$meta" ] || continue
-    [ -f "$meta" ] && [ ! -L "$meta" ] && [ -r "$meta" ] || continue
     other_id=${meta##*/}
     other_id=${other_id%.meta}
     [ "$other_id" != "$ID" ] || continue
+    if [ ! -f "$meta" ] || [ -L "$meta" ] || [ ! -r "$meta" ] || [ ! -s "$meta" ]; then
+      echo "task $other_id has a task record that cannot be read safely, so it may hold this copy"
+      return 0
+    fi
     other_wt=$(fm_meta_get "$meta" worktree)
     [ -n "$other_wt" ] || continue
     other_canonical=$(CDPATH='' cd -P -- "$other_wt" 2>/dev/null && pwd -P) || continue
