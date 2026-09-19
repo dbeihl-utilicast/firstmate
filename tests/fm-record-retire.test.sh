@@ -323,7 +323,7 @@ SH
 
   cat > "$dir/pr-open.out" <<'EOF'
 pull_request:
-  number: 61
+  number: 7
   title: "fix(bin): refuse duplicate-claim fresh spawn and hold copy reservation through worker launch"
   state: open
   author: dbeihl-utilicast
@@ -337,7 +337,7 @@ EOF
 
   cat > "$dir/pr-closed.out" <<'EOF'
 pull_request:
-  number: 56
+  number: 7
   title: "feat(bin): add atomic inbox take and resend dedup"
   state: closed
   author: dbeihl-utilicast
@@ -352,26 +352,54 @@ EOF
 
   cat > "$dir/pr-spoof.out" <<'EOF'
 pull_request:
-  number: 63
+  number: 7
   title: "docs: explain why state: merged is not proof"
+  body: |
+    Notes for reviewers.
+  state: merged
+    state: merged
   state: open
   author: dbeihl-utilicast
+  draft: yes
+  merged: no
+  checks: "1 passed, 0 failed, 1 total"
+EOF
+  rc=0
+  FM_PR_VIEW_FIXTURE="$dir/pr-spoof.out" run_retire "$dir" >/dev/null 2>&1 || rc=$?
+  expect_code 1 "$rc" "an open PR with state: merged in a body before the state field must not retire"
+  [ -f "$dir/home/state/old.meta" ] || fail "a body-before-state spoof retired the record"
+
+  cat > "$dir/pr-spoof-after.out" <<'EOF'
+pull_request:
+  number: 7
+  title: "docs: explain why state: merged is not proof"
+  state: open
   draft: yes
   merged: no
   body: |
     Notes for reviewers.
     state: merged
-  state: merged
   checks: "1 passed, 0 failed, 1 total"
 EOF
   rc=0
-  FM_PR_VIEW_FIXTURE="$dir/pr-spoof.out" run_retire "$dir" >/dev/null 2>&1 || rc=$?
-  expect_code 1 "$rc" "an open PR whose text contains state: merged must not retire"
-  [ -f "$dir/home/state/old.meta" ] || fail "a spoofed open ship record was retired"
+  FM_PR_VIEW_FIXTURE="$dir/pr-spoof-after.out" run_retire "$dir" >/dev/null 2>&1 || rc=$?
+  expect_code 1 "$rc" "an open PR with state: merged in a body after the state field must not retire"
+  [ -f "$dir/home/state/old.meta" ] || fail "a body-after-state spoof retired the record"
+
+  cat > "$dir/pr-other-number.out" <<'EOF'
+pull_request:
+  number: 8
+  state: merged
+  merged: "2026-09-19T15:55:08Z"
+EOF
+  rc=0
+  FM_PR_VIEW_FIXTURE="$dir/pr-other-number.out" run_retire "$dir" >/dev/null 2>&1 || rc=$?
+  expect_code 1 "$rc" "a merged PR with a different number must not retire the record"
+  [ -f "$dir/home/state/old.meta" ] || fail "a number-mismatched merged PR retired the record"
 
   cat > "$dir/pr-merged.out" <<'EOF'
 pull_request:
-  number: 60
+  number: 7
   title: "fix(bin): bind record-only retirement to spawn generation and guard id reuse"
   state: merged
   author: dbeihl-utilicast
@@ -394,8 +422,8 @@ test_ship_merged_pr_proof_binds_full_repository_url() {
   cat > "$dir/fakebin/gh-axi" <<'SH'
 #!/usr/bin/env bash
 case " $* " in
-  *' -R o/r '*) printf '  state: open\n  merged: no\n' ;;
-  *) printf '  state: merged\n  merged: yes\n' ;;
+  *' -R o/r '*) printf 'pull_request:\n  number: 7\n  state: open\n  merged: no\n' ;;
+  *) printf 'pull_request:\n  number: 7\n  state: merged\n  merged: "2026-09-19T15:55:08Z"\n' ;;
 esac
 SH
   chmod +x "$dir/fakebin/gh-axi"

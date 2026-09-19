@@ -491,7 +491,11 @@ record_ship_pr_merged() {  # <record>
   origin_slug=$(github_repo_slug "$origin") || return 1
   [ "$recorded_slug" = "$origin_slug" ] || return 1
   out=$(cd "$project" && gh-axi pr view "$number" -R "$recorded_slug" 2>/dev/null) || return 1
-  printf '%s\n' "$out" | awk '/^  state: /{print; exit}' | grep -qx '  state: merged'
+  printf '%s\n' "$out" | awk -v want="$number" '
+    /^[^ ]/ { scope = ($0 == "pull_request:"); next }
+    scope && /^  number: / { n++; num = substr($0, 11) }
+    scope && /^  state: / { s++; st = substr($0, 10) }
+    END { exit !(n == 1 && s == 1 && num == want && st == "merged") }'
 }
 
 record_ship_branch_on_default() {  # <record>
