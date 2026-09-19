@@ -23,6 +23,24 @@ fm_task_retire_plain_paths() {  # <state-dir> <task-id> [include-stopped]
   [ "$include_stopped" != yes ] || printf '%s\n' "$state/$id.stopped"
 }
 
+# A retained audit record blocks same-id publication until its transaction has
+# a complete receipt bound to the exact archived spawn generation.
+fm_task_retirement_complete() {  # <state-dir> <task-id>
+  local state=$1 id=$2 meta receipt meta_gen receipt_gen runtime_state
+  meta="$state/retired/$id.meta"
+  receipt="$state/retired/$id.receipt"
+  [ -f "$meta" ] && [ ! -L "$meta" ] || return 1
+  [ -f "$receipt" ] && [ ! -L "$receipt" ] || return 1
+  [ "$(grep -cxF 'version=fm-record-retirement-v2' "$receipt")" -eq 1 ] || return 1
+  [ "$(grep -cxF "task_id=$id" "$receipt")" -eq 1 ] || return 1
+  [ "$(grep -cxF 'status=complete' "$receipt")" -eq 1 ] || return 1
+  meta_gen=$(fm_meta_get "$meta" spawn_gen)
+  receipt_gen=$(fm_meta_get "$receipt" spawn_gen)
+  [ -n "$meta_gen" ] && [ "$meta_gen" = "$receipt_gen" ] || return 1
+  runtime_state=$(fm_meta_get "$receipt" runtime_state)
+  [ "$runtime_state" = retired ]
+}
+
 fm_task_retire_pr_artifacts_validate() {  # <state-dir> <task-id>
   local state=$1 id=$2 state_device artifact has_artifact=0
   fm_task_id_path_safe "$id" || return 1

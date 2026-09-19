@@ -437,6 +437,8 @@ fm_backlog_directory_present "$STATE" "state directory" || {
 . "$SCRIPT_DIR/fm-cursor-lib.sh"
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
+# shellcheck source=bin/fm-task-retire-lib.sh
+. "$SCRIPT_DIR/fm-task-retire-lib.sh"
 # shellcheck source=bin/fm-dod-lib.sh
 . "$SCRIPT_DIR/fm-dod-lib.sh"
 # shellcheck source=bin/fm-trace-context-lib.sh
@@ -1235,6 +1237,20 @@ if [ "$RELAUNCH" -eq 0 ]; then
     exit 1
   fi
   SPAWN_TASK_SET_LOCK_HELD=1
+  # Same-id publication cannot race an unfinished record-only retirement. The
+  # task metadata lock is shared with teardown and remains held through this
+  # spawn's ordinary metadata publication below.
+  if [ "$SPAWN_META_LOCK_HELD" != 1 ]; then
+    SPAWN_META_LOCK=$(fm_meta_lock_path "$STATE/$ID.meta") || exit 1
+    fm_lock_acquire_wait "$SPAWN_META_LOCK"
+    SPAWN_META_LOCK_HELD=1
+  fi
+  if [ -e "$STATE/retired/$ID.meta" ] || [ -L "$STATE/retired/$ID.meta" ]; then
+    fm_task_retirement_complete "$STATE" "$ID" || {
+      echo "error: task $ID has an incomplete retirement; finish or manually reconcile it before reusing this id" >&2
+      exit 1
+    }
+  fi
 fi
 if [ "$KIND" = secondmate ]; then
   if spawn_remote_secondmate "$ID"; then
