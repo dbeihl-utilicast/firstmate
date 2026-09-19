@@ -2175,12 +2175,13 @@ fm_backend_herdr_agent_state() {  # <target>
     dead) printf 'missing' ;;
     no-agent) printf 'dead' ;;
     live) printf 'alive' ;;
-    *)
+    unknown)
       case "$(fm_backend_herdr_server_running_state "$FM_BACKEND_HERDR_SESSION")" in
         stopped) printf 'missing' ;;
         *) printf 'unreadable' ;;
       esac
       ;;
+    *) printf 'unreadable' ;;
   esac
 }
 
