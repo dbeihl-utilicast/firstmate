@@ -135,6 +135,26 @@ test_retired_secondmate_is_excluded_from_broadcast_enumeration() {
   pass "record retirement: a moved lane has one live broadcast destination"
 }
 
+test_interrupted_retirement_resumes_sidecar_archival() {
+  local dir="$TMP_ROOT/interrupted" rc=0
+  make_case "$dir"
+  mkdir -p "$dir/home/state/old.inbox" "$dir/home/state/retired"
+  printf '#!/bin/sh\n' > "$dir/home/state/old.check.sh"
+  mv "$dir/home/state/old.meta" "$dir/home/state/retired/old.meta"
+  printf 'version=fm-record-retirement-v1\ntask_id=old\n' > "$dir/home/state/retired/old.receipt"
+  FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" PATH="$dir/fakebin:$PATH" \
+    "$ROOT/bin/fm-send.sh" old "do not ring" >/dev/null 2>&1 || rc=$?
+  expect_code 1 "$rc" "an identity whose metadata is archived must not be rung"
+  rc=0
+  run_retire "$dir" >/dev/null 2>&1 || rc=$?
+  expect_code 0 "$rc" "a retry after metadata archival should finish sidecar retirement"
+  [ ! -e "$dir/home/state/old.check.sh" ] || fail "the retry left a polling sidecar"
+  [ ! -e "$dir/home/state/old.inbox" ] || fail "the retry left the inbox"
+  [ -f "$dir/home/state/retired/old.sidecars/old.check.sh" ] || fail "the retry lacks the sidecar audit copy"
+  [ -f "$dir/home/state/destination.meta" ] || fail "the retry removed the replacement owner"
+  pass "record retirement: interrupted retirement resumes and finishes sidecars"
+}
+
 test_retired_secondmate_is_excluded_from_broadcast_enumeration
 
 test_record_only_retirement_preserves_reused_slot
@@ -143,3 +163,4 @@ test_record_only_retirement_ignores_finished_claimant
 test_retired_identity_is_not_a_send_destination
 test_record_only_retirement_refuses_its_still_owned_slot
 test_record_only_retirement_preserves_stopped_marker
+test_interrupted_retirement_resumes_sidecar_archival

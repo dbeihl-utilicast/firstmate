@@ -415,6 +415,28 @@ CONTROL_LOCK_HELD=1
 fm_refuse_if_gate_agent
 FM_LOCK_LOG_PREFIX=teardown
 
+retire_sidecars() {
+  local sidecars="$STATE/retired/$ID.sidecars" name
+  mkdir -p -m 700 -- "$sidecars" || return 1
+  for name in "$ID.check.sh" "$ID.check-trust" "$ID.pr-poll" "$ID.pr-poll-registration" \
+    "$ID.pr-poll-retirement" "$ID.pr-poll-rearm-notified" "$ID.inbox" \
+    "$ID.turn-ended" "$ID.progress" ".lease-$ID"; do
+    [ -e "$STATE/$name" ] || [ -L "$STATE/$name" ] || continue
+    mv -- "$STATE/$name" "$sidecars/$name" || {
+      echo "error: task $ID is inactive but sidecar $name could not be archived; rerun --retire-record to finish" >&2
+      return 1
+    }
+  done
+}
+
+if [ "$RECORD_ONLY_RETIRE" = 1 ] && [ ! -e "$META" ] && [ ! -L "$META" ] \
+   && [ -f "$STATE/retired/$ID.meta" ] && [ ! -L "$STATE/retired/$ID.meta" ] \
+   && [ -f "$STATE/retired/$ID.receipt" ] && [ ! -L "$STATE/retired/$ID.receipt" ]; then
+  retire_sidecars || exit 1
+  echo "record-only retirement $ID resumed and complete"
+  exit 0
+fi
+
 fm_backlog_record_present "$META" "task record" "$STATE" || {
   echo "error: teardown refused: $FM_BACKLOG_TRANSITION_ERROR" >&2
   exit 1
@@ -440,7 +462,7 @@ record_proved_finished() {
 }
 
 retire_record_only() {
-  local kind wt project slot other other_id other_path other_slot owners="" retired receipt sidecars name restored moved=""
+  local kind wt project slot other other_id other_path other_slot owners="" retired receipt
   kind=$(fm_meta_get "$META" kind)
   [ -n "$kind" ] || kind=ship
   wt=$(fm_meta_get "$META" worktree)
@@ -487,22 +509,7 @@ retire_record_only() {
     echo "REFUSED: retirement audit already exists for $ID; nothing was changed" >&2
     return 1
   }
-  sidecars="$retired/$ID.sidecars"
-  mkdir -m 700 -- "$sidecars" || return 1
-  for name in "$ID.check.sh" "$ID.check-trust" "$ID.pr-poll" "$ID.pr-poll-registration" \
-    "$ID.pr-poll-retirement" "$ID.pr-poll-rearm-notified" "$ID.inbox" \
-    "$ID.turn-ended" "$ID.progress" ".lease-$ID"; do
-    [ -e "$STATE/$name" ] || [ -L "$STATE/$name" ] || continue
-    if ! mv -- "$STATE/$name" "$sidecars/$name"; then
-      for restored in $moved; do mv -- "$sidecars/$restored" "$STATE/$restored" || true; done
-      rmdir "$sidecars" 2>/dev/null || true
-      return 1
-    fi
-    moved="$moved $name"
-  done
   if ! mv -- "$META" "$retired/$ID.meta"; then
-    for restored in $moved; do mv -- "$sidecars/$restored" "$STATE/$restored" || true; done
-    rmdir "$sidecars" 2>/dev/null || true
     return 1
   fi
   receipt="$retired/$ID.receipt"
@@ -517,6 +524,7 @@ retire_record_only() {
     echo "error: task $ID was made inactive but its retirement receipt could not be written at $receipt" >&2
     return 1
   fi
+  retire_sidecars || return 1
   echo "record-only retirement $ID complete (slot retained for $owners)"
 }
 
