@@ -1928,13 +1928,14 @@ fresh_spawn_past_record() {  # <label> <remote|gone>
   meta="$dir/home/state/$holder.meta"
   case "$kind" in
     remote)
-      sed -i 's|^worktree=.*|worktree=/srv/remote-host/home|' "$meta"
       printf 'remote_host=build-box\nwindow=remote:%s\n' "$holder" >> "$meta"
       ;;
     gone) sed -i 's|^worktree=.*|worktree=/nonexistent/copy|' "$meta" ;;
   esac
   out=$(run_spawn "$dir" "$fresh" "$dir/proj" --backend tmux --mode no-mistakes --yolo off --harness claude) || rc=$?
   assert_not_contains "$out" "may hold this copy" "a $kind record must not be treated as holding this copy"
+  assert_not_contains "$out" "still claims this copy" "a $kind record must not be treated as claiming this copy"
+  [ "$rc" -eq 0 ] || fail "a $kind record blocked a fresh spawn (rc=$rc)"$'\n'"$out"
   pass "a $kind task record does not block a fresh spawn"
 }
 
