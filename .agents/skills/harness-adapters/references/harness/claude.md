@@ -18,7 +18,7 @@ Busy hooks verified 2026-07-28 on Claude Code 2.1.220.
 Claude gates a folder it has never seen behind an interactive workspace-trust dialog, so every fresh task worktree would hit it.
 `--dangerously-skip-permissions` does not cover that gate: `claude --help` records that the dialog is skipped only in non-interactive mode, through `-p` or a non-TTY stdout, and a crewmate pane is interactive.
 A ship or scout spawn therefore pre-registers the worktree before launch, and the dialog does not appear.
-`../../../bin/fm-claude-trust.sh` records `hasTrustDialogAccepted` for that worktree path in `${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json`, and `../../../bin/fm-spawn.sh` refuses the spawn when the write fails rather than launching a worker that would wedge.
+`../../../bin/fm-claude-trust.sh` records `hasTrustDialogAccepted` for that worktree path, plus `hasClaudeMdExternalIncludesWarningShown` true and `hasClaudeMdExternalIncludesApproved` false so the external-imports prompt is suppressed with the declined answer, in `${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json`, and `../../../bin/fm-spawn.sh` refuses the spawn when the write fails rather than launching a worker that would wedge.
 
 Never try to answer the trust dialog with a key.
 Firstmate's key plane carries only Enter, Escape, and C-c with no arrow navigation, so it cannot move a dialog's selection at all, and the observed rendering starts on `No, exit`, which means a sent Enter ends the session instead of accepting.
