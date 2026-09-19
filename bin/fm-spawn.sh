@@ -2481,13 +2481,38 @@ if [ "$RELAUNCH" -eq 1 ]; then
   [ "$KIND" = secondmate ] || WT=$RELAUNCH_WT
   SES=${T%%:*}
   if [ "$RELAUNCH_STATE" = missing ]; then
-    [ "$BACKEND" = tmux ] || {
-      echo "error: task $ID's endpoint is positively missing on $BACKEND, but this backend has no verified same-copy endpoint recreation path" >&2
-      exit 1
-    }
-    WID=$(fm_backend_tmux_create_task "$SES" "$W" "$WT") || exit 1
-    T="$SES:$W"
-    WT_TARGET=$WID
+    case "$BACKEND" in
+      tmux)
+        WID=$(fm_backend_tmux_create_task "$SES" "$W" "$WT") || exit 1
+        T="$SES:$W"
+        WT_TARGET=$WID
+        ;;
+      herdr)
+        HERDR_LABEL_HOME=$FM_HOME
+        HERDR_LAUNCHER_RELATIONSHIP=launcher-home
+        if [ "$KIND" = secondmate ]; then
+          HERDR_LABEL_HOME=$WT
+          HERDR_LAUNCHER_RELATIONSHIP=other-home
+        fi
+        HERDR_CONTAINER_RAW=$(FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_container_ensure "$WT" "$HERDR_LAUNCHER_RELATIONSHIP") || exit 1
+        CONTAINER=${HERDR_CONTAINER_RAW%%$'\t'*}
+        HERDR_SES=${CONTAINER%%:*}
+        HERDR_WORKSPACE_ID=${CONTAINER#*:}
+        HERDR_TASK_IDS=$(FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_create_task "$CONTAINER" "$W" "$WT" "${HERDR_CONTAINER_RAW#*$'\t'}") || exit 1
+        read -r HERDR_TAB_ID HERDR_PANE_ID <<EOF
+$HERDR_TASK_IDS
+EOF
+        [ -n "$HERDR_TAB_ID" ] && [ -n "$HERDR_PANE_ID" ] || {
+          echo "error: herdr did not return a tab/pane id for $W" >&2
+          exit 1
+        }
+        T="$HERDR_SES:$HERDR_PANE_ID"
+        ;;
+      *)
+        echo "error: task $ID's endpoint is positively missing on $BACKEND, but this backend has no verified same-copy endpoint recreation path" >&2
+        exit 1
+        ;;
+    esac
   else
     WT_TARGET=$T
   fi
