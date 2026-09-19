@@ -1,0 +1,1 @@
+not ok - a stopped mate should be reported as held down (missing: 'secondmate sm1 stopped by the captain')
