@@ -94,7 +94,36 @@ test_record_only_retirement_preserves_stopped_marker() {
   pass "record retirement: stopped marker remains owned by reopen"
 }
 
+test_record_only_retirement_moves_polling_sidecars() {
+  local dir="$TMP_ROOT/sidecars" rc=0
+  make_case "$dir"
+  printf '#!/bin/sh\n' > "$dir/home/state/old.check.sh"
+  mkdir -p "$dir/home/state/old.inbox"
+  run_retire "$dir" >/dev/null 2>&1 || rc=$?
+  expect_code 0 "$rc" "retirement should succeed"
+  [ ! -e "$dir/home/state/old.check.sh" ] || fail "a retired identity is still polled"
+  [ ! -e "$dir/home/state/old.inbox" ] || fail "a retired identity kept its inbox"
+  [ -f "$dir/home/state/retired/old.sidecars/old.check.sh" ] || fail "retired sidecar lacks audit copy"
+  pass "record retirement: polling and routing sidecars retire with the record"
+}
+
+test_record_only_retirement_ignores_finished_claimant() {
+  local dir="$TMP_ROOT/finished-claimant" rc=0
+  make_case "$dir"
+  mkdir -p "$dir/home/data/destination"
+  printf 'finished\n' > "$dir/home/data/destination/report.md"
+  fm_write_meta "$dir/home/state/destination.meta" \
+    "window=fm-destination" "endpoint_task_id=destination" "worktree=$dir/pool/3/repo" \
+    "project=$dir/project" "kind=scout" "mode=no-mistakes" "spawn_gen=destination-incarnation"
+  run_retire "$dir" >/dev/null 2>&1 || rc=$?
+  expect_code 1 "$rc" "a finished record is not an active slot claimant"
+  [ -f "$dir/home/state/old.meta" ] || fail "refused retirement removed the record"
+  pass "record retirement: only an active claimant proves slot ownership"
+}
+
 test_record_only_retirement_preserves_reused_slot
+test_record_only_retirement_moves_polling_sidecars
+test_record_only_retirement_ignores_finished_claimant
 test_retired_identity_is_not_a_send_destination
 test_record_only_retirement_refuses_its_still_owned_slot
 test_record_only_retirement_preserves_stopped_marker

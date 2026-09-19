@@ -427,14 +427,20 @@ fm_backlog_record_present "$META" "task record" "$STATE" || {
   exit 1
 }
 
-# Archive a stale identity without exercising any ordinary teardown behavior.
-# The active metadata is the only routing and liveness authority, so moving it
-# out of state/ makes the old identity inactive before any later destination
-# record can be considered. The archived metadata and receipt retain the audit
-# trail. This path deliberately leaves every sidecar in place: no endpoint is
-# killed and no reused slot can be returned or reset.
+# Archive a stale identity, its sidecars, and a receipt; ordinary teardown
+# behavior never runs, so no endpoint is killed and no reused slot is returned.
+record_proved_finished() {
+  local rec=$1 rec_id=$2 rec_kind
+  rec_kind=$(fm_meta_get "$rec" kind)
+  [ -n "$rec_kind" ] || rec_kind=ship
+  if [ "$rec_kind" = scout ] && [ -f "$DATA/$rec_id/report.md" ]; then
+    return 0
+  fi
+  fm_backlog_row_probe "$DATA" "$rec_id" && [ "${FM_BACKLOG_ROW_STATE%% *}" = "done" ]
+}
+
 retire_record_only() {
-  local kind wt project slot other other_id other_path other_slot owners="" retired receipt row
+  local kind wt project slot other other_id other_path other_slot owners="" retired receipt sidecars name moved=""
   kind=$(fm_meta_get "$META" kind)
   [ -n "$kind" ] || kind=ship
   wt=$(fm_meta_get "$META" worktree)
@@ -456,17 +462,15 @@ retire_record_only() {
     other_slot=$(CDPATH='' cd -- "$other_path" 2>/dev/null && pwd -P) || continue
     [ "$other_slot" = "$slot" ] || continue
     other_id=$(basename "$other" .meta)
+    [ ! -e "$STATE/$other_id.stopped" ] || continue
+    ! record_proved_finished "$other" "$other_id" || continue
     owners="$owners${owners:+,}$other_id"
   done
   if [ -z "$owners" ]; then
-    echo "REFUSED: task $ID still appears to own pool slot $slot; record-only retirement would hide an unreconciled slot, so nothing was changed" >&2
+    echo "REFUSED: no active record claims pool slot $slot; record-only retirement would hide an unreconciled slot, so nothing was changed" >&2
     return 1
   fi
-  if [ "$kind" = scout ] && [ -f "$DATA/$ID/report.md" ]; then
-    :
-  elif fm_backlog_row_probe "$DATA" "$ID" && [ "${FM_BACKLOG_ROW_STATE%% *}" = "done" ]; then
-    :
-  else
+  if ! record_proved_finished "$META" "$ID"; then
     echo "REFUSED: task $ID is not proved finished by a scout report or closed backlog row; nothing was changed" >&2
     return 1
   fi
@@ -483,7 +487,24 @@ retire_record_only() {
     echo "REFUSED: retirement audit already exists for $ID; nothing was changed" >&2
     return 1
   }
-  mv -- "$META" "$retired/$ID.meta" || return 1
+  sidecars="$retired/$ID.sidecars"
+  mkdir -m 700 -- "$sidecars" || return 1
+  for name in "$ID.check.sh" "$ID.check-trust" "$ID.pr-poll" "$ID.pr-poll-registration" \
+    "$ID.pr-poll-retirement" "$ID.pr-poll-rearm-notified" "$ID.inbox" \
+    "$ID.turn-ended" "$ID.progress" ".lease-$ID"; do
+    [ -e "$STATE/$name" ] || [ -L "$STATE/$name" ] || continue
+    if ! mv -- "$STATE/$name" "$sidecars/$name"; then
+      for name in $moved; do mv -- "$sidecars/$name" "$STATE/$name" || true; done
+      rmdir "$sidecars" 2>/dev/null || true
+      return 1
+    fi
+    moved="$moved $name"
+  done
+  if ! mv -- "$META" "$retired/$ID.meta"; then
+    for name in $moved; do mv -- "$sidecars/$name" "$STATE/$name" || true; done
+    rmdir "$sidecars" 2>/dev/null || true
+    return 1
+  fi
   receipt="$retired/$ID.receipt"
   if ! {
     printf 'version=fm-record-retirement-v1\n'
