@@ -136,6 +136,10 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 . "$SCRIPT_DIR/fm-qwen-lib.sh"
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
+# shellcheck source=bin/fm-nm-run-lib.sh
+. "$SCRIPT_DIR/fm-nm-run-lib.sh"
+# shellcheck source=bin/fm-custody-lib.sh
+. "$SCRIPT_DIR/fm-custody-lib.sh"
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 
@@ -567,7 +571,7 @@ relaunch_rollback() {
       if [ -n "$RELAUNCH_BRIEF" ] && [ -f "$BRIEF_PRIOR" ]; then
         cp -p "$BRIEF_PRIOR" "$RELAUNCH_BRIEF" 2>/dev/null || true
       fi
-      journal_write "failed:$RELAUNCH_PHASE" "rollback=instructions-restored" || true
+      journal_write "failed:$RELAUNCH_PHASE" "${CHECKPOINT_LINES[@]}" "rollback=instructions-restored" || true
       echo "error: relaunch of $ID was refused before its agent was touched; nothing changed" >&2
       ;;
     stopping)
@@ -577,22 +581,22 @@ relaunch_rollback() {
           if [ -n "$RELAUNCH_BRIEF" ] && [ -f "$BRIEF_PRIOR" ]; then
             cp -p "$BRIEF_PRIOR" "$RELAUNCH_BRIEF" 2>/dev/null || true
           fi
-          journal_write "failed:$RELAUNCH_PHASE" "rollback=instructions-restored-agent-alive" || true
+          journal_write "failed:$RELAUNCH_PHASE" "${CHECKPOINT_LINES[@]}" "rollback=instructions-restored-agent-alive" || true
           echo "error: relaunch of $ID failed while stopping the old agent, which is still running; its original instructions were restored" >&2
           ;;
         dead)
-          journal_write "failed:$RELAUNCH_PHASE" "rollback=prior-record-kept-agent-dead" || true
+          journal_write "failed:$RELAUNCH_PHASE" "${CHECKPOINT_LINES[@]}" "rollback=prior-record-kept-agent-dead" || true
           echo "error: $ID's agent stopped but relaunch did not reach replacement launch; no agent is running, and its work plus progress note are preserved at $WT" >&2
           ;;
         *)
-          journal_write "failed:$RELAUNCH_PHASE" "rollback=none-agent-state-$state" || true
+          journal_write "failed:$RELAUNCH_PHASE" "${CHECKPOINT_LINES[@]}" "rollback=none-agent-state-$state" || true
           echo "error: relaunch of $ID failed while stopping the old agent and its state is '$state'; the durable record and progress note were retained for recovery" >&2
           ;;
       esac
       ;;
     exited|launching)
       if [ "$RELAUNCH_AGENT_CONFIRMED" = 1 ]; then
-        journal_write "failed:$RELAUNCH_PHASE" "rollback=none-new-agent-confirmed" || true
+        journal_write "failed:$RELAUNCH_PHASE" "${CHECKPOINT_LINES[@]}" "rollback=none-new-agent-confirmed" || true
         echo "error: $ID's replacement is running on $TARGET_HARNESS, but transaction completion could not be persisted; its published record was retained for reconciliation" >&2
       elif [ "$RELAUNCH_META_PUBLISHED" = 1 ] \
          || { [ -n "$RELAUNCH_TX" ] \
@@ -602,10 +606,10 @@ relaunch_rollback() {
         # harness with no agent confirmed, which is exactly what recovery
         # reconciles. Rewriting it back to the old harness would be a second,
         # worse inaccuracy.
-        journal_write "failed:$RELAUNCH_PHASE" "rollback=none-new-record-kept" || true
+        journal_write "failed:$RELAUNCH_PHASE" "${CHECKPOINT_LINES[@]}" "rollback=none-new-record-kept" || true
         echo "error: $ID was relaunched on $TARGET_HARNESS but no running agent could be confirmed; its work is preserved at $WT" >&2
       else
-        journal_write "failed:$RELAUNCH_PHASE" "rollback=prior-record-kept" || true
+        journal_write "failed:$RELAUNCH_PHASE" "${CHECKPOINT_LINES[@]}" "rollback=prior-record-kept" || true
         echo "error: $ID's agent was stopped but the replacement did not launch; no agent is running, and its work plus the recorded progress note are preserved at $WT" >&2
       fi
       ;;
@@ -698,7 +702,7 @@ resolve_relaunch_profile() {
 # refuses outright when any of it cannot be established.
 CHECKPOINT_LINES=()
 safe_checkpoint() {
-  local wt_real wt_top wt_top_real head head_ref head_ref_status status_output dirty children marker child_meta
+  local wt_real wt_top wt_top_real head head_ref head_ref_status branch status_output dirty untracked children marker child_meta
   CHECKPOINT_LINES=()
   [ -n "$WT" ] || die "task $ID has no recorded worktree; refusing to relaunch without a recorded local copy to preserve"
   [ -d "$WT" ] || die "task $ID's recorded worktree $WT is missing; refusing to relaunch and lose track of its work"
@@ -722,6 +726,7 @@ safe_checkpoint() {
   else
     die "task $ID's worktree HEAD cannot be inspected; refusing to relaunch from an unreadable checkout"
   fi
+  branch=$(git -C "$WT" symbolic-ref --quiet --short HEAD 2>/dev/null || printf 'detached')
   status_output=$(git -C "$WT" status --porcelain 2>/dev/null) \
     || die "task $ID's worktree status cannot be inspected; refusing to relaunch without accounting for local changes"
   if [ -n "$status_output" ]; then
@@ -729,7 +734,13 @@ safe_checkpoint() {
   else
     dirty=no
   fi
-  CHECKPOINT_LINES+=("worktree_head=$head" "worktree_dirty=$dirty")
+  if printf '%s\n' "$status_output" | grep -q '^?? '; then
+    untracked=yes
+  else
+    untracked=no
+  fi
+  fm_custody_capture "$WT" || die "task $ID's worktree custody cannot be captured; refusing to relaunch without accounting for local commits"
+  CHECKPOINT_LINES+=("worktree_branch=$branch" "worktree_head=$head" "worktree_dirty=$dirty" "worktree_untracked=$untracked" "validation_head=$CUSTODY_VALIDATION_HEAD")
   if [ "$KIND" = secondmate ]; then
     # A secondmate's own crewmates outlive its relaunch: they run in their own
     # endpoints, and the relaunched secondmate reconciles them from its home's
@@ -793,7 +804,7 @@ record_note() {
 }
 
 do_relaunch() {
-  local exit_result state note_line
+  local exit_result state note_line refusal
   local -a spawn_args
 
   require_state_verified_backend relaunch
@@ -830,11 +841,24 @@ do_relaunch() {
   RELAUNCH_ACTIVE=1
   journal_write checkpoint "${CHECKPOINT_LINES[@]}" "$note_line"
 
+  state=$(agent_state)
+  if [ "$state" = missing ] && refusal=$(fm_custody_refusal recover); then
+    die "task $ID's endpoint is positively missing, but $refusal"
+  fi
+
   record_note
   journal_write noted "${CHECKPOINT_LINES[@]}" "$note_line"
 
-  journal_write stopping "${CHECKPOINT_LINES[@]}" "$note_line"
-  exit_result=$(do_exit)
+  case "$state" in
+    alive|dead)
+      journal_write stopping "${CHECKPOINT_LINES[@]}" "$note_line"
+      exit_result=$(do_exit)
+      ;;
+    missing)
+      exit_result='endpoint-missing'
+      ;;
+    *) die "task $ID's endpoint reads '$state' rather than a positively recoverable state; refusing to recover" ;;
+  esac
   journal_write exited "${CHECKPOINT_LINES[@]}" "$note_line" "exit_result=$exit_result"
 
   # The launch owner (fm-spawn --relaunch) clears the previous incarnation's
@@ -853,6 +877,8 @@ do_relaunch() {
     die "the replacement agent for $ID could not be launched on $TARGET_HARNESS"
   fi
 
+  fm_backend_validate_task_endpoint "$META" "$ID" || exit 1
+  T=$FM_BACKEND_VALIDATED_TARGET
   state=$(wait_agent_state "$LAUNCH_WAIT" alive) || {
     die "the replacement agent for $ID did not come up within ${LAUNCH_WAIT}s (endpoint reads '$state')"
   }
