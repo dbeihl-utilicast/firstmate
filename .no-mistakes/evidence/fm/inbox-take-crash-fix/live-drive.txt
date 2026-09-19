@@ -1,0 +1,38 @@
+## dedup: two identical sends
+/tmp/tmp.mXAw5MmjOS/state/t.inbox/001.msgnotice: identical unhandled inbox record stands at /tmp/tmp.mXAw5MmjOS/state/t.inbox/001.msg
+/tmp/tmp.mXAw5MmjOS/state/t.inbox/001.msg001.msg
+handled
+## distinct body adds
+001.msg
+002.msg
+handled
+## take (lowest first)
+do Xrc=0
+/tmp/tmp.mXAw5MmjOS/state/t.inbox:
+002.msg
+claimed
+handled
+
+/tmp/tmp.mXAw5MmjOS/state/t.inbox/handled:
+001.msg
+## concurrent takes x5 on one record
+bodies printed: 1
+001.msg
+## crash after claim (dead pid) then later take
+/tmp/tmp.mXAw5MmjOS/state/k.inbox:
+001.msg
+handled
+
+/tmp/tmp.mXAw5MmjOS/state/k.inbox/handled:
+crashyrc=0
+001.msg
+## resend during claim dedups
+notice: identical unhandled inbox record stands at /tmp/tmp.mXAw5MmjOS/state/m.inbox/001.msg
+/tmp/tmp.mXAw5MmjOS/state/m.inbox/001.msgls: cannot access '/tmp/tmp.mXAw5MmjOS/state/m.inbox/claimed/*': No such file or directory
+/tmp/tmp.mXAw5MmjOS/state/m.inbox:
+001.msg
+handled
+## resend after take = new record
+003.msg
+claimed
+handled
