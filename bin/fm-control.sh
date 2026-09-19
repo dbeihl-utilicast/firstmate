@@ -138,6 +138,8 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 . "$SCRIPT_DIR/fm-pr-lib.sh"
 # shellcheck source=bin/fm-nm-run-lib.sh
 . "$SCRIPT_DIR/fm-nm-run-lib.sh"
+# shellcheck source=bin/fm-custody-lib.sh
+. "$SCRIPT_DIR/fm-custody-lib.sh"
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 
@@ -700,7 +702,7 @@ resolve_relaunch_profile() {
 # refuses outright when any of it cannot be established.
 CHECKPOINT_LINES=()
 safe_checkpoint() {
-  local wt_real wt_top wt_top_real head head_ref head_ref_status branch status_output dirty untracked validation_head nm_status children marker child_meta
+  local wt_real wt_top wt_top_real head head_ref head_ref_status branch status_output dirty untracked children marker child_meta
   CHECKPOINT_LINES=()
   [ -n "$WT" ] || die "task $ID has no recorded worktree; refusing to relaunch without a recorded local copy to preserve"
   [ -d "$WT" ] || die "task $ID's recorded worktree $WT is missing; refusing to relaunch and lose track of its work"
@@ -737,13 +739,8 @@ safe_checkpoint() {
   else
     untracked=no
   fi
-  validation_head=
-  nm_status=$(fm_nm_run "$WT" 5 axi status)
-  if fm_nm_run_is_pipeline_owned_active "$nm_status"; then
-    validation_head=$(fm_nm_strip_quotes "$(fm_nm_field "$nm_status" head)")
-    [ -n "$validation_head" ] || validation_head=unreadable
-  fi
-  CHECKPOINT_LINES+=("worktree_branch=$branch" "worktree_head=$head" "worktree_dirty=$dirty" "worktree_untracked=$untracked" "validation_head=${validation_head:-none}")
+  fm_custody_capture "$WT" || die "task $ID's worktree custody cannot be captured; refusing to relaunch without accounting for local commits"
+  CHECKPOINT_LINES+=("worktree_branch=$branch" "worktree_head=$head" "worktree_dirty=$dirty" "worktree_untracked=$untracked" "validation_head=$CUSTODY_VALIDATION_HEAD")
   if [ "$KIND" = secondmate ]; then
     # A secondmate's own crewmates outlive its relaunch: they run in their own
     # endpoints, and the relaunched secondmate reconciles them from its home's
@@ -806,7 +803,7 @@ record_note() {
 }
 
 do_relaunch() {
-  local exit_result state note_line checkpoint_dirty checkpoint_validation_head
+  local exit_result state note_line refusal
   local -a spawn_args
 
   require_state_verified_backend relaunch
@@ -843,22 +840,20 @@ do_relaunch() {
   RELAUNCH_ACTIVE=1
   journal_write checkpoint "${CHECKPOINT_LINES[@]}" "$note_line"
 
+  state=$(agent_state)
+  if [ "$state" = missing ] && refusal=$(fm_custody_refusal recover); then
+    die "task $ID's endpoint is positively missing, but $refusal"
+  fi
+
   record_note
   journal_write noted "${CHECKPOINT_LINES[@]}" "$note_line"
 
-  state=$(agent_state)
   case "$state" in
     alive|dead)
       journal_write stopping "${CHECKPOINT_LINES[@]}" "$note_line"
       exit_result=$(do_exit)
       ;;
     missing)
-      checkpoint_dirty=$(printf '%s\n' "${CHECKPOINT_LINES[@]}" | sed -n 's/^worktree_dirty=//p')
-      checkpoint_validation_head=$(printf '%s\n' "${CHECKPOINT_LINES[@]}" | sed -n 's/^validation_head=//p')
-      [ "$checkpoint_dirty" = no ] \
-        || die "task $ID's endpoint is positively missing, but its recorded copy has uncommitted or untracked bytes; archive those bytes or prove the copy disposable before recovering it"
-      [ "$checkpoint_validation_head" = none ] \
-        || die "task $ID's endpoint is positively missing, but validation owns head $checkpoint_validation_head; preserve or reconcile that validation result before recovering it"
       exit_result=endpoint-missing
       ;;
     *) die "task $ID's endpoint reads '$state' rather than a positively recoverable state; refusing to recover" ;;

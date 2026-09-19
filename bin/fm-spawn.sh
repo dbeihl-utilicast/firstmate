@@ -413,6 +413,10 @@ fi
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 # shellcheck source=bin/fm-treehouse-lib.sh
 . "$SCRIPT_DIR/fm-treehouse-lib.sh"
+# shellcheck source=bin/fm-nm-run-lib.sh
+. "$SCRIPT_DIR/fm-nm-run-lib.sh"
+# shellcheck source=bin/fm-custody-lib.sh
+. "$SCRIPT_DIR/fm-custody-lib.sh"
 fm_backlog_directory_present "$STATE" "state directory" || {
   echo "error: spawn refused: $FM_BACKLOG_TRANSITION_ERROR" >&2
   exit 1
@@ -1278,23 +1282,8 @@ ARG3=
 FIRSTMATE_HOME=
 RAW_LAUNCH=0
 
-# Record the exact copy before freshening a pooled slot or recreating an absent
-# endpoint. The record is diagnostic evidence, never authorization to discard.
-record_custody_preflight() {  # <worktree> [task-meta]
-  local worktree=$1 meta=${2:-} status branch head validation_head
-  status=$(git -C "$worktree" -c core.quotePath=false status --porcelain) || return 1
-  branch=$(git -C "$worktree" symbolic-ref --quiet --short HEAD 2>/dev/null || printf detached)
-  head=$(git -C "$worktree" rev-parse --verify HEAD 2>/dev/null || printf unborn)
-  validation_head=
-  [ -z "$meta" ] || validation_head=$(fm_meta_get "$meta" pipeline_owned_head)
-  CUSTODY_DIRTY=no
-  CUSTODY_UNTRACKED=no
-  [ -z "$status" ] || CUSTODY_DIRTY=yes
-  if printf '%s\n' "$status" | grep -q '^?? '; then CUSTODY_UNTRACKED=yes; fi
-  {
-    printf 'branch=%s\nhead=%s\ndirty=%s\nuntracked=%s\nvalidation_head=%s\n' \
-      "$branch" "$head" "$CUSTODY_DIRTY" "$CUSTODY_UNTRACKED" "${validation_head:-none}"
-  } > "$STATE/$ID.custody.tmp" && mv -f "$STATE/$ID.custody.tmp" "$STATE/$ID.custody" || return 1
+record_custody_preflight() {  # <worktree>
+  fm_custody_capture "$1" && fm_custody_record "$STATE/$ID.custody"
 }
 
 # --relaunch adoption: every identity axis comes from the task's own validated
@@ -1365,18 +1354,14 @@ if [ "$RELAUNCH" -eq 1 ]; then
     }
   fi
   if [ "$RELAUNCH_STATE" = missing ]; then
-    record_custody_preflight "$RELAUNCH_WT" "$RELAUNCH_META" || {
+    record_custody_preflight "$RELAUNCH_WT" || {
       echo "error: task $ID's copy cannot be inspected for custody before missing-endpoint recovery" >&2
       exit 1
     }
-    [ "$CUSTODY_DIRTY" = no ] || {
-      echo "error: task $ID's endpoint is missing but its copy has uncommitted or untracked bytes; refusing to recreate an endpoint until those bytes are archived or the copy is proven disposable" >&2
+    if RELAUNCH_REFUSAL=$(fm_custody_refusal recover); then
+      echo "error: task $ID's endpoint is missing, but $RELAUNCH_REFUSAL" >&2
       exit 1
-    }
-    [ "$(fm_meta_get "$RELAUNCH_META" pipeline_owned_head)" = "" ] || {
-      echo "error: task $ID's endpoint is missing but validation owns a recorded head; refusing to recreate an endpoint until that validation result is reconciled" >&2
-      exit 1
-    }
+    fi
   fi
   if [ "$BACKEND" = herdr ]; then
     HERDR_SES=$(fm_meta_get "$RELAUNCH_META" herdr_session)
@@ -2305,7 +2290,7 @@ spawn_worktree_has_origin_config() {  # <worktree>
 }
 
 freshen_spawn_worktree_base() {  # <worktree>
-  local worktree=$1 default target expected actual status
+  local worktree=$1 default target expected actual status refusal
   record_custody_preflight "$worktree" || {
     echo "error: could not record custody for pooled worktree '$worktree' before refreshing its base" >&2
     return 1
@@ -2346,6 +2331,19 @@ freshen_spawn_worktree_base() {  # <worktree>
     echo "error: '$target' is not a commit for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
     return 1
   }
+  record_custody_preflight "$worktree" || {
+    echo "error: could not record custody for pooled worktree '$worktree' before resetting its base" >&2
+    return 1
+  }
+  if refusal=$(fm_custody_refusal reset); then
+    echo "error: pooled worktree '$worktree' is not disposable: $refusal; refusing to reset it" >&2
+    return 1
+  fi
+  fm_custody_preserve "$worktree" "$ID" || {
+    echo "error: could not preserve local commits of pooled worktree '$worktree' under a custody ref; refusing to reset it" >&2
+    return 1
+  }
+  [ -z "${CUSTODY_REF:-}" ] || fm_custody_record "$STATE/$ID.custody"
   if ! git -C "$worktree" reset --hard "$target" >/dev/null; then
     echo "error: could not reset pooled worktree '$worktree' to '$target'; refusing to launch from a potentially stale base" >&2
     return 1

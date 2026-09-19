@@ -676,6 +676,88 @@ test_stale_pin_beside_other_dirt_reports_one_verdict() {
   pass "a stale pin beside other dirt yields the conservative refusal alone, with no stale-pin line"
 }
 
+make_local_commit() {
+  printf 'local-only work\n' > "$POOL_DIR/local-only.txt"
+  git -C "$POOL_DIR" add local-only.txt
+  git -C "$POOL_DIR" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' commit -qm local-only
+}
+
+test_local_only_commits_refuse_reset_with_head_unchanged() {
+  local rec id out status before
+  id='pool-local-only-refusal-r5'
+  rec=$(make_case local-only-refusal "$id")
+  read_case_record "$rec"
+  make_local_commit
+  before=$(git -C "$POOL_DIR" rev-parse HEAD)
+
+  out=$(run_spawn "$id" --mode no-mistakes --yolo off)
+  status=$?
+  [ "$status" -ne 0 ] || fail "spawn reset a pooled worktree holding local-only commits"
+  assert_contains "$out" "local-only commit" "spawn did not name the local-only commits it refused to discard"
+  [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$before" ] \
+    || fail "spawn moved HEAD while refusing local-only commits"
+  [ -z "$(git -C "$POOL_DIR" for-each-ref refs/fm-custody)" ] \
+    || fail "a refused reset created a custody ref"
+  pass "local-only commits refuse a pool reset and leave HEAD unchanged"
+}
+
+test_local_only_commits_progress_once_preserved_under_a_custody_ref() {
+  local rec id out status before ref
+  id='pool-local-only-preserved-r5'
+  rec=$(make_case local-only-preserved "$id")
+  read_case_record "$rec"
+  make_local_commit
+  before=$(git -C "$POOL_DIR" rev-parse HEAD)
+  printf 'schema=prior\n' > "$HOME_DIR/state/$id.custody"
+
+  out=$(FM_CUSTODY_PRESERVE=1 run_spawn "$id" --mode no-mistakes --yolo off)
+  status=$?
+  expect_code 0 "$status" "spawn should progress once local commits are preserved"$'\n'"$out"
+  ref=$(git -C "$POOL_DIR" for-each-ref --format='%(refname)' "refs/fm-custody/$id/")
+  [ -n "$ref" ] || fail "no custody ref was created for the local-only commits"
+  [ "$(git -C "$POOL_DIR" rev-parse "$ref")" = "$before" ] \
+    || fail "the custody ref does not hold the preserved HEAD"
+  [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$(git -C "$POOL_DIR" rev-parse origin/main)" ] \
+    || fail "the pool did not advance to origin/main after preserving"
+  assert_grep "custody_ref=$ref" "$HOME_DIR/state/$id.custody" "the custody record omits the preserving ref"
+  assert_grep 'schema=prior' "$HOME_DIR/state/$id.custody" "a prior custody record was overwritten"
+  pass "local-only commits are preserved under a custody ref before the pool advances"
+}
+
+test_validation_owned_head_refuses_reset() {
+  local rec id out status before
+  id='pool-validation-head-r5'
+  rec=$(make_case validation-head "$id")
+  read_case_record "$rec"
+  before=$(git -C "$POOL_DIR" rev-parse HEAD)
+  git -C "$POOL_DIR" remote add no-mistakes "file://$CASE_DIR/origin.git"
+  cat > "$FAKEBIN_DIR/no-mistakes" <<EOF
+#!/usr/bin/env bash
+if [ "\${1:-}" = axi ] && [ "\${2:-}" = status ]; then
+  printf 'status: running\nhead: %s\nbranch_sync:\n  state: pipeline_owned\n' "$before"
+  exit 0
+fi
+exit 1
+EOF
+  chmod +x "$FAKEBIN_DIR/no-mistakes"
+
+  out=$(run_spawn "$id" --mode no-mistakes --yolo off)
+  status=$?
+  [ "$status" -ne 0 ] || fail "spawn reset a pooled worktree whose branch validation owns"
+  assert_contains "$out" "$before" "spawn did not name the validation-owned head"
+  [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$before" ] \
+    || fail "spawn moved HEAD while validation owned it"
+
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$FAKEBIN_DIR/no-mistakes"
+  out=$(run_spawn "$id" --mode no-mistakes --yolo off)
+  status=$?
+  [ "$status" -ne 0 ] || fail "spawn reset a pooled worktree whose validation state is unreadable"
+  assert_contains "$out" unreadable "spawn did not report unreadable validation state"
+  [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$before" ] \
+    || fail "spawn moved HEAD on unreadable validation state"
+  pass "a validation-owned or unreadable validation head refuses a pool reset"
+}
+
 test_remote_seeded_home_spawns_from_treehouse_pool
 test_linked_spawning_home_rejects_primary_before_refresh
 test_stale_pool_base_refreshes_before_branching
@@ -695,5 +777,8 @@ test_unpushed_submodule_commit_is_still_uncommitted_work
 test_work_inside_submodule_is_still_uncommitted_work
 test_stale_pin_carrying_real_work_is_not_called_stale
 test_stale_pin_beside_other_dirt_reports_one_verdict
+test_local_only_commits_refuse_reset_with_head_unchanged
+test_local_only_commits_progress_once_preserved_under_a_custody_ref
+test_validation_owned_head_refuses_reset
 
 echo "# all fm-spawn-pool-base-freshen tests passed"

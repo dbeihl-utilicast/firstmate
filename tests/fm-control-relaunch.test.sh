@@ -1658,6 +1658,7 @@ test_missing_endpoint_with_pipeline_only_head_refuses_without_reallocation() {
   printf 'pipeline review two\n' > "$dir/wt/review-two.txt"
   git -C "$dir/wt" add review-two.txt
   git -C "$dir/wt" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' commit -qm review-two
+  git -C "$dir/wt" remote add no-mistakes "file://$dir/proj"
   head_before=$(git -C "$dir/wt" rev-parse HEAD)
   cat > "$dir/fakebin/no-mistakes" <<EOF
 #!/usr/bin/env bash
@@ -1700,6 +1701,27 @@ test_missing_clean_endpoint_recreates_the_endpoint_against_the_recorded_copy() {
   assert_grep 'fm-rl-missing-clean' "$dir/fake/windows" \
     "missing-endpoint recovery did not create a replacement endpoint"
   pass "missing endpoint: clean copy is recovered on its recorded branch"
+}
+
+test_missing_endpoint_with_unreadable_validation_refuses_before_any_note() {
+  local dir out rc head_before
+  dir=$(new_case missing-unreadable rl-missing-unreadable)
+  add_ship_task "$dir" rl-missing-unreadable claude
+  git -C "$dir/wt" remote add no-mistakes "file://$dir/proj"
+  head_before=$(git -C "$dir/wt" rev-parse HEAD)
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$dir/fakebin/no-mistakes"
+  chmod +x "$dir/fakebin/no-mistakes"
+  : > "$dir/fake/windows"
+
+  out=$(run_control "$dir" rl-missing-unreadable relaunch --note "recover vanished session"); rc=$?
+  expect_code 1 "$rc" "unreadable validation state must refuse missing-endpoint recovery"$'\n'"$out"
+  [ "$(git -C "$dir/wt" rev-parse HEAD)" = "$head_before" ] \
+    || fail "refused recovery changed HEAD"
+  [ ! -e "$dir/home/state/rl-missing-unreadable.control-relaunch.note" ] \
+    || fail "a refused recovery still wrote the progress note"
+  assert_not_contains "$(cat "$dir/home/data/rl-missing-unreadable/brief.md")" 'Progress note' \
+    "a refused recovery still rewrote the instructions"
+  pass "missing endpoint: unreadable validation state refuses before any progress note"
 }
 
 test_relaunch_reverifies_an_already_in_flight_item_instead_of_rewriting_it() {
@@ -1794,5 +1816,6 @@ test_spawn_relaunch_refuses_a_pane_outside_the_worktree
 test_missing_endpoint_with_dirty_copy_refuses_without_changing_custody
 test_missing_endpoint_with_pipeline_only_head_refuses_without_reallocation
 test_missing_clean_endpoint_recreates_the_endpoint_against_the_recorded_copy
+test_missing_endpoint_with_unreadable_validation_refuses_before_any_note
 test_relaunch_reverifies_an_already_in_flight_item_instead_of_rewriting_it
 test_relaunch_moves_a_drifted_item_back_in_flight
