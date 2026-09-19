@@ -289,6 +289,10 @@ while [ "$#" -gt 0 ]; do
   esac
   shift
 done
+if [ "$RECORD_ONLY_RETIRE" = 1 ]; then
+  [ -z "$FORCE" ] || { echo "error: --retire-record cannot be combined with --force" >&2; exit 2; }
+  [ "$LEGACY_RECORD_GIVEN" = 0 ] || { echo "error: --retire-record cannot be combined with --legacy-record" >&2; exit 2; }
+fi
 fm_backlog_directory_present "$STATE" "state directory" || {
   echo "error: teardown refused: $FM_BACKLOG_TRANSITION_ERROR" >&2
   exit 1
@@ -430,8 +434,7 @@ retire_sidecars() {
 }
 
 if [ "$RECORD_ONLY_RETIRE" = 1 ] && [ ! -e "$META" ] && [ ! -L "$META" ] \
-   && [ -f "$STATE/retired/$ID.meta" ] && [ ! -L "$STATE/retired/$ID.meta" ] \
-   && [ -f "$STATE/retired/$ID.receipt" ] && [ ! -L "$STATE/retired/$ID.receipt" ]; then
+   && [ -f "$STATE/retired/$ID.meta" ] && [ ! -L "$STATE/retired/$ID.meta" ]; then
   retire_sidecars || exit 1
   echo "record-only retirement $ID resumed and complete"
   exit 0
@@ -529,8 +532,6 @@ retire_record_only() {
 }
 
 if [ "$RECORD_ONLY_RETIRE" = 1 ]; then
-  [ -z "$FORCE" ] || { echo "error: --retire-record cannot be combined with --force" >&2; exit 2; }
-  [ "$LEGACY_RECORD_GIVEN" = 0 ] || { echo "error: --retire-record cannot be combined with --legacy-record" >&2; exit 2; }
   retire_record_only
   exit $?
 fi

@@ -141,7 +141,6 @@ test_interrupted_retirement_resumes_sidecar_archival() {
   mkdir -p "$dir/home/state/old.inbox" "$dir/home/state/retired"
   printf '#!/bin/sh\n' > "$dir/home/state/old.check.sh"
   mv "$dir/home/state/old.meta" "$dir/home/state/retired/old.meta"
-  printf 'version=fm-record-retirement-v1\ntask_id=old\n' > "$dir/home/state/retired/old.receipt"
   FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" PATH="$dir/fakebin:$PATH" \
     "$ROOT/bin/fm-send.sh" old "do not ring" >/dev/null 2>&1 || rc=$?
   expect_code 1 "$rc" "an identity whose metadata is archived must not be rung"
@@ -152,6 +151,11 @@ test_interrupted_retirement_resumes_sidecar_archival() {
   [ ! -e "$dir/home/state/old.inbox" ] || fail "the retry left the inbox"
   [ -f "$dir/home/state/retired/old.sidecars/old.check.sh" ] || fail "the retry lacks the sidecar audit copy"
   [ -f "$dir/home/state/destination.meta" ] || fail "the retry removed the replacement owner"
+  rc=0
+  FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$dir/home/state" \
+    FM_DATA_OVERRIDE="$dir/home/data" FM_CONFIG_OVERRIDE="$dir/home/config" PATH="$dir/fakebin:$PATH" \
+    "$TEARDOWN" old --retire-record --force >/dev/null 2>&1 || rc=$?
+  expect_code 2 "$rc" "incompatible flags must be refused on the resume path too"
   pass "record retirement: interrupted retirement resumes and finishes sidecars"
 }
 
