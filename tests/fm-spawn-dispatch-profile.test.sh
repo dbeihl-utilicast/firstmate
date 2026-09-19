@@ -73,6 +73,18 @@ make_spawn_case() {
   printf '%s\n' "$case_dir|$home|$proj|$wt|$fakebin|$launchlog"
 }
 
+# add_second_pool_copy <case-name> <proj> <id1> <id2>
+# A batch of two tasks must each be handed their own pooled copy; the fake tmux
+# maps each task's window to a distinct worktree through FM_FAKE_PANE_PATH_MAP.
+add_second_pool_copy() {
+  local name=$1 proj=$2 id1=$3 id2=$4 wt2
+  wt2="$TMP_ROOT/$name/wt2"
+  git -C "$proj" worktree add -q -b "wt2-$name" "$wt2" HEAD
+  FM_FAKE_PANE_PATH_MAP="$TMP_ROOT/$name/pane-paths"
+  printf 'firstmate:fm-%s %s\nfirstmate:fm-%s %s\n' "$id1" "$WT_DIR" "$id2" "$wt2" > "$FM_FAKE_PANE_PATH_MAP"
+  export FM_FAKE_PANE_PATH_MAP
+}
+
 # write_foundry_luna_config <home>
 # The codex-foundry-luna preflight requires this home's own config/foundry-luna.json
 # (docs/configuration.md "Foundry Luna endpoint"); written unconditionally like
@@ -247,6 +259,7 @@ test_home_defaults_preserve_absolute_or_resolve_relative_paths() {
   assert_contains "$launch" "< '$home_real/data/$relative_id/launch-brief.md'" \
     "relative FM_HOME leaked into the default cross-process brief path"
 
+  rm -f "$HOME_DIR/state/$relative_id".*
   linked_home="$CASE_DIR/home-link"
   ln -s "$HOME_DIR" "$linked_home"
   : > "$LAUNCH_LOG"
@@ -821,6 +834,7 @@ test_batch_preserves_native_ultra() {
   local rec id1=ultra-batch-a id2=ultra-batch-b out launch
   rec=$(make_spawn_case ultra-batch pi "$id1" "$id2")
   read_case_record "$rec"
+  add_second_pool_copy ultra-batch "$PROJ_DIR" "$id1" "$id2"
   enable_dispatch_profile "$HOME_DIR"
   out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
     "$id1=$PROJ_DIR" "$id2=$PROJ_DIR" --harness pi --model codex-native/gpt-6-astra --effort ultra)
@@ -980,6 +994,7 @@ test_batch_forwards_shared_profile_flags() {
   id2=profile-batch-b-z10
   rec=$(make_spawn_case profile-batch claude "$id1" "$id2")
   read_case_record "$rec"
+  add_second_pool_copy profile-batch "$PROJ_DIR" "$id1" "$id2"
   enable_dispatch_profile "$HOME_DIR"
 
   out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \

@@ -1754,7 +1754,7 @@ run_control_recording_rc() {
 run_spawn_recording_rc() {
   local dir=$1 id=$2 label=$3 project=$4 rc=0
   printf '%s\n' "${BASHPID:-$$}" > "$dir/$label.pid"
-  run_spawn "$dir" "$id" "$project" --backend tmux --mode no-mistakes --yolo off > "$dir/$label.out" || rc=$?
+  run_spawn "$dir" "$id" "$project" --backend tmux --mode no-mistakes --yolo off --harness claude > "$dir/$label.out" || rc=$?
   echo "$rc" > "$dir/$label.rc"
 }
 

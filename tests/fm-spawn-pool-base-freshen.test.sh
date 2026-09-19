@@ -79,8 +79,8 @@ model=default
 effort=default
 EOF
 
-  FM_FAKE_DUPLICATE_WINDOW="fm-$prior" FM_FAKE_LAUNCH_LOG="$CASE_DIR/launch.log" \
-    out=$(run_spawn "$id" --scout) || status=$?
+  out=$(FM_FAKE_DUPLICATE_WINDOW="fm-$prior" FM_FAKE_LAUNCH_LOG="$CASE_DIR/launch.log" \
+    run_spawn "$id" --scout) || status=$?
   expect_code 1 "$status" "a fresh spawn must refuse a pool copy another task still claims"$'\n'"$out"
   assert_contains "$out" "$prior" "the duplicate-copy refusal should name the existing task"
   launches=$(grep -c 'encode launch-brief' "$CASE_DIR/launch.log" 2>/dev/null || printf 0)
