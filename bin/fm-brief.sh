@@ -216,6 +216,7 @@ shell_quote() {
 
 STATUS_FILE=$(shell_quote "$STATE/$ID.status")
 INBOX_DIR=$(shell_quote "$STATE/$ID.inbox")
+INBOX_TAKE=$(shell_quote "$SCRIPT_DIR/fm-inbox-take.sh")
 
 # The receive-and-ack half of the steering-inbox contract, included in every
 # scaffold kind. The record format, doorbell line, and re-ring ladder are
@@ -225,8 +226,8 @@ INBOX_DIR=$(shell_quote "$STATE/$ID.inbox")
 IFS= read -r -d '' INBOX_SECTION <<EOF || true
 # Firstmate instruction inbox
 Firstmate steers you through durable message files in $INBOX_DIR.
-When a terminal message says an instruction is waiting there - and at any natural checkpoint when you are unsure - list $INBOX_DIR/*.msg, read and act on each message in numeric order, then acknowledge each handled message by moving it: \`mv $INBOX_DIR/NNN.msg $INBOX_DIR/handled/\`.
-The move IS the acknowledgement: without it firstmate rings again and eventually treats you as stuck. An empty or absent inbox needs no action.
+When a terminal message says an instruction is waiting there - and at any natural checkpoint when you are unsure - run \`$INBOX_TAKE $INBOX_DIR\` to atomically take the next instruction, act on its printed body, and repeat until it finds no message.
+The take moves the record into \`handled/\` as its acknowledgement, so a successful take is never re-rung. For manual recovery only, list $INBOX_DIR/*.msg, read and act on each in numeric order, then move it with \`mv $INBOX_DIR/NNN.msg $INBOX_DIR/handled/\`. An empty or absent inbox needs no action.
 EOF
 INBOX_SECTION=${INBOX_SECTION%$'\n'}
 

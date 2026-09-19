@@ -24,7 +24,7 @@
 #
 # Layout under <state-dir>:
 #   <task>.inbox/NNN.msg       one durable steer, numeric sequence, atomic rename
-#   <task>.inbox/handled/      the worker's `mv` here IS the acknowledgement
+#   <task>.inbox/handled/      atomic take moves one record here as acknowledgement
 #   <task>.inbox/.seq.lock     serializes sequence allocation across writers
 #                              (the session and the away daemon)
 #   <task>.inbox/.ring-state   watcher re-ring ladder: "<msg>\t<count>\t<epoch>"
@@ -41,8 +41,10 @@
 #
 # Sequence numbers are never reused within a task: allocation scans both the
 # inbox root and handled/, so a message is processed at most once per worker
-# lifetime even if every doorbell is duplicated. Concurrent writers serialize
-# on .seq.lock; the worst racing outcome is ordering, never loss.
+# lifetime even if every doorbell is duplicated. fm_task_inbox_take moves the
+# lowest unhandled record into handled/ before returning its body, so concurrent
+# takers have exactly one winner. Concurrent writers serialize on .seq.lock;
+# the worst racing outcome is ordering, never loss.
 #
 # Re-ring ladder (fm_task_inbox_due_action): an unhandled message older than
 # FM_TASK_INBOX_GRACE_SECS is due one delivery attempt per grace period; an
@@ -173,52 +175,37 @@ fm_task_inbox_write() {  # <state-dir> <task-id> <text> [delivery-mode]
   printf '%s' "$rec"
 }
 
-# Durably enqueue one steer at most once: when a record with the exact same
-# body already exists - unhandled or already acknowledged in handled/ - no new
-# record is written and the existing record's path is printed instead.
-# This is the enqueue primitive for a transport that can fail with completion
-# unknown (the remote steer leg over ssh): the caller's safe recovery is to run
-# the same enqueue again, and this dedup is what makes the re-run land on the
-# same record instead of a duplicate the worker would act on twice. Two
-# distinct logical requests never collapse in practice because a marked
-# secondmate request embeds a per-request correlation token in its body. The
-# local plane keeps plain fm_task_inbox_write: its outcome is synchronous, so
-# a repeated identical local steer is a deliberate new instruction.
+# Durably enqueue one steer at most once while its exact body remains
+# unhandled. An identical body already in the inbox is left in place and its
+# path is printed; once taken, the same body is a new instruction and receives
+# a new record. This is the enqueue primitive for local and remote resend
+# recovery, so an uncertain retry converges on the pending record instead of
+# piling up duplicates. Two distinct logical requests do not collapse in
+# practice because a marked secondmate request embeds a per-request correlation
+# token in its body.
 fm_task_inbox_write_idempotent() {  # <state-dir> <task-id> <text> [delivery-mode]
-  local state=$1 task=$2 text=$3 delivery_mode=${4:-} dir lock want have f rec='' status=0
+  local state=$1 task=$2 text=$3 delivery_mode=${4:-} dir lock want have f rec='' reused=0 status=0
   dir=$(fm_task_inbox_dir "$state" "$task")
   mkdir -p "$dir/handled" || return 1
   lock="$dir/.seq.lock"
   fm_task_inbox_lock_acquire "$lock" || return 1
   if want=$(mktemp "$dir/.dedup.XXXXXX") && have=$(mktemp "$dir/.dedup.XXXXXX"); then
     if printf '%s' "$text" > "$want"; then
-      for f in "$dir"/*.msg "$dir/handled"/*.msg; do
-        if [ ! -e "$f" ]; then
-          case "$f" in
-            "$dir"/*.msg)
-              f="$dir/handled/${f##*/}"
-              [ -e "$f" ] || continue
-              ;;
-            *) continue ;;
-          esac
-        fi
+      for f in "$dir"/*.msg; do
+        [ -e "$f" ] || continue
         if [ "$delivery_mode" = fire-and-forget ]; then
           fm_task_inbox_is_fire_and_forget "$f" || continue
         elif fm_task_inbox_is_fire_and_forget "$f"; then
           continue
         fi
-        if ! fm_task_inbox_body "$f" > "$have" 2>/dev/null; then
-          case "$f" in
-            "$dir"/*.msg)
-              f="$dir/handled/${f##*/}"
-              fm_task_inbox_body "$f" > "$have" 2>/dev/null || continue
-              ;;
-            *) continue ;;
-          esac
-        fi
+        fm_task_inbox_body "$f" > "$have" 2>/dev/null || continue
         cmp -s "$want" "$have" || continue
-        [ ! -e "$dir/handled/${f##*/}" ] || f="$dir/handled/${f##*/}"
+        if [ ! -e "$f" ]; then
+          f="$dir/handled/${f##*/}"
+          [ -f "$f" ] || continue
+        fi
         rec=$f
+        reused=1
         break
       done
     else
@@ -234,7 +221,42 @@ fm_task_inbox_write_idempotent() {  # <state-dir> <task-id> <text> [delivery-mod
   fi
   fm_lock_release "$lock"
   [ "$status" -eq 0 ] || return 1
+  if [ "$reused" = 1 ]; then
+    printf 'notice: identical unhandled inbox record stands at %s\n' "$rec" >&2
+  fi
   printf '%s' "$rec"
+}
+
+# Atomically take the lowest-numbered unhandled record. The successful rename
+# into handled/ is the acknowledgement, and only its winner receives the record
+# path. A concurrent loser retries from the remaining records; no record means
+# there was nothing to take. The caller reads the body only after this succeeds.
+fm_task_inbox_take() {  # <inbox-dir>
+  local dir=$1 f n best='' best_n=0 dest
+  [ -d "$dir" ] && [ -d "$dir/handled" ] || return 1
+  while :; do
+    best=''
+    best_n=0
+    for f in "$dir"/*.msg; do
+      [ -f "$f" ] || continue
+      n=$(fm_task_inbox_seq_of "${f##*/}") || continue
+      if [ -z "$best" ] || [ "$n" -lt "$best_n" ]; then
+        best=$f
+        best_n=$n
+      fi
+    done
+    [ -n "$best" ] || return 1
+    dest="$dir/handled/${best##*/}"
+    [ ! -e "$dest" ] && [ ! -L "$dest" ] || return 1
+    if mv "$best" "$dest" 2>/dev/null; then
+      printf '%s' "$dest"
+      return 0
+    fi
+    # A second taker may have won the rename. Retry only when this candidate
+    # disappeared; a surviving record signals an actual filesystem failure.
+    [ -e "$best" ] || continue
+    return 1
+  done
 }
 
 # The exact enqueued text back out of a record.
@@ -258,14 +280,15 @@ fm_task_inbox_body() {  # <record-path>
 # A non-printable path fails without output so terminal controls never reach
 # the pane's line discipline.
 fm_task_inbox_doorbell_line() {  # <record-path>
-  local dir=${1%/*} abs quoted LC_ALL=C
+  local dir=${1%/*} abs quoted take_bin LC_ALL=C
   abs=$(cd "$dir" 2>/dev/null && pwd) || abs=$dir
   case "$abs" in
     *[![:print:]]*) return 1 ;;
   esac
   quoted=$(printf '%s' "$abs" | sed "s/'/'\\\\''/g")
-  printf ": Firstmate instruction waiting: list '%s'/*.msg and, in numeric order, read and act on each, then mv each handled file to '%s'/handled/." \
-    "$quoted" "$quoted"
+  take_bin=$(printf '%s/fm-inbox-take.sh' "$_FM_TASK_INBOX_LIB_DIR" | sed "s/'/'\\\\''/g")
+  printf ": Firstmate instruction waiting: run '%s' '%s' to atomically take the next instruction, act on its printed body, then repeat until empty. Fallback: list '%s'/*.msg, read and act in numeric order, then mv each handled file to '%s'/handled/." \
+    "$take_bin" "$quoted" "$quoted" "$quoted"
 }
 
 # Ring the doorbell, best-effort: one endpoint-liveness pre-check, one advisory

@@ -126,8 +126,8 @@ test_text_steer_rides_inbox() {
   body=$(record_body _ "$rec")
   [ "$body" = "please rebase onto main" ] || fail "the recorded body differs: $body"
   typed=$(cat "$dir/send.log")
-  assert_contains "$typed" "Firstmate instruction waiting: list '$dir/home/state/t1.inbox'/*.msg" \
-    "the doorbell should direct the worker to drain the inbox"
+  assert_contains "$typed" "fm-inbox-take.sh' '$dir/home/state/t1.inbox'" \
+    "the doorbell should direct the worker to atomically take the inbox record"
   case "$typed" in
     *"please rebase onto main"*) fail "the payload must never be typed:"$'\n'"$typed" ;;
   esac
@@ -160,13 +160,13 @@ test_multiline_steer_is_legal() {
   pass "fm-send inbox: newlines are legal and the terminal can no longer truncate a steer"
 }
 
-test_resend_enqueues_new_sequence() {
+test_resend_deduplicates_unhandled_sequence() {
   local dir err doorbells typed
   dir=$(setup_case resend); err="$dir/send.err"
   run_send "$dir" "$err" -- t1 "check the CI result" || fail "first send failed"
   run_send "$dir" "$err" -- t1 "check the CI result" || fail "second send failed"
-  [ -f "$dir/home/state/t1.inbox/001.msg" ] && [ -f "$dir/home/state/t1.inbox/002.msg" ] \
-    || fail "a re-send should enqueue a new sequence:"$'\n'"$(ls "$dir/home/state/t1.inbox")"
+  [ -f "$dir/home/state/t1.inbox/001.msg" ] && [ ! -e "$dir/home/state/t1.inbox/002.msg" ] \
+    || fail "an identical unhandled re-send should retain one record:"$'\n'"$(ls "$dir/home/state/t1.inbox")"
   doorbells=$(grep -cF 'Firstmate instruction waiting' "$dir/send.log" || true)
   [ "$doorbells" = 1 ] || fail "each send rings once (the log is truncated per send), got $doorbells"
   typed=$(cat "$dir/send.log")
@@ -175,7 +175,9 @@ test_resend_enqueues_new_sequence() {
   case "$typed" in
     *"check the CI result"*) fail "a re-send typed the payload" ;;
   esac
-  pass "fm-send inbox: a re-send is a new durable record, never a retyped payload"
+  assert_contains "$(cat "$err")" "identical unhandled inbox record stands" \
+    "the duplicate send should report that its existing record stands"
+  pass "fm-send inbox: an identical unhandled re-send reuses one durable record"
 }
 
 test_pending_composer_skips_ring_advisorily() {
@@ -355,7 +357,7 @@ test_unwritable_inbox_fails_loudly() {
 test_text_steer_rides_inbox
 test_opt_in_record_receipt
 test_multiline_steer_is_legal
-test_resend_enqueues_new_sequence
+test_resend_deduplicates_unhandled_sequence
 test_pending_composer_skips_ring_advisorily
 test_failed_ring_is_still_sent
 test_harness_invocations_stay_typed
