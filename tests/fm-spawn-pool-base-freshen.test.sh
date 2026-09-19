@@ -752,7 +752,7 @@ EOF
   out=$(run_spawn "$id" --mode no-mistakes --yolo off)
   status=$?
   [ "$status" -ne 0 ] || fail "spawn reset a pooled worktree whose validation state is unreadable"
-  assert_contains "$out" unreadable "spawn did not report unreadable validation state"
+  assert_contains "$out" "cannot be read" "spawn did not report unreadable validation state"
   [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$before" ] \
     || fail "spawn moved HEAD on unreadable validation state"
   pass "a validation-owned or unreadable validation head refuses a pool reset"

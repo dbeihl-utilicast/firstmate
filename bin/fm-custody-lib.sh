@@ -33,21 +33,27 @@ fm_custody_capture() {  # <worktree>
   fi
 }
 
-# Prints the reason and returns 0 when the captured copy must not be reset or
-# reallocated. Mode "recover" (endpoint recreated in place) guards dirty bytes
-# and validation ownership; mode "reset" additionally guards local-only commits
+# Prints the reason and returns 0 when the captured copy must not be used.
+# Mode "recover" (endpoint recreated in the exact copy, nothing moved) refuses
+# only on unreadable validation state. Mode "reset" (freshen or reallocation)
+# also refuses dirty bytes, a validation-owned head, and local-only commits
 # unless FM_CUSTODY_PRESERVE=1 lets fm_custody_preserve keep them under a ref.
 fm_custody_refusal() {  # <recover|reset>
   local mode=$1
+  if [ "$CUSTODY_VALIDATION_HEAD" = unreadable ]; then
+    echo "its validation state cannot be read; refusing until it is readable"
+    return 0
+  fi
+  [ "$mode" = reset ] || return 1
   if [ "$CUSTODY_DIRTY" != no ]; then
     echo "its copy has uncommitted or untracked bytes; archive them or prove the copy disposable first"
     return 0
   fi
   if [ "$CUSTODY_VALIDATION_HEAD" != none ]; then
-    echo "validation state is $CUSTODY_VALIDATION_HEAD (a pipeline-owned head or an unreadable read); preserve or reconcile that validation result first"
+    echo "validation owns head $CUSTODY_VALIDATION_HEAD; preserve or reconcile that validation result first"
     return 0
   fi
-  if [ "$mode" = reset ] && [ "$CUSTODY_LOCAL_ONLY" != 0 ] && [ "${FM_CUSTODY_PRESERVE:-0}" != 1 ]; then
+  if [ "$CUSTODY_LOCAL_ONLY" != 0 ] && [ "${FM_CUSTODY_PRESERVE:-0}" != 1 ]; then
     echo "its copy holds $CUSTODY_LOCAL_ONLY local-only commit(s) on $CUSTODY_BRANCH at $CUSTODY_HEAD; rerun with FM_CUSTODY_PRESERVE=1 to keep them under a refs/fm-custody ref, or push them first"
     return 0
   fi

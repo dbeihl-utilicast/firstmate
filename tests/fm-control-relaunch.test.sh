@@ -1628,7 +1628,7 @@ test_spawn_relaunch_refuses_a_pane_outside_the_worktree() {
   pass "fm-spawn --relaunch: refuses to start a replacement outside the copy holding its work"
 }
 
-test_missing_endpoint_with_dirty_copy_refuses_without_changing_custody() {
+test_missing_endpoint_with_dirty_copy_recovers_in_place() {
   local dir out rc head_before bytes_before
   dir=$(new_case missing-dirty rl-missing-dirty)
   add_ship_task "$dir" rl-missing-dirty claude
@@ -1638,17 +1638,19 @@ test_missing_endpoint_with_dirty_copy_refuses_without_changing_custody() {
   : > "$dir/fake/windows"
 
   out=$(run_control "$dir" rl-missing-dirty relaunch --note "recover vanished session"); rc=$?
-  expect_code 1 "$rc" "a missing endpoint with dirty bytes must refuse"$'\n'"$out"
+  expect_code 0 "$rc" "a missing endpoint with dirty bytes recovers in its exact copy"$'\n'"$out"
   [ "$(git -C "$dir/wt" rev-parse HEAD)" = "$head_before" ] \
-    || fail "missing-endpoint custody refusal changed HEAD"
+    || fail "missing-endpoint recovery changed HEAD"
   [ "$(cksum "$dir/wt/unfinished.txt")" = "$bytes_before" ] \
-    || fail "missing-endpoint custody refusal changed dirty bytes"
+    || fail "missing-endpoint recovery changed dirty bytes"
+  assert_grep 'fm-rl-missing-dirty' "$dir/fake/windows" \
+    "missing-endpoint recovery did not create a replacement endpoint"
   assert_grep 'worktree_dirty=yes' "$dir/home/state/rl-missing-dirty.control-relaunch" \
-    "custody record did not capture dirty bytes before refusing"
-  pass "missing endpoint: dirty copy remains authoritative and is never replaced"
+    "custody record did not capture dirty bytes"
+  pass "missing endpoint: dirty copy is recovered in place with HEAD and bytes untouched"
 }
 
-test_missing_endpoint_with_pipeline_only_head_refuses_without_reallocation() {
+test_missing_endpoint_with_pipeline_only_head_recovers_in_place() {
   local dir out rc head_before
   dir=$(new_case missing-pipeline-head rl-missing-pipeline)
   add_ship_task "$dir" rl-missing-pipeline claude
@@ -1677,12 +1679,14 @@ EOF
   : > "$dir/fake/windows"
 
   out=$(run_control "$dir" rl-missing-pipeline relaunch --note "recover vanished validation session"); rc=$?
-  expect_code 1 "$rc" "a missing endpoint with a pipeline-owned head must refuse"$'\n'"$out"
+  expect_code 0 "$rc" "a missing endpoint with a pipeline-owned head recovers in its exact copy"$'\n'"$out"
   [ "$(git -C "$dir/wt" rev-parse HEAD)" = "$head_before" ] \
-    || fail "missing-endpoint custody refusal reallocated the pipeline head"
+    || fail "missing-endpoint recovery moved the pipeline head"
+  assert_grep 'fm-rl-missing-pipeline' "$dir/fake/windows" \
+    "missing-endpoint recovery did not create a replacement endpoint"
   assert_grep "validation_head=$head_before" "$dir/home/state/rl-missing-pipeline.control-relaunch" \
     "custody record did not capture the attributable validation head"
-  pass "missing endpoint: pipeline-owned validation head remains authoritative"
+  pass "missing endpoint: pipeline-owned head is recovered in place without moving it"
 }
 
 test_missing_clean_endpoint_recreates_the_endpoint_against_the_recorded_copy() {
@@ -1813,8 +1817,8 @@ test_spawn_relaunch_refuses_a_pending_authoritative_close
 test_spawn_relaunch_refuses_contradicting_flags
 test_spawn_relaunch_refuses_an_unrecorded_task
 test_spawn_relaunch_refuses_a_pane_outside_the_worktree
-test_missing_endpoint_with_dirty_copy_refuses_without_changing_custody
-test_missing_endpoint_with_pipeline_only_head_refuses_without_reallocation
+test_missing_endpoint_with_dirty_copy_recovers_in_place
+test_missing_endpoint_with_pipeline_only_head_recovers_in_place
 test_missing_clean_endpoint_recreates_the_endpoint_against_the_recorded_copy
 test_missing_endpoint_with_unreadable_validation_refuses_before_any_note
 test_relaunch_reverifies_an_already_in_flight_item_instead_of_rewriting_it
