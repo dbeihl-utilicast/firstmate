@@ -275,6 +275,33 @@ harvest_restarts() {
   done
 }
 
+# What was observable about a mate that missed its persist bound, so the
+# nudge line says which of "still mid-turn", "idle without answering", or "reply
+# not mirrored yet" applies instead of leaving the captain to guess.
+timeout_evidence() {  # <array-index>
+  local i=$1 id caught obs meta
+  id=${IDS[$i]}
+  meta="$STATE/$id.meta"
+  if [ "${PLACEMENT[i]}" = remote ]; then
+    caught=$(fm_pending_reply_remote_channel_epoch "$STATE" "$id")
+    if [ -z "$caught" ]; then
+      printf 'the remote reply mirror has never reported itself caught up'
+    elif [ "$caught" -lt "${DEADLINE[i]}" ]; then
+      printf 'the remote reply mirror was last caught up %ss before the bound expired' "$((DEADLINE[i] - caught))"
+    else
+      printf 'the remote reply mirror was current, so no answer had been written'
+    fi
+    return
+  fi
+  obs=$(fm_pending_reply_backend_observation "$(fm_backend_of_meta "$meta")" \
+    "$(fm_backend_target_of_meta "$meta")" "fm-$id" "${HARNESS[i]}" 2>/dev/null || printf 'unknown')
+  case "$obs" in
+    busy) printf 'the agent was still mid-turn, so the request was queued behind that turn' ;;
+    idle|fallback-idle) printf 'the agent was idle and had not answered' ;;
+    *) printf 'the agent state could not be observed' ;;
+  esac
+}
+
 # --- phase A: persist ------------------------------------------------------
 # Every request goes out before any restart, so the fleet persists concurrently
 # and one busy mate delays only itself.
@@ -390,7 +417,7 @@ while [ "$((pending_count + restart_active_count))" -gt 0 ]; do
         launch_restart "$i"
       else
         fall_back_to_nudge "${IDS[$i]}" \
-          "it did not confirm within ${PERSIST_WAIT}s that its open work is written down, so its conversation was not spent"
+          "it did not confirm within ${PERSIST_WAIT}s that its open work is written down ($(timeout_evidence "$i")), so its conversation was not spent"
         PLAN[i]="done"
         pending_count=$((pending_count - 1))
       fi
