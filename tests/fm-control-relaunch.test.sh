@@ -184,6 +184,21 @@ EOF
   TASK_TMPS+=("/tmp/fm-$id")
 }
 
+add_ship_task_alias() {  # <case-dir> <source-id> <alias-id>
+  local dir=$1 source_id=$2 alias_id=$3
+  mkdir -p "$dir/home/data/$alias_id"
+  cp "$dir/home/data/$source_id/brief.md" "$dir/home/data/$alias_id/brief.md"
+  while IFS= read -r line; do
+    case "$line" in
+      window=*) printf 'window=fmses:fm-%s\n' "$alias_id" ;;
+      endpoint_task_id=*) printf 'endpoint_task_id=%s\n' "$alias_id" ;;
+      tasktmp=*) printf 'tasktmp=/tmp/fm-%s\n' "$alias_id" ;;
+      *) printf '%s\n' "$line" ;;
+    esac
+  done < "$dir/home/state/$source_id.meta" > "$dir/home/state/$alias_id.meta"
+  TASK_TMPS+=("/tmp/fm-$alias_id")
+}
+
 run_control() {  # <case-dir> <args...>
   local dir=$1; shift
   # A claude spawn pre-registers workspace trust in the launching user's own
@@ -1725,6 +1740,57 @@ test_missing_endpoint_creation_survives_process_death_without_duplication() {
   pass "missing endpoint: process death is reconciled without a second worker"
 }
 
+test_two_missing_records_for_one_copy_recover_at_most_one_worker() {
+  local dir first second ready release first_pid second_pid first_rc=0 second_rc=0 out creates
+  first=rl-copy-a
+  second=rl-copy-b
+  dir=$(new_case missing-copy-alias "$first")
+  add_ship_task "$dir" "$first" claude
+  add_ship_task_alias "$dir" "$first" "$second"
+  : > "$dir/fake/windows"
+  ready="$dir/endpoint-ready"
+  release="$dir/endpoint-release"
+
+  FM_TEST_RELAUNCH_ENDPOINT_READY="$ready" FM_TEST_RELAUNCH_ENDPOINT_RELEASE="$release" \
+    run_control "$dir" "$first" relaunch --note "recover first vanished session" > "$dir/first.out" &
+  first_pid=$!
+  for _ in $(seq 1 200); do [ -s "$ready" ] && break; /bin/sleep 0.01; done
+  [ -s "$ready" ] || fail "first same-copy recovery did not reach endpoint creation"
+
+  run_control "$dir" "$second" relaunch --note "recover second vanished session" > "$dir/second.out" &
+  second_pid=$!
+  : > "$release"
+  wait "$first_pid" || first_rc=$?
+  wait "$second_pid" || second_rc=$?
+  out=$(cat "$dir/second.out")
+
+  expect_code 0 "$first_rc" "the first same-copy recovery should succeed"
+  expect_code 1 "$second_rc" "the second same-copy recovery should refuse after the first publishes"$'\n'"$out"
+  assert_contains "$out" "already has a live worker" \
+    "the second recovery should name the other task occupying the copy"
+  creates=$(grep -c '^fm-rl-copy-' "$dir/fake/windows" 2>/dev/null || true)
+  [ "$creates" = 1 ] || fail "two records naming one copy created $creates workers"
+  pass "missing endpoint: two records naming one copy recover at most one worker"
+}
+
+test_same_copy_record_with_unreadable_endpoint_refuses_recovery() {
+  local dir first second out rc=0
+  first=rl-unreadable-a
+  second=rl-unreadable-b
+  dir=$(new_case unreadable-copy-alias "$first")
+  add_ship_task "$dir" "$first" claude
+  add_ship_task_alias "$dir" "$first" "$second"
+  printf 'backend=tmux\nbackend=tmux\n' >> "$dir/home/state/$second.meta"
+  : > "$dir/fake/windows"
+
+  out=$(run_control "$dir" "$first" relaunch --note "recover vanished session") || rc=$?
+  expect_code 1 "$rc" "an unreadable same-copy endpoint should refuse recovery"$'\n'"$out"
+  assert_contains "$out" "endpoint 'unknown' cannot be read safely" \
+    "the refusal should identify the unreadable same-copy endpoint"
+  [ ! -s "$dir/fake/windows" ] || fail "an unreadable same-copy record allowed a replacement worker"
+  pass "missing endpoint: an unreadable same-copy record refuses recovery"
+}
+
 test_missing_clean_endpoint_recreates_the_endpoint_against_the_recorded_copy() {
   local dir out rc head_before
   dir=$(new_case missing-clean rl-missing-clean)
@@ -1856,6 +1922,8 @@ test_spawn_relaunch_refuses_a_pane_outside_the_worktree
 test_missing_endpoint_with_dirty_copy_recovers_in_place
 test_missing_endpoint_with_pipeline_only_head_recovers_in_place
 test_missing_endpoint_creation_survives_process_death_without_duplication
+test_two_missing_records_for_one_copy_recover_at_most_one_worker
+test_same_copy_record_with_unreadable_endpoint_refuses_recovery
 test_missing_clean_endpoint_recreates_the_endpoint_against_the_recorded_copy
 test_missing_endpoint_with_unreadable_validation_refuses_before_any_note
 test_relaunch_reverifies_an_already_in_flight_item_instead_of_rewriting_it
