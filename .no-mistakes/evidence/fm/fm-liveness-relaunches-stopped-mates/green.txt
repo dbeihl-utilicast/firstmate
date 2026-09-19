@@ -1,0 +1,18 @@
+== fm-secondmate-liveness-stopped green
+ok - sweep: a stopped secondmate with a missing endpoint stays down
+== fm-secondmate-lane green
+ok - lane: stop on a local mate records the marker and exits the agent
+ok - lane: stop on a remote mate routes to the host stop verb
+ok - lane: the marker is written before, and survives, a failed agent exit
+ok - lane: reopen clears the marker and relaunches
+ok - lane: unregistered ids and unknown verbs are refused
+# all fm-secondmate-lane tests passed
+== fm-secondmate-restart green
+ok - T10 pending persist answers are polled as one fleet
+ok - T11 post-stop restart failure is never misreported as a nudge
+ok - T12 relaunch waits do not block fleet persistence polling
+ok - T13 a dead restart worker cannot hang the parent
+ok - T14 a result published during reaping is honored
+ok - T15 an already-current live mate is named by the update pass and genuinely restarted
+ok - T16 an already-current mate with an unprovable runtime keeps the honest nudge path
+# all fm-secondmate-restart tests passed

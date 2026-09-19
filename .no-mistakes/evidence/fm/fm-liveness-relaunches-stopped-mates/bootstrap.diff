@@ -1,0 +1,24 @@
+diff --git a/bin/fm-bootstrap.sh b/bin/fm-bootstrap.sh
+index 21104e2..3dfeee9 100755
+--- a/bin/fm-bootstrap.sh
++++ b/bin/fm-bootstrap.sh
+@@ -42,6 +42,8 @@
+ #          syncs or inheritance failures for live secondmate homes, plus
+ #          quarantine diagnostics for divergent shared captain-preference
+ #          copies; no-op/current and successful updates stay quiet.
++#          A secondmate with state/<id>.stopped (bin/fm-secondmate-lane.sh stop)
++#          is never probed or relaunched; only its reopen verb clears it.
+ #          SECONDMATE_LIVENESS lines report only actionable failures from the
+ #          recovery-grade state owned by bin/fm-backend.sh's
+ #          fm_backend_agent_state: skipped distinguishes an existing ambiguous
+@@ -789,6 +791,10 @@ secondmate_liveness_one_timed() {  # <meta> <id> <label>
+ secondmate_liveness_one() {  # <meta> <id>
+   local meta=$1 id=$2
+   local window harness backend target agent_state out cause remote_host remote_rc readiness_reason route_out remote_backend
++  if [ -e "$STATE/$id.stopped" ]; then
++    [ "${FM_BOOTSTRAP_VERBOSE_FACTS:-0}" != 1 ] || echo "BOOTSTRAP_INFO: secondmate $id stopped by the captain; liveness sweep leaves it down"
++    return 0
++  fi
+   window=$(fm_meta_get "$meta" window)
+   [ -n "$window" ] || return 0
+   harness=$(fm_meta_get "$meta" harness)

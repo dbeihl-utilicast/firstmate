@@ -1,0 +1,8 @@
+not ok - a stopped mate should be reported as held down (missing: 'secondmate sm1 stopped by the captain')
+--- output ---
+BOOTSTRAP_INFO: crew harness override active: codex
+BOOTSTRAP_INFO: tasks-axi available
+BOOTSTRAP_INFO: secondmate sm1 relaunched after recorded endpoint confidently missing (backend=tmux)
+BOOTSTRAP_INFO: secondmate sm2 relaunched after recorded endpoint confidently missing (backend=tmux)
+SECONDMATE_SYNC: secondmate sm1: skipped: primary default-branch commit cannot be resolved
+SECONDMATE_SYNC: secondmate sm2: skipped: primary default-branch commit cannot be resolved
