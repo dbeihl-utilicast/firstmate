@@ -123,7 +123,8 @@ case "${1:-}" in
       esac
     done
     printf '%s\n' "$name" >> "$D/windows"
-    printf '@1\n'
+    printf 'zsh' > "$D/command"
+    printf '@%s\n' "$(wc -l < "$D/windows" | tr -d ' ')"
     exit 0 ;;
   set-window-option) exit 0 ;;
 esac
@@ -183,6 +184,21 @@ EOF
   TASK_TMPS+=("/tmp/fm-$id")
 }
 
+add_ship_task_alias() {  # <case-dir> <source-id> <alias-id>
+  local dir=$1 source_id=$2 alias_id=$3
+  mkdir -p "$dir/home/data/$alias_id"
+  cp "$dir/home/data/$source_id/brief.md" "$dir/home/data/$alias_id/brief.md"
+  while IFS= read -r line; do
+    case "$line" in
+      window=*) printf 'window=fmses:fm-%s\n' "$alias_id" ;;
+      endpoint_task_id=*) printf 'endpoint_task_id=%s\n' "$alias_id" ;;
+      tasktmp=*) printf 'tasktmp=/tmp/fm-%s\n' "$alias_id" ;;
+      *) printf '%s\n' "$line" ;;
+    esac
+  done < "$dir/home/state/$source_id.meta" > "$dir/home/state/$alias_id.meta"
+  TASK_TMPS+=("/tmp/fm-$alias_id")
+}
+
 run_control() {  # <case-dir> <args...>
   local dir=$1; shift
   # A claude spawn pre-registers workspace trust in the launching user's own
@@ -200,6 +216,8 @@ run_control() {  # <case-dir> <args...>
     FM_FAKE_TRACE_RELEASE="${FM_FAKE_TRACE_RELEASE:-}" \
     FM_FAKE_META_WRITER_READY="${FM_FAKE_META_WRITER_READY:-}" \
     FM_FAKE_TRACE_EXPORTED="${FM_FAKE_TRACE_EXPORTED:-}" \
+    FM_TEST_RELAUNCH_ENDPOINT_READY="${FM_TEST_RELAUNCH_ENDPOINT_READY:-}" \
+    FM_TEST_RELAUNCH_ENDPOINT_RELEASE="${FM_TEST_RELAUNCH_ENDPOINT_RELEASE:-}" \
     "$CONTROL" "$@" 2>&1
 }
 
@@ -1689,6 +1707,123 @@ EOF
   pass "missing endpoint: pipeline-owned head is recovered in place without moving it"
 }
 
+test_missing_endpoint_creation_survives_process_death_without_duplication() {
+  local dir id ready release spawn_pid out rc creates
+  id=rl-missing-crash
+  dir=$(new_case missing-crash "$id")
+  add_ship_task "$dir" "$id" claude
+  : > "$dir/fake/windows"
+  printf 'schema=prior-custody\n' > "$dir/home/state/$id.custody"
+  ready="$dir/endpoint-ready"
+  release="$dir/endpoint-release"
+
+  FM_TEST_RELAUNCH_ENDPOINT_READY="$ready" FM_TEST_RELAUNCH_ENDPOINT_RELEASE="$release" \
+    run_control "$dir" "$id" relaunch --note "recover vanished session" > "$dir/first.out" &
+  for _ in $(seq 1 200); do [ -s "$ready" ] && break; /bin/sleep 0.01; done
+  [ -s "$ready" ] || fail "replacement did not reach the post-creation crash point"
+  spawn_pid=$(cat "$ready")
+  kill -KILL "$spawn_pid" 2>/dev/null || fail "could not kill replacement between endpoint creation and publication"
+  wait 2>/dev/null || true
+  [ -f "$dir/home/state/$id.relaunch-endpoint" ] \
+    || fail "process death lost the only record of the replacement endpoint"
+  assert_grep 'schema=prior-custody' "$dir/home/state/$id.custody" \
+    "process death replaced the original custody record"
+
+  out=$(run_control "$dir" "$id" relaunch --note "retry vanished session recovery"); rc=$?
+  expect_code 0 "$rc" "retry should reconcile the recorded replacement endpoint"$'\n'"$out"
+  creates=$(grep -c '^fm-rl-missing-crash$' "$dir/fake/windows" 2>/dev/null || true)
+  [ "$creates" = 1 ] || fail "retry created $creates replacement endpoints for one copy"
+  [ ! -e "$dir/home/state/$id.relaunch-endpoint" ] \
+    || fail "published retry left a stale replacement-endpoint journal"
+  assert_grep 'schema=prior-custody' "$dir/home/state/$id.custody" \
+    "successful retry replaced the original custody record"
+  pass "missing endpoint: process death is reconciled without a second worker"
+}
+
+run_control_recording_rc() {
+  local dir=$1 id=$2 label=$3 note=$4 rc=0
+  run_control "$dir" "$id" relaunch --note "$note" > "$dir/$label.out" || rc=$?
+  echo "$rc" > "$dir/$label.rc"
+}
+
+test_two_missing_records_for_one_copy_recover_at_most_one_worker() {
+  local dir first second ready release first_rc second_rc out creates
+  first=rl-copy-a
+  second=rl-copy-b
+  dir=$(new_case missing-copy-alias "$first")
+  add_ship_task "$dir" "$first" claude
+  add_ship_task_alias "$dir" "$first" "$second"
+  : > "$dir/fake/windows"
+  ready="$dir/endpoint-ready"
+  release="$dir/endpoint-release"
+
+  FM_TEST_RELAUNCH_ENDPOINT_READY="$ready" FM_TEST_RELAUNCH_ENDPOINT_RELEASE="$release" \
+    run_control_recording_rc "$dir" "$first" first "recover first vanished session" &
+  for _ in $(seq 1 200); do [ -s "$ready" ] && break; /bin/sleep 0.01; done
+  [ -s "$ready" ] || fail "first same-copy recovery did not reach endpoint creation"
+
+  run_control_recording_rc "$dir" "$second" second "recover second vanished session" &
+  : > "$release"
+  wait
+  first_rc=$(cat "$dir/first.rc")
+  second_rc=$(cat "$dir/second.rc")
+  out=$(cat "$dir/second.out")
+
+  expect_code 0 "$first_rc" "the first same-copy recovery should succeed"
+  expect_code 1 "$second_rc" "the second same-copy recovery should refuse after the first publishes"$'\n'"$out"
+  assert_contains "$out" "already has a live worker" \
+    "the second recovery should name the other task occupying the copy"
+  creates=$(grep -c '^fm-rl-copy-' "$dir/fake/windows" 2>/dev/null || true)
+  [ "$creates" = 1 ] || fail "two records naming one copy created $creates workers"
+  pass "missing endpoint: two records naming one copy recover at most one worker"
+}
+
+test_crashed_unpublished_recovery_blocks_alias_record() {
+  local dir first second ready spawn_pid out rc=0 creates
+  first=rl-crash-a
+  second=rl-crash-b
+  dir=$(new_case crash-copy-alias "$first")
+  add_ship_task "$dir" "$first" claude
+  add_ship_task_alias "$dir" "$first" "$second"
+  : > "$dir/fake/windows"
+  ready="$dir/endpoint-ready"
+
+  FM_TEST_RELAUNCH_ENDPOINT_READY="$ready" FM_TEST_RELAUNCH_ENDPOINT_RELEASE="$dir/endpoint-release" \
+    run_control "$dir" "$first" relaunch --note "recover first vanished session" > "$dir/first.out" &
+  for _ in $(seq 1 200); do [ -s "$ready" ] && break; /bin/sleep 0.01; done
+  [ -s "$ready" ] || fail "first recovery did not reach the post-creation crash point"
+  spawn_pid=$(cat "$ready")
+  kill -KILL "$spawn_pid" 2>/dev/null || fail "could not kill first recovery before metadata publication"
+  wait 2>/dev/null || true
+  [ -f "$dir/home/state/$first.relaunch-endpoint" ] || fail "crash lost the first task's endpoint journal"
+
+  out=$(run_control "$dir" "$second" relaunch --note "recover alias record") || rc=$?
+  expect_code 1 "$rc" "an alias record should refuse while another task's journal is unreconciled"$'\n'"$out"
+  assert_contains "$out" "$first" "the refusal should name the task holding the journal"
+  [ -f "$dir/home/state/$first.relaunch-endpoint" ] || fail "alias recovery removed another task's journal"
+  creates=$(grep -c '^fm-rl-crash-' "$dir/fake/windows" 2>/dev/null || true)
+  [ "$creates" = 1 ] || fail "alias recovery created $creates workers for one copy"
+  pass "missing endpoint: another task's unpublished recovery journal blocks an alias record"
+}
+
+test_same_copy_record_with_unreadable_endpoint_refuses_recovery() {
+  local dir first second out rc=0
+  first=rl-unreadable-a
+  second=rl-unreadable-b
+  dir=$(new_case unreadable-copy-alias "$first")
+  add_ship_task "$dir" "$first" claude
+  add_ship_task_alias "$dir" "$first" "$second"
+  printf 'backend=tmux\nbackend=tmux\n' >> "$dir/home/state/$second.meta"
+  : > "$dir/fake/windows"
+
+  out=$(run_control "$dir" "$first" relaunch --note "recover vanished session") || rc=$?
+  expect_code 1 "$rc" "an unreadable same-copy endpoint should refuse recovery"$'\n'"$out"
+  assert_contains "$out" "endpoint 'unknown' cannot be read safely" \
+    "the refusal should identify the unreadable same-copy endpoint"
+  [ ! -s "$dir/fake/windows" ] || fail "an unreadable same-copy record allowed a replacement worker"
+  pass "missing endpoint: an unreadable same-copy record refuses recovery"
+}
+
 test_missing_clean_endpoint_recreates_the_endpoint_against_the_recorded_copy() {
   local dir out rc head_before
   dir=$(new_case missing-clean rl-missing-clean)
@@ -1819,6 +1954,10 @@ test_spawn_relaunch_refuses_an_unrecorded_task
 test_spawn_relaunch_refuses_a_pane_outside_the_worktree
 test_missing_endpoint_with_dirty_copy_recovers_in_place
 test_missing_endpoint_with_pipeline_only_head_recovers_in_place
+test_missing_endpoint_creation_survives_process_death_without_duplication
+test_two_missing_records_for_one_copy_recover_at_most_one_worker
+test_crashed_unpublished_recovery_blocks_alias_record
+test_same_copy_record_with_unreadable_endpoint_refuses_recovery
 test_missing_clean_endpoint_recreates_the_endpoint_against_the_recorded_copy
 test_missing_endpoint_with_unreadable_validation_refuses_before_any_note
 test_relaunch_reverifies_an_already_in_flight_item_instead_of_rewriting_it
