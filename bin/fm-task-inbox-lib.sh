@@ -178,21 +178,23 @@ fm_task_inbox_write() {  # <state-dir> <task-id> <text> [delivery-mode]
 # Durably enqueue one steer at most once while its exact body remains
 # unhandled. An identical body already in the inbox is left in place and its
 # path is printed; once taken, the same body is a new instruction and receives
-# a new record. This is the enqueue primitive for local and remote resend
-# recovery, so an uncertain retry converges on the pending record instead of
-# piling up duplicates. Two distinct logical requests do not collapse in
+# a new record, unless dedup-handled is 1, in which case an identical record
+# already taken into handled/ is reused as well. Resend-recovery callers
+# (fire-and-forget, watcher refresh, remote steer) pass 1 so an uncertain retry
+# converges on the existing record instead of piling up duplicates. Two distinct logical requests do not collapse in
 # practice because a marked secondmate request embeds a per-request correlation
 # token in its body.
-fm_task_inbox_write_idempotent() {  # <state-dir> <task-id> <text> [delivery-mode]
-  local state=$1 task=$2 text=$3 delivery_mode=${4:-} dir lock want have f rec='' reused=0 status=0
+fm_task_inbox_write_idempotent() {  # <state-dir> <task-id> <text> [delivery-mode] [dedup-handled]
+  local state=$1 task=$2 text=$3 delivery_mode=${4:-} dedup_handled=${5:-0} dir lock want have f rec='' reused=0 status=0
   dir=$(fm_task_inbox_dir "$state" "$task")
   mkdir -p "$dir/handled" || return 1
   lock="$dir/.seq.lock"
   fm_task_inbox_lock_acquire "$lock" || return 1
   if want=$(mktemp "$dir/.dedup.XXXXXX") && have=$(mktemp "$dir/.dedup.XXXXXX"); then
     if printf '%s' "$text" > "$want"; then
-      for f in "$dir"/*.msg; do
+      for f in "$dir"/*.msg "$dir/handled"/*.msg; do
         [ -e "$f" ] || continue
+        [ "$dedup_handled" = 1 ] || [ "${f%/*}" = "$dir" ] || continue
         if [ "$delivery_mode" = fire-and-forget ]; then
           fm_task_inbox_is_fire_and_forget "$f" || continue
         elif fm_task_inbox_is_fire_and_forget "$f"; then

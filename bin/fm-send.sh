@@ -1116,7 +1116,7 @@ else
       exit 1
     fi
     INBOX_RECORD=$(fm_task_inbox_write_idempotent "$STATE" "$INBOX_TASK_ID" "$MESSAGE" \
-      "${FIRE_AND_FORGET_ID:+fire-and-forget}") || inbox_write_rc=$?
+      "${FIRE_AND_FORGET_ID:+fire-and-forget}" "${FM_SEND_IDEMPOTENT:-0}") || inbox_write_rc=$?
     if [ "${inbox_write_rc:-0}" -ne 0 ]; then
       fm_lock_release "$INBOX_META_LOCK"
       if [ "$PENDING_REPLY_CREATED" = 1 ] && [ -n "$PENDING_REPLY_CORR" ]; then
