@@ -490,7 +490,7 @@ record_ship_pr_merged() {  # <record>
   origin=$(git -C "$project" remote get-url origin 2>/dev/null) || return 1
   origin_slug=$(github_repo_slug "$origin") || return 1
   [ "$recorded_slug" = "$origin_slug" ] || return 1
-  out=$(cd "$project" && gh-axi pr view "$number" 2>/dev/null) || return 1
+  out=$(cd "$project" && gh-axi pr view "$number" -R "$recorded_slug" 2>/dev/null) || return 1
   printf '%s\n' "$out" | grep -q '^[[:space:]]*merged: yes$'
 }
 
@@ -581,7 +581,7 @@ record_retirement_receipt_valid() {  # <receipt> <slot> <owners> <spawn-gen> <st
 retire_record_only() {
   local source_meta=$META wt project slot other other_id other_path other_slot other_project
   local owners="" retired receipt sidecars endpoint_state busy_gen spawn_gen active_spawn_gen
-  local resuming=0 skip_runtime=0 runtime_state=retired receipt_spawn
+  local resuming=0 runtime_state=retired receipt_spawn
   if [ -f "$RETIRE_META" ] && [ ! -L "$RETIRE_META" ]; then
     source_meta=$RETIRE_META
     resuming=1
@@ -628,12 +628,12 @@ retire_record_only() {
         echo "REFUSED: newer same-id metadata has no exact spawn generation; nothing was changed" >&2
         return 1
       }
-      [ "$active_spawn_gen" != "$spawn_gen" ] || {
+      if [ "$active_spawn_gen" = "$spawn_gen" ]; then
         echo "REFUSED: active and archived records claim the same spawn generation; nothing was changed" >&2
-        return 1
-      }
-      skip_runtime=1
-      runtime_state=preserved-new-incarnation
+      else
+        echo "REFUSED: a newer same-id incarnation exists while old sidecars are ambiguous; reconcile it manually before completing retirement" >&2
+      fi
+      return 1
     fi
   else
     for other in "$STATE"/*.meta; do
@@ -692,10 +692,8 @@ retire_record_only() {
     echo "error: retirement receipt could not be safely prepared at $receipt" >&2
     return 1
   fi
-  if [ "$skip_runtime" = 0 ]; then
-    busy_gen=$(fm_meta_get "$source_meta" busy_gen)
-    fm_task_retire_runtime "$STATE" "$ID" "$SCRIPT_DIR" archive "$sidecars" "$busy_gen" || return 1
-  fi
+  busy_gen=$(fm_meta_get "$source_meta" busy_gen)
+  fm_task_retire_runtime "$STATE" "$ID" "$SCRIPT_DIR" archive "$sidecars" "$busy_gen" || return 1
   if ! record_retirement_receipt_write "$receipt" "$slot" "$owners" "$spawn_gen" complete "$runtime_state" \
      || ! record_retirement_receipt_valid "$receipt" "$slot" "$owners" "$spawn_gen" complete "$runtime_state"; then
     echo "error: retirement receipt could not be completed at $receipt" >&2

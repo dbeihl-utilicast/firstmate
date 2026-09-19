@@ -207,7 +207,7 @@ test_record_only_retirement_retry_preserves_new_same_id_incarnation() {
   printf 'working: new incarnation\n' > "$dir/home/state/old.status"
   printf 'new progress\n' > "$dir/home/state/old.progress"
   printf '#!/bin/sh\n' > "$dir/home/state/old.check.sh"
-  printf '%s\n' fm-old fm-destination > "$dir/tmux.windows"
+  printf '%s\n' fm-destination > "$dir/tmux.windows"
   before_meta=$(cat "$dir/home/state/old.meta")
   before_status=$(cat "$dir/home/state/old.status")
   before_progress=$(cat "$dir/home/state/old.progress")
@@ -231,6 +231,14 @@ test_spawn_refuses_id_with_incomplete_retirement() {
   make_case "$dir"
   mkdir -p "$dir/home/state/retired"
   mv "$dir/home/state/old.meta" "$dir/home/state/retired/old.meta"
+  cat > "$dir/home/data/old/brief.md" <<'EOF'
+# Task
+## Captain's intent
+Exercise incomplete-retirement spawn protection.
+
+## Firstmate spec
+Refuse before publishing a new record.
+EOF
   out=$(FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$dir/home/state" \
     FM_DATA_OVERRIDE="$dir/home/data" FM_CONFIG_OVERRIDE="$dir/home/config" \
     PATH="$dir/fakebin:$PATH" "$SPAWN" old "$dir/project" --scout --harness codex 2>&1) || rc=$?
