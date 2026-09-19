@@ -8,6 +8,7 @@ set -u
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 TEARDOWN="$ROOT/bin/fm-teardown.sh"
+SPAWN="$ROOT/bin/fm-spawn.sh"
 TMP_ROOT=$(fm_test_tmproot fm-record-retire)
 
 make_case() {
@@ -205,18 +206,38 @@ test_record_only_retirement_retry_preserves_new_same_id_incarnation() {
     "project=$dir/project" "kind=ship" "mode=no-mistakes" "spawn_gen=new-incarnation"
   printf 'working: new incarnation\n' > "$dir/home/state/old.status"
   printf 'new progress\n' > "$dir/home/state/old.progress"
+  printf '#!/bin/sh\n' > "$dir/home/state/old.check.sh"
   printf '%s\n' fm-old fm-destination > "$dir/tmux.windows"
   before_meta=$(cat "$dir/home/state/old.meta")
   before_status=$(cat "$dir/home/state/old.status")
   before_progress=$(cat "$dir/home/state/old.progress")
   run_retire "$dir" >/dev/null 2>&1 || rc=$?
-  expect_code 0 "$rc" "retry should complete without touching a newer same-id incarnation"
+  expect_code 1 "$rc" "retry must require manual reconciliation when same-id sidecars are ambiguous"
   [ "$(cat "$dir/home/state/old.meta")" = "$before_meta" ] || fail "retry changed newer metadata"
   [ "$(cat "$dir/home/state/old.status")" = "$before_status" ] || fail "retry changed newer status"
   [ "$(cat "$dir/home/state/old.progress")" = "$before_progress" ] || fail "retry changed newer progress"
-  grep -q '^spawn_gen=old-incarnation$' "$dir/home/state/retired/old.receipt" \
-    || fail "receipt is not bound to the retired incarnation"
-  pass "record retirement: retry cannot consume a newer same-id incarnation"
+  [ -f "$dir/home/state/old.check.sh" ] || fail "retry consumed an ambiguous same-id polling sidecar"
+  if [ -f "$dir/home/state/retired/old.receipt" ]; then
+    ! grep -q '^status=complete$' "$dir/home/state/retired/old.receipt" \
+      || fail "retry finalized while an ambiguous same-id sidecar remained"
+  fi
+  pass "record retirement: ambiguous same-id resume refuses without finalizing"
+}
+
+# Normal publication cannot reuse an id until its earlier record retirement is
+# complete, preventing unbound old sidecars from entering a new incarnation.
+test_spawn_refuses_id_with_incomplete_retirement() {
+  local dir="$TMP_ROOT/spawn-incomplete" out rc=0
+  make_case "$dir"
+  mkdir -p "$dir/home/state/retired"
+  mv "$dir/home/state/old.meta" "$dir/home/state/retired/old.meta"
+  out=$(FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$dir/home/state" \
+    FM_DATA_OVERRIDE="$dir/home/data" FM_CONFIG_OVERRIDE="$dir/home/config" \
+    PATH="$dir/fakebin:$PATH" "$SPAWN" old "$dir/project" --scout --harness codex 2>&1) || rc=$?
+  expect_code 1 "$rc" "spawn must refuse an id whose prior retirement is incomplete"
+  assert_contains "$out" "incomplete retirement" "spawn refusal should name the incomplete retirement"
+  [ ! -e "$dir/home/state/old.meta" ] || fail "spawn published over an incomplete retirement"
+  pass "record retirement: incomplete retirement blocks same-id spawn"
 }
 
 # A failed metadata move must leave no receipt that could imply the still-live
@@ -289,15 +310,18 @@ test_ship_merged_pr_proof_binds_full_repository_url() {
   make_case "$dir"
   cat > "$dir/fakebin/gh-axi" <<'SH'
 #!/usr/bin/env bash
-printf '  state: merged\n  merged: yes\n'
+case " $* " in
+  *' -R o/r '*) printf '  state: open\n  merged: no\n' ;;
+  *) printf '  state: merged\n  merged: yes\n' ;;
+esac
 SH
   chmod +x "$dir/fakebin/gh-axi"
   fm_write_meta "$dir/home/state/old.meta" \
     "window=fm:fm-old" "endpoint_task_id=old" "worktree=$dir/pool/3/repo" \
     "project=$dir/project" "kind=ship" "mode=no-mistakes" "spawn_gen=old-incarnation" \
-    "pr=https://github.com/other/repository/pull/7" "branch=fm/not-on-default"
-  run_retire "$dir" >/dev/null 2>&1 || rc=$?
-  expect_code 1 "$rc" "a same-number merged PR in another repository must not prove landing"
+    "pr=https://github.com/o/r/pull/7" "branch=fm/not-on-default"
+  GH_REPO=other/repository run_retire "$dir" >/dev/null 2>&1 || rc=$?
+  expect_code 1 "$rc" "GH_REPO must not redirect merged-PR proof to another repository"
   [ -f "$dir/home/state/old.meta" ] || fail "cross-repository PR evidence retired the record"
   pass "record retirement: merged PR proof binds owner, repository, and number"
 }
@@ -349,6 +373,7 @@ test_record_only_retirement_refuses_live_retiring_endpoint
 test_record_only_retirement_requires_positive_active_owner
 test_record_only_retirement_retry_repairs_receipt_and_sidecars
 test_record_only_retirement_retry_preserves_new_same_id_incarnation
+test_spawn_refuses_id_with_incomplete_retirement
 test_record_only_retirement_moves_identity_before_receipt
 test_ship_report_does_not_prove_landed_work
 test_ship_merged_pr_proof_binds_full_repository_url
