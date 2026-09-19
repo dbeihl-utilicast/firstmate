@@ -769,6 +769,35 @@ EOF
   pass "completed and failed attributable validation heads refuse reset until preserved"
 }
 
+test_terminal_validation_head_already_on_a_remote_freshens_normally() {
+  local rec id out status pushed
+  id='pool-terminal-pushed-r15'
+  rec=$(make_case terminal-pushed "$id")
+  read_case_record "$rec"
+  git -C "$POOL_DIR" fetch --quiet origin
+  pushed=$(git -C "$POOL_DIR" rev-parse "origin/$DEFAULT_BRANCH")
+  [ "$pushed" != "$INITIAL_SHA" ] || fail "fixture did not advance the remote default branch"
+  git -C "$POOL_DIR" remote add no-mistakes "file://$CASE_DIR/origin.git"
+  cat > "$FAKEBIN_DIR/no-mistakes" <<EOF
+#!/usr/bin/env bash
+if [ "\${1:-}" = axi ] && [ "\${2:-}" = status ]; then
+  printf 'status: completed\noutcome: merged\nhead: %s\nbranch_sync:\n  state: in_sync\n' "$pushed"
+  exit 0
+fi
+exit 1
+EOF
+  chmod +x "$FAKEBIN_DIR/no-mistakes"
+
+  out=$(run_spawn "$id" --mode no-mistakes --yolo off)
+  status=$?
+  expect_code 0 "$status" "a terminal run head already on a remote blocked the pool freshen"$'\n'"$out"
+  [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$pushed" ] \
+    || fail "the pool did not advance to the pushed head"
+  [ -z "$(git -C "$POOL_DIR" for-each-ref "refs/fm-custody/$id/")" ] \
+    || fail "a remote-reachable terminal head was needlessly preserved"
+  pass "a terminal run head already on a remote does not block a pool freshen"
+}
+
 test_validation_owned_head_refuses_reset() {
   local rec id out status before
   id='pool-validation-head-r5'
@@ -825,6 +854,7 @@ test_stale_pin_beside_other_dirt_reports_one_verdict
 test_local_only_commits_refuse_reset_with_head_unchanged
 test_local_only_commits_progress_once_preserved_under_a_custody_ref
 test_terminal_validation_head_refuses_reset_until_preserved
+test_terminal_validation_head_already_on_a_remote_freshens_normally
 test_validation_owned_head_refuses_reset
 
 echo "# all fm-spawn-pool-base-freshen tests passed"

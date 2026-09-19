@@ -49,9 +49,11 @@ fm_custody_capture() {  # <worktree>
           || CUSTODY_VALIDATION_HEAD=unreadable
       elif [ -n "$run_head" ] && fm_nm_head_matches_worktree "$wt" "$run_head"; then
         resolved_head=$(fm_nm_resolve_commit "$wt" "$run_head")
-        [ -n "$resolved_head" ] \
-          && CUSTODY_VALIDATION_HEAD=$resolved_head \
-          || CUSTODY_VALIDATION_HEAD=unreadable
+        if [ -z "$resolved_head" ]; then
+          CUSTODY_VALIDATION_HEAD=unreadable
+        elif [ -n "$(git -C "$wt" rev-list -1 "$resolved_head" --not --remotes 2>/dev/null)" ]; then
+          CUSTODY_VALIDATION_HEAD=$resolved_head
+        fi
       fi
     else
       CUSTODY_VALIDATION_HEAD=unreadable
