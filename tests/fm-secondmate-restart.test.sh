@@ -403,6 +403,26 @@ test_unknown_mate_is_accounted_for() {
   pass "T4 every named mate is accounted for, including one this home does not know"
 }
 
+# --- a captain-stopped lane is neither restarted nor nudged -------------------
+test_stopped_mate_is_skipped() {
+  local dir out rc
+  dir=$(new_case stopped)
+  add_local_mate "$dir" sm1
+  add_local_mate "$dir" sm2
+  : > "$dir/home/state/sm1.stopped"
+  arm_answer "$dir" sm2
+
+  out=$(run_restart "$dir" sm1 sm2); rc=$?
+
+  expect_code 0 "$rc" "a skipped stopped mate must not fail the pass"$'\n'"$out"
+  assert_contains "$out" "skipped: sm1: stopped by the captain" "the stopped mate must be reported as skipped"
+  assert_contains "$out" "restarted: sm2" "an unstopped mate beside it must still restart"
+  assert_contains "$out" "summary: 1 of 2 restarted, 0 nudged, 0 unreached, 1 skipped" "the summary must count the skip"
+  [ ! -e "$dir/home/state/sm1.inbox" ] || fail "a stopped mate must not be sent a persist request or nudge"
+  [ -e "$dir/home/state/sm1.stopped" ] || fail "the restart pass must never clear the stopped marker"
+  pass "T4b a captain-stopped mate is skipped, not restarted or nudged"
+}
+
 # --- T5: a refused restart leaves the mate running and says so ---------------
 test_refused_restart_falls_back_without_claiming_a_reload() {
   local dir out rc before
@@ -961,6 +981,7 @@ test_arrived_answer_precedes_deadline_check
 test_answer_between_resolution_and_timeout_wins
 test_unprovable_runtime_falls_back
 test_unknown_mate_is_accounted_for
+test_stopped_mate_is_skipped
 test_refused_restart_falls_back_without_claiming_a_reload
 test_local_restart_uses_the_home_pin_and_reports_what_ran
 test_native_ultra_restart_keeps_local_and_remote_profiles
