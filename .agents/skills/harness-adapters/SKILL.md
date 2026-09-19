@@ -3,7 +3,7 @@ name: harness-adapters
 description: >-
   Agent-only reference for firstmate harness operations.
   Use before spawning or recovering a crewmate or secondmate, handling a trust dialog, sending a harness-specific skill invocation, interrupting or exiting an agent, resuming an exited agent, or verifying a new harness adapter.
-  Contains verified facts for claude, codex, codex-foundry-luna, opencode, pi, pi-signed, grok, kimi, cursor, gemini, muse, rovo, omp, qwen, and agy.
+  Contains verified facts for claude, codex, codex-foundry-luna, pi, pi-signed, grok, cursor, qwen, and agy.
 user-invocable: false
 metadata:
   internal: true
@@ -35,25 +35,25 @@ For recovery and control, use the exact `harness=` in `state/<id>.meta`; never i
 Deliver lifecycle actions only through `../../../bin/fm-control.sh <task-id> interrupt|exit|relaunch`.
 Never type an interrupt key or exit command through `fm-send`, where routing-marked lifecycle text becomes chat.
 Trust handling is complete only when inspection proves the target started processing its instructions; delivery success alone is not proof.
-Muse, Gemini, Rovo, Qwen, and agy are verified only for crewmate and scout work, never a secondmate or primary.
+Qwen and agy are verified only for crewmate and scout work, never a secondmate or primary.
 
 ## Detection
 
 `../../../bin/fm-harness.sh` prints firstmate's own harness from verified environment markers, then process ancestry.
 Only `FM_PI_HARNESS=pi-signed` at the launch boundary together with `PI_CODING_AGENT=true` selects Pi-signed; shared unmarked launcher ancestry remains Pi.
-omp publishes no marker of its own; `FM_OMP_HARNESS=omp` is Firstmate's launch marker and the anchored process name `omp` is its ancestry evidence, as `references/harness/omp.md` records.
 `../../../bin/fm-spawn.sh` owns worker marker establishment, while the README launch command owns the signed-primary boundary.
 `../../../bin/fm-harness.sh crew` resolves `config/crew-harness`, where absent or `default` means firstmate's own harness.
 `../../../bin/fm-harness.sh secondmate` resolves `config/secondmate-harness` -> `config/crew-harness` -> firstmate's own harness.
 `../../../bin/fm-spawn.sh` re-resolves on every spawn, and an explicit per-spawn argument wins for that spawn.
 A new adapter's verified marker and command name must land in `../../../bin/fm-harness.sh`.
+Detection still names retired adapters whose markers or process names can appear, so they are not misread as a kept harness; dispatch refuses them.
 
 ## Operation-to-reference matrix
 
 Every emitted plan appends the selected or recorded harness reference after the named common references.
 The `harness-adapter-routing-v1` object is the machine-readable and human-visible selection contract: choose the operation, choose the scenario within it, then append the selected harness reference.
 `default` is the normal scenario when no narrower scenario applies.
-Kimi establishes its unsupported primary boundary in its selected harness reference; Muse, Gemini, Rovo, and Qwen follow Non-negotiable safety above.
+Qwen follows Non-negotiable safety above.
 A new tool remains undispatchable until the `verify` plan, its harness entry, every named owner, and the live checks land.
 
 ```json harness-adapter-routing-v1
@@ -85,16 +85,10 @@ A new tool remains undispatchable until the `verify` plan, its harness entry, ev
     "claude": "references/harness/claude.md",
     "codex": "references/harness/codex.md",
     "codex-foundry-luna": "references/harness/codex.md",
-    "opencode": "references/harness/opencode.md",
     "pi": "references/harness/pi.md",
     "pi-signed": "references/harness/pi.md",
     "grok": "references/harness/grok.md",
-    "kimi": "references/harness/kimi.md",
     "cursor": "references/harness/cursor.md",
-    "gemini": "references/harness/gemini.md",
-    "muse": "references/harness/muse.md",
-    "rovo": "references/harness/rovo.md",
-    "omp": "references/harness/omp.md",
     "qwen": "references/harness/qwen.md",
     "agy": "references/harness/agy.md"
   }

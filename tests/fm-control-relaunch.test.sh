@@ -834,7 +834,7 @@ test_secondmate_relaunch_ignores_invalid_configured_effort_before_stop() {
   pass "fm-control relaunch: invalid configured effort is ignored before stop"
 }
 
-# muse is a verified adapter, but only for crewmates and scouts: it has no
+# agy is a verified adapter, but only for crewmates and scouts: it has no
 # primary supervision protocol, so bin/fm-spawn.sh refuses it for a secondmate.
 # That refusal alone is not enough here, because the launch owner is reached
 # only AFTER the running agent has been stopped - a secondmate would be left
@@ -865,7 +865,7 @@ test_secondmate_relaunch_onto_a_crewmate_only_adapter_refuses_before_stop() {
   } > "$home/state/sm7.meta"
   printf '%s\n' "fm-sm7" > "$dir/fake/windows"
   printf '%s' "$dir/smhome" > "$dir/fake/cwd"
-  out=$(run_control "$dir" sm7 relaunch --harness muse); rc=$?
+  out=$(run_control "$dir" sm7 relaunch --harness agy); rc=$?
   expect_code 1 "$rc" "a crewmate-only adapter should refuse a secondmate relaunch"
   assert_contains "$out" "not verified to run a secondmate task" \
     "the refusal should name the kind the adapter cannot run"
@@ -1049,21 +1049,6 @@ test_prefixed_prior_harness_wiring_is_still_retired() {
 # the pane by two firstmate-owned sidecars. Relaunching AWAY from muse must
 # retire that binding, or a retired incarnation's session pin outlives the agent
 # that produced it.
-test_muse_session_binding_is_retired_on_a_harness_switch() {
-  local dir
-  dir=$(new_case musewiring rl31)
-  add_ship_task "$dir" rl31 muse
-  printf 'sessions_root=/nonexistent\nworkspace_root=%s\nbinding_id=1.2.3\n' "$dir/wt" \
-    > "$dir/home/state/rl31.muse-session"
-  printf '/nonexistent/session.jsonl\n' > "$dir/home/state/rl31.muse-session-current"
-  printf 'zsh' > "$dir/fake/command"
-  run_spawn "$dir" rl31 --relaunch --harness claude >/dev/null
-  [ ! -e "$dir/home/state/rl31.muse-session" ] \
-    || fail "the retired muse incarnation's session binding must not outlive it"
-  [ ! -e "$dir/home/state/rl31.muse-session-current" ] \
-    || fail "the retired muse incarnation's resolved session pin must not outlive it"
-  pass "fm-spawn --relaunch: switching away from muse retires its session binding"
-}
 
 test_cursor_session_binding_is_retired_on_a_harness_switch() {
   local dir
@@ -1695,7 +1680,6 @@ test_explicit_secondmate_harness_ignores_configured_profile_axes
 test_ship_relaunch_ignores_the_crew_harness_config
 test_spawn_relaunch_without_a_harness_reuses_the_recorded_one
 test_prefixed_prior_harness_wiring_is_still_retired
-test_muse_session_binding_is_retired_on_a_harness_switch
 test_cursor_session_binding_is_retired_on_a_harness_switch
 test_missing_worktree_refuses_before_stopping_anything
 test_missing_instructions_refuse_before_stopping_anything

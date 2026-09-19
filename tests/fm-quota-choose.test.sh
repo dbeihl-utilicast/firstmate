@@ -25,8 +25,6 @@ SEMANTICS_MISMATCH="$LAB/semantics-mismatch.json"
 PARTIAL="$LAB/partial.json"
 NO_APPLICABLE="$LAB/no-applicable.json"
 APPLICABLE_VETO="$LAB/applicable-veto.json"
-MUSE_EXHAUSTED="$LAB/muse-exhausted.json"
-MUSE_POSITIVE="$LAB/muse-positive.json"
 AGY_POSITIVE="$LAB/agy-positive.json"
 AGY_CLAUDE_MODEL="$LAB/agy-claude-model.json"
 AGY_EXHAUSTED="$LAB/agy-exhausted.json"
@@ -62,7 +60,7 @@ cat > "$FIXTURE" <<'JSON'
   "schemaVersion": 5,
   "providers": [
     {
-      "provider": "kimi",
+      "provider": "grok",
       "windows": [],
       "quotaSemantics": {
         "status": "known",
@@ -190,17 +188,17 @@ fi
 ok "help renders the complete header only"
 
 # 1. First candidate with positive effective quota.
-out=$(call_choose --snapshot "$LAB/captured.json" --candidate kimi:default --candidate codex:model:codex_bengalfox --candidate claude:claude-3-5-sonnet)
+out=$(call_choose --snapshot "$LAB/captured.json" --candidate grok:default --candidate codex:model:codex_bengalfox --candidate claude:claude-3-5-sonnet)
 [ "$out" = "claude claude-3-5-sonnet" ] || fail "first positive: expected 'claude claude-3-5-sonnet', got '$out'"
 ok "first positive candidate wins"
 
 # 2. Exhausted provider is skipped.
-out=$(call_choose --snapshot "$LAB/captured.json" --candidate kimi:default --candidate claude:claude-3-5-sonnet)
+out=$(call_choose --snapshot "$LAB/captured.json" --candidate grok:default --candidate claude:claude-3-5-sonnet)
 [ "$out" = "claude claude-3-5-sonnet" ] || fail "exhausted skip: expected 'claude claude-3-5-sonnet', got '$out'"
 ok "exhausted provider is skipped"
 
 # 3. No candidates have positive quota.
-if out=$(call_choose --snapshot "$LAB/captured.json" --candidate kimi:default 2>/dev/null); then
+if out=$(call_choose --snapshot "$LAB/captured.json" --candidate grok:default 2>/dev/null); then
   fail "no positive: expected exit 1, got exit 0 with '$out'"
 fi
 [ "$out" = "none" ] || fail "no positive: expected 'none', got '$out'"
@@ -217,24 +215,6 @@ if out=$(call_choose --snapshot "$LAB/captured.json" --candidate codex:model:cod
 fi
 [ "$out" = "none" ] || fail "specific scope: expected 'none', got '$out'"
 ok "specific model scope bounds generic quota"
-
-if out=$(call_choose --snapshot "$LAB/captured.json" --candidate omp:openai-codex/codex_bengalfox 2>/dev/null); then
-  fail "omp prefix: the bare codex model scope did not veto, got exit 0 with '$out'"
-fi
-[ "$out" = "none" ] || fail "omp prefix: expected 'none' from the exhausted codex model scope, got '$out'"
-out=$(call_choose --snapshot "$LAB/captured.json" --candidate omp:openai-codex/codex_other)
-[ "$out" = "omp openai-codex/codex_other" ] || fail "omp prefix: expected the provider-wide codex quota to select the prefixed model, got '$out'"
-ok "omp openai-codex prefix matches the bare codex model scope"
-
-if err=$(call_choose --snapshot "$LAB/captured.json" --candidate omp:ollama/qwen3:8b --candidate claude:claude-3-5-sonnet 2>&1); then
-  fail "unmapped omp prefix unexpectedly selected a later candidate"
-fi
-[ "$err" = "error: omp quota mapping covers only the openai-codex and claude-bridge prefixes: ollama/qwen3:8b" ] || fail "unmapped omp prefix returned: $err"
-if err=$(call_choose --snapshot "$LAB/captured.json" --candidate omp 2>&1); then
-  fail "bare omp candidate unexpectedly selected"
-fi
-[ "$err" = "error: omp quota mapping covers only the openai-codex and claude-bridge prefixes: default" ] || fail "bare omp candidate returned: $err"
-ok "omp without a mapped prefix fails closed"
 
 out=$(call_choose --snapshot "$LAB/captured.json" --candidate codex:default)
 [ "$out" = "codex default" ] || fail "default scope: expected provider-wide quota, got '$out'"
@@ -539,20 +519,6 @@ if out=$(call_choose --snapshot "$LAB/captured.json" --candidate cursor:default 
 fi
 [ "$out" = "none" ] || fail "provider-level unknown quota returned: $out"
 ok "provider-level unknown quota is not positive"
-
-jq '.providers += [{"provider":"meta","windows":[],"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":25,"runway":{"status":"through_reset"}}]}}]' \
-  "$LAB/captured.json" > "$MUSE_POSITIVE"
-out=$(call_choose --snapshot "$MUSE_POSITIVE" --candidate muse:default)
-[ "$out" = "muse default" ] || fail "supported Muse candidate returned: $out"
-ok "Muse candidate is accepted"
-
-jq '.providers += [{"provider":"meta","windows":[],"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":0,"runway":{"status":"exhausted_now"}}]}}]' \
-  "$LAB/captured.json" > "$MUSE_EXHAUSTED"
-if out=$(call_choose --snapshot "$MUSE_EXHAUSTED" --candidate muse:default 2>/dev/null); then
-  fail "Muse candidate dispatched with exhausted Meta quota"
-fi
-[ "$out" = "none" ] || fail "exhausted Meta quota returned: $out"
-ok "Muse uses Meta quota"
 
 if err=$(call_choose --snapshot "$LAB/captured.json" --candidate gemini:default 2>&1); then
   fail "unsupported harness unexpectedly dispatched"

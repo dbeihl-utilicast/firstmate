@@ -35,7 +35,7 @@ mkdir -p "$TMP_ROOT"
 TMP_ROOT=$(cd "$TMP_ROOT" && pwd)
 trap 'rm -rf "$TMP_ROOT"' EXIT
 
-VERIFIED_HARNESSES="claude codex opencode pi pi-signed grok kimi cursor muse omp qwen agy"
+VERIFIED_HARNESSES="claude codex pi pi-signed grok cursor qwen agy"
 
 # The expectation table, written out independently of the implementation so a
 # silent change to either side shows up here. The fourth field is the composer
@@ -45,14 +45,10 @@ verified_adapter_contract() {  # <harness> -> exit command, interrupt key, repea
   case "$1" in
     claude) printf '/exit\tEscape\t1\t\n' ;;
     codex) printf '/quit\tEscape\t1\t\n' ;;
-    opencode) printf '/exit\tEscape\t2\t\n' ;;
     pi) printf '/quit\tEscape\t1\t\n' ;;
     pi-signed) printf '/quit\tEscape\t1\t\n' ;;
-    omp) printf '/quit\tEscape\t1\t\n' ;;
     grok) printf '/exit\tC-c\t1\t\n' ;;
-    kimi) printf '/exit\tEscape\t1\t\n' ;;
     cursor) printf '/exit\tEscape\t1\t\n' ;;
-    muse) printf '/exit\tEscape\t1\tC-u\n' ;;
     qwen) printf '/quit\tEscape\t1\tC-u\n' ;;
     agy) printf '/quit\tEscape\t1\t\n' ;;
     *) return 1 ;;
@@ -318,24 +314,6 @@ test_prefixed_recorded_harness_reaches_each_control_verb() {
   pass "fm-control: prefixed recorded harnesses reach interrupt and exit mechanics"
 }
 
-test_opencode_interrupts_twice_and_others_once() {
-  # The one adapter that differs, asserted through the delivered keys rather
-  # than the table, so a regression in either shows up here.
-  local dir
-  dir=$(new_case int-double)
-  add_task "$dir" t1 opencode
-  alive_as "$dir" opencode
-  run_control "$dir" t1 interrupt >/dev/null
-  [ "$(keys_sent "$dir" | wc -l | tr -d ' ')" = 2 ] \
-    || fail "opencode should receive a double Escape"
-  dir=$(new_case int-single)
-  add_task "$dir" t1 claude
-  alive_as "$dir" claude
-  run_control "$dir" t1 interrupt >/dev/null
-  [ "$(keys_sent "$dir" | wc -l | tr -d ' ')" = 1 ] \
-    || fail "claude should receive a single Escape"
-  pass "fm-control interrupt: opencode needs a double Escape, claude a single one"
-}
 
 test_unverified_harness_is_refused() {
   local dir out rc
@@ -383,13 +361,11 @@ test_harness_kind_capability() {
     fm_control_harness_supports_kind "$harness" scout \
       || fail "$harness should be able to run a scout task"
   done
-  fm_control_harness_supports_kind muse secondmate \
-    && fail "muse has no primary supervision protocol and must not claim a secondmate"
   fm_control_harness_supports_kind qwen secondmate \
     && fail "qwen has no primary supervision protocol and must not claim a secondmate"
   fm_control_harness_supports_kind agy secondmate \
     && fail "agy has no primary supervision protocol and must not claim a secondmate"
-  for harness in claude codex opencode pi pi-signed grok kimi omp; do
+  for harness in claude codex pi pi-signed grok cursor; do
     fm_control_harness_supports_kind "$harness" secondmate \
       || fail "$harness should be able to run a secondmate"
   done
@@ -728,48 +704,7 @@ test_interrupt_without_acknowledgement_preserves_busy_state() {
   pass "fm-control interrupt: unconfirmed delivery preserves observed busy state"
 }
 
-test_muse_interrupt_confirms_adapter_acknowledgement() {
-  local dir root log out rc
-  dir=$(new_case confirmed)
-  add_task "$dir" t1 muse
-  alive_as "$dir" muse
-  root="$dir/muse-sessions"
-  log="$root/2026/08/08/session-1/session.jsonl"
-  mkdir -p "$(dirname "$log")"
-  printf '%s\n' \
-    "{\"schema_version\":1,\"payload_type\":\"runtime.session.metadata\",\"payload\":{\"kind\":\"metadata\",\"record\":{\"workspace_root\":\"$dir/wt-t1\"}}}" \
-    '{"schema_version":1,"payload_type":"runtime.session","payload":{"kind":"run","run_id":"run-1","event":{"kind":"started","prompt":"work"}}}' > "$log"
-  printf 'sessions_root=%s\nworkspace_root=%s\nbinding_id=test\n' \
-    "$root" "$dir/wt-t1" > "$dir/home/state/t1.muse-session"
-  out=$(FM_FAKE_MUSE_LOG="$log" run_control "$dir" t1 interrupt); rc=$?
-  expect_code 0 "$rc" "muse interrupt should observe its adapter acknowledgement"$'\n'"$out"
-  assert_contains "$out" "verified=agent-alive cancel=confirmed" \
-    "the result should report muse's cancelled terminal acknowledgement"
-  pass "fm-control interrupt: muse confirms cancellation from its session log"
-}
 
-test_interrupt_revalidates_agent_after_acknowledgement_wait() {
-  local dir root log out rc
-  dir=$(new_case ack-race)
-  add_task "$dir" t1 muse
-  alive_as "$dir" muse
-  root="$dir/muse-sessions"
-  log="$root/2026/08/08/session-1/session.jsonl"
-  mkdir -p "$(dirname "$log")"
-  printf '%s\n' \
-    "{\"schema_version\":1,\"payload_type\":\"runtime.session.metadata\",\"payload\":{\"kind\":\"metadata\",\"record\":{\"workspace_root\":\"$dir/wt-t1\"}}}" \
-    '{"schema_version":1,"payload_type":"runtime.session","payload":{"kind":"run","run_id":"run-1","event":{"kind":"started","prompt":"work"}}}' > "$log"
-  printf 'sessions_root=%s\nworkspace_root=%s\nbinding_id=test\n' \
-    "$root" "$dir/wt-t1" > "$dir/home/state/t1.muse-session"
-  out=$(FM_FAKE_MUSE_LOG="$log" FM_FAKE_MUSE_DISAPPEAR_BEFORE_ACK=1 \
-    run_control "$dir" t1 interrupt); rc=$?
-  expect_code 1 "$rc" "interrupt should fail when the agent stops during acknowledgement polling"
-  assert_contains "$out" "agent is 'dead' after its interrupt key" \
-    "the final postcondition should observe the agent after acknowledgement polling"
-  assert_not_contains "$out" "interrupt-delivered" \
-    "a stale pre-wait liveness proof must not be published"
-  pass "fm-control interrupt: postconditions are revalidated after acknowledgement polling"
-}
 
 test_exit_accepts_agent_stopped_by_busy_interrupt() {
   local dir out rc gen
@@ -889,10 +824,9 @@ test_fm_send_still_marks_the_same_secondmate_task() {
 
 test_exit_types_each_harness_verified_command
 test_interrupt_sends_each_harness_verified_key
-test_opencode_interrupts_twice_and_others_once
-test_unverified_harness_is_refused
 test_harness_family_resolution
 test_prefixed_recorded_harness_reaches_each_control_verb
+test_unverified_harness_is_refused
 test_backend_key_capability_matrix
 test_harness_kind_capability
 test_orca_refuses_an_escape_harness_interrupt
@@ -914,8 +848,6 @@ test_ambiguous_endpoint_refuses
 test_busy_agent_is_interrupted_before_the_exit_command
 test_idle_agent_is_not_interrupted
 test_interrupt_without_acknowledgement_preserves_busy_state
-test_muse_interrupt_confirms_adapter_acknowledgement
-test_interrupt_revalidates_agent_after_acknowledgement_wait
 test_exit_accepts_agent_stopped_by_busy_interrupt
 test_agent_that_does_not_stop_fails_closed
 test_grok_interrupt_without_acknowledgement_reports_unconfirmed

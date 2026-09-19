@@ -297,8 +297,7 @@ fm_busy_record_read() {  # <state-dir> <id>
 # only the normalized muse harness identity, while session metadata records
 # semver 0.1.0 plus a build SHA that cannot be matched against it. Resolution
 # failures - no sidecar, no matching log, an unreadable or run-free log - remain
-# unknown because those prove nothing about the turn either way. See
-# docs/verification/muse.md for the evidence.
+# unknown because those prove nothing about the turn either way.
 # fm_busy_muse_binding_path: the per-task sidecar fm-spawn writes so the
 # classifier binds a pane to its session log without re-deriving muse's data
 # directory. It records sessions_root=<abs>, workspace_root=<abs>, one

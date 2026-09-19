@@ -1167,7 +1167,7 @@ crew_dispatch_validate() {
     return 0
   fi
   err=$(jq -r '
-    def verified($h): ["claude","codex","codex-foundry-luna","opencode","pi","pi-signed","grok","kimi","cursor","muse","rovo","omp","qwen","agy"] | index($h);
+    def verified($h): ["claude","codex","codex-foundry-luna","pi","pi-signed","grok","cursor","qwen","agy"] | index($h);
     def effort_ok($h; $m; $e):
       if $e == null then true
       elif ($e | type) != "string" then false
@@ -1175,10 +1175,8 @@ crew_dispatch_validate() {
       elif $h == "claude" then (["low","medium","high","xhigh","max"] | index($e))
       elif $h == "codex" or $h == "codex-foundry-luna" then (["low","medium","high","xhigh"] | index($e))
       elif $h == "grok" or $h == "agy" then (["low","medium","high"] | index($e))
-      elif $h == "pi" or $h == "pi-signed" or $h == "omp" then (["low","medium","high","xhigh","max"] | index($e))
-      elif $h == "muse" then (["low","medium","high","xhigh","max"] | index($e))
-      elif $h == "rovo" then (["low","medium","high","max"] | index($e))
-      elif $h == "opencode" or $h == "kimi" or $h == "cursor" then false
+      elif $h == "pi" or $h == "pi-signed" then (["low","medium","high","xhigh","max"] | index($e))
+      elif $h == "cursor" then false
       else true
       end;
     def nonempty_string: type == "string" and length > 0;
