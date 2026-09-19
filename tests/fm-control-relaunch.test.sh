@@ -1740,8 +1740,14 @@ test_missing_endpoint_creation_survives_process_death_without_duplication() {
   pass "missing endpoint: process death is reconciled without a second worker"
 }
 
+run_control_recording_rc() {
+  local dir=$1 id=$2 label=$3 note=$4 rc=0
+  run_control "$dir" "$id" relaunch --note "$note" > "$dir/$label.out" || rc=$?
+  echo "$rc" > "$dir/$label.rc"
+}
+
 test_two_missing_records_for_one_copy_recover_at_most_one_worker() {
-  local dir first second ready release first_pid second_pid first_rc=0 second_rc=0 out creates
+  local dir first second ready release first_rc second_rc out creates
   first=rl-copy-a
   second=rl-copy-b
   dir=$(new_case missing-copy-alias "$first")
@@ -1752,16 +1758,15 @@ test_two_missing_records_for_one_copy_recover_at_most_one_worker() {
   release="$dir/endpoint-release"
 
   FM_TEST_RELAUNCH_ENDPOINT_READY="$ready" FM_TEST_RELAUNCH_ENDPOINT_RELEASE="$release" \
-    run_control "$dir" "$first" relaunch --note "recover first vanished session" > "$dir/first.out" &
-  first_pid=$!
+    run_control_recording_rc "$dir" "$first" first "recover first vanished session" &
   for _ in $(seq 1 200); do [ -s "$ready" ] && break; /bin/sleep 0.01; done
   [ -s "$ready" ] || fail "first same-copy recovery did not reach endpoint creation"
 
-  run_control "$dir" "$second" relaunch --note "recover second vanished session" > "$dir/second.out" &
-  second_pid=$!
+  run_control_recording_rc "$dir" "$second" second "recover second vanished session" &
   : > "$release"
-  wait "$first_pid" || first_rc=$?
-  wait "$second_pid" || second_rc=$?
+  wait
+  first_rc=$(cat "$dir/first.rc")
+  second_rc=$(cat "$dir/second.rc")
   out=$(cat "$dir/second.out")
 
   expect_code 0 "$first_rc" "the first same-copy recovery should succeed"
