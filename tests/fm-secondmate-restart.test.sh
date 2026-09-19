@@ -264,6 +264,7 @@ test_persist_gates_and_asks_only_for_open_records() {
   expect_code 3 "$rc" "an unconfirmed persist is a fallback, not a success"$'\n'"$out"
   assert_contains "$out" "nudged: sm1:" "an unconfirmed persist must fall back to the re-read message"
   assert_contains "$out" "its open work is written down" "the fallback must name the missing confirmation"
+  assert_contains "$out" "the agent " "the fallback must say what was observed about the agent"
   assert_not_contains "$out" "restarted: sm1" "a mate that never confirmed must not be restarted"
   assert_contains "$out" "summary: 0 of 1 restarted" "the summary must not claim a reload"
   # The agent is untouched: nothing exited, nothing relaunched.

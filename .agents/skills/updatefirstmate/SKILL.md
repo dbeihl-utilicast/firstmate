@@ -72,6 +72,7 @@ This touches only the firstmate repo and its own worktrees, never anything under
    - `restarted: <id>` - that mate is now genuinely running the current instructions and launch-time settings.
    - `nudged: <id>: <reason>` - the restart was not safe, so the mate got the older re-read message instead and is still running the conversation and launch-time settings it started with.
      Never report one of these as a clean reload.
+     When the reason says the agent was still mid-turn, re-run this command for just that mate once its turn ends.
    - `unreached: <id>: <reason>` - no safe running outcome could be confirmed, including an ambiguous relaunch result.
 
 4. **Send the re-read message to the rest.**
