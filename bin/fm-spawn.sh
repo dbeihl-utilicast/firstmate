@@ -1403,6 +1403,54 @@ relaunch_endpoint_journal_reconcile() {
   esac
 }
 
+# Prints the conflicting task and returns 0 when another readable task record
+# naming this physical copy has a live or unreadable endpoint. The caller holds
+# the canonical custody lock, so this check and replacement creation are one
+# serialized decision across task ids.
+relaunch_copy_occupancy_refusal() {  # <worktree>
+  local wt=$1 canonical meta other_id other_wt other_canonical occupancy state target
+  canonical=$(CDPATH='' cd -P -- "$wt" 2>/dev/null && pwd -P) || return 0
+  for meta in "$STATE"/*.meta; do
+    [ -e "$meta" ] || [ -L "$meta" ] || continue
+    [ -f "$meta" ] && [ ! -L "$meta" ] && [ -r "$meta" ] || continue
+    other_id=${meta##*/}
+    other_id=${other_id%.meta}
+    [ "$other_id" != "$ID" ] || continue
+    other_wt=$(fm_meta_get "$meta" worktree)
+    [ -n "$other_wt" ] || continue
+    other_canonical=$(CDPATH='' cd -P -- "$other_wt" 2>/dev/null && pwd -P) || continue
+    [ "$other_canonical" = "$canonical" ] || continue
+    occupancy=$(
+      if ! fm_backend_validate_task_endpoint "$meta" "$other_id" >/dev/null 2>&1; then
+        printf 'unreadable\tunknown\n'
+        exit 0
+      fi
+      if ! fm_control_backend_state_verified "$FM_BACKEND_VALIDATED_BACKEND" \
+        || ! fm_backend_source "$FM_BACKEND_VALIDATED_BACKEND" >/dev/null 2>&1; then
+        printf 'unreadable\t%s\n' "$FM_BACKEND_VALIDATED_TARGET"
+        exit 0
+      fi
+      state=$(fm_backend_agent_state "$FM_BACKEND_VALIDATED_BACKEND" "$FM_BACKEND_VALIDATED_TARGET" 2>/dev/null) \
+        || state=unreadable
+      printf '%s\t%s\n' "$state" "$FM_BACKEND_VALIDATED_TARGET"
+    )
+    state=${occupancy%%$'\t'*}
+    target=${occupancy#*$'\t'}
+    case "$state" in
+      dead|missing) ;;
+      alive)
+        echo "task $other_id already has a live worker in this copy at $target"
+        return 0
+        ;;
+      *)
+        echo "task $other_id also names this copy, but its endpoint '$target' cannot be read safely"
+        return 0
+        ;;
+    esac
+  done
+  return 1
+}
+
 # --relaunch adoption: every identity axis comes from the task's own validated
 # durable record, never from the command line, so a relaunch can only ever
 # re-launch the task it names. The endpoint identity check is the same shared
@@ -1512,6 +1560,10 @@ if [ "$RELAUNCH" -eq 1 ]; then
         }
       fi
     fi
+  fi
+  if RELAUNCH_COPY_OCCUPANCY=$(relaunch_copy_occupancy_refusal "$RELAUNCH_WT"); then
+    echo "error: task $ID cannot relaunch because $RELAUNCH_COPY_OCCUPANCY; refusing rather than starting a second worker in one copy" >&2
+    exit 1
   fi
   # With no explicit harness, a relaunch reuses the harness already recorded
   # for this task. It must NOT fall through to the fresh-spawn config
