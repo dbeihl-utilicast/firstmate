@@ -129,7 +129,10 @@
 # releases its durable treehouse lease so the pool slot is freed,
 # never left leased forever. If the treehouse return fails, teardown leaves the
 # leased home and state in place instead of hiding a still-held lease.
-# Usage: fm-teardown.sh <task-id> [--force] [--legacy-record]
+# Usage: fm-teardown.sh <task-id> [--force] [--legacy-record] [--retire-record]
+#   --retire-record archives only a finished record whose live Treehouse slot is
+#   already claimed by another active record. It never touches the endpoint,
+#   worktree, pool slot, backlog, or stopped-lane marker.
 #   --force skips ordinary-task dirty and landed-work checks, skips scout report
 #   checks, and discards secondmate child work for kind=secondmate. Only use it
 #   when the captain has explicitly said to discard the work.
@@ -272,11 +275,13 @@ fi
 ID=$1
 FORCE=
 LEGACY_RECORD_GIVEN=0
+RECORD_ONLY_RETIRE=0
 shift
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --force) FORCE=--force ;;
     --legacy-record) LEGACY_RECORD_GIVEN=1 ;;
+    --retire-record) RECORD_ONLY_RETIRE=1 ;;
     *)
       echo "error: invalid teardown request" >&2
       exit 2
@@ -421,6 +426,86 @@ fm_backlog_record_present "$META" "task record" "$STATE" || {
   echo "error: teardown refused after locking: $FM_BACKLOG_TRANSITION_ERROR" >&2
   exit 1
 }
+
+# Archive a stale identity without exercising any ordinary teardown behavior.
+# The active metadata is the only routing and liveness authority, so moving it
+# out of state/ makes the old identity inactive before any later destination
+# record can be considered. The archived metadata and receipt retain the audit
+# trail. This path deliberately leaves every sidecar in place: no endpoint is
+# killed and no reused slot can be returned or reset.
+retire_record_only() {
+  local kind wt project slot other other_id other_path other_slot owners="" retired receipt row
+  kind=$(fm_meta_get "$META" kind)
+  [ -n "$kind" ] || kind=ship
+  wt=$(fm_meta_get "$META" worktree)
+  project=$(fm_meta_get "$META" project)
+  if ! is_treehouse_pool_slot "$project" "$wt"; then
+    echo "REFUSED: record-only retirement requires a live Treehouse pool slot; nothing was changed" >&2
+    return 1
+  fi
+  slot=$(CDPATH='' cd -- "$wt" 2>/dev/null && pwd -P) || {
+    echo "REFUSED: record-only retirement cannot canonicalize its recorded pool slot; nothing was changed" >&2
+    return 1
+  }
+  for other in "$STATE"/*.meta; do
+    [ -f "$other" ] && [ ! -L "$other" ] || continue
+    [ "$other" != "$META" ] || continue
+    other_path=$(fm_meta_get "$other" worktree)
+    [ -n "$other_path" ] || other_path=$(fm_meta_get "$other" home)
+    [ -n "$other_path" ] || continue
+    other_slot=$(CDPATH='' cd -- "$other_path" 2>/dev/null && pwd -P) || continue
+    [ "$other_slot" = "$slot" ] || continue
+    other_id=$(basename "$other" .meta)
+    owners="$owners${owners:+,}$other_id"
+  done
+  if [ -z "$owners" ]; then
+    echo "REFUSED: task $ID still appears to own pool slot $slot; record-only retirement would hide an unreconciled slot, so nothing was changed" >&2
+    return 1
+  fi
+  if [ "$kind" = scout ] && [ -f "$DATA/$ID/report.md" ]; then
+    :
+  elif fm_backlog_row_probe "$DATA" "$ID" && [ "${FM_BACKLOG_ROW_STATE%% *}" = "done" ]; then
+    :
+  else
+    echo "REFUSED: task $ID is not proved finished by a scout report or closed backlog row; nothing was changed" >&2
+    return 1
+  fi
+  retired="$STATE/retired"
+  if [ -e "$retired" ] || [ -L "$retired" ]; then
+    [ -d "$retired" ] && [ ! -L "$retired" ] || {
+      echo "REFUSED: retirement audit directory is unsafe at $retired; nothing was changed" >&2
+      return 1
+    }
+  else
+    mkdir -m 700 -- "$retired" || return 1
+  fi
+  [ ! -e "$retired/$ID.meta" ] && [ ! -L "$retired/$ID.meta" ] || {
+    echo "REFUSED: retirement audit already exists for $ID; nothing was changed" >&2
+    return 1
+  }
+  mv -- "$META" "$retired/$ID.meta" || return 1
+  receipt="$retired/$ID.receipt"
+  if ! {
+    printf 'version=fm-record-retirement-v1\n'
+    printf 'task_id=%s\n' "$ID"
+    printf 'retired_epoch=%s\n' "$(date +%s)"
+    printf 'reason=reused-treehouse-slot\n'
+    printf 'slot=%s\n' "$slot"
+    printf 'active_owners=%s\n' "$owners"
+  } > "$receipt"; then
+    echo "error: task $ID was made inactive but its retirement receipt could not be written at $receipt" >&2
+    return 1
+  fi
+  echo "record-only retirement $ID complete (slot retained for $owners)"
+}
+
+if [ "$RECORD_ONLY_RETIRE" = 1 ]; then
+  [ -z "$FORCE" ] || { echo "error: --retire-record cannot be combined with --force" >&2; exit 2; }
+  [ "$LEGACY_RECORD_GIVEN" = 0 ] || { echo "error: --retire-record cannot be combined with --legacy-record" >&2; exit 2; }
+  retire_record_only
+  exit $?
+fi
+
 TEARDOWN_META_KIND=$(fm_meta_get "$META" kind)
 [ -n "$TEARDOWN_META_KIND" ] || TEARDOWN_META_KIND=ship
 TEARDOWN_CLEANUP_RECOVERY=$(fm_meta_get "$META" cleanup_recovery)
