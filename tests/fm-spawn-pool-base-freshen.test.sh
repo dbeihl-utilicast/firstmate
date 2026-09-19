@@ -59,6 +59,38 @@ run_spawn() {
     "$id" "$PROJECT_DIR" "$@"
 }
 
+test_fresh_spawn_refuses_a_copy_claimed_by_another_task() {
+  local rec id prior out status=0 launches
+  id='pool-duplicate-claim-r15'
+  prior='pool-existing-r15'
+  rec=$(make_case duplicate-claim "$id")
+  read_case_record "$rec"
+  cat > "$HOME_DIR/state/$prior.meta" <<EOF
+window=firstmate:fm-$prior
+endpoint_task_id=$prior
+worktree=$POOL_DIR
+project=$PROJECT_DIR
+harness=codex
+kind=ship
+mode=no-mistakes
+yolo=off
+tasktmp=/tmp/fm-$prior
+model=default
+effort=default
+EOF
+
+  FM_FAKE_DUPLICATE_WINDOW="fm-$prior" FM_FAKE_LAUNCH_LOG="$CASE_DIR/launch.log" \
+    out=$(run_spawn "$id" --scout) || status=$?
+  expect_code 1 "$status" "a fresh spawn must refuse a pool copy another task still claims"$'\n'"$out"
+  assert_contains "$out" "$prior" "the duplicate-copy refusal should name the existing task"
+  launches=$(grep -c 'encode launch-brief' "$CASE_DIR/launch.log" 2>/dev/null || printf 0)
+  [ "$launches" = 0 ] || fail "an occupied pooled copy received $launches new worker launches"
+  if [ "${FM_TEST_EVIDENCE:-0}" = 1 ]; then
+    printf 'prior_workers=1\nnew_launches=%s\ntotal_workers=%s\n' "$launches" "$((1 + launches))"
+  fi
+  pass "a fresh spawn refuses a copy still claimed by another task"
+}
+
 test_remote_seeded_home_spawns_from_treehouse_pool() {
   local rec id out status lock
   id='pool-remote-seeded-r13'
@@ -183,6 +215,7 @@ test_stale_pool_base_refreshes_before_branching() {
       "$branch_head" "$current" "$(cat "$POOL_DIR/advanced-main.txt")"
   fi
 
+  rm -f "$HOME_DIR/state/$id.meta"
   id='pool-current-base-repeat-r1'
   fm_test_spawn_brief "$HOME_DIR" "$id"
   out=$(run_spawn "$id" --mode no-mistakes --yolo off)
@@ -528,6 +561,7 @@ strand_submodule_pin_via_spawn() {  # <seed-id>
     || fail "the first spawn did not move the pooled base across the moved submodule pin"
   [ "$(git -C "$POOL_DIR/ui" rev-parse HEAD)" = "$SUBPIN1" ] \
     || fail "the first spawn did not strand the submodule on the pin the old base recorded"
+  rm -f "$HOME_DIR/state/$id.meta"
 }
 
 test_stale_submodule_pin_explains_itself() {
@@ -832,6 +866,7 @@ EOF
   pass "a validation-owned or unreadable validation head refuses a pool reset"
 }
 
+test_fresh_spawn_refuses_a_copy_claimed_by_another_task
 test_remote_seeded_home_spawns_from_treehouse_pool
 test_linked_spawning_home_rejects_primary_before_refresh
 test_stale_pool_base_refreshes_before_branching

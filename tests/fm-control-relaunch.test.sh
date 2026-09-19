@@ -137,6 +137,11 @@ SH
 exit 0
 SH
   chmod +x "$fb/sleep"
+  cat > "$fb/treehouse" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+  chmod +x "$fb/treehouse"
 }
 
 # new_case <name> [id] -> echoes a case dir with a live claude ship task.
@@ -1746,6 +1751,13 @@ run_control_recording_rc() {
   echo "$rc" > "$dir/$label.rc"
 }
 
+run_spawn_recording_rc() {
+  local dir=$1 id=$2 label=$3 project=$4 rc=0
+  printf '%s\n' "${BASHPID:-$$}" > "$dir/$label.pid"
+  run_spawn "$dir" "$id" "$project" --backend tmux --mode no-mistakes --yolo off > "$dir/$label.out" || rc=$?
+  echo "$rc" > "$dir/$label.rc"
+}
+
 test_two_missing_records_for_one_copy_recover_at_most_one_worker() {
   local dir first second ready release first_rc second_rc out creates
   first=rl-copy-a
@@ -1804,6 +1816,46 @@ test_crashed_unpublished_recovery_blocks_alias_record() {
   creates=$(grep -c '^fm-rl-crash-' "$dir/fake/windows" 2>/dev/null || true)
   [ "$creates" = 1 ] || fail "alias recovery created $creates workers for one copy"
   pass "missing endpoint: another task's unpublished recovery journal blocks an alias record"
+}
+
+test_fresh_spawn_racing_same_copy_recovery_starts_one_worker() {
+  local dir recovery fresh ready release recovery_rc fresh_rc out launches
+  recovery=rl-race-recovery
+  fresh=rl-race-fresh
+  dir=$(new_case fresh-recovery-race "$recovery")
+  add_ship_task "$dir" "$recovery" claude
+  mkdir -p "$dir/home/data/$fresh"
+  cp "$dir/home/data/$recovery/brief.md" "$dir/home/data/$fresh/brief.md"
+  : > "$dir/fake/windows"
+  ready="$dir/endpoint-ready"
+  release="$dir/endpoint-release"
+
+  FM_TEST_RELAUNCH_ENDPOINT_READY="$ready" FM_TEST_RELAUNCH_ENDPOINT_RELEASE="$release" \
+    run_control_recording_rc "$dir" "$recovery" recovery "recover vanished session" &
+  for _ in $(seq 1 200); do [ -s "$ready" ] && break; /bin/sleep 0.01; done
+  [ -s "$ready" ] || fail "recovery did not reach endpoint creation before the fresh-spawn race"
+
+  run_spawn_recording_rc "$dir" "$fresh" fresh "$dir/proj" &
+  for _ in $(seq 1 200); do [ -e "$dir/fresh.pid" ] && break; /bin/sleep 0.01; done
+  [ -e "$dir/fresh.pid" ] || fail "fresh spawn did not start for the recovery race"
+  /bin/sleep 0.2
+  if ! kill -0 "$(cat "$dir/fresh.pid")" 2>/dev/null; then
+    : > "$release"
+    wait
+    fail "fresh spawn did not wait for the recovery's copy reservation: $(cat "$dir/fresh.out")"
+  fi
+  : > "$release"
+  wait
+  recovery_rc=$(cat "$dir/recovery.rc")
+  fresh_rc=$(cat "$dir/fresh.rc")
+  out=$(cat "$dir/fresh.out")
+
+  expect_code 0 "$recovery_rc" "same-copy recovery should win its existing reservation"
+  expect_code 1 "$fresh_rc" "fresh spawn should refuse after the same-copy recovery publishes"$'\n'"$out"
+  assert_contains "$out" "$recovery" "the fresh-spawn refusal should name the recovering task"
+  launches=$(grep -c 'encode launch-brief' "$dir/fake/literal" 2>/dev/null || printf 0)
+  [ "$launches" = 1 ] || fail "fresh spawn racing recovery produced $launches worker launches"
+  pass "a fresh spawn racing same-copy recovery starts only one worker"
 }
 
 test_same_copy_record_with_unreadable_endpoint_refuses_recovery() {
@@ -1957,6 +2009,7 @@ test_missing_endpoint_with_pipeline_only_head_recovers_in_place
 test_missing_endpoint_creation_survives_process_death_without_duplication
 test_two_missing_records_for_one_copy_recover_at_most_one_worker
 test_crashed_unpublished_recovery_blocks_alias_record
+test_fresh_spawn_racing_same_copy_recovery_starts_one_worker
 test_same_copy_record_with_unreadable_endpoint_refuses_recovery
 test_missing_clean_endpoint_recreates_the_endpoint_against_the_recorded_copy
 test_missing_endpoint_with_unreadable_validation_refuses_before_any_note

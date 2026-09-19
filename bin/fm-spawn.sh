@@ -1404,11 +1404,11 @@ relaunch_endpoint_journal_reconcile() {
 }
 
 # Prints the conflicting task and returns 0 when another readable task record
-# naming this physical copy has a live or unreadable endpoint. The caller holds
-# the canonical custody lock, so this check and replacement creation are one
-# serialized decision across task ids.
-relaunch_copy_occupancy_refusal() {  # <worktree>
-  local wt=$1 canonical meta other_id other_wt other_canonical occupancy state target
+# claims this physical copy. Recovery permits a positively agent-free record;
+# fresh allocation requires the other record to be retired first. The caller
+# holds the canonical custody lock through worker publication.
+spawn_copy_claim_refusal() {  # <worktree> <recover|fresh>
+  local wt=$1 mode=$2 canonical meta other_id other_wt other_canonical occupancy state target
   canonical=$(CDPATH='' cd -P -- "$wt" 2>/dev/null && pwd -P) || return 0
   for meta in "$STATE"/*.meta; do
     [ -e "$meta" ] || [ -L "$meta" ] || continue
@@ -1422,6 +1422,10 @@ relaunch_copy_occupancy_refusal() {  # <worktree>
     [ "$other_canonical" = "$canonical" ] || continue
     if [ -e "$STATE/$other_id.relaunch-endpoint" ] || [ -L "$STATE/$other_id.relaunch-endpoint" ]; then
       echo "task $other_id also names this copy and has an unreconciled replacement endpoint journal"
+      return 0
+    fi
+    if [ "$mode" = fresh ]; then
+      echo "task $other_id still claims this copy; retire that task record before reallocation"
       return 0
     fi
     occupancy=$(
@@ -1565,7 +1569,7 @@ if [ "$RELAUNCH" -eq 1 ]; then
       fi
     fi
   fi
-  if RELAUNCH_COPY_OCCUPANCY=$(relaunch_copy_occupancy_refusal "$RELAUNCH_WT"); then
+  if RELAUNCH_COPY_OCCUPANCY=$(spawn_copy_claim_refusal "$RELAUNCH_WT" recover); then
     echo "error: task $ID cannot relaunch because $RELAUNCH_COPY_OCCUPANCY; refusing rather than starting a second worker in one copy" >&2
     exit 1
   fi
@@ -2558,17 +2562,24 @@ freshen_spawn_worktree_base_locked() {  # <worktree>
 }
 
 freshen_spawn_worktree_base() {  # <worktree>
-  local worktree=$1 status
+  local worktree=$1 status refusal
   SPAWN_CUSTODY_LOCK=$(fm_custody_lock_path "$STATE" "$worktree") || {
     echo "error: could not resolve custody identity for pooled worktree '$worktree'" >&2
     return 1
   }
   fm_lock_acquire_wait "$SPAWN_CUSTODY_LOCK" || return 1
   SPAWN_CUSTODY_LOCK_HELD=1
-  freshen_spawn_worktree_base_locked "$worktree"
-  status=$?
-  SPAWN_CUSTODY_LOCK_HELD=0
-  fm_lock_release "$SPAWN_CUSTODY_LOCK" || status=1
+  if refusal=$(spawn_copy_claim_refusal "$worktree" fresh); then
+    echo "error: pooled worktree '$worktree' cannot be allocated because $refusal" >&2
+    status=1
+  else
+    freshen_spawn_worktree_base_locked "$worktree"
+    status=$?
+  fi
+  if [ "$status" -ne 0 ]; then
+    SPAWN_CUSTODY_LOCK_HELD=0
+    fm_lock_release "$SPAWN_CUSTODY_LOCK" || status=1
+  fi
   return "$status"
 }
 
@@ -3950,6 +3961,10 @@ if [ "$HARNESS" = agy ]; then
     agy_spawn_fail "agy did not accept the launch brief after its verified trust-and-busy check in window $T"
     exit 1
   fi
+fi
+if [ "$RELAUNCH" -eq 0 ] && [ "$SPAWN_CUSTODY_LOCK_HELD" = 1 ]; then
+  SPAWN_CUSTODY_LOCK_HELD=0
+  fm_lock_release "$SPAWN_CUSTODY_LOCK" || exit 1
 fi
 if [ "$KIND" = secondmate ] && [ "${FM_SKIP_SECONDMATE_INHERIT:-0}" != 1 ]; then
   if ! fm_config_reread_discard_pending "$PROJ_ABS" "$ID" "$FM_HOME"; then
