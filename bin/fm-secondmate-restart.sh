@@ -52,6 +52,8 @@
 # restart transaction, its checkpoint, its journal, and its rollback; a refusal
 # before the agent is stopped leaves the mate running exactly as it was.
 #
+# A lane with state/<id>.stopped is skipped and reported, never restarted or nudged.
+#
 # Restart candidacy itself belongs to bin/fm-update.sh, which knows which homes
 # the update pass actually left on the target commit; this command re-checks
 # capability on its own argv rather than trusting a caller's list.
@@ -135,6 +137,7 @@ RESTART_RESULT=()
 restarted_count=0
 nudged_count=0
 unreached_count=0
+skipped_count=0
 
 # The first line of a command's output that carries anything, flattened to one
 # readable line with its "error: " prefix dropped. A refusal's own words are the
@@ -318,6 +321,13 @@ while [ "$i" -lt "${#IDS[@]}" ]; do
   HARNESS[i]=""
   MODEL[i]=""
   EFFORT[i]=""
+  if [ -e "$STATE/$id.stopped" ]; then
+    PLAN[i]="stopped"
+    skipped_count=$((skipped_count + 1))
+    printf 'skipped: %s: stopped by the captain; reopen it with bin/fm-secondmate-lane.sh to restart it\n' "$id"
+    i=$((i + 1))
+    continue
+  fi
   if ! fm_secondmate_restart_capable "$STATE/$id.meta"; then
     REASON[i]=$FM_SECONDMATE_RESTART_REASON
     i=$((i + 1))
@@ -381,6 +391,8 @@ i=0
 while [ "$i" -lt "${#IDS[@]}" ]; do
   if [ "${PLAN[i]}" = persisted-pending ]; then
     pending_count=$((pending_count + 1))
+  elif [ "${PLAN[i]}" = stopped ]; then
+    PLAN[i]="done"
   else
     fall_back_to_nudge "${IDS[$i]}" "${REASON[i]}"
     PLAN[i]="done"
@@ -433,7 +445,9 @@ done
 
 # --- summary ---------------------------------------------------------------
 
-printf 'summary: %d of %d restarted, %d nudged, %d unreached\n' \
+printf 'summary: %d of %d restarted, %d nudged, %d unreached' \
   "$restarted_count" "${#IDS[@]}" "$nudged_count" "$unreached_count"
+[ "$skipped_count" -eq 0 ] || printf ', %d skipped' "$skipped_count"
+printf '\n'
 [ "$((nudged_count + unreached_count))" -eq 0 ] || exit 3
 exit 0

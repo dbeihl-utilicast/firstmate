@@ -126,6 +126,7 @@ selector_claimed() {  # <selector>
 claim_settled_secondmate() {  # <id>
   local id=$1
   selector_claimed "fm-$id" && return 0
+  [ ! -e "$STATE/$id.stopped" ] || return 0
   secondmate_agent_may_be_alive "$id" || return 0
   if fm_secondmate_restart_capable "$STATE/$id.meta"; then
     FF_RESTART_WINDOWS="$FF_RESTART_WINDOWS fm-$id"
