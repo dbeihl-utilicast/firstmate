@@ -2022,17 +2022,24 @@ fm_backend_herdr_container_ensure() {  # <cwd-for-a-fresh-workspace> [<launcher-
 }
 
 # fm_backend_herdr_pane_presence_state: classify one exact pane get response
-# as dead|present|unknown from its JSON body, never from process exit status.
+# as dead|present|unknown from one unambiguous JSON body, never from process
+# exit status. A pane_not_found error is proof only when the successful parse
+# contains exactly one object and no result that could contradict the error.
 fm_backend_herdr_pane_presence_state() {  # <session> <pane_id>
-  local session=$1 pane_id=$2 out code pid
+  local session=$1 pane_id=$2 out state
   out=$(fm_backend_herdr_cli "$session" pane get "$pane_id" 2>&1)
-  code=$(printf '%s' "$out" | jq -r '.error.code // empty' 2>/dev/null)
-  if [ -n "$code" ]; then
-    [ "$code" = "pane_not_found" ] && printf 'dead' || printf 'unknown'
-    return 0
-  fi
-  pid=$(printf '%s' "$out" | jq -r '.result.pane.pane_id // empty' 2>/dev/null)
-  [ "$pid" = "$pane_id" ] && printf 'present' || printf 'unknown'
+  state=$(printf '%s' "$out" | jq -ser --arg pane_id "$pane_id" '
+    if length != 1 or (.[0] | type) != "object" then "unknown"
+    elif ((.[0].error? | type) == "object"
+      and .[0].error.code == "pane_not_found"
+      and (.[0] | has("result") | not)) then "dead"
+    elif ((.[0] | has("error") | not)
+      and (.[0].result? | type) == "object"
+      and .[0].result.pane.pane_id? == $pane_id) then "present"
+    else "unknown"
+    end
+  ' 2>/dev/null) || state=unknown
+  printf '%s' "$state"
 }
 
 fm_backend_herdr_workspace_presence_state() {  # <session> <workspace_id>

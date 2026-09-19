@@ -176,11 +176,28 @@ test_herdr_agent_state_preserves_husk_classifier() {
   out=$(bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_pane_agent_state() { printf unknown; }; fm_backend_herdr_server_running_state() { printf stopped; }; fm_backend_herdr_agent_state "sess:p1"' "$ROOT")
   [ "$out" = missing ] || fail "a positively stopped Herdr server should classify as missing, got '$out'"
 
+  out=$(bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_pane_agent_state() { printf unknown; }; fm_backend_herdr_server_running_state() { printf unknown; }; fm_backend_herdr_agent_state "sess:p1"' "$ROOT")
+  [ "$out" = unreadable ] || fail "an unknown pane with an unreadable server should classify as unreadable, got '$out'"
+
   out=$(bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_agent_state "no-colon-target"' "$ROOT")
   [ "$out" = unreadable ] || fail "an unparseable Herdr target should classify as unreadable, got '$out'"
 
   out=$(bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_pane_agent_state() { printf "no-agent"; }; fm_backend_herdr_agent_alive "sess:p1"' "$ROOT")
   [ "$out" = dead ] || fail "the Herdr compatibility view should keep a no-agent husk dead, got '$out'"
+
+  while IFS=$'\t' read -r response expected; do
+    out=$(FM_TEST_HERDR_RESPONSE="$response" bash -c '
+      . "$0/bin/backends/herdr.sh"
+      fm_backend_herdr_cli() { printf "%s" "$FM_TEST_HERDR_RESPONSE"; }
+      fm_backend_herdr_agent_state sess:p1
+    ' "$ROOT")
+    [ "$out" = "$expected" ] \
+      || fail "Herdr pane response '$response' should classify as $expected, got '$out'"
+  done <<'EOF'
+{"error":{"code":"pane_not_found"}}	missing
+{"error":{"code":"pane_not_found"},"result":{"pane":{"pane_id":"p1"}}}	unreadable
+{"error":{"code":"pane_not_found"}}garbage	unreadable
+EOF
 
   pass "fm_backend_herdr_agent_state: preserves missing/no-agent/live/unknown husk behavior"
 }
@@ -337,8 +354,8 @@ SH
 }
 
 # make_liveness_herdr <dir>: a fake Herdr CLI for liveness-only fixtures.
-# It never drives a real server. `unreadable` makes pane get fail while status
-# positively says the server is running; `missing` returns pane_not_found.
+# It never drives a real server. Pane-read and server-state modes are controlled
+# independently so liveness tests can cover malformed and contradictory replies.
 make_liveness_herdr() {
   local dir=$1 fakebin
   fakebin=$(fm_fakebin "$dir")
@@ -352,13 +369,18 @@ case "${1:-}" in
     if [ "${2:-}" = get ]; then
       case "${FM_TEST_HERDR_PANE_STATE:-unreadable}" in
         missing) printf '%s\n' '{"error":{"code":"pane_not_found"}}'; exit 0 ;;
+        malformed) printf '%s\n' '{"error":{"code":"pane_not_found"}}garbage'; exit 0 ;;
+        contradictory) printf '%s\n' '{"error":{"code":"pane_not_found"},"result":{"pane":{"pane_id":"p1"}}}'; exit 0 ;;
         unreadable) printf '%s\n' 'temporary socket read failure' >&2; exit 1 ;;
       esac
     fi
     ;;
   status)
-    printf '%s\n' '{"server":{"running":true}}'
-    exit 0
+    case "${FM_TEST_HERDR_SERVER_STATE:-running}" in
+      running) printf '%s\n' '{"server":{"running":true}}'; exit 0 ;;
+      stopped) printf '%s\n' '{"server":{"running":false}}'; exit 0 ;;
+      unreadable) printf '%s\n' 'temporary status read failure' >&2; exit 1 ;;
+    esac
     ;;
 esac
 exit 1
@@ -411,11 +433,11 @@ run_bootstrap() {  # <fakebin> <home> <pane-cmd> <call-log> [extra env...] -> st
     env "$@" "$ROOT/bin/fm-bootstrap.sh" 2>&1
 }
 
-run_herdr_bootstrap() {  # <fakebin> <home> <pane-state> <herdr-log> <treehouse-log> -> stdout
-  local fb=$1 home=$2 pane_state=$3 herdr_log=$4 treehouse_log=$5
+run_herdr_bootstrap() {  # <fakebin> <home> <pane-state> <server-state> <herdr-log> <treehouse-log> -> stdout
+  local fb=$1 home=$2 pane_state=$3 server_state=$4 herdr_log=$5 treehouse_log=$6
   PATH="$fb:$BASE_PATH" TMUX='' FM_BACKEND=herdr FM_HOME="$home" \
-    FM_TEST_HERDR_PANE_STATE="$pane_state" FM_HERDR_CALL_LOG="$herdr_log" \
-    FM_TREEHOUSE_CALL_LOG="$treehouse_log" \
+    FM_TEST_HERDR_PANE_STATE="$pane_state" FM_TEST_HERDR_SERVER_STATE="$server_state" \
+    FM_HERDR_CALL_LOG="$herdr_log" FM_TREEHOUSE_CALL_LOG="$treehouse_log" \
     "$ROOT/bin/fm-bootstrap.sh" 2>&1
 }
 
@@ -530,7 +552,7 @@ test_sweep_herdr_unreadable_read_never_relaunches_or_resets() {
   herdr_log="$w/herdr-calls.log"; treehouse_log="$w/treehouse-calls.log"
   : > "$herdr_log"; : > "$treehouse_log"
 
-  out=$(run_herdr_bootstrap "$herdrfb:$fb" "$w/home" unreadable "$herdr_log" "$treehouse_log")
+  out=$(run_herdr_bootstrap "$herdrfb:$fb" "$w/home" unreadable running "$herdr_log" "$treehouse_log")
 
   assert_contains "$out" "SECONDMATE_LIVENESS: secondmate sm1: skipped: endpoint probe unreadable (backend=herdr)" \
     "a failed Herdr pane read must be diagnosed as unreadable"
@@ -543,6 +565,34 @@ test_sweep_herdr_unreadable_read_never_relaunches_or_resets() {
   pass "sweep: a failed Herdr pane read has a named unreadable diagnostic and never relaunches"
 }
 
+test_sweep_herdr_unreadable_replies_never_relaunch_or_acquire() {
+  local w fb herdrfb herdr_log treehouse_log out pane_state server_state
+
+  while IFS=$'\t' read -r pane_state server_state; do
+    w=$(new_world "sweep-herdr-${pane_state}-${server_state}")
+    add_sm_home "$w" sm1 'firstmate:p1' pi
+    printf '%s\n' 'backend=herdr' >> "$w/home/state/sm1.meta"
+    fb=$(make_toolchain "$w"); herdrfb=$(make_liveness_herdr "$w")
+    herdr_log="$w/herdr-calls.log"; treehouse_log="$w/treehouse-calls.log"
+    : > "$herdr_log"; : > "$treehouse_log"
+
+    out=$(run_herdr_bootstrap "$herdrfb:$fb" "$w/home" "$pane_state" "$server_state" "$herdr_log" "$treehouse_log")
+
+    assert_contains "$out" "SECONDMATE_LIVENESS: secondmate sm1: skipped: endpoint probe unreadable (backend=herdr)" \
+      "a $pane_state Herdr pane read with a $server_state server must be diagnosed as unreadable"
+    assert_not_contains "$(cat "$treehouse_log")" "get" \
+      "a $pane_state Herdr pane read must not acquire a replacement local copy"
+    [ ! -e "$w/home/state/sm1.control-relaunch" ] \
+      || fail "a $pane_state Herdr pane read must not start a relaunch transaction"
+  done <<'EOF'
+malformed\trunning
+contradictory\trunning
+unreadable\tunreadable
+EOF
+
+  pass "sweep: malformed, contradictory, and failed Herdr reads never authorize recovery"
+}
+
 test_sweep_herdr_missing_pane_permits_recovery() {
   local w fb herdrfb herdr_log treehouse_log out
   w=$(new_world sweep-herdr-missing)
@@ -552,7 +602,7 @@ test_sweep_herdr_missing_pane_permits_recovery() {
   herdr_log="$w/herdr-calls.log"; treehouse_log="$w/treehouse-calls.log"
   : > "$herdr_log"; : > "$treehouse_log"
 
-  out=$(run_herdr_bootstrap "$herdrfb:$fb" "$w/home" missing "$herdr_log" "$treehouse_log")
+  out=$(run_herdr_bootstrap "$herdrfb:$fb" "$w/home" missing running "$herdr_log" "$treehouse_log")
 
   assert_not_contains "$out" "endpoint probe unreadable" \
     "a confirmed missing Herdr pane must not be diagnosed as unreadable"
@@ -679,6 +729,7 @@ test_sweep_respawns_authoritatively_missing_pi_signed_secondmate
 test_sweep_never_acts_on_ambiguous_existing_process
 test_sweep_never_acts_on_transient_unreadability
 test_sweep_herdr_unreadable_read_never_relaunches_or_resets
+test_sweep_herdr_unreadable_replies_never_relaunch_or_acquire
 test_sweep_herdr_missing_pane_permits_recovery
 test_sweep_reports_missing_endpoint_relaunch_failure
 test_sweep_never_acts_on_unverified_harness_dead_reading
