@@ -1,0 +1,41 @@
+=== fm-custody
+ok - two task ids naming one physical copy serialize on one custody lock
+# all fm-custody tests passed
+rc=0
+=== fm-control-herdr-relaunch-fake
+ok - fake herdr: dead recorded pane is not reused as launcher and control polls the published endpoint
+rc=0
+=== fm-control-relaunch
+ok - fm-promote: promotion participates in lifecycle serialization
+ok - fm-spawn --relaunch: refuses to launch a second agent into a live endpoint
+ok - fm-spawn --relaunch: symlinked records refuse before inspection
+ok - fm-spawn --relaunch: keeps its early meta lock continuous
+ok - fm-spawn --relaunch: pending closes refuse before replacement begins
+ok - fm-spawn --relaunch: every identity axis comes from the record, and a contradicting flag refuses
+ok - fm-spawn --relaunch: an unrecorded task is refused
+ok - fm-spawn --relaunch: refuses to start a replacement outside the copy holding its work
+ok - missing endpoint: dirty copy is recovered in place with HEAD and bytes untouched
+ok - missing endpoint: pipeline-owned head is recovered in place without moving it
+ok - missing endpoint: process death is reconciled without a second worker
+ok - missing endpoint: clean copy is recovered on its recorded branch
+ok - missing endpoint: unreadable validation state refuses before any progress note
+ok - relaunch re-reads the backlog item instead of blindly re-running the transition
+ok - relaunch heals an item that drifted out of In flight while the task stayed live
+rc=0
+=== fm-spawn-pool-base-freshen
+ok - an origin configuration without a URL refuses the pooled worktree
+ok - an empty origin configuration section refuses the pooled worktree
+ok - an empty-only included origin section documents the accepted detection boundary
+ok - an inactive conditional origin include leaves the pooled worktree origin-less
+ok - an origin-less pool with a stale submodule pin refuses while naming both pins and no remedy
+ok - an unpushed submodule commit keeps the uncommitted-work refusal and survives it
+ok - work inside a submodule is still refused as uncommitted work, not called stale
+ok - a stale pin carrying real work is refused conservatively, never called stale
+ok - a stale pin beside other dirt yields the conservative refusal alone, with no stale-pin line
+ok - local-only commits refuse a pool reset and leave HEAD unchanged
+ok - local-only commits are preserved under a custody ref before the pool advances
+ok - completed and failed attributable validation heads refuse reset until preserved
+ok - a terminal run head already on a remote does not block a pool freshen
+ok - a validation-owned or unreadable validation head refuses a pool reset
+# all fm-spawn-pool-base-freshen tests passed
+rc=0
