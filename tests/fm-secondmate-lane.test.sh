@@ -16,7 +16,11 @@ new_lane_world() {  # <name> [remote-host] -> prints world dir
   cp "$ROOT"/bin/*.sh "$w/bin/"
   local s
   for s in fm-control fm-spawn fm-on; do
-    printf '#!/usr/bin/env bash\necho "%s $*" >> "%s/calls.log"\n[ -z "${STUB_FAIL:-}" ] || exit 1\n' "$s" "$w" > "$w/bin/$s.sh"
+    cat > "$w/bin/$s.sh" <<STUB
+#!/usr/bin/env bash
+echo "$s \$*" >> "$w/calls.log"
+[ -z "\${STUB_FAIL:-}" ] || exit 1
+STUB
     chmod +x "$w/bin/$s.sh"
   done
   {
