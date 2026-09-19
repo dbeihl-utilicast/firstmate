@@ -1404,6 +1404,10 @@ relaunch_copy_occupancy_refusal() {  # <worktree>
     [ -n "$other_wt" ] || continue
     other_canonical=$(CDPATH='' cd -P -- "$other_wt" 2>/dev/null && pwd -P) || continue
     [ "$other_canonical" = "$canonical" ] || continue
+    if [ -e "$STATE/$other_id.relaunch-endpoint" ] || [ -L "$STATE/$other_id.relaunch-endpoint" ]; then
+      echo "task $other_id also names this copy and has an unreconciled replacement endpoint journal"
+      return 0
+    fi
     occupancy=$(
       if ! fm_backend_validate_task_endpoint "$meta" "$other_id" >/dev/null 2>&1; then
         printf 'unreadable\tunknown\n'
