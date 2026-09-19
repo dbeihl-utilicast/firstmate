@@ -282,7 +282,7 @@ test_ring_skips_dead_agent() {
 }
 
 test_idempotent_write_dedups_exact_body() {
-  local state r1 r2 r3 r4 count text
+  local state r1 r2 r3 r4 r5 r6 count text
   state="$TMP_ROOT/idem/state"; mkdir -p "$state"
   text=$'re-runnable steer\nsecond line'
   r1=$(inbox_lib "$state" fm_task_inbox_write_idempotent "$state" t1 "$text") \
@@ -309,6 +309,16 @@ test_idempotent_write_dedups_exact_body() {
     || fail "a re-run after an acknowledged steer should create a new record, got $r4"
   count=$(find "$state/t1.inbox" -maxdepth 1 -name '*.msg' | wc -l | tr -d ' ')
   [ "$count" = 2 ] || fail "a distinct post-take instruction should enqueue, found $count unhandled records"
+  # A resend-recovery caller opts into handled dedup: the same body after the
+  # take converges on the taken record and writes nothing.
+  r5=$(inbox_lib "$state" fm_task_inbox_write_idempotent "$state" t1 $'re-runnable steer\nsecond line changed' "" 1)     || fail "idempotent resend with handled dedup failed"
+  [ "$r5" = "$state/t1.inbox/002.msg" ] || fail "handled-dedup resend of an unhandled body should reuse it, got $r5"
+  mv "$r3" "$state/t1.inbox/handled/"
+  r6=$(inbox_lib "$state" fm_task_inbox_write_idempotent "$state" t1 $'re-runnable steer\nsecond line changed' "" 1) \
+    || fail "idempotent resend after take failed"
+  [ "$r6" = "$state/t1.inbox/handled/002.msg" ] || fail "handled-dedup resend after take should reuse the taken record, got $r6"
+  [ ! -e "$state/t1.inbox/004.msg" ] && [ ! -e "$state/t1.inbox/005.msg" ] \
+    || fail "handled-dedup resend after take must not write a new record"
   pass "inbox: the idempotent enqueue dedups only an exact still-unhandled re-run"
 }
 
