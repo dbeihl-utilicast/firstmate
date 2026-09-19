@@ -74,7 +74,7 @@ state/               runtime records and signals; gitignored
   <id>.cursor-session  cursor busy-source binding (projects root, task worktree, prior conversations) written by fm-spawn; removed by teardown
   <id>.reconcile-nudged  epoch second of the last inventory-reconcile nudge sent to this secondmate; bin/fm-secondmate-reconcile.sh owns its per-home cooldown window
   <id>.backlog-close  the exact backlog transition a teardown recorded before removing the task's record, so an interrupted cleanup can still be finished at the next session start; bin/fm-backlog-transition-lib.sh owns its format and replay, and a landed transition removes it
-  <id>.inbox/          durable steering inbox: sequenced firstmate instruction records the worker acknowledges by atomically taking them into its handled/ subdirectory (bin/fm-inbox-take.sh); written by fm-send, with ordinary records re-rung and escalated by the watcher while explicit fire-and-forget records are excluded from that ladder, and removed by teardown (bin/fm-task-inbox-lib.sh)
+  <id>.inbox/          durable steering inbox: sequenced firstmate instruction records the worker acknowledges by claiming them under claimed/, then completing them into its handled/ subdirectory (bin/fm-inbox-take.sh); a dead or expired claim returns to the inbox; written by fm-send, with ordinary records re-rung and escalated by the watcher while explicit fire-and-forget records are excluded from that ladder, and removed by teardown (bin/fm-task-inbox-lib.sh)
   <id>.nm-fix-rounds  per-run per-step fix-round counter for an active no-mistakes gate loop; written only by bin/fm-nm-fix-round.sh, removed by teardown
   <id>.meta          task metadata; each producer script's header owns its exact fields and mutation contract, with docs/configuration.md routing operator-facing backend and trace-context details
   retired/           guarded record-only retirement audit: `bin/fm-teardown.sh <id> --retire-record` moves a finished stale metadata record here only after another active record proves it owns the same live Treehouse slot; the metadata moves first so the identity is inactive for routing and liveness before its polling, routing, and lease sidecars follow into `retired/<id>.sidecars/`, with a `retired/<id>.receipt`; an interrupted run is finished by rerunning the same command, and the slot is never returned or reset
@@ -1171,6 +1171,7 @@ FM_CHECK_INTERVAL=300   # seconds between slow checks (authenticated merge polls
 FM_PR_REFRESH_STALE_SECS=1800   # unchanged-head budget; see Branch-currency dispatch
 FM_PR_REFRESH_COOLDOWN_SECS=600 # per-PR dispatch interval; see Branch-currency dispatch
 FM_TASK_INBOX_GRACE_SECS=90   # seconds an unhandled steering-inbox message may sit before the watcher attempts doorbell delivery on an idle pane; also the minimum spacing between attempts
+FM_TASK_INBOX_CLAIM_MAX_SECS=300   # lease after which an in-progress inbox take claim is treated as abandoned and replayed
 FM_TASK_INBOX_RING_MAX=3      # watcher delivery attempts without an acknowledgement before the task surfaces as a stale wake for recovery
 FM_CHECK_TIMEOUT=30     # seconds allowed per slow check script
 FM_MAIL_CHECK_BUDGET=15   # seconds allowed for one standing mail poll; valid 5..25, cut to fit FM_CHECK_TIMEOUT
