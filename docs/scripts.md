@@ -137,7 +137,7 @@ The shared no-mistakes gate refusal for fleet lifecycle entrypoints is summarize
 | `fm-pr-lib.sh`           | Own canonical task and PR validation plus private atomic PR-poll publication, merge-notification identity, and retirement |
 | `fm-pr-poll.sh`          | Provide the byte-static watcher program for validated PR/MR-poll sidecars, and report unanswered review findings (docs/configuration.md "Review findings") |
 | `fm-pr-check.sh`         | Record validated `pr=` and `pr_head=` values after refusing a GitHub PR whose body does not close issues named in captain intent, then atomically arm a static merge poll; also refuses a ready GitHub PR with an unanswered blocking review finding or an unreadable thread scan (docs/configuration.md "Review findings") |
-| `fm-pr-merge.sh`         | Record PR metadata, merge a task's canonical full GitHub or GitLab URL, then refuse an outcome it cannot prove landed or queued |
+| `fm-pr-merge.sh`         | Record PR metadata, merge a task's canonical full GitHub or GitLab URL, then refuse an outcome it cannot prove landed or queued; also refuses a GitHub merge over an unanswered blocking review finding unless the captain passes `--override-review-findings <pr-url>` (docs/configuration.md "Review findings") |
 | `fm-merge-outcome-lib.sh` | Publish a confirmed merge's durable, role-routed supervision outcome                 |
 | `fm-parent-channel-lib.sh` | Resolve a secondmate home's parent channel and append a captain-facing outcome line to it at most once |
 | `fm-promote.sh`          | Promote a scout task in place to a protected ship task with an explicit delivery mode, and write the ship instructions carrying that mode's definition of done |
