@@ -3355,6 +3355,8 @@ test_review_poll_never_reraises_handled_comment() {
   local dir out
   dir=$(make_case review-handled)
   make_poll_fixture "$dir"
+  out=$(poll_review "$dir" change-request-unanswered)
+  [ -n "$out" ] || fail "the finding was not raised before it was handled, so silence proves nothing"
   record_handled "$dir" "$REVIEW_BLOCKING_ID" "$REVIEW_HEAD" b
   out=$(poll_review "$dir" change-request-unanswered)
   [ -z "$out" ] || fail "a handled comment was raised again: $out"
