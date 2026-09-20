@@ -1,0 +1,4 @@
+not ok - a remote record must not be treated as claiming this copy (unexpected: 'still claims this copy')
+--- output ---
+warning: /tmp/fm-control-relaunch.lfpJtW/unclaimed-remote-8490/home/data/rl-ok-fresh-remote/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+error: pooled worktree '/tmp/fm-control-relaunch.lfpJtW/unclaimed-remote-8490/wt' cannot be allocated because task rl-ok-holder-remote still claims this copy; retire that task record before reallocation
