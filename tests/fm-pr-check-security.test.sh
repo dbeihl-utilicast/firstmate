@@ -3472,11 +3472,24 @@ test_review_gate_does_not_disturb_merge_recording() {
   dir=$(make_case review-merge-record)
   write_task_meta "$dir"
   FM_TEST_GH_THREADS="$REVIEW_FIXTURES/change-request-unanswered.json" \
-    run_check_entry "$dir" task-a https://github.com/o/r/pull/1 --merge-record >/dev/null 2>&1 \
+    run_check_entry "$dir" task-a https://github.com/o/r/pull/1 --merge-record >/dev/null 2> "$dir/err" \
     || fail "recording a PR ahead of fm-pr-merge's merge call was refused over a review finding"
   grep -qxF 'pr=https://github.com/o/r/pull/1' "$dir/home/state/task-a.meta" \
     || fail "the merge record lost its PR reference"
-  pass "the review gate leaves the post-merge record alone"
+  assert_grep "warning: merging with unanswered blocking review finding(s): $REVIEW_BLOCKING_ID (by williammartin)" "$dir/err" \
+    "the merge record did not name the unanswered comment"
+  rm -f "$dir/home/state/task-a.check.sh" "$dir/home/state/task-a.pr-poll" "$dir/home/state/task-a.pr-poll-registration"
+  FM_TEST_GH_THREADS_FAIL=1 \
+    run_check_entry "$dir" task-a https://github.com/o/r/pull/1 --merge-record >/dev/null 2> "$dir/err" \
+    || fail "the merge record was refused over an unreadable thread list"
+  assert_grep "warning: merging without being able to read review threads on https://github.com/o/r/pull/1 (unreadable)" "$dir/err" \
+    "the merge record did not report the failed read"
+  rm -f "$dir/home/state/task-a.check.sh" "$dir/home/state/task-a.pr-poll" "$dir/home/state/task-a.pr-poll-registration"
+  FM_TEST_GH_THREADS="$REVIEW_FIXTURES/change-request-answered-by-other.json" \
+    run_check_entry "$dir" task-a https://github.com/o/r/pull/1 --merge-record >/dev/null 2> "$dir/err" \
+    || fail "the merge record of a clean PR was refused"
+  ! grep -q 'warning: merging' "$dir/err" || fail "a clean PR's merge record printed a warning"
+  pass "the merge record reports unanswered findings and unreadable threads without gating"
 }
 
 test_review_level_change_request_gates_without_inline_comment() {
