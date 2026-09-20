@@ -3,9 +3,13 @@
 # ship/scout spawn is about to launch a claude crewmate into, so the worker
 # reaches its brief instead of wedging on the trust dialog.
 #
-# Usage: fm-claude-trust.sh <worktree> <project>
+# Usage: fm-claude-trust.sh [--imports-only] <worktree> <project>
 #   <worktree>  the isolated task worktree this spawn launches into
 #   <project>   the primary checkout that worktree belongs to
+#   --imports-only  a launch directory that is not a pooled copy (a secondmate
+#               home, a primary checkout): record ONLY the declined
+#               external-imports answer for it, run no scope test, and never
+#               write workspace trust, which only an isolated worktree earns
 # Prints one line naming what it registered; refuses loudly on anything else.
 #
 # WHY THIS EXISTS. Claude Code gates a folder it has never seen behind an
@@ -75,7 +79,12 @@ unset CDPATH \
   GIT_DISCOVERY_ACROSS_FILESYSTEM GIT_CONFIG GIT_CONFIG_GLOBAL \
   GIT_CONFIG_SYSTEM GIT_CONFIG_NOSYSTEM GIT_CONFIG_COUNT
 
-[ "$#" -eq 2 ] || { echo "usage: fm-claude-trust.sh <worktree> <project>" >&2; exit 2; }
+IMPORTS_ONLY=0
+if [ "${1:-}" = --imports-only ]; then
+  IMPORTS_ONLY=1
+  shift
+fi
+[ "$#" -eq 2 ] || { echo "usage: fm-claude-trust.sh [--imports-only] <worktree> <project>" >&2; exit 2; }
 WT_ARG=$1
 PROJ_ARG=$2
 
@@ -130,6 +139,7 @@ if [ -n "${HOME:-}" ]; then
   [ "$WT_REAL" != "${HOME_REAL:-}" ] || refuse "'$WT_REAL' is the home directory, not a task worktree"
 fi
 
+if [ "$IMPORTS_ONLY" -eq 0 ]; then
 WT_TOP=$(git -C "$WT_REAL" rev-parse --show-toplevel 2>/dev/null) || true
 [ -n "$WT_TOP" ] || refuse "'$WT_REAL' is not inside a git repository"
 WT_TOP_REAL=$(real_dir "$WT_TOP") || true
@@ -146,6 +156,7 @@ WT_COMMON=$(common_dir_of "$WT_REAL") || true
 PROJ_COMMON=$(common_dir_of "$PROJ_REAL") || true
 [ -n "$PROJ_COMMON" ] || refuse "project '$PROJ_REAL' is not inside a git repository"
 [ "$WT_COMMON" = "$PROJ_COMMON" ] || refuse "'$WT_REAL' is not a worktree of project '$PROJ_REAL'"
+fi
 
 # The store write needs node, and a missing interpreter refuses like every other
 # failure here. Degrading instead would launch a worker straight into the dialog
@@ -196,11 +207,11 @@ fi
 # attempts, and it must fail loudly rather than report a trust it did not leave.
 # ponytail: fingerprint-and-refuse, not a lock; flock is absent on macOS and
 # cannot stop a vendor session's own rewrite anyway.
-if ! node - "$STORE" "$WT_REAL" <<'NODE'
+if ! node - "$STORE" "$WT_REAL" "$IMPORTS_ONLY" <<'NODE'
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
-const [store, worktree] = process.argv.slice(2);
+const [store, worktree, importsOnly] = process.argv.slice(2);
 const readStore = () => {
   try {
     return fs.readFileSync(store);
@@ -233,7 +244,7 @@ const attempt = () => {
   if (entry === undefined || entry === null || typeof entry !== "object" || Array.isArray(entry)) {
     entry = {};
   }
-  entry.hasTrustDialogAccepted = true;
+  if (importsOnly !== "1") entry.hasTrustDialogAccepted = true;
   entry.hasClaudeMdExternalIncludesWarningShown = true;
   entry.hasClaudeMdExternalIncludesApproved = false;
   projects[worktree] = entry;
@@ -259,7 +270,7 @@ const attempt = () => {
   }
   const back = JSON.parse(fs.readFileSync(store, "utf8"));
   const got = back.projects?.[worktree];
-  return got?.hasTrustDialogAccepted === true &&
+  return (importsOnly === "1" || got?.hasTrustDialogAccepted === true) &&
     got.hasClaudeMdExternalIncludesWarningShown === true &&
     got.hasClaudeMdExternalIncludesApproved === false
     ? "recorded"

@@ -304,6 +304,43 @@ Ctrl+c:cancel')
   pass "the grok fallback is regex-scoped to grok and classifies only grok tasks"
 }
 
+# The Claude external-imports prompt, as the pane renders it. The worker is
+# armed busy at spawn, so without a pane read a worker parked on this dialog
+# would classify busy forever and report nothing.
+CLAUDE_IMPORTS_DIALOG='  Allow external CLAUDE.md file imports?
+
+  This project'"'"'s CLAUDE.md imports files outside the current working directory.
+  Never allow this for third-party repositories.
+
+  Files that would be imported:
+    /Users/example/git/firstmate/AGENTS.md
+
+  \u276f 1. Yes, allow external imports
+    2. No, disable external imports
+
+  Enter to confirm \u00b7 Esc to cancel'
+
+test_claude_imports_dialog_is_reported_not_busy() {
+  local state out
+  state=$(new_state_dir claude-imports)
+  "$EV" arm "$state" t1 >/dev/null
+  out=$(fm_busy_classify tmux w1 claude t1 "$state" "$(printf '%b' "$CLAUDE_IMPORTS_DIALOG")")
+  [ "$out" = "blocked claude-imports-dialog" ] \
+    || fail "a claude worker on the imports dialog must classify blocked, got '$out'"
+  fm_busy_is_busy tmux w1 claude t1 "$state" "$(printf '%b' "$CLAUDE_IMPORTS_DIALOG")" \
+    && fail "a worker waiting on the imports dialog must never read busy"
+  out=$(fm_busy_classify tmux w1 claude t1 "$state" 'ordinary work
+> ')
+  [ "$out" = "busy fm-spawn" ] || fail "an ordinary claude tail must keep its recorded verdict, got '$out'"
+  out=$(fm_busy_classify tmux w1 codex t1 "$state" "$(printf '%b' "$CLAUDE_IMPORTS_DIALOG")")
+  [ "${out%% *}" != blocked ] || fail "the dialog verdict must stay scoped to claude, got '$out'"
+  out=$(fm_busy_classify tmux w1 claude t1 "$state" '+  Allow external CLAUDE.md file imports? 1. Yes, allow external imports
+grep: (allow|disable) external imports
+> ')
+  [ "$out" = "busy fm-spawn" ] || fail "a pane quoting the dialog words must stay busy, got '$out'"
+  pass "a claude worker parked on the external-imports dialog classifies blocked, never busy"
+}
+
 # --- kimi verification gate -----------------------------------------------------
 
 test_codex_unverified_gate() {
@@ -501,6 +538,7 @@ test_record_without_sidecar_unknown
 test_source_mismatch_cross_adapter
 test_converted_adapters_ignore_footer_text
 test_grok_regex_isolated
+test_claude_imports_dialog_is_reported_not_busy
 test_codex_unverified_gate
 test_kimi_unverified_gate
 test_cursor_ignores_rendered_and_native_signals

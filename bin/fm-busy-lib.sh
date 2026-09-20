@@ -858,9 +858,22 @@ fm_busy_agy_tail_busy() {
     | grep -qiE "${FM_BUSY_AGY_REGEX:-^[[:space:]]*esc to cancel([[:space:]]|$)}"
 }
 
+# fm_busy_claude_imports_dialog: 0 when the tail on stdin shows Claude Code's
+# external-imports prompt, the modal that parks a worker with no status line.
+# The title row and both numbered answer rows must all appear as whole lines,
+# so a pane that merely quotes those words in a diff or grep stays non-blocked.
+# Detection only: nothing answers the dialog.
+fm_busy_claude_imports_dialog() {
+  local tail
+  tail=$(grep -v '^[[:space:]]*$' | tail -30)
+  printf '%s\n' "$tail" | grep -qE '^[[:space:]]*Allow external CLAUDE\.md file imports\?[[:space:]]*$' \
+    && printf '%s\n' "$tail" | grep -qE '^[[:space:]]*(❯[[:space:]]*)?1\. Yes, allow external imports[[:space:]]*$' \
+    && printf '%s\n' "$tail" | grep -qE '^[[:space:]]*(❯[[:space:]]*)?2\. No, disable external imports[[:space:]]*$'
+}
+
 # fm_busy_classify: semantic classification for a task whose endpoint the
 # caller has already established as present. Prints "<verdict> <source>":
-# busy|idle|unknown plus the producing source (see header). Never probes
+# busy|idle|unknown|blocked plus the producing source (see header). Never probes
 # process state. <tail40> is optional pre-captured plain output used only by
 # the Grok arm; when absent the Grok arm captures through fm_backend_capture
 # if available, else reports unknown capture-failed.
@@ -897,6 +910,19 @@ fm_busy_classify() {  # <backend> <target> <harness> <id> <state-dir> [tail40]
         *) printf 'unknown cursor-transcript' ;;
       esac
       return 0
+      ;;
+  esac
+  case "$harness" in
+    claude*)
+      # A worker armed busy at spawn and then parked on the imports dialog keeps
+      # a busy record forever, so the pane is read ahead of the record.
+      if [ -z "$tail40" ] && command -v fm_backend_capture >/dev/null 2>&1; then
+        tail40=$(fm_backend_capture "$backend" "$target" 40 2>/dev/null) || tail40=
+      fi
+      if [ -n "$tail40" ] && printf '%s' "$tail40" | fm_busy_claude_imports_dialog; then
+        printf 'blocked claude-imports-dialog'
+        return 0
+      fi
       ;;
   esac
   out=$(fm_busy_record_read "$state" "$id") && rc=0 || rc=$?
