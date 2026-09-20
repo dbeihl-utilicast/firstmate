@@ -881,8 +881,8 @@ gitlab_confirm_merged() {
 # however the PR was registered, draft or ready.
 REVIEW_OVERRIDDEN=
 review_gate_at_merge() {
-  local rows rc=0 list='' id author
-  rows=$(FM_HOME="$FM_HOME" FM_CONFIG_OVERRIDE="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}" \
+  local rows rc=0 list='' id author gate_config="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
+  rows=$(FM_HOME="$FM_HOME" FM_CONFIG_OVERRIDE="$gate_config" \
     "$SCRIPT_DIR/fm-pr-poll.sh" --gate github "$URL" "$FM_PR_HOST" "$FM_PR_PATH" "$PR_NUMBER" 2>/dev/null) || rc=$?
   case "$rc" in
     0) ;;
