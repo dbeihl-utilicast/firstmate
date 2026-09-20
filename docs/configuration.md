@@ -351,10 +351,10 @@ A finding is a review thread's first comment, and it is answered when its thread
 A push that leaves the thread untouched does not answer it.
 It blocks when the forge marks the comment a change request, or when its body contains a literal marker that `config/review-blocking-markers` lists for the repository as an `owner/repo marker` line; with no markers the poll says `not-gating=<reviewers>` on the line instead of blocking.
 Every other finding is reported and counted but never blocks.
-A poll cycle with a finding not yet raised at the PR's current head emits `review <head> blocking=<n> reported=<n> [not-gating=<reviewers>] ids=<comment-id>:<b|n>,...`, and stays silent otherwise.
-The watcher queues that line as a check wake and then records each id with the head in `state/review-handled/`, so a raised finding is not raised again at the same head and counts as new at a new head.
+A poll cycle with a finding not yet raised emits `review <head> blocking=<n> reported=<n> [not-gating=<reviewers>] ids=<comment-id>:<b|n>,...`, and stays silent otherwise.
+The watcher queues that line as a check wake and then records each id, with the head it was raised at for information only, in `state/review-handled/`, so a raised finding is never raised again, at any later head, while the gate scan still lists it until it is answered.
 The poll never writes; a thread list too long for one page is treated as unreadable, so it is silent rather than partial.
-`bin/fm-pr-check.sh` refuses to register a ready GitHub PR while `bin/fm-pr-poll.sh --gate` still lists an unanswered blocking finding, naming each comment and how to answer it; a draft PR registers, and an unreadable thread list warns without refusing.
+`bin/fm-pr-check.sh` refuses to register a ready GitHub PR while `bin/fm-pr-poll.sh --gate` still lists an unanswered blocking finding, naming each comment and how to answer it; a draft PR registers, and it also refuses, saying which, when the thread read fails or the PR has more threads than one page holds, because a gate that cannot read its input must not pass the PR as ready.
 
 ## Gate defaults (.no-mistakes.yaml)
 

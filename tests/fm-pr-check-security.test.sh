@@ -3356,9 +3356,8 @@ test_review_poll_never_reraises_handled_comment() {
   out=$(poll_review "$dir" change-request-unanswered)
   [ -z "$out" ] || fail "a handled comment was raised again: $out"
   out=$(FM_TEST_GH_HEAD=$REVIEW_NEW_HEAD poll_review "$dir" change-request-unanswered)
-  [ "$out" = "review $REVIEW_NEW_HEAD blocking=1 reported=1 ids=$REVIEW_BLOCKING_ID:b" ] \
-    || fail "the same finding against a new head was not raised as new: $out"
-  pass "a handled comment is not re-raised at the same head and is new at a new head"
+  [ -z "$out" ] || fail "a handled comment was raised again after a push: $out"
+  pass "a handled comment stays handled across pushes"
 }
 
 test_review_poll_detached_comment_does_not_block() {
@@ -3397,7 +3396,7 @@ test_review_poll_bare_push_does_not_answer() {
   make_poll_fixture "$dir"
   record_handled "$dir" "$REVIEW_BLOCKING_ID" "$REVIEW_HEAD" b
   out=$(FM_TEST_GH_HEAD=$REVIEW_NEW_HEAD poll_review "$dir" change-request-unanswered)
-  case "$out" in "review $REVIEW_NEW_HEAD blocking=1 "*) ;; *) fail "a push that silenced nothing answered the finding: $out" ;; esac
+  [ -z "$out" ] || fail "a handled comment was raised again after a push: $out"
   out=$(FM_TEST_GH_THREADS="$REVIEW_FIXTURES/change-request-unanswered.json" FM_HOME="$dir/home" \
     PATH="$dir/fakebin:$BASE_PATH" "$POLL" --gate github https://github.com/o/r/pull/1 github.com o/r 1)
   [ "$out" = "$(printf '%s\twilliammartin' "$REVIEW_BLOCKING_ID")" ] \
@@ -3426,6 +3425,37 @@ test_review_gate_refuses_ready_registration() {
     run_check_entry "$dir" task-a https://github.com/o/r/pull/1 >/dev/null 2>&1 \
     || fail "registration was refused although the finding was answered"
   pass "ready registration is refused while a blocking finding is unanswered"
+}
+
+test_review_gate_refuses_when_threads_unreadable() {
+  local dir rc
+  dir=$(make_case review-gate-unreadable)
+  write_task_meta "$dir"
+  set +e
+  run_check_entry "$dir" task-a https://github.com/o/r/pull/1 > "$dir/out" 2> "$dir/err"
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "ready registration was accepted with unreadable review threads"
+  assert_grep "could not read review threads" "$dir/err" "the refusal did not say the read failed"
+  [ ! -e "$dir/home/state/task-a.check.sh" ] || fail "a refused registration armed a poll"
+  FM_TEST_GH_DRAFT=1 run_check_entry "$dir" task-a https://github.com/o/r/pull/1 >/dev/null 2>&1 \
+    || fail "a draft registration was refused over an unreadable thread list"
+  pass "ready registration is refused when the thread read fails"
+}
+
+test_review_gate_refuses_when_threads_truncated() {
+  local dir rc
+  dir=$(make_case review-gate-truncated)
+  write_task_meta "$dir"
+  set +e
+  FM_TEST_GH_THREADS="$REVIEW_FIXTURES/truncated.json" \
+    run_check_entry "$dir" task-a https://github.com/o/r/pull/1 > "$dir/out" 2> "$dir/err"
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "ready registration was accepted with a truncated thread list"
+  assert_grep "more review threads than one page" "$dir/err" "the refusal did not say the list was truncated"
+  [ ! -e "$dir/home/state/task-a.check.sh" ] || fail "a refused registration armed a poll"
+  pass "ready registration is refused when the thread list is truncated"
 }
 
 test_review_watcher_raises_once_and_records() {
@@ -3508,4 +3538,6 @@ test_review_poll_detached_comment_does_not_block
 test_review_poll_answer_definition
 test_review_poll_bare_push_does_not_answer
 test_review_gate_refuses_ready_registration
+test_review_gate_refuses_when_threads_unreadable
+test_review_gate_refuses_when_threads_truncated
 test_review_watcher_raises_once_and_records

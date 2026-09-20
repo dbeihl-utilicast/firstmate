@@ -257,8 +257,12 @@ if [ "$PROVIDER" = github ] && ! { [ "${PR_DRAFT_READ_OK:-0}" = 1 ] && [ "${PR_D
   gate_config=${FM_CONFIG_OVERRIDE:-$FM_HOME/config}
   gate_rows=$(FM_HOME="$FM_HOME" FM_CONFIG_OVERRIDE="$gate_config" \
     "$SCRIPT_DIR/fm-pr-poll.sh" --gate "$PROVIDER" "$URL" "$HOST" "$PROJECT_PATH" "$NUMBER" 2>/dev/null) || gate_rc=$?
-  if [ "$gate_rc" -ne 0 ]; then
-    echo "warning: could not read review threads to check for unanswered blocking findings on $URL" >&2
+  if [ "$gate_rc" -eq 2 ]; then
+    echo "error: PR has more review threads than one page reads, so unanswered blocking findings cannot be ruled out: $URL. Mark the PR draft or resolve threads until they fit." >&2
+    exit 1
+  elif [ "$gate_rc" -ne 0 ]; then
+    echo "error: could not read review threads to check for unanswered blocking findings on $URL, so it is not registered ready. Retry, or mark the PR draft." >&2
+    exit 1
   elif [ -n "$gate_rows" ]; then
     gate_list=$(printf '%s\n' "$gate_rows" | while IFS=$'\t' read -r gate_id gate_author; do printf '%s (by %s), ' "$gate_id" "$gate_author"; done)
     echo "error: PR has unanswered blocking review findings: ${gate_list%, }. Answer each by resolving its thread or replying beneath it as someone other than its author (a fix explanation or a reasoned disagreement both count); a push alone does not answer a finding." >&2

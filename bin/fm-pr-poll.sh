@@ -2,7 +2,7 @@
 # Static watcher program for a validated PR/MR poll sidecar.
 # It emits one validated state line for a merged PR/MR or a behind/conflicting
 # open GitHub PR, plus one review line while an open GitHub PR carries review
-# findings not yet raised at this head, stays silent on errors, and never moves
+# findings not yet raised, stays silent on errors, and never moves
 # a branch itself. It also never writes: bin/fm-watch.sh records the findings a
 # review line raised. A finding is a review thread whose first comment neither
 # the forge reports outdated or detached, nor a resolved thread, nor a comment
@@ -11,7 +11,8 @@
 # the repository in config/review-blocking-markers ("owner/repo marker" lines);
 # nothing keys on a reviewer's name. With no markers a review line says
 # not-gating for the reviewers it reports. "--gate" prints the blocking
-# findings still unanswered, for bin/fm-pr-check.sh.
+# findings still unanswered, for bin/fm-pr-check.sh, and exits 1 when the
+# threads cannot be read or 2 when they exceed one page.
 # Provider identity remains uninterpolated data and these bytes stay task-static.
 # Each provider is read through its own standard CLI, gh for GitHub and glab
 # for GitLab, so an upstream checkout needs no extra tooling to follow either.
@@ -78,7 +79,7 @@ review_rows() {
       | select(($c | length) > 0 and $c[0].line != null and $c[0].path != null)
       | select(all($c[1:][]; .author.login == $c[0].author.login))
       | [$c[0].id, ($c[0].author.login // "unknown"), ($c[0].pullRequestReview.state == "CHANGES_REQUESTED"), ($c[0].body // "" | gsub("[\t\r\n]"; " "))]
-      | @tsv' 2>/dev/null
+      | @tsv'
 }
 
 # The literal severity markers configured for this repository, one per line.
@@ -116,27 +117,27 @@ review_classify() {
   done
 }
 
-review_handled() {  # <comment id> <head>
-  local file hid hhead _rest
+review_handled() {  # <comment id>
+  local file hid _rest
   file=${FM_STATE_OVERRIDE:-}
   [ -n "$file" ] || { [ -z "${FM_HOME:-}" ] || file=$FM_HOME/state; }
   [ -n "$file" ] || return 1
   file=$file/review-handled/${path%%/*}__${path#*/}__$number
   [ -f "$file" ] && [ ! -L "$file" ] || return 1
-  while IFS=' ' read -r hid hhead _rest; do
-    [ "$hid" = "$1" ] && [ "$hhead" = "$2" ] && return 0
+  while IFS=' ' read -r hid _rest; do
+    [ "$hid" = "$1" ] && return 0
   done < "$file"
   return 1
 }
 
 review_report() {  # <head>
   local rows cid author blocking ids='' login_list='' blocking_n=0 total=0 seen=''
-  rows=$(review_rows) || return 0
+  rows=$(review_rows 2>/dev/null) || return 0
   review_markers_load
   rows=$(printf '%s\n' "$rows" | review_classify)
   while IFS=$'\t' read -r cid author blocking; do
     [ -n "$cid" ] || continue
-    review_handled "$cid" "$1" && continue
+    review_handled "$cid" && continue
     total=$((total + 1))
     ids="${ids:+$ids,}$cid:$blocking"
     if [ "$blocking" = b ]; then
@@ -169,7 +170,13 @@ case "$provider" in
     esac
     [ "$url" = "https://github.com/$owner/$repo/pull/$number" ] || exit 0
     if [ "$mode" = gate ]; then
-      rows=$(review_rows) || exit 1
+      gate_err=$(mktemp) || exit 1
+      rows=$(review_rows 2>"$gate_err") || {
+        grep -q truncated "$gate_err" && gate_rc=2 || gate_rc=1
+        rm -f "$gate_err"
+        exit "$gate_rc"
+      }
+      rm -f "$gate_err"
       review_markers_load
       printf '%s\n' "$rows" | review_classify | while IFS=$'\t' read -r cid author blocking; do
         [ "$blocking" = b ] && printf '%s\t%s\n' "$cid" "$author"
