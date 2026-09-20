@@ -48,6 +48,7 @@ config/herdr-presentation-spaces  optional "off" opt-out from, or "on" opt-in to
 config/trace-context  optional presence flag enabling default-off native W3C trace-context propagation to spawned agents; LOCAL, gitignored; inherited by secondmate homes; see "Trace context propagation" below and docs/trace-context.md
 config/turnend-churn-absorb  optional presence flag opting this home into the default-off absorb of bare turn-end wakes on pane churn; LOCAL, gitignored, and not inherited; see "Turn-end pane-churn absorb" below
 config/pr-refresh  branch-currency opt-in; see "Branch-currency dispatch" below
+config/review-blocking-markers  optional per-repository literal severity markers, one "owner/repo marker" line each, that make an unanswered review comment blocking; default none; see "Review findings" below
 config/cmux-socket-password  optional cmux control-socket password; LOCAL, gitignored; read fresh on every cmux CLI call and passed through without ever overriding an operator's own ambient CMUX_SOCKET_PASSWORD when absent (docs/cmux-backend.md "Setup")
 config/wedge-alarm  optional away-mode wedge-alarm active-alert directives; LOCAL, gitignored; absent means auto (macOS Notification Center when available); see docs/wedge-alarm.md
 config/watched-tools.json  optional list of the tools this home depends on, read by the update check armed with bin/fm-tool-update-check.sh; LOCAL, gitignored, firstmate-maintained but human-editable, and NOT inherited by secondmate homes; see "Watched tool updates" below
@@ -88,6 +89,7 @@ state/               runtime records and signals; gitignored
   <id>.pr-refresh-state  private branch-currency dispatch receipt; docs/architecture.md owns its lifecycle, bin/fm-watch.sh its format
   <id>.pr-refresh-refused  branch-currency refusal receipt; see docs/architecture.md
   <id>.pr-poll-rearm-notified  PR poll upgrade diagnostic receipt; see docs/architecture.md
+  review-handled/<owner>__<repo>__<number>  per-PR record of raised review findings as "comment-id head b|n" lines; bin/fm-watch.sh writes it and bin/fm-pr-poll.sh reads it; see "Review findings" below
   branch-outcomes.jsonl .branch-outcomes-cursor .branch-outcomes-processed .<task>.branch-outcome-index .branch-outcome-index-ready  Pi supervision-branch durable outcome store, its read cursor, main's processed marker, bounded latest per-task status-coverage caches, and their recovery marker; bin/fm-branch-outcome.sh owns the formats
   branch-session/ .branch-session .branch-mirror-cursor  the branch's per-main-session conversations, the pointer to the current one, and the dialog-mirror cursor; extension-owned (docs/pi-supervision-branch.md)
   .branch-eligible-rows .branch-eligible-owner .main-eligible-rows  per-actor wake-row claims and branch-owner evidence; docs/watcher-continuity.md owns the acknowledgement contract
@@ -341,6 +343,21 @@ The watcher suspends merge detection for affected tasks and batches their diagno
 Run that command once for each affected task after upgrading to resume merge detection and any enabled branch-currency dispatch.
 The watcher keeps the armed bytes unchanged, and repeated sweeps remain quiet until the poll is re-armed or its registration or template changes.
 Unregistered or tampered poll bytes still produce the unauthenticated-check rejection.
+
+## Review findings
+
+The shared PR poll also reports unanswered review findings on an open GitHub PR from any reviewer, bot or human, and keys nothing on a reviewer's name.
+A finding is a review thread's first comment, and it is answered when its thread is resolved, when anyone other than its author has replied beneath it, or when the forge reports it outdated or its line gone, which is stale and never blocks.
+A push that leaves the thread untouched does not answer it.
+A review whose state is CHANGES_REQUESTED and that carries no inline comment is a finding of its own and blocks, with no marker needed.
+It is answered only when the same reviewer has since submitted a newer review or the review was dismissed, both read from the forge's latest-review state, so a reply or a push does not answer it; the ready refusal says so separately from the thread text, and prints both when both kinds are present.
+A thread comment blocks when the forge marks its review a change request, or when its body contains a literal marker that `config/review-blocking-markers` lists for the repository as an `owner/repo marker` line; with no markers the poll says `not-gating=<reviewers>` on the line instead of blocking.
+Every other finding is reported and counted but never blocks.
+A poll cycle with a finding not yet raised emits `review <head> blocking=<n> reported=<n> [not-gating=<reviewers>] [unparsed=<n>] ids=<comment-id>:<b|n>,...`, and stays silent otherwise.
+The watcher queues that line as a check wake and then records each id, with the head it was raised at for information only, in `state/review-handled/`, so a raised finding is never raised again, at any later head, while the gate scan still lists it until it is answered.
+The poll never writes; a thread list too long for one page is treated as unreadable, so it is silent rather than partial.
+A row whose shape the poll does not understand is never skipped silently: the review line counts it as `unparsed=<n>`, and the gate scan exits 3 so the ready registration refuses.
+`bin/fm-pr-check.sh` refuses to register a ready GitHub PR while `bin/fm-pr-poll.sh --gate` still lists an unanswered blocking finding, naming each comment and how to answer it; a draft PR registers, the record `bin/fm-pr-merge.sh` makes after its merge call, which passes `--merge-record` whether or not it could read the merge outcome, is not gated, and it also refuses, saying which, when the thread read fails or the PR has more threads than one page holds, because a gate that cannot read its input must not pass the PR as ready.
 
 ## Gate defaults (.no-mistakes.yaml)
 

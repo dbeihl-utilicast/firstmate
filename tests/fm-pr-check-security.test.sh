@@ -121,6 +121,9 @@ state_snapshot() {
   )
 }
 
+REVIEW_FIXTURES="$ROOT/tests/assets/review-threads"
+export FM_TEST_GH_THREADS_DEFAULT="$REVIEW_FIXTURES/empty.json"
+
 make_case() {
   local name=$1 dir fakebin fake_root
   dir="$TMP_ROOT/$name"
@@ -140,6 +143,17 @@ printf '%s\n' "$*" >> "$FM_TEST_GH_LOG"
 if [[ " $* " == *" --slurp "* && " $* " == *" --jq "* ]]; then
   printf '%s\n' 'the `--slurp` option is not supported with `--jq` or `--template`' >&2
   exit 1
+fi
+if [ "${1:-} ${2:-}" = "api graphql" ] && [[ " $* " == *reviewThreads* ]]; then
+  [ "${FM_TEST_GH_THREADS_FAIL:-0}" = 0 ] || exit 1
+  FM_TEST_GH_THREADS=${FM_TEST_GH_THREADS:-$FM_TEST_GH_THREADS_DEFAULT}
+  filter=
+  while [ "$#" -gt 0 ]; do
+    [ "$1" != --jq ] || filter=$2
+    shift
+  done
+  jq -r "$filter" "$FM_TEST_GH_THREADS"
+  exit $?
 fi
 case "${1:-} ${2:-}" in
   "api graphql")
@@ -3294,6 +3308,271 @@ test_gitlab_merged_poll_retires() {
   pass "GitHub and GitLab exact merged results share one retirement path"
 }
 
+REVIEW_HEAD=0123456789abcdef0123456789abcdef01234567
+REVIEW_NEW_HEAD=fedcba9876543210fedcba9876543210fedcba98
+REVIEW_BLOCKING_ID=PRRC_kwDODKw3uc5eWI9B
+REVIEW_PLAIN_ID=PRRC_kwDODKw3uc5zona2
+
+poll_review() {  # <dir> <fixture>
+  FM_TEST_GH_THREADS="$REVIEW_FIXTURES/$2.json" FM_STATE_OVERRIDE="$1/home/state" \
+    FM_CONFIG_OVERRIDE="$1/home/config" run_poll "$1"
+}
+
+record_handled() {  # <dir> <id> <head> <b|n>
+  mkdir -p "$1/home/state/review-handled"
+  printf '%s %s %s\n' "$2" "$3" "$4" >> "$1/home/state/review-handled/o__r__1"
+}
+
+test_review_poll_reports_unanswered_blocking_finding() {
+  local dir out
+  dir=$(make_case review-blocking)
+  make_poll_fixture "$dir"
+  out=$(poll_review "$dir" change-request-unanswered)
+  [ "$out" = "review $REVIEW_HEAD blocking=1 reported=1 ids=$REVIEW_BLOCKING_ID:b" ] \
+    || fail "unanswered change request was not reported as blocking: $out"
+  pass "an unanswered change request emits a blocking review line"
+}
+
+test_review_poll_reports_but_does_not_block_other_severity() {
+  local dir out
+  dir=$(make_case review-nonblocking)
+  make_poll_fixture "$dir"
+  out=$(poll_review "$dir" comment-unanswered)
+  [ "$out" = "review $REVIEW_HEAD blocking=0 reported=1 not-gating=andyfeller ids=$REVIEW_PLAIN_ID:n" ] \
+    || fail "a plain comment was not reported as non-blocking and not-gating: $out"
+  printf 'o/r I assume the following\nother/repo I assume the following\n' > "$dir/home/config/review-blocking-markers"
+  out=$(poll_review "$dir" comment-unanswered)
+  [ "$out" = "review $REVIEW_HEAD blocking=1 reported=1 ids=$REVIEW_PLAIN_ID:b" ] \
+    || fail "a configured literal marker did not block: $out"
+  printf 'o/r no such marker\nother/repo I assume the following\n' > "$dir/home/config/review-blocking-markers"
+  out=$(poll_review "$dir" comment-unanswered)
+  [ "$out" = "review $REVIEW_HEAD blocking=0 reported=1 ids=$REVIEW_PLAIN_ID:n" ] \
+    || fail "an unmatched or other-repository marker changed the verdict: $out"
+  pass "non-blocking severity is reported without blocking and says when it is not gating"
+}
+
+test_review_poll_never_reraises_handled_comment() {
+  local dir out
+  dir=$(make_case review-handled)
+  make_poll_fixture "$dir"
+  out=$(poll_review "$dir" change-request-unanswered)
+  [ -n "$out" ] || fail "the finding was not raised before it was handled, so silence proves nothing"
+  record_handled "$dir" "$REVIEW_BLOCKING_ID" "$REVIEW_HEAD" b
+  out=$(poll_review "$dir" change-request-unanswered)
+  [ -z "$out" ] || fail "a handled comment was raised again: $out"
+  out=$(FM_TEST_GH_HEAD=$REVIEW_NEW_HEAD poll_review "$dir" change-request-unanswered)
+  [ -z "$out" ] || fail "a handled comment was raised again after a push: $out"
+  pass "a handled comment stays handled across pushes"
+}
+
+test_review_poll_detached_comment_does_not_block() {
+  local dir out
+  dir=$(make_case review-detached)
+  make_poll_fixture "$dir"
+  out=$(poll_review "$dir" change-request-unanswered)
+  [ -n "$out" ] || fail "the attached form of the same finding was not raised, so detachment proves nothing"
+  out=$(poll_review "$dir" change-request-outdated)
+  [ -z "$out" ] || fail "a comment detached after a rebase was raised: $out"
+  out=$(poll_review "$dir" outdated-with-line)
+  [ -z "$out" ] || fail "a thread the forge reports outdated was raised although its line still exists: $out"
+  out=$(FM_TEST_GH_THREADS="$REVIEW_FIXTURES/change-request-outdated.json" PATH="$dir/fakebin:$BASE_PATH" \
+    "$POLL" --gate github https://github.com/o/r/pull/1 github.com o/r 1)
+  [ -z "$out" ] || fail "the gate scan listed a detached comment: $out"
+  pass "a comment the forge reports outdated is stale and silent"
+}
+
+test_review_poll_answer_definition() {
+  local dir out
+  dir=$(make_case review-answered)
+  make_poll_fixture "$dir"
+  out=$(poll_review "$dir" change-request-own-reply)
+  [ "$out" = "review $REVIEW_HEAD blocking=1 reported=1 ids=$REVIEW_BLOCKING_ID:b" ] \
+    || fail "a reply by the comment's own author counted as an answer: $out"
+  out=$(poll_review "$dir" change-request-answered-by-other)
+  [ -z "$out" ] || fail "a reply by someone else did not answer the finding: $out"
+  out=$(poll_review "$dir" resolved)
+  [ -z "$out" ] || fail "a resolved thread was raised: $out"
+  out=$(poll_review "$dir" truncated)
+  [ -z "$out" ] || fail "an incomplete thread read produced a line: $out"
+  pass "own-author replies never answer, other replies and resolution do"
+}
+
+test_review_poll_bare_push_does_not_answer() {
+  local dir out
+  dir=$(make_case review-bare-push)
+  make_poll_fixture "$dir"
+  record_handled "$dir" "$REVIEW_BLOCKING_ID" "$REVIEW_HEAD" b
+  out=$(FM_TEST_GH_HEAD=$REVIEW_NEW_HEAD poll_review "$dir" change-request-unanswered)
+  [ -z "$out" ] || fail "a handled comment was raised again after a push: $out"
+  out=$(FM_TEST_GH_THREADS="$REVIEW_FIXTURES/change-request-unanswered.json" FM_HOME="$dir/home" \
+    PATH="$dir/fakebin:$BASE_PATH" "$POLL" --gate github https://github.com/o/r/pull/1 github.com o/r 1)
+  [ "$out" = "$(printf '%s\twilliammartin\tthread' "$REVIEW_BLOCKING_ID")" ] \
+    || fail "the gate scan forgot a blocking finding after it was handled: $out"
+  pass "a push without an answer leaves the finding unanswered"
+}
+
+test_review_gate_refuses_ready_registration() {
+  local dir rc
+  dir=$(make_case review-gate)
+  write_task_meta "$dir"
+  set +e
+  FM_TEST_GH_THREADS="$REVIEW_FIXTURES/change-request-unanswered.json" \
+    run_check_entry "$dir" task-a https://github.com/o/r/pull/1 > "$dir/out" 2> "$dir/err"
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "ready registration was accepted with an unanswered blocking finding"
+  assert_grep "$REVIEW_BLOCKING_ID (by williammartin)" "$dir/err" "the refusal did not name the comment"
+  assert_grep "resolving its thread or replying" "$dir/err" "the refusal did not say how to answer"
+  [ ! -e "$dir/home/state/task-a.check.sh" ] || fail "a refused registration armed a poll"
+  FM_TEST_GH_DRAFT=1 FM_TEST_GH_THREADS="$REVIEW_FIXTURES/change-request-unanswered.json" \
+    run_check_entry "$dir" task-a https://github.com/o/r/pull/1 >/dev/null 2>&1 \
+    || fail "a draft registration was refused over a review finding"
+  rm -f "$dir/home/state/task-a.check.sh" "$dir/home/state/task-a.pr-poll" "$dir/home/state/task-a.pr-poll-registration"
+  FM_TEST_GH_THREADS="$REVIEW_FIXTURES/change-request-answered-by-other.json" \
+    run_check_entry "$dir" task-a https://github.com/o/r/pull/1 >/dev/null 2>&1 \
+    || fail "registration was refused although the finding was answered"
+  pass "ready registration is refused while a blocking finding is unanswered"
+}
+
+test_review_gate_refuses_when_threads_unreadable() {
+  local dir rc
+  dir=$(make_case review-gate-unreadable)
+  write_task_meta "$dir"
+  set +e
+  FM_TEST_GH_THREADS_FAIL=1 run_check_entry "$dir" task-a https://github.com/o/r/pull/1 > "$dir/out" 2> "$dir/err"
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "ready registration was accepted with unreadable review threads"
+  assert_grep "could not read review threads" "$dir/err" "the refusal did not say the read failed"
+  [ ! -e "$dir/home/state/task-a.check.sh" ] || fail "a refused registration armed a poll"
+  FM_TEST_GH_THREADS_FAIL=1 FM_TEST_GH_DRAFT=1 run_check_entry "$dir" task-a https://github.com/o/r/pull/1 >/dev/null 2>&1 \
+    || fail "a draft registration was refused over an unreadable thread list"
+  pass "ready registration is refused when the thread read fails"
+}
+
+test_review_gate_refuses_when_threads_truncated() {
+  local dir rc
+  dir=$(make_case review-gate-truncated)
+  write_task_meta "$dir"
+  set +e
+  FM_TEST_GH_THREADS="$REVIEW_FIXTURES/truncated.json" \
+    run_check_entry "$dir" task-a https://github.com/o/r/pull/1 > "$dir/out" 2> "$dir/err"
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "ready registration was accepted with a truncated thread list"
+  assert_grep "more review threads than one page" "$dir/err" "the refusal did not say the list was truncated"
+  [ ! -e "$dir/home/state/task-a.check.sh" ] || fail "a refused registration armed a poll"
+  pass "ready registration is refused when the thread list is truncated"
+}
+
+test_review_gate_does_not_disturb_merge_recording() {
+  local dir
+  dir=$(make_case review-merge-record)
+  write_task_meta "$dir"
+  FM_TEST_GH_THREADS="$REVIEW_FIXTURES/change-request-unanswered.json" \
+    run_check_entry "$dir" task-a https://github.com/o/r/pull/1 --merge-record >/dev/null 2>&1 \
+    || fail "recording a PR fm-pr-merge just merged was refused over a review finding"
+  grep -qxF 'pr=https://github.com/o/r/pull/1' "$dir/home/state/task-a.meta" \
+    || fail "the merge record lost its PR reference"
+  pass "the review gate leaves the post-merge record alone"
+}
+
+test_review_level_change_request_gates_without_inline_comment() {
+  local dir out
+  dir=$(make_case review-level)
+  make_poll_fixture "$dir"
+  out=$(poll_review "$dir" review-level-change-request)
+  [ "$out" = "review $REVIEW_HEAD blocking=1 reported=1 ids=PRR_kwDODKw3uc8AAAABNdGd6w:b" ] \
+    || fail "a change-request review with no inline comment did not block: $out"
+  out=$(FM_TEST_GH_THREADS="$REVIEW_FIXTURES/review-level-change-request.json" PATH="$dir/fakebin:$BASE_PATH" \
+    "$POLL" --gate github https://github.com/o/r/pull/1 github.com o/r 1)
+  [ "$out" = "$(printf 'PRR_kwDODKw3uc8AAAABNdGd6w\twilliammartin\treview')" ] \
+    || fail "the gate scan did not list the change-request review: $out"
+  out=$(poll_review "$dir" review-level-change-request-with-inline)
+  case "$out" in "review $REVIEW_HEAD blocking=1 reported=1 ids=PRRC_"*) ;; *) fail "a change-request review with an inline comment was counted twice or not at all: $out" ;; esac
+  write_task_meta "$dir"
+  ! FM_TEST_GH_THREADS="$REVIEW_FIXTURES/review-level-change-request.json" \
+    run_check_entry "$dir" task-a https://github.com/o/r/pull/1 >/dev/null 2> "$dir/err" \
+    || fail "ready registration was accepted over a change-request review"
+  assert_grep 'PRR_kwDODKw3uc8AAAABNdGd6w (by williammartin)' "$dir/err" "the refusal did not name the review"
+  assert_grep 'dismisses it or submits a newer review' "$dir/err" "the refusal did not say how a review-level finding is answered"
+  ! grep -q 'replying beneath it' "$dir/err" || fail "a review-level refusal carried the thread-reply text"
+  pass "a CHANGES_REQUESTED review gates even with no inline comment"
+}
+
+test_review_level_change_request_cleared_by_dismissal_or_newer_review() {
+  local dir fixture out
+  dir=$(make_case review-level-cleared)
+  make_poll_fixture "$dir"
+  write_task_meta "$dir"
+  for fixture in review-level-dismissed review-level-superseded; do
+    out=$(FM_TEST_GH_THREADS="$REVIEW_FIXTURES/$fixture.json" PATH="$dir/fakebin:$BASE_PATH" \
+      "$POLL" --gate github https://github.com/o/r/pull/1 github.com o/r 1)
+    [ -z "$out" ] || fail "$fixture still listed a change-request review: $out"
+    FM_TEST_GH_THREADS="$REVIEW_FIXTURES/$fixture.json" \
+      run_check_entry "$dir" task-a https://github.com/o/r/pull/1 >/dev/null 2>&1 \
+      || fail "$fixture was refused although the review no longer stands"
+    rm -f "$dir/home/state/task-a.check.sh"
+  done
+  pass "a dismissed or superseded change-request review no longer gates"
+}
+
+test_review_refusal_text_differs_by_kind() {
+  local dir mixed
+  dir=$(make_case review-mixed-kinds)
+  write_task_meta "$dir"
+  mixed="$dir/mixed.json"
+  jq -s '.[0].data.repository.pullRequest.reviewThreads = .[1].data.repository.pullRequest.reviewThreads | .[0]' \
+    "$REVIEW_FIXTURES/review-level-change-request.json" "$REVIEW_FIXTURES/change-request-unanswered.json" > "$mixed"
+  ! FM_TEST_GH_THREADS="$mixed" run_check_entry "$dir" task-a https://github.com/o/r/pull/1 >/dev/null 2> "$dir/err" \
+    || fail "ready registration was accepted over both kinds of finding"
+  assert_grep 'replying beneath it' "$dir/err" "the thread refusal text is missing"
+  assert_grep 'dismisses it or submits a newer review' "$dir/err" "the review refusal text is missing"
+  pass "thread and review-level refusals print distinct text, both when both are present"
+}
+
+test_review_classify_reports_unrecognised_rows() {
+  local dir out
+  dir=$(make_case review-unparsed)
+  make_poll_fixture "$dir"
+  out=$(poll_review "$dir" unrecognised-comment-id)
+  [ "$out" = "review $REVIEW_HEAD blocking=0 reported=1 unparsed=1 ids=unparsed-1:n" ] \
+    || fail "a row of an unrecognised shape was dropped silently: $out"
+  set +e
+  FM_TEST_GH_THREADS="$REVIEW_FIXTURES/unrecognised-comment-id.json" PATH="$dir/fakebin:$BASE_PATH" \
+    "$POLL" --gate github https://github.com/o/r/pull/1 github.com o/r 1 >/dev/null 2>&1
+  [ $? -eq 3 ] || { set -e; fail "the gate scan did not exit 3 on an unrecognised row"; }
+  set -e
+  write_task_meta "$dir"
+  ! FM_TEST_GH_THREADS="$REVIEW_FIXTURES/unrecognised-comment-id.json" \
+    run_check_entry "$dir" task-a https://github.com/o/r/pull/1 >/dev/null 2> "$dir/err" \
+    || fail "ready registration was accepted over review data it could not read"
+  assert_grep "shape this gate does not understand" "$dir/err" "the refusal did not say the shape was unrecognised"
+  pass "rows of an unrecognised shape are reported and refuse the gate"
+}
+
+test_review_watcher_raises_once_and_records() {
+  local dir state
+  dir=$(make_case review-watch)
+  state="$dir/home/state"
+  write_poll_meta "$state" task-a https://github.com/o/r/pull/1
+  seed_canonical_poll "$dir" task-a https://github.com/o/r/pull/1
+  add_stop_custom_check "$dir"
+  FM_TEST_GH_THREADS="$REVIEW_FIXTURES/change-request-unanswered.json" \
+    run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/watch-1.out" 2> "$dir/watch-1.err" \
+    || fail "review watcher cycle failed: $(cat "$dir/watch-1.err")"
+  assert_grep "task-a.check.sh: review $REVIEW_HEAD blocking=1 reported=1 ids=$REVIEW_BLOCKING_ID:b" "$dir/watch-1.out" \
+    "the watcher did not surface the review line"
+  assert_grep "$REVIEW_BLOCKING_ID $REVIEW_HEAD b" "$state/review-handled/o__r__1" "the raised finding was not recorded"
+  ack_watcher_cycle "$state" || fail "review wake acknowledgement failed"
+  rm -f "$state/.last-check"
+  FM_TEST_GH_THREADS="$REVIEW_FIXTURES/change-request-unanswered.json" \
+    run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/watch-2.out" 2> "$dir/watch-2.err" \
+    || fail "second review watcher cycle failed: $(cat "$dir/watch-2.err")"
+  ! grep -F ': review ' "$dir/watch-2.out" >/dev/null || fail "the watcher raised a handled finding again"
+  pass "the watcher raises a finding once and records it as handled"
+}
+
 if [ -n "${FM_TEST_ONLY:-}" ]; then
   "$FM_TEST_ONLY"
   exit $?
@@ -3345,3 +3624,18 @@ test_bootstrap_leaves_unauthenticated_checks
 test_custom_snapshot_cleanup_on_signal
 test_returned_custom_check_descendants_are_drained
 test_teardown_removes_poll_artifacts
+test_review_poll_reports_unanswered_blocking_finding
+test_review_poll_reports_but_does_not_block_other_severity
+test_review_poll_never_reraises_handled_comment
+test_review_poll_detached_comment_does_not_block
+test_review_poll_answer_definition
+test_review_poll_bare_push_does_not_answer
+test_review_gate_refuses_ready_registration
+test_review_gate_refuses_when_threads_unreadable
+test_review_gate_refuses_when_threads_truncated
+test_review_watcher_raises_once_and_records
+test_review_gate_does_not_disturb_merge_recording
+test_review_level_change_request_gates_without_inline_comment
+test_review_level_change_request_cleared_by_dismissal_or_newer_review
+test_review_refusal_text_differs_by_kind
+test_review_classify_reports_unrecognised_rows

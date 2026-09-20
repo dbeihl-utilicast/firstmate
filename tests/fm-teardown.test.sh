@@ -269,6 +269,7 @@ case "\${1:-} \${2:-}" in
       *"headRefOid"*) printf '%s\n' '$head' ; exit 0 ;;
     esac
     ;;
+  "api graphql") exit 0 ;;
 esac
 echo "error: pull request not found" >&2
 exit 1
@@ -1918,6 +1919,7 @@ case "\${1:-} \${2:-}" in
       *"headRefOid"*) printf '%s\n' '$head' ; exit 0 ;;
     esac
     ;;
+  "api graphql") exit 0 ;;
 esac
 echo "error: pull request not found" >&2
 exit 1
@@ -2050,6 +2052,7 @@ case "\${1:-} \${2:-}" in
       *"headRefOid"*) printf '%s\n' '$head' ; exit 0 ;;
     esac
     ;;
+  "api graphql") exit 0 ;;
 esac
 echo "error: pull request not found" >&2
 exit 1

@@ -23,6 +23,12 @@ make_case() {  # <name> -> echoes <dir>
 exit 0
 SH
   chmod +x "$fake_root/bin/fm-guard.sh"
+  cat > "$dir/fakebin/gh" <<'SH'
+#!/usr/bin/env bash
+[ "${1:-} ${2:-}" = "api graphql" ] && exit 0
+exit 1
+SH
+  chmod +x "$dir/fakebin/gh"
   printf '%s\n' "$dir"
 }
 

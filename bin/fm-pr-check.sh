@@ -17,7 +17,11 @@
 # PR be treated as ready and merged with the issues still open, or with an
 # omission nobody meant. The body is fetched with the same gh pr view path
 # already used for pr_head, so GitLab merge requests skip both checks.
-# Usage: fm-pr-check.sh <task-id> <pr-url>
+# A ready GitHub PR is also refused while bin/fm-pr-poll.sh --gate lists an
+# unanswered blocking review finding on it; a draft PR is not, and neither is
+# the record bin/fm-pr-merge.sh makes after its merge call, which passes
+# --merge-record whether or not it could read the merge outcome.
+# Usage: fm-pr-check.sh <task-id> <pr-url> [--merge-record]
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -119,6 +123,11 @@ fm_pr_body_closes_issue() {
   '
 }
 
+MERGE_RECORD=0
+if [ "$#" -eq 3 ] && [ "$3" = --merge-record ]; then
+  MERGE_RECORD=1
+  set -- "$1" "$2"
+fi
 if [ "$#" -ne 2 ]; then
   echo "error: invalid PR check request" >&2
   exit 2
@@ -246,6 +255,41 @@ view_head=
 $(fm_pr_read_draft "$URL" "$WT")
 EOF
 [ -z "$view_head" ] || PR_HEAD=$view_head
+
+# A ready PR must not carry an unanswered blocking review finding. The scan is
+# live rather than read from the watcher's handled record, because a finding
+# stays blocking after it was raised until someone answers it.
+if [ "$PROVIDER" = github ] && [ "$MERGE_RECORD" != 1 ] \
+  && ! { [ "${PR_DRAFT_READ_OK:-0}" = 1 ] && [ "${PR_DRAFT:-0}" = 1 ]; }; then
+  gate_rc=0
+  gate_config=${FM_CONFIG_OVERRIDE:-$FM_HOME/config}
+  gate_rows=$(FM_HOME="$FM_HOME" FM_CONFIG_OVERRIDE="$gate_config" \
+    "$SCRIPT_DIR/fm-pr-poll.sh" --gate "$PROVIDER" "$URL" "$HOST" "$PROJECT_PATH" "$NUMBER" 2>/dev/null) || gate_rc=$?
+  if [ "$gate_rc" -eq 2 ]; then
+    echo "error: PR has more review threads than one page reads, so unanswered blocking findings cannot be ruled out: $URL. Mark the PR draft or resolve threads until they fit." >&2
+    exit 1
+  elif [ "$gate_rc" -eq 3 ]; then
+    echo "error: review data on $URL has a shape this gate does not understand, so unanswered blocking findings cannot be ruled out; it is not registered ready. Inspect the PR's review threads, or mark the PR draft." >&2
+    exit 1
+  elif [ "$gate_rc" -ne 0 ]; then
+    echo "error: could not read review threads to check for unanswered blocking findings on $URL, so it is not registered ready. Retry, or mark the PR draft." >&2
+    exit 1
+  elif [ -n "$gate_rows" ]; then
+    gate_thread=$(printf '%s\n' "$gate_rows" | while IFS=$'\t' read -r gate_id gate_author gate_kind; do
+      if [ "$gate_kind" = thread ]; then printf '%s (by %s), ' "$gate_id" "$gate_author"; fi
+    done)
+    gate_review=$(printf '%s\n' "$gate_rows" | while IFS=$'\t' read -r gate_id gate_author gate_kind; do
+      if [ "$gate_kind" = review ]; then printf '%s (by %s), ' "$gate_id" "$gate_author"; fi
+    done)
+    if [ -n "$gate_thread" ]; then
+      echo "error: PR has unanswered blocking review findings: ${gate_thread%, }. Answer each by resolving its thread or replying beneath it as someone other than its author (a fix explanation or a reasoned disagreement both count); a push alone does not answer a finding." >&2
+    fi
+    if [ -n "$gate_review" ]; then
+      echo "error: PR has standing change-request reviews: ${gate_review%, }. Each stands until its reviewer dismisses it or submits a newer review; ask them to, or dismiss it yourself if you can." >&2
+    fi
+    exit 1
+  fi
+fi
 
 META_TMP=
 META_LOCK=
