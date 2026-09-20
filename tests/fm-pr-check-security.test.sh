@@ -3373,6 +3373,8 @@ test_review_poll_detached_comment_does_not_block() {
   [ -n "$out" ] || fail "the attached form of the same finding was not raised, so detachment proves nothing"
   out=$(poll_review "$dir" change-request-outdated)
   [ -z "$out" ] || fail "a comment detached after a rebase was raised: $out"
+  out=$(poll_review "$dir" detached-not-outdated)
+  [ -z "$out" ] || fail "a thread whose line is gone was raised although the forge does not report it outdated: $out"
   out=$(poll_review "$dir" outdated-with-line)
   [ -z "$out" ] || fail "a thread the forge reports outdated was raised although its line still exists: $out"
   out=$(FM_TEST_GH_THREADS="$REVIEW_FIXTURES/change-request-outdated.json" PATH="$dir/fakebin:$BASE_PATH" \
@@ -3471,7 +3473,7 @@ test_review_gate_does_not_disturb_merge_recording() {
   write_task_meta "$dir"
   FM_TEST_GH_THREADS="$REVIEW_FIXTURES/change-request-unanswered.json" \
     run_check_entry "$dir" task-a https://github.com/o/r/pull/1 --merge-record >/dev/null 2>&1 \
-    || fail "recording a PR fm-pr-merge just merged was refused over a review finding"
+    || fail "recording a PR ahead of fm-pr-merge's merge call was refused over a review finding"
   grep -qxF 'pr=https://github.com/o/r/pull/1' "$dir/home/state/task-a.meta" \
     || fail "the merge record lost its PR reference"
   pass "the review gate leaves the post-merge record alone"
