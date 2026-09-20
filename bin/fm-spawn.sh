@@ -3290,8 +3290,17 @@ case "$HARNESS" in
     claude_pane_dir=$(spawn_current_path "$WT_TARGET" || true)
     [ -z "$claude_pane_dir" ] || [ "$(real_path_or_raw "$claude_pane_dir")" = "$(real_path_or_raw "$WT")" ] \
       || claude_imports_dirs="$claude_imports_dirs"$'\n'"$claude_pane_dir"
+    claude_imports_skip=
+    command -v node >/dev/null 2>&1 || claude_imports_skip="node is not on PATH"
+    [ -n "${CLAUDE_CONFIG_DIR:-${HOME:-}}" ] || claude_imports_skip="neither CLAUDE_CONFIG_DIR nor HOME locates the Claude store"
     while IFS= read -r claude_imports_dir; do
       [ -n "$claude_imports_dir" ] || continue
+      if [ -n "$claude_imports_skip" ]; then
+        # A missing prerequisite means the write was never attempted, so it is
+        # skipped; an attempted write that fails still refuses below.
+        echo "skipped Claude external-imports pre-answer for $claude_imports_dir: $claude_imports_skip" >&2
+        continue
+      fi
       if ! "$FM_ROOT/bin/fm-claude-trust.sh" --imports-only "$claude_imports_dir" "$PROJ_ABS" >/dev/null; then
         echo "error: could not pre-answer Claude's external-imports prompt for $claude_imports_dir; refusing to launch a claude worker that would wait on it silently; inspect window $T" >&2
         exit 1
