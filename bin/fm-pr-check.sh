@@ -19,8 +19,8 @@
 # already used for pr_head, so GitLab merge requests skip both checks.
 # A ready GitHub PR is also refused while bin/fm-pr-poll.sh --gate lists an
 # unanswered blocking review finding on it; a draft PR is not, and neither is
-# the record bin/fm-pr-merge.sh makes after its merge call, which passes
-# --merge-record whether or not it could read the merge outcome.
+# the record bin/fm-pr-merge.sh makes before it calls the forge to merge, which
+# passes --merge-record so the gate never stands in front of a merge already ordered.
 # Usage: fm-pr-check.sh <task-id> <pr-url> [--merge-record]
 set -eu
 
