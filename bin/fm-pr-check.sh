@@ -18,7 +18,8 @@
 # omission nobody meant. The body is fetched with the same gh pr view path
 # already used for pr_head, so GitLab merge requests skip both checks.
 # A ready GitHub PR is also refused while bin/fm-pr-poll.sh --gate lists an
-# unanswered blocking review finding on it; a draft PR is not.
+# unanswered blocking review finding on it; a draft PR is not, and neither is
+# the record bin/fm-pr-merge.sh makes of a PR it has just merged.
 # Usage: fm-pr-check.sh <task-id> <pr-url>
 set -eu
 
@@ -252,7 +253,8 @@ EOF
 # A ready PR must not carry an unanswered blocking review finding. The scan is
 # live rather than read from the watcher's handled record, because a finding
 # stays blocking after it was raised until someone answers it.
-if [ "$PROVIDER" = github ] && ! { [ "${PR_DRAFT_READ_OK:-0}" = 1 ] && [ "${PR_DRAFT:-0}" = 1 ]; }; then
+if [ "$PROVIDER" = github ] && [ "${FM_PR_CHECK_MERGE_RECORD:-0}" != 1 ] \
+  && ! { [ "${PR_DRAFT_READ_OK:-0}" = 1 ] && [ "${PR_DRAFT:-0}" = 1 ]; }; then
   gate_rc=0
   gate_config=${FM_CONFIG_OVERRIDE:-$FM_HOME/config}
   gate_rows=$(FM_HOME="$FM_HOME" FM_CONFIG_OVERRIDE="$gate_config" \

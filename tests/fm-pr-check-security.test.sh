@@ -3461,6 +3461,18 @@ test_review_gate_refuses_when_threads_truncated() {
   pass "ready registration is refused when the thread list is truncated"
 }
 
+test_review_gate_does_not_disturb_merge_recording() {
+  local dir
+  dir=$(make_case review-merge-record)
+  write_task_meta "$dir"
+  FM_PR_CHECK_MERGE_RECORD=1 FM_TEST_GH_THREADS="$REVIEW_FIXTURES/change-request-unanswered.json" \
+    run_check_entry "$dir" task-a https://github.com/o/r/pull/1 >/dev/null 2>&1 \
+    || fail "recording a PR fm-pr-merge just merged was refused over a review finding"
+  grep -qxF 'pr=https://github.com/o/r/pull/1' "$dir/home/state/task-a.meta" \
+    || fail "the merge record lost its PR reference"
+  pass "the review gate leaves the post-merge record alone"
+}
+
 test_review_watcher_raises_once_and_records() {
   local dir state
   dir=$(make_case review-watch)
@@ -3544,3 +3556,4 @@ test_review_gate_refuses_ready_registration
 test_review_gate_refuses_when_threads_unreadable
 test_review_gate_refuses_when_threads_truncated
 test_review_watcher_raises_once_and_records
+test_review_gate_does_not_disturb_merge_recording

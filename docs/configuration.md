@@ -354,7 +354,7 @@ Every other finding is reported and counted but never blocks.
 A poll cycle with a finding not yet raised emits `review <head> blocking=<n> reported=<n> [not-gating=<reviewers>] ids=<comment-id>:<b|n>,...`, and stays silent otherwise.
 The watcher queues that line as a check wake and then records each id, with the head it was raised at for information only, in `state/review-handled/`, so a raised finding is never raised again, at any later head, while the gate scan still lists it until it is answered.
 The poll never writes; a thread list too long for one page is treated as unreadable, so it is silent rather than partial.
-`bin/fm-pr-check.sh` refuses to register a ready GitHub PR while `bin/fm-pr-poll.sh --gate` still lists an unanswered blocking finding, naming each comment and how to answer it; a draft PR registers, and it also refuses, saying which, when the thread read fails or the PR has more threads than one page holds, because a gate that cannot read its input must not pass the PR as ready.
+`bin/fm-pr-check.sh` refuses to register a ready GitHub PR while `bin/fm-pr-poll.sh --gate` still lists an unanswered blocking finding, naming each comment and how to answer it; a draft PR registers, the record `bin/fm-pr-merge.sh` makes of a PR it just merged is not gated, and it also refuses, saying which, when the thread read fails or the PR has more threads than one page holds, because a gate that cannot read its input must not pass the PR as ready.
 
 ## Gate defaults (.no-mistakes.yaml)
 
