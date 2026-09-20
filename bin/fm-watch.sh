@@ -1478,6 +1478,26 @@ run_check_process() {
   fi
 }
 
+# A review line's findings become handled only after their wake is queued, so a
+# failed append leaves them to be raised again. The poll reads this record; the
+# poll itself never writes.
+review_handled_record() {  # <owner/repo> <number> <review line>
+  local dir file head ids entry fields entries
+  dir=$STATE/review-handled
+  file=$dir/${1%%/*}__${1#*/}__$2
+  read -r -a fields <<< "$3"
+  head=${fields[1]}
+  ids=${fields[${#fields[@]}-1]}
+  ids=${ids#ids=}
+  [ -d "$dir" ] || mkdir -m 0700 "$dir" || return 1
+  [ ! -L "$file" ] || return 1
+  IFS=, read -r -a entries <<< "$ids"
+  for entry in "${entries[@]}"; do
+    printf '%s %s %s\n' "${entry%:*}" "$head" "${entry##*:}" >> "$file" || return 1
+  done
+  chmod 0600 "$file"
+}
+
 run_check() {
   ( run_check_process "$@" ) 2>/dev/null || true
 }
@@ -2366,7 +2386,8 @@ while :; do
           host=$FM_PR_POLL_SNAPSHOT_HOST
           path=$FM_PR_POLL_SNAPSHOT_PATH
           number=$FM_PR_POLL_SNAPSHOT_NUMBER
-          run_check_capture "$SCRIPT_DIR/fm-pr-poll.sh" --validated \
+          FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" \
+            run_check_capture "$SCRIPT_DIR/fm-pr-poll.sh" --validated \
             "$provider" "$url" "$host" "$path" "$number" || exit 1
           out=$FM_CHECK_RESULT
           touch_watcher_beat
@@ -2381,6 +2402,22 @@ while :; do
           pr_poll_template_rearm_notify "$id" && continue
           rejected_checks="$rejected_checks $c"
           continue
+        fi
+      fi
+      if [ "$is_pr_poll" -eq 1 ]; then
+        review_line=
+        review_rest=
+        while IFS= read -r poll_line; do
+          case "$poll_line" in
+            review\ *) review_line=$poll_line ;;
+            *) review_rest="${review_rest:+$review_rest$'\n'}$poll_line" ;;
+          esac
+        done <<< "$out"
+        out=$review_rest
+        if [ -n "$review_line" ]; then
+          fm_wake_append check "$c" "check: $c: $review_line" || exit 1
+          check_reasons="${check_reasons:+$check_reasons$'\n'}check: $c: $review_line"
+          review_handled_record "$path" "$number" "$review_line" || exit 1
         fi
       fi
       if [ -n "$out" ]; then

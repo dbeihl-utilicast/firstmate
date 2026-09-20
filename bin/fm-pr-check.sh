@@ -17,6 +17,8 @@
 # PR be treated as ready and merged with the issues still open, or with an
 # omission nobody meant. The body is fetched with the same gh pr view path
 # already used for pr_head, so GitLab merge requests skip both checks.
+# A ready GitHub PR is also refused while bin/fm-pr-poll.sh --gate lists an
+# unanswered blocking review finding on it; a draft PR is not.
 # Usage: fm-pr-check.sh <task-id> <pr-url>
 set -eu
 
@@ -246,6 +248,23 @@ view_head=
 $(fm_pr_read_draft "$URL" "$WT")
 EOF
 [ -z "$view_head" ] || PR_HEAD=$view_head
+
+# A ready PR must not carry an unanswered blocking review finding. The scan is
+# live rather than read from the watcher's handled record, because a finding
+# stays blocking after it was raised until someone answers it.
+if [ "$PROVIDER" = github ] && ! { [ "${PR_DRAFT_READ_OK:-0}" = 1 ] && [ "${PR_DRAFT:-0}" = 1 ]; }; then
+  gate_rc=0
+  gate_config=${FM_CONFIG_OVERRIDE:-$FM_HOME/config}
+  gate_rows=$(FM_HOME="$FM_HOME" FM_CONFIG_OVERRIDE="$gate_config" \
+    "$SCRIPT_DIR/fm-pr-poll.sh" --gate "$PROVIDER" "$URL" "$HOST" "$PROJECT_PATH" "$NUMBER" 2>/dev/null) || gate_rc=$?
+  if [ "$gate_rc" -ne 0 ]; then
+    echo "warning: could not read review threads to check for unanswered blocking findings on $URL" >&2
+  elif [ -n "$gate_rows" ]; then
+    gate_list=$(printf '%s\n' "$gate_rows" | while IFS=$'\t' read -r gate_id gate_author; do printf '%s (by %s), ' "$gate_id" "$gate_author"; done)
+    echo "error: PR has unanswered blocking review findings: ${gate_list%, }. Answer each by resolving its thread or replying beneath it as someone other than its author (a fix explanation or a reasoned disagreement both count); a push alone does not answer a finding." >&2
+    exit 1
+  fi
+fi
 
 META_TMP=
 META_LOCK=

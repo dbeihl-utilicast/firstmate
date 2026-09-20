@@ -1,7 +1,17 @@
 #!/usr/bin/env bash
 # Static watcher program for a validated PR/MR poll sidecar.
 # It emits one validated state line for a merged PR/MR or a behind/conflicting
-# open GitHub PR, stays silent on errors, and never moves a branch itself.
+# open GitHub PR, plus one review line while an open GitHub PR carries review
+# findings not yet raised at this head, stays silent on errors, and never moves
+# a branch itself. It also never writes: bin/fm-watch.sh records the findings a
+# review line raised. A finding is a review thread whose first comment neither
+# the forge reports outdated or detached, nor a resolved thread, nor a comment
+# with a reply from anyone other than its author. It blocks only when the forge
+# marks it a change request or its body holds a literal marker configured for
+# the repository in config/review-blocking-markers ("owner/repo marker" lines);
+# nothing keys on a reviewer's name. With no markers a review line says
+# not-gating for the reviewers it reports. "--gate" prints the blocking
+# findings still unanswered, for bin/fm-pr-check.sh.
 # Provider identity remains uninterpolated data and these bytes stay task-static.
 # Each provider is read through its own standard CLI, gh for GitHub and glab
 # for GitLab, so an upstream checkout needs no extra tooling to follow either.
@@ -9,6 +19,12 @@ set -u
 LC_ALL=C
 export LC_ALL
 
+mode=poll
+if [ "$#" -eq 6 ] && [ "$1" = --gate ]; then
+  mode=gate
+  shift
+  set -- --validated "$@"
+fi
 if [ "$#" -eq 6 ] && [ "$1" = --validated ]; then
   provider=$2
   url=$3
@@ -44,6 +60,97 @@ case "$number" in
   *[!0-9]*) exit 0 ;;
 esac
 
+# One tab-separated row per unanswered review thread on the pull request:
+# first comment id, author, whether the forge marks it a change request, body.
+# A resolved or outdated thread, a comment whose line is gone, and a thread with
+# a reply from anyone but the first comment's author never appear. More threads
+# than one page holds is an unreadable answer rather than a partial one.
+review_rows() {
+  # shellcheck disable=SC2016  # GraphQL variables and jq bindings, not shell expansions.
+  gh api graphql --hostname "$host" \
+    -f query='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100){pageInfo{hasNextPage} nodes{id isResolved isOutdated comments(first:50){nodes{id author{login} body path line pullRequestReview{state}}}}}}}}' \
+    -f owner="$owner" -f name="$repo" -F number="$number" --jq '
+      .data.repository.pullRequest.reviewThreads
+      | if .pageInfo.hasNextPage then error("truncated") else .nodes end
+      | .[]
+      | select((.isResolved | not) and (.isOutdated | not))
+      | .comments.nodes as $c
+      | select(($c | length) > 0 and $c[0].line != null and $c[0].path != null)
+      | select(all($c[1:][]; .author.login == $c[0].author.login))
+      | [$c[0].id, ($c[0].author.login // "unknown"), ($c[0].pullRequestReview.state == "CHANGES_REQUESTED"), ($c[0].body // "" | gsub("[\t\r\n]"; " "))]
+      | @tsv' 2>/dev/null
+}
+
+# The literal severity markers configured for this repository, one per line.
+review_markers_load() {
+  local line cfg
+  REVIEW_MARKERS=''
+  cfg=${FM_CONFIG_OVERRIDE:-}
+  [ -n "$cfg" ] || { [ -z "${FM_HOME:-}" ] || cfg=$FM_HOME/config; }
+  cfg=$cfg/review-blocking-markers
+  if [ -f "$cfg" ] && [ ! -L "$cfg" ]; then
+    while IFS= read -r line || [ -n "$line" ]; do
+      case "$line" in
+        "$path "?*) REVIEW_MARKERS="$REVIEW_MARKERS${line#"$path "}"$'\n' ;;
+      esac
+    done < "$cfg"
+  fi
+}
+
+# Reads review_rows output and prints "id<TAB>author<TAB>b|n" for each valid row.
+review_classify() {
+  local cid author cr body blocking marker
+  while IFS=$'\t' read -r cid author cr body; do
+    case "$cid" in ''|*[!A-Za-z0-9_-]*) continue ;; esac
+    case "$author" in ''|*[!A-Za-z0-9_.[\]-]*) continue ;; esac
+    blocking=n
+    [ "$cr" != true ] || blocking=b
+    if [ "$blocking" = n ] && [ -n "$REVIEW_MARKERS" ]; then
+      while IFS= read -r marker; do
+        [ -n "$marker" ] || continue
+        case "$body" in *"$marker"*) blocking=b; break ;; esac
+      done <<< "$REVIEW_MARKERS"
+    fi
+    case "$cr" in true|false) ;; *) continue ;; esac
+    printf '%s\t%s\t%s\n' "$cid" "$author" "$blocking"
+  done
+}
+
+review_handled() {  # <comment id> <head>
+  local file hid hhead _rest
+  file=${FM_STATE_OVERRIDE:-}
+  [ -n "$file" ] || { [ -z "${FM_HOME:-}" ] || file=$FM_HOME/state; }
+  [ -n "$file" ] || return 1
+  file=$file/review-handled/${path%%/*}__${path#*/}__$number
+  [ -f "$file" ] && [ ! -L "$file" ] || return 1
+  while IFS=' ' read -r hid hhead _rest; do
+    [ "$hid" = "$1" ] && [ "$hhead" = "$2" ] && return 0
+  done < "$file"
+  return 1
+}
+
+review_report() {  # <head>
+  local rows cid author blocking ids='' login_list='' blocking_n=0 total=0 seen=''
+  rows=$(review_rows) || return 0
+  review_markers_load
+  rows=$(printf '%s\n' "$rows" | review_classify)
+  while IFS=$'\t' read -r cid author blocking; do
+    [ -n "$cid" ] || continue
+    review_handled "$cid" "$1" && continue
+    total=$((total + 1))
+    ids="${ids:+$ids,}$cid:$blocking"
+    if [ "$blocking" = b ]; then
+      blocking_n=$((blocking_n + 1))
+    else
+      case ",$seen," in *",$author,"*) ;; *) seen="$seen,$author"; login_list="${login_list:+$login_list,}$author" ;; esac
+    fi
+  done <<< "$rows"
+  [ "$total" -gt 0 ] || return 0
+  printf 'review %s blocking=%s reported=%s' "$1" "$blocking_n" "$total"
+  [ -n "$REVIEW_MARKERS" ] || [ -z "$login_list" ] || printf ' not-gating=%s' "$login_list"
+  printf ' ids=%s\n' "$ids"
+}
+
 # Every component is revalidated here rather than trusted from the sidecar, and
 # the stored URL must then be exactly reconstructible from those components, so
 # a doctored sidecar cannot redirect this poll at another host or project.
@@ -61,6 +168,14 @@ case "$provider" in
       .|..|*[!A-Za-z0-9._-]*) exit 0 ;;
     esac
     [ "$url" = "https://github.com/$owner/$repo/pull/$number" ] || exit 0
+    if [ "$mode" = gate ]; then
+      rows=$(review_rows) || exit 1
+      review_markers_load
+      printf '%s\n' "$rows" | review_classify | while IFS=$'\t' read -r cid author blocking; do
+        [ "$blocking" = b ] && printf '%s\t%s\n' "$cid" "$author"
+      done
+      exit 0
+    fi
     raw=$(gh pr view "$url" --json state,mergeStateStatus,mergeable,headRefOid,baseRefName \
       -q '[.state, .mergeStateStatus, .mergeable, .headRefOid, .baseRefName, (.baseRefName | @uri)] | @tsv' 2>/dev/null) || exit 0
     case "$raw" in ''|*$'\n'*) exit 0 ;; esac
@@ -77,6 +192,7 @@ case "$provider" in
     esac
     case "${#head}" in 40|64) ;; *) exit 0 ;; esac
     case "$head" in *[!0-9a-f]*) exit 0 ;; esac
+    review_report "$head"
     if [ "$mergeable" = CONFLICTING ] || [ "$merge_state" = DIRTY ]; then
       printf 'conflict %s\n' "$head"
     else
@@ -100,6 +216,7 @@ case "$provider" in
     fi
     ;;
   gitlab)
+    [ "$mode" = poll ] || exit 0
     [ "${#host}" -ge 1 ] && [ "${#host}" -le 253 ] || exit 0
     [ "$host" != github.com ] || exit 0
     case "$host" in
