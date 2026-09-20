@@ -459,6 +459,65 @@ test_claude_spawn_pretrusts_its_worktree_and_reaches_the_brief() {
   pass "fm-spawn.sh: a claude spawn pre-trusts its worktree and launches with the brief"
 }
 
+imports_declined() {  # <store> <path> -> 0 when the entry carries the declined answer
+  [ "$(store_value "$1" projects "$2" hasClaudeMdExternalIncludesWarningShown)" = true ] \
+    && [ "$(store_value "$1" projects "$2" hasClaudeMdExternalIncludesApproved)" = false ]
+}
+
+# The pre-answer must name the directory the worker really launches in. A
+# pooled copy is the ordinary case; a secondmate launches in its own home, which
+# is a primary checkout and never a linked worktree.
+test_pooled_spawn_preanswers_imports_for_the_launch_dir() {
+  local case_dir home proj wt config fakebin out
+  case_dir="$TMP_ROOT/imports-pooled"
+  home="$case_dir/home"
+  proj="$case_dir/project"
+  wt="$case_dir/wt"
+  config="$case_dir/claude-config"
+  mkdir -p "$config"
+  fakebin=$(make_spawn_fakebin "$case_dir/fake" claude)
+  fm_test_spawn_home "$home" claude
+  fm_git_worktree "$proj" "$wt" wt-imports
+  fm_test_spawn_brief "$home" importspooled
+  out=$(FM_TEST_CLAUDE_CONFIG_DIR="$config" \
+    fm_test_run_spawn "$home" "$wt" "$fakebin" importspooled "$proj" claude \
+    --mode no-mistakes --yolo off)
+  expect_code 0 $? "the pooled claude spawn must succeed: $out"
+  imports_declined "$config/.claude.json" "$wt" \
+    || fail "the pooled launch dir did not get the declined imports answer"
+  pass "fm-spawn.sh: a pooled claude spawn pre-answers imports for its launch dir"
+}
+
+test_non_pooled_spawn_preanswers_imports_for_the_launch_dir() {
+  local case_dir home mate config fakebin id out
+  case_dir="$TMP_ROOT/imports-secondmate"
+  home="$case_dir/home"
+  mate="$case_dir/mate-home"
+  config="$case_dir/claude-config"
+  id="imports-mate-x1"
+  mkdir -p "$config"
+  fakebin=$(make_spawn_fakebin "$case_dir/fake" gh-axi gh claude)
+  fm_test_spawn_home "$home" claude
+  fm_git_init_commit "$mate"
+  mkdir -p "$mate/bin" "$mate/data"
+  printf '# Firstmate\n' > "$mate/AGENTS.md"
+  git -C "$mate" add AGENTS.md
+  git -C "$mate" -c user.email=t@t -c user.name=t commit --quiet -m agents
+  printf '%s\n' "$id" > "$mate/.fm-secondmate-home"
+  printf 'charter for %s\n' "$id" > "$mate/data/charter.md"
+  printf '{"projects":{"/elsewhere":{"keep":1}}}\n' > "$config/.claude.json"
+  out=$(FM_TEST_CLAUDE_CONFIG_DIR="$config" \
+    fm_test_run_spawn "$home" "$mate" "$fakebin" "$id" "$mate" --secondmate)
+  expect_code 0 $? "the claude secondmate spawn must succeed: $out"
+  imports_declined "$config/.claude.json" "$mate" \
+    || fail "the non-pooled launch dir did not get the declined imports answer: $out"
+  [ "$(store_value "$config/.claude.json" projects "$mate" hasTrustDialogAccepted)" != true ] \
+    || fail "the non-pooled path was granted workspace trust, which only a pooled copy earns"
+  [ "$(store_value "$config/.claude.json" projects /elsewhere keep)" = 1 ] \
+    || fail "an unrelated project entry was disturbed"
+  pass "fm-spawn.sh: a non-pooled claude spawn pre-answers imports for its launch dir"
+}
+
 test_fresh_worktree_is_trusted
 test_registration_is_idempotent
 test_primary_checkout_is_refused
@@ -480,3 +539,5 @@ test_missing_node_is_refused
 test_scope_refusal_stays_fail_closed_without_node
 test_claude_spawn_pretrusts_its_worktree_and_reaches_the_brief
 test_refused_spawn_leaves_no_task_state
+test_pooled_spawn_preanswers_imports_for_the_launch_dir
+test_non_pooled_spawn_preanswers_imports_for_the_launch_dir

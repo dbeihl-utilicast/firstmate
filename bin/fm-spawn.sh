@@ -289,8 +289,9 @@
 # because Claude's interactive workspace-trust dialog gates a fresh worktree and
 # firstmate cannot answer it. That helper's header owns the structural scope test
 # and every refusal; a failed registration stops this spawn rather than launching
-# a worker that would wedge on the dialog. A --secondmate launch never runs it,
-# so a claude secondmate home keeps its own one-time trust decision.
+# a worker that would wedge on the dialog. A --secondmate launch skips the trust
+# grant and keeps its own one-time trust decision, but every claude launch gets
+# the declined external-imports answer for the directory it really starts in.
 # Every claude launch also carries the attribution-off policy in its per-launch
 # --settings JSON, so a spawned worker never writes a Co-Authored-By trailer,
 # Claude-Session link, or generated-with line into a commit or PR body;
@@ -3274,16 +3275,30 @@ fi
 # class as the two worktree refusals just above: no temp root, no retired
 # relaunch wiring and no busy record exists yet to strand, so the refusal names
 # the endpoint the same way they do and leaves nothing else behind.
-if [ "$KIND" != secondmate ]; then
-  case "$HARNESS" in
-    claude*)
+case "$HARNESS" in
+  claude*)
+    if [ "$KIND" != secondmate ]; then
       if ! "$FM_ROOT/bin/fm-claude-trust.sh" "$WT" "$PROJ_ABS" >/dev/null; then
         echo "error: could not pre-register Claude workspace trust for $WT; refusing to launch a claude worker that would wedge on the trust dialog; inspect window $T" >&2
         exit 1
       fi
-      ;;
-  esac
-fi
+    fi
+    # The external-imports answer is keyed by the directory claude actually
+    # starts in, so it is also recorded for the pane's own resolved directory
+    # and for a launch directory that is not a pooled copy (a secondmate home).
+    claude_imports_dirs=$WT
+    claude_pane_dir=$(spawn_current_path "$WT_TARGET" || true)
+    [ -z "$claude_pane_dir" ] || [ "$(real_path_or_raw "$claude_pane_dir")" = "$(real_path_or_raw "$WT")" ] \
+      || claude_imports_dirs="$claude_imports_dirs"$'\n'"$claude_pane_dir"
+    while IFS= read -r claude_imports_dir; do
+      [ -n "$claude_imports_dir" ] || continue
+      if ! "$FM_ROOT/bin/fm-claude-trust.sh" --imports-only "$claude_imports_dir" "$PROJ_ABS" >/dev/null; then
+        echo "error: could not pre-answer Claude's external-imports prompt for $claude_imports_dir; refusing to launch a claude worker that would wait on it silently; inspect window $T" >&2
+        exit 1
+      fi
+    done <<< "$claude_imports_dirs"
+    ;;
+esac
 
 case "$HARNESS" in
   grok*)
