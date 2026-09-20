@@ -349,7 +349,8 @@ Unregistered or tampered poll bytes still produce the unauthenticated-check reje
 The shared PR poll also reports unanswered review findings on an open GitHub PR from any reviewer, bot or human, and keys nothing on a reviewer's name.
 A finding is a review thread's first comment, and it is answered when its thread is resolved, when anyone other than its author has replied beneath it, or when the forge reports it outdated or its line gone, which is stale and never blocks.
 A push that leaves the thread untouched does not answer it.
-A review whose state is CHANGES_REQUESTED and that carries no inline comment is a finding of its own and blocks, with no marker needed, until the forge dismisses it or its reviewer's latest review moves on.
+A review whose state is CHANGES_REQUESTED and that carries no inline comment is a finding of its own and blocks, with no marker needed.
+It is answered only when the same reviewer has since submitted a newer review or the review was dismissed, both read from the forge's latest-review state, so a reply or a push does not answer it; the ready refusal says so separately from the thread text, and prints both when both kinds are present.
 A thread comment blocks when the forge marks its review a change request, or when its body contains a literal marker that `config/review-blocking-markers` lists for the repository as an `owner/repo marker` line; with no markers the poll says `not-gating=<reviewers>` on the line instead of blocking.
 Every other finding is reported and counted but never blocks.
 A poll cycle with a finding not yet raised emits `review <head> blocking=<n> reported=<n> [not-gating=<reviewers>] [unparsed=<n>] ids=<comment-id>:<b|n>,...`, and stays silent otherwise.

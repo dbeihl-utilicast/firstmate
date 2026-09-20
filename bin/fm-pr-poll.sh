@@ -11,7 +11,7 @@
 # the repository in config/review-blocking-markers ("owner/repo marker" lines);
 # nothing keys on a reviewer's name. With no markers a review line says
 # not-gating for the reviewers it reports. "--gate" prints the blocking
-# findings still unanswered, for bin/fm-pr-check.sh, and exits 1 when the
+# findings still unanswered as "id author kind", for bin/fm-pr-check.sh, and exits 1 when the
 # threads cannot be read or 2 when they exceed one page.
 # Provider identity remains uninterpolated data and these bytes stay task-static.
 # Each provider is read through its own standard CLI, gh for GitHub and glab
@@ -62,7 +62,8 @@ case "$number" in
 esac
 
 # One tab-separated row per unanswered review thread on the pull request:
-# first comment id, author, whether the forge marks it a change request, body.
+# first comment id, author, whether the forge marks it a change request, kind
+# (thread or review), body.
 # A resolved or outdated thread, a comment whose line is gone, and a thread with
 # a reply from anyone but the first comment's author never appear. More threads
 # than one page holds is an unreadable answer rather than a partial one. A
@@ -83,12 +84,12 @@ review_rows() {
           | .comments.nodes as $c
           | select(($c | length) > 0 and $c[0].line != null and $c[0].path != null)
           | select(all($c[1:][]; .author.login == $c[0].author.login))
-          | [$c[0].id, ($c[0].author.login // "unknown"), ($c[0].pullRequestReview.state == "CHANGES_REQUESTED"), ($c[0].body // "" | gsub("[\t\r\n]"; " "))]
+          | [$c[0].id, ($c[0].author.login // "unknown"), ($c[0].pullRequestReview.state == "CHANGES_REQUESTED"), "thread", ($c[0].body // "" | gsub("[\t\r\n]"; " "))]
           | @tsv
         ), (
           ($pr.latestReviews.nodes // [])[]
           | select(.state == "CHANGES_REQUESTED" and (.comments.totalCount // 0) == 0)
-          | [.id, (.author.login // "unknown"), true, (.body // "" | gsub("[\t\r\n]"; " "))]
+          | [.id, (.author.login // "unknown"), true, "review", (.body // "" | gsub("[\t\r\n]"; " "))]
           | @tsv
         )'
 }
@@ -109,15 +110,16 @@ review_markers_load() {
   fi
 }
 
-# Reads review_rows output and prints "id<TAB>author<TAB>b|n" for each valid
+# Reads review_rows output and prints "id<TAB>author<TAB>b|n<TAB>kind" for each valid
 # row, and "!<TAB>reason" for each row whose shape it does not understand.
 review_classify() {
-  local cid author cr body blocking marker
-  while IFS=$'\t' read -r cid author cr body; do
-    [ -n "$cid$author$cr$body" ] || continue
+  local cid author cr kind body blocking marker
+  while IFS=$'\t' read -r cid author cr kind body; do
+    [ -n "$cid$author$cr$kind$body" ] || continue
     case "$cid" in ''|*[!A-Za-z0-9_-]*) printf '!\tid\n'; continue ;; esac
     case "$author" in ''|*[!A-Za-z0-9_.[\]-]*) printf '!\tauthor\n'; continue ;; esac
     case "$cr" in true|false) ;; *) printf '!\tflag\n'; continue ;; esac
+    case "$kind" in thread|review) ;; *) printf '!\tkind\n'; continue ;; esac
     blocking=n
     [ "$cr" != true ] || blocking=b
     if [ "$blocking" = n ] && [ -n "$REVIEW_MARKERS" ]; then
@@ -126,7 +128,7 @@ review_classify() {
         case "$body" in *"$marker"*) blocking=b; break ;; esac
       done <<< "$REVIEW_MARKERS"
     fi
-    printf '%s\t%s\t%s\n' "$cid" "$author" "$blocking"
+    printf '%s\t%s\t%s\t%s\n' "$cid" "$author" "$blocking" "$kind"
   done
 }
 
@@ -144,11 +146,11 @@ review_handled() {  # <comment id>
 }
 
 review_report() {  # <head>
-  local rows cid author blocking ids='' login_list='' blocking_n=0 total=0 seen='' unparsed=0
+  local rows cid author blocking kind ids='' login_list='' blocking_n=0 total=0 seen='' unparsed=0
   rows=$(review_rows 2>/dev/null) || return 0
   review_markers_load
   rows=$(printf '%s\n' "$rows" | review_classify)
-  while IFS=$'\t' read -r cid author blocking; do
+  while IFS=$'\t' read -r cid author blocking kind; do
     [ -n "$cid" ] || continue
     if [ "$cid" = '!' ]; then
       unparsed=$((unparsed + 1))
@@ -202,8 +204,8 @@ case "$provider" in
       review_markers_load
       classified=$(printf '%s\n' "$rows" | review_classify)
       ! printf '%s\n' "$classified" | grep -q '^!' || exit 3
-      printf '%s\n' "$classified" | while IFS=$'\t' read -r cid author blocking; do
-        [ "$blocking" = b ] && printf '%s\t%s\n' "$cid" "$author"
+      printf '%s\n' "$classified" | while IFS=$'\t' read -r cid author blocking kind; do
+        [ "$blocking" = b ] && printf '%s\t%s\t%s\n' "$cid" "$author" "$kind"
       done
       exit 0
     fi

@@ -275,8 +275,18 @@ if [ "$PROVIDER" = github ] && [ "$MERGE_RECORD" != 1 ] \
     echo "error: could not read review threads to check for unanswered blocking findings on $URL, so it is not registered ready. Retry, or mark the PR draft." >&2
     exit 1
   elif [ -n "$gate_rows" ]; then
-    gate_list=$(printf '%s\n' "$gate_rows" | while IFS=$'\t' read -r gate_id gate_author; do printf '%s (by %s), ' "$gate_id" "$gate_author"; done)
-    echo "error: PR has unanswered blocking review findings: ${gate_list%, }. Answer each by resolving its thread or replying beneath it as someone other than its author (a fix explanation or a reasoned disagreement both count); a push alone does not answer a finding." >&2
+    gate_thread=$(printf '%s\n' "$gate_rows" | while IFS=$'\t' read -r gate_id gate_author gate_kind; do
+      if [ "$gate_kind" = thread ]; then printf '%s (by %s), ' "$gate_id" "$gate_author"; fi
+    done)
+    gate_review=$(printf '%s\n' "$gate_rows" | while IFS=$'\t' read -r gate_id gate_author gate_kind; do
+      if [ "$gate_kind" = review ]; then printf '%s (by %s), ' "$gate_id" "$gate_author"; fi
+    done)
+    if [ -n "$gate_thread" ]; then
+      echo "error: PR has unanswered blocking review findings: ${gate_thread%, }. Answer each by resolving its thread or replying beneath it as someone other than its author (a fix explanation or a reasoned disagreement both count); a push alone does not answer a finding." >&2
+    fi
+    if [ -n "$gate_review" ]; then
+      echo "error: PR has standing change-request reviews: ${gate_review%, }. Each stands until its reviewer dismisses it or submits a newer review; ask them to, or dismiss it yourself if you can." >&2
+    fi
     exit 1
   fi
 fi
