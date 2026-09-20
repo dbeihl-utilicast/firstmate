@@ -360,6 +360,10 @@ A row whose shape the poll does not understand is never skipped silently: the re
 `bin/fm-pr-check.sh` refuses to register a ready GitHub PR while `bin/fm-pr-poll.sh --gate` still lists an unanswered blocking finding, naming each comment and how to answer it; a draft PR registers, and it also refuses, saying which, when the thread read fails or the PR has more threads than one page holds, because a gate that cannot read its input must not pass the PR as ready.
 The record `bin/fm-pr-merge.sh` makes before it calls the forge to merge passes `--merge-record`: it runs the same scan but reports rather than gates, printing one stderr line, `warning: merging with unanswered blocking review finding(s): ...` or `warning: merging without being able to read review threads on <url> (<unreadable|truncated|unrecognised shape>)`, and nothing when there is none, and it never changes the exit status.
 A PR registered while draft is deliberately not gated, so the gate binds at the moment of ready registration, not for the PR's whole life.
+`bin/fm-pr-merge.sh` is where the gate binds for the PR's whole life: before it records or merges a GitHub PR it runs the same scan, however the PR was registered, and refuses while an unanswered blocking finding is listed.
+It also refuses, saying so, when the finding state cannot be read, is truncated, or has a shape the gate does not understand, and when `gh` is absent, because a merge that cannot see the findings must not proceed.
+The only way past a listed finding is the captain's per-PR override, `--override-review-findings <pr-url>`, whose value must equal the PR being merged; it never covers an unreadable state, is recorded as `review_findings_override=<pr-url>` in the task's metadata, and the merge report says the finding was OVERRIDDEN by the captain, not answered.
+The script cannot tell a worker from firstmate, so the override is protected only by workers never being given merge authority and by that recorded, printed trail.
 
 ## Gate defaults (.no-mistakes.yaml)
 

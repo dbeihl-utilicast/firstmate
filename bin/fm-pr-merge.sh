@@ -69,7 +69,20 @@
 # before anything is recorded, naming the one supported way in below, so a
 # captain-authorized admin merge always leaves the same durable trail.
 #
-# Usage: fm-pr-merge.sh <task-id> <pr-url> [--admin-bypass-review] [-- <extra forge merge args>]
+# Usage: fm-pr-merge.sh <task-id> <pr-url> [--admin-bypass-review] [--override-review-findings <pr-url>] [-- <extra forge merge args>]
+#
+# A GitHub merge is refused, before anything is recorded, while
+# bin/fm-pr-poll.sh --gate lists an unanswered blocking review finding on the
+# pull request, whether the PR was registered as a draft or as ready, and also
+# when that finding state cannot be read (unreadable, truncated, or of a shape
+# the gate does not understand). --override-review-findings <pr-url> is the
+# captain's per-PR override of a listed finding: its value must equal this
+# call's PR URL exactly, it never covers an unreadable state, it is recorded in
+# the task's metadata as review_findings_override=<url>, and the merge report
+# says the finding was OVERRIDDEN, not answered. It is never a default and is
+# never inferred. Nothing in this script can tell a worker from firstmate, so
+# the control rests on workers never being given this entrypoint's merge
+# authority (AGENTS.md hard rule 2) and on the recorded, printed trail.
 #
 # --admin-bypass-review is this wrapper's own opt-in flag, placed before the
 # -- separator, and is the only way to request a captain-authorized GitHub
@@ -134,6 +147,15 @@ ADMIN_BYPASS_REVIEW=false
 if [ "${1:-}" = "--admin-bypass-review" ]; then
   ADMIN_BYPASS_REVIEW=true
   shift
+fi
+REVIEW_OVERRIDE_URL=
+if [ "${1:-}" = "--override-review-findings" ]; then
+  if [ "$#" -lt 2 ] || [ "$2" != "$URL" ]; then
+    echo "error: --override-review-findings must name this exact pull request: $URL" >&2
+    exit 1
+  fi
+  REVIEW_OVERRIDE_URL=$2
+  shift 2
 fi
 [ "${1:-}" = "--" ] && shift
 
@@ -855,10 +877,51 @@ gitlab_confirm_merged() {
   [ "$state" = merged ]
 }
 
+# The merge-time review gate. Findings are read live from the forge, so it binds
+# however the PR was registered, draft or ready.
+REVIEW_OVERRIDDEN=
+review_gate_at_merge() {
+  local rows rc=0 list='' id author
+  rows=$(FM_HOME="$FM_HOME" FM_CONFIG_OVERRIDE="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}" \
+    "$SCRIPT_DIR/fm-pr-poll.sh" --gate github "$URL" "$FM_PR_HOST" "$FM_PR_PATH" "$PR_NUMBER" 2>/dev/null) || rc=$?
+  case "$rc" in
+    0) ;;
+    2) echo "error: not merging $URL: it has more review threads than one page reads, so unanswered blocking findings cannot be ruled out" >&2; return 1 ;;
+    3) echo "error: not merging $URL: its review data has a shape the review gate does not understand, so unanswered blocking findings cannot be ruled out" >&2; return 1 ;;
+    *) echo "error: not merging $URL: the review threads could not be read, so unanswered blocking findings cannot be ruled out" >&2; return 1 ;;
+  esac
+  [ -n "$rows" ] || return 0
+  while IFS=$'\t' read -r id author _kind; do
+    [ -n "$id" ] || continue
+    list="${list:+$list, }$id (by $author)"
+  done <<< "$rows"
+  if [ "$REVIEW_OVERRIDE_URL" = "$URL" ]; then
+    REVIEW_OVERRIDDEN=$list
+    return 0
+  fi
+  echo "error: not merging $URL: unanswered blocking review finding(s): $list. Answer each, or have the captain override this one pull request with --override-review-findings $URL" >&2
+  return 1
+}
+
+report_review_override() {
+  [ -z "$REVIEW_OVERRIDDEN" ] \
+    || printf 'overridden: unanswered blocking review finding(s) were OVERRIDDEN by the captain, not answered: %s\n' "$REVIEW_OVERRIDDEN"
+}
+
+# Records the captain's override for this pull request in the task's metadata.
+record_review_override() {
+  grep -qxF "review_findings_override=$URL" "$META" \
+    || echo "review_findings_override=$URL" >> "$META"
+}
+
 # Record before either forge call. This arms the merge poll without claiming a
 # landed outcome, so even a provider read failure after a real merge cannot
 # leave teardown without the PR identity it needs to verify the result.
+if [ "$PROVIDER" = github ]; then
+  review_gate_at_merge || exit 1
+fi
 record_pr_metadata || exit 1
+[ -z "$REVIEW_OVERRIDDEN" ] || record_review_override
 
 case "$PROVIDER" in
   github)
@@ -916,6 +979,7 @@ case "$PROVIDER" in
         printf 'verified: %s is merged (state=%s, merged=%s, isInMergeQueue=%s)\n' \
           "$URL" "$FM_PR_GITHUB_STATE" "$FM_PR_GITHUB_MERGED" "$FM_PR_GITHUB_QUEUED"
       fi
+      report_review_override
     elif [ "$FM_PR_GITHUB_QUEUED" = true ]; then
       if [ "$ADMIN_BYPASS_REVIEW" = true ]; then
         record_admin_bypass_marker
@@ -925,6 +989,7 @@ case "$PROVIDER" in
         printf 'verified: %s is queued (state=%s, merged=%s, isInMergeQueue=%s)\n' \
           "$URL" "$FM_PR_GITHUB_STATE" "$FM_PR_GITHUB_MERGED" "$FM_PR_GITHUB_QUEUED"
       fi
+      report_review_override
       exit 0
     else
       github_report_forge_output "$merge_output"

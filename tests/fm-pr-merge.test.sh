@@ -173,6 +173,11 @@ case "\${1:-} \${2:-}" in
     exit 0
     ;;
   "api graphql")
+    case " \$* " in *reviewThreads*)
+      [ "\${FM_TEST_GH_THREADS_FAIL:-0}" = 0 ] || exit 1
+      f=; p=; for a in "\$@"; do [ "\$p" != --jq ] || f=\$a; p=\$a; done
+      [ -z "\${FM_TEST_GH_THREADS:-}" ] || jq -r "\$f" "\$FM_TEST_GH_THREADS"
+      exit 0 ;; esac
     cat "\$FM_TEST_GH_OUTCOME"
     exit 0
     ;;
@@ -203,6 +208,11 @@ SH
 printf '%s\n' "$*" >> "$FM_TEST_GH_LOG"
 case "${1:-} ${2:-}" in
   "api graphql")
+    case " $* " in *reviewThreads*)
+      [ "${FM_TEST_GH_THREADS_FAIL:-0}" = 0 ] || exit 1
+      f=; p=; for a in "$@"; do [ "$p" != --jq ] || f=$a; p=$a; done
+      [ -z "${FM_TEST_GH_THREADS:-}" ] || jq -r "$f" "$FM_TEST_GH_THREADS"
+      exit 0 ;; esac
     cat "$FM_TEST_GH_OUTCOME"
     exit 0
     ;;
@@ -231,6 +241,11 @@ case "\${1:-} \${2:-}" in
     esac
     ;;
   "api graphql")
+    case " \$* " in *reviewThreads*)
+      [ "\${FM_TEST_GH_THREADS_FAIL:-0}" = 0 ] || exit 1
+      f=; p=; for a in "\$@"; do [ "\$p" != --jq ] || f=\$a; p=\$a; done
+      [ -z "\${FM_TEST_GH_THREADS:-}" ] || jq -r "\$f" "\$FM_TEST_GH_THREADS"
+      exit 0 ;; esac
     echo 'error: could not reach the GitHub API' >&2
     exit 1
     ;;
@@ -856,6 +871,11 @@ case "${1:-} ${2:-}" in
     esac
     ;;
   "api graphql")
+    case " $* " in *reviewThreads*)
+      [ "${FM_TEST_GH_THREADS_FAIL:-0}" = 0 ] || exit 1
+      f=; p=; for a in "$@"; do [ "$p" != --jq ] || f=$a; p=$a; done
+      [ -z "${FM_TEST_GH_THREADS:-}" ] || jq -r "$f" "$FM_TEST_GH_THREADS"
+      exit 0 ;; esac
     cat "$FM_TEST_GH_OUTCOME"
     exit 0
     ;;
@@ -910,16 +930,6 @@ test_github_fallback_view_refusal_says_the_queue_was_unobservable() {
   case_dir=$(make_case github-fallback-unobservable-queue)
   mkdir -p "$case_dir/wt"
   add_gh_mocks "$case_dir" 8686868686868686868686868686868686868686
-  cat > "$case_dir/fakebin/gh-axi" <<'SH'
-#!/usr/bin/env bash
-printf '%s\n' "$*" >> "$FM_TEST_GH_AXI_LOG"
-case "${1:-} ${2:-}" in
-  "pr merge") printf 'merged:\n  number: %s\n  status: ok\n' "${3:-}" ;;
-  "pr view") printf 'pull_request:\n  number: %s\n  state: open\n' "$3" ;;
-esac
-exit 0
-SH
-  chmod +x "$case_dir/fakebin/gh-axi"
   rm "$case_dir/fakebin/gh"
   ghless_path="$case_dir/path-without-gh"
   mirror_path_without "$ghless_path" gh "$case_dir/fakebin"
@@ -932,22 +942,14 @@ SH
   rc=$?
   set -e
 
-  expect_code 1 "$rc" "github-fallback-unobservable-queue: an unproved merge must fail"
-  assert_grep 'isInMergeQueue=unknown' "$case_dir/stderr" \
-    "github-fallback-unobservable-queue: refusal did not name the concrete observed state"
-  assert_grep 'the merge queue could not be observed for https://github.com/example/repo/pull/73' \
-    "$case_dir/stderr" \
-    "github-fallback-unobservable-queue: the refusal implied an unqueued PR it could not see"
-  assert_grep "re-check the pull request's merge queue state" "$case_dir/stderr" \
-    "github-fallback-unobservable-queue: the refusal named no concrete next step"
-  # The lowercase state the fallback view reports must be judged the same way
-  # the queue-aware read's uppercase enum is, or every explanation is skipped.
-  assert_grep 'auto-merge was requested and armed for https://github.com/example/repo/pull/73' \
-    "$case_dir/stderr" \
-    "github-fallback-unobservable-queue: the fallback view's state skipped the auto-merge explanation"
-  assert_no_grep 'verified: ' "$case_dir/stdout" \
-    "github-fallback-unobservable-queue: an unproved merge was reported as verified"
-  pass "fm-pr-merge says the merge queue was unobservable when only the gh-axi view answered"
+  expect_code 1 "$rc" "github-fallback-unobservable-queue: a merge that cannot read review threads must fail"
+  assert_grep 'review threads could not be read' "$case_dir/stderr" \
+    "github-fallback-unobservable-queue: the refusal did not say the review gate could not read without gh"
+  assert_no_grep 'pr merge' "$case_dir/gh-axi.log" \
+    "github-fallback-unobservable-queue: a merge was attempted although the review gate could not read"
+  assert_no_grep 'pr=https://github.com/example/repo/pull/73' "$case_dir/state/task-x1.meta" \
+    "github-fallback-unobservable-queue: pr= was recorded although the review gate refused"
+  pass "fm-pr-merge refuses before merging when gh is absent and the review gate cannot read"
 }
 
 test_github_unreadable_outcome_refusal_quotes_the_forge_output() {
@@ -1061,14 +1063,12 @@ test_github_without_gh_still_uses_gh_axi_merge() {
   rc=$?
   set -e
 
-  expect_code 0 "$rc" "github-without-gh: gh-axi can prove a landed merge without gh"
-  assert_grep 'pr merge 60 --repo example/repo --squash' "$case_dir/gh-axi.log" \
-    "github-without-gh: the configured merge abstraction was not invoked"
-  assert_grep 'pr view 60 --repo example/repo' "$case_dir/gh-axi.log" \
-    "github-without-gh: the gh-axi fallback did not verify the landed state"
-  assert_grep 'verified: https://github.com/example/repo/pull/60 is merged' \
-    "$case_dir/stdout" "github-without-gh: the fallback did not report the proven merge"
-  pass "fm-pr-merge reaches and verifies the gh-axi merge path without gh"
+  expect_code 1 "$rc" "github-without-gh: a merge without gh cannot read review threads and must refuse"
+  assert_grep 'review threads could not be read' "$case_dir/stderr" \
+    "github-without-gh: the refusal did not say the review threads could not be read"
+  assert_no_grep 'pr merge' "$case_dir/gh-axi.log" \
+    "github-without-gh: a merge was attempted although the review gate could not read"
+  pass "fm-pr-merge refuses a GitHub merge when gh is absent, because the review gate cannot read"
 }
 
 test_github_without_gh_failed_read_keeps_bookkeeping() {
@@ -1096,16 +1096,118 @@ SH
   rc=$?
   set -e
 
-  expect_code 1 "$rc" "github-without-gh-read-fails: an unreadable outcome must fail"
-  assert_grep 'pr merge 61 --repo example/repo --squash' "$case_dir/gh-axi.log" \
-    "github-without-gh-read-fails: the merge call did not happen before the failed read"
-  assert_grep 'could not read the GitHub pull request outcome after the merge attempt' \
-    "$case_dir/stderr" "github-without-gh-read-fails: the failed read was not reported"
-  assert_grep 'pr=https://github.com/example/repo/pull/61' "$case_dir/state/task-x1.meta" \
-    "github-without-gh-read-fails: a landed merge lost its PR metadata"
-  assert_present "$case_dir/state/task-x1.check.sh" \
-    "github-without-gh-read-fails: a landed merge lost its merge poll"
-  pass "fm-pr-merge preserves bookkeeping when gh is absent and the fallback read fails"
+  expect_code 1 "$rc" "github-without-gh-read-fails: a merge without gh must refuse"
+  assert_grep 'review threads could not be read' "$case_dir/stderr" \
+    "github-without-gh-read-fails: the refusal did not say the review threads could not be read"
+  assert_no_grep 'pr merge' "$case_dir/gh-axi.log" \
+    "github-without-gh-read-fails: a merge was attempted although the review gate could not read"
+  assert_no_grep 'pr=https://github.com/example/repo/pull/61' "$case_dir/state/task-x1.meta" \
+    "github-without-gh-read-fails: pr= was recorded although the review gate refused"
+  pass "fm-pr-merge refuses before recording when gh is absent, whatever the fallback read would say"
+}
+
+REVIEW_FIXTURES="$ROOT/tests/assets/review-threads"
+REVIEW_BLOCKING_ID=PRRC_kwDODKw3uc5eWI9B
+
+test_github_merge_refused_for_unanswered_blocking_finding() {
+  local case_dir rc
+  case_dir=$(make_case review-gate-refuses)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" 5151515151515151515151515151515151515151
+  write_github_outcome "$case_dir" MERGED true false main
+  : > "$case_dir/gh-axi.log"
+  : > "$case_dir/gh.log"
+
+  set +e
+  FM_TEST_GH_THREADS="$REVIEW_FIXTURES/change-request-unanswered.json" \
+    run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/91 \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "review-gate-refuses: an unanswered blocking finding must refuse the merge"
+  assert_grep "$REVIEW_BLOCKING_ID (by williammartin)" "$case_dir/stderr" \
+    "review-gate-refuses: the refusal did not name the comment"
+  assert_grep 'override-review-findings https://github.com/example/repo/pull/91' "$case_dir/stderr" \
+    "review-gate-refuses: the refusal did not name the captain's override"
+  assert_no_grep 'pr merge' "$case_dir/gh-axi.log" \
+    "review-gate-refuses: a merge was attempted despite the finding"
+  assert_no_grep 'pr=https://github.com/example/repo/pull/91' "$case_dir/state/task-x1.meta" \
+    "review-gate-refuses: pr= was recorded for a refused merge"
+  pass "fm-pr-merge refuses a merge while a blocking review finding is unanswered"
+}
+
+test_github_merge_allowed_after_override_and_recorded() {
+  local case_dir rc
+  case_dir=$(make_case review-gate-override)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" 5252525252525252525252525252525252525252
+  write_github_outcome "$case_dir" MERGED true false main
+  : > "$case_dir/gh-axi.log"
+  : > "$case_dir/gh.log"
+
+  set +e
+  FM_TEST_GH_THREADS="$REVIEW_FIXTURES/change-request-unanswered.json" \
+    run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/92 \
+    --override-review-findings https://github.com/example/repo/pull/93 \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 1 "$rc" "review-gate-override: an override naming another pull request must be refused"
+  assert_grep 'must name this exact pull request' "$case_dir/stderr" \
+    "review-gate-override: the refusal did not say the override names another pull request"
+  assert_no_grep 'pr merge' "$case_dir/gh-axi.log" \
+    "review-gate-override: a merge was attempted under another pull request's override"
+
+  set +e
+  FM_TEST_GH_THREADS="$REVIEW_FIXTURES/change-request-unanswered.json" \
+    run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/92 \
+    --override-review-findings https://github.com/example/repo/pull/92 \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "review-gate-override: the captain's override must let the merge proceed: $(cat "$case_dir/stderr")"
+  assert_grep 'pr merge 92 --repo example/repo --squash' "$case_dir/gh-axi.log" \
+    "review-gate-override: the merge did not happen after the override"
+  assert_grep 'review_findings_override=https://github.com/example/repo/pull/92' "$case_dir/state/task-x1.meta" \
+    "review-gate-override: the override was not recorded durably"
+  assert_grep "OVERRIDDEN by the captain, not answered: $REVIEW_BLOCKING_ID (by williammartin)" "$case_dir/stdout" \
+    "review-gate-override: the merge report did not say the finding was overridden"
+  pass "fm-pr-merge merges after the captain's per-PR override and records it"
+}
+
+test_github_merge_refused_when_finding_state_unreadable() {
+  local case_dir rc
+  case_dir=$(make_case review-gate-unreadable)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" 5353535353535353535353535353535353535353
+  write_github_outcome "$case_dir" MERGED true false main
+  : > "$case_dir/gh-axi.log"
+  : > "$case_dir/gh.log"
+
+  set +e
+  FM_TEST_GH_THREADS_FAIL=1 run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/94 \
+    --override-review-findings https://github.com/example/repo/pull/94 \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "review-gate-unreadable: an unreadable finding state must refuse the merge, override or not"
+  assert_grep 'review threads could not be read' "$case_dir/stderr" \
+    "review-gate-unreadable: the refusal did not say the finding state could not be read"
+  assert_no_grep 'pr merge' "$case_dir/gh-axi.log" \
+    "review-gate-unreadable: a merge was attempted although the finding state was unreadable"
+
+  set +e
+  FM_TEST_GH_THREADS="$REVIEW_FIXTURES/unrecognised-comment-id.json" \
+    run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/94 \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 1 "$rc" "review-gate-unreadable: review data of an unrecognised shape must refuse the merge"
+  assert_grep 'shape the review gate does not understand' "$case_dir/stderr" \
+    "review-gate-unreadable: the refusal did not say the shape was not understood"
+  pass "fm-pr-merge refuses a merge whose review finding state cannot be read"
 }
 
 test_github_zero_exit_queue_required_refuses_with_exact_retry() {
@@ -1944,7 +2046,7 @@ case "\${1:-} \${2:-}" in
     esac
     ;;
   "pr merge") printf 'merged:\n  number: %s\n  status: ok\n' "\${3:-}" ; exit 0 ;;
-  "api graphql") cat "\$FM_TEST_GH_OUTCOME" ; exit 0 ;;
+  "api graphql") case " \$* " in *reviewThreads*) [ "\${FM_TEST_GH_THREADS_FAIL:-0}" = 0 ] || exit 1; exit 0 ;; esac; cat "\$FM_TEST_GH_OUTCOME" ; exit 0 ;;
   api\ *) cat "\$FM_TEST_GH_RULES" ; exit 0 ;;
 esac
 exit 0
@@ -2189,6 +2291,11 @@ case "${1:-} ${2:-}" in
     exit 0
     ;;
   "api graphql")
+    case " $* " in *reviewThreads*)
+      [ "${FM_TEST_GH_THREADS_FAIL:-0}" = 0 ] || exit 1
+      f=; p=; for a in "$@"; do [ "$p" != --jq ] || f=$a; p=$a; done
+      [ -z "${FM_TEST_GH_THREADS:-}" ] || jq -r "$f" "$FM_TEST_GH_THREADS"
+      exit 0 ;; esac
     cat "$FM_TEST_GH_OUTCOME"
     exit 0
     ;;
@@ -2775,3 +2882,6 @@ test_unreadable_user_backend_config_refuses_the_merge
 test_untraversable_user_backend_config_directory_refuses_the_merge
 test_absent_user_backend_config_directory_and_backlog_still_merge
 test_backend_override_bypasses_unreadable_user_config
+test_github_merge_refused_for_unanswered_blocking_finding
+test_github_merge_allowed_after_override_and_recorded
+test_github_merge_refused_when_finding_state_unreadable
