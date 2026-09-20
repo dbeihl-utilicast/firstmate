@@ -63,6 +63,11 @@ BASE_PATH=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
 fm_git_identity fmtest fmtest@example.com
 TMP_ROOT=$(fm_test_tmproot fm-secondmate-harness)
 export FM_BACKEND=tmux
+# A claude spawn records its external-imports answer with node in the launching
+# user's store: give it node and a store of its own instead of the real ~/.claude.json.
+BASE_PATH=$BASE_PATH:$(dirname "$(command -v node)")
+export HOME="$TMP_ROOT/claude-home"
+mkdir -p "$HOME"
 
 # ===========================================================================
 # A) fm-harness.sh secondmate resolution + fallback (deterministic detect_own)
