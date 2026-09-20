@@ -860,11 +860,15 @@ fm_busy_agy_tail_busy() {
 
 # fm_busy_claude_imports_dialog: 0 when the tail on stdin shows Claude Code's
 # external-imports prompt, the modal that parks a worker with no status line.
-# Either the title or the answer pair carries a positive verdict, so no single
-# vendor string is load-bearing. Detection only: nothing answers the dialog.
+# The title row and both numbered answer rows must all appear as whole lines,
+# so a pane that merely quotes those words in a diff or grep stays non-blocked.
+# Detection only: nothing answers the dialog.
 fm_busy_claude_imports_dialog() {
-  grep -v '^[[:space:]]*$' | tail -30 \
-    | grep -qiE 'Allow external CLAUDE\.md file imports|(allow|disable) external imports'
+  local tail
+  tail=$(grep -v '^[[:space:]]*$' | tail -30)
+  printf '%s\n' "$tail" | grep -qE '^[[:space:]]*Allow external CLAUDE\.md file imports\?[[:space:]]*$' \
+    && printf '%s\n' "$tail" | grep -qE '^[[:space:]]*(❯[[:space:]]*)?1\. Yes, allow external imports[[:space:]]*$' \
+    && printf '%s\n' "$tail" | grep -qE '^[[:space:]]*(❯[[:space:]]*)?2\. No, disable external imports[[:space:]]*$'
 }
 
 # fm_busy_classify: semantic classification for a task whose endpoint the

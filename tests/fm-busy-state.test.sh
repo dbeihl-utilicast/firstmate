@@ -334,6 +334,10 @@ test_claude_imports_dialog_is_reported_not_busy() {
   [ "$out" = "busy fm-spawn" ] || fail "an ordinary claude tail must keep its recorded verdict, got '$out'"
   out=$(fm_busy_classify tmux w1 codex t1 "$state" "$(printf '%b' "$CLAUDE_IMPORTS_DIALOG")")
   [ "${out%% *}" != blocked ] || fail "the dialog verdict must stay scoped to claude, got '$out'"
+  out=$(fm_busy_classify tmux w1 claude t1 "$state" '+  Allow external CLAUDE.md file imports? 1. Yes, allow external imports
+grep: (allow|disable) external imports
+> ')
+  [ "$out" = "busy fm-spawn" ] || fail "a pane quoting the dialog words must stay busy, got '$out'"
   pass "a claude worker parked on the external-imports dialog classifies blocked, never busy"
 }
 
