@@ -21,6 +21,7 @@ A ship or scout spawn therefore pre-registers the worktree before launch, and th
 `../../../bin/fm-claude-trust.sh` records `hasTrustDialogAccepted` for that worktree path, plus `hasClaudeMdExternalIncludesWarningShown` true and `hasClaudeMdExternalIncludesApproved` false so the external-imports prompt is suppressed with the declined answer, in `${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json`, and `../../../bin/fm-spawn.sh` refuses the spawn when the write fails rather than launching a worker that would wedge.
 
 The external-imports answer is keyed by the directory claude actually starts in, so `../../../bin/fm-spawn.sh` also records it through `fm-claude-trust.sh --imports-only` for the pane's own resolved directory and for a secondmate home or other non-pooled launch directory, and that mode never writes workspace trust.
+The write is a deliberate overwrite: a worker copy that already carries a manual approval (`hasClaudeMdExternalIncludesApproved` true) is reset to declined, because imports are never approved by the spawn.
 If a dialog still appears, `fm_busy_classify` in `../../../bin/fm-busy-lib.sh` reads the pane ahead of the busy record and reports `blocked claude-imports-dialog` when the title and both numbered answer rows are present, and `bin/fm-crew-state.sh` surfaces it as `blocked` instead of `working`.
 
 Never try to answer the trust dialog with a key.

@@ -315,10 +315,10 @@ CLAUDE_IMPORTS_DIALOG='  Allow external CLAUDE.md file imports?
   Files that would be imported:
     /Users/example/git/firstmate/AGENTS.md
 
-  \u276f 1. Yes, allow external imports
+  \0342\0235\0257 1. Yes, allow external imports
     2. No, disable external imports
 
-  Enter to confirm \u00b7 Esc to cancel'
+  Enter to confirm \0302\0267 Esc to cancel'
 
 test_claude_imports_dialog_is_reported_not_busy() {
   local state out

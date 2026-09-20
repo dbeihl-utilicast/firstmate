@@ -1495,6 +1495,34 @@ EOF
   pass "another branch's run is ignored, falls back"
 }
 
+# A claude worker parked on the external-imports dialog keeps the busy record it
+# was armed with at spawn; the pane read must win so it surfaces as blocked.
+test_claude_imports_dialog_reads_blocked() {
+  reset_fakes
+  local d; d=$(new_case imports-dialog)
+  make_repo_on_branch "$d/wt" fm/feat-imp
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-imp.meta" "window=fm:fm-feat-imp" "worktree=$d/wt" "kind=ship" "harness=claude"
+  FM_FAKE_AXI_STATUS=""
+  FM_FAKE_RUNS_LIST=""
+  FM_FAKE_BUSY=1
+  FM_FAKE_BUSY_TEXT="  Allow external CLAUDE.md file imports?
+
+  Files that would be imported:
+    /Users/example/git/firstmate/AGENTS.md
+
+  1. Yes, allow external imports
+  2. No, disable external imports"
+  export FM_FAKE_BUSY_TEXT
+  local gen; gen=$("$ROOT/bin/fm-busy-event.sh" arm "$d/state" feat-imp)
+  "$ROOT/bin/fm-busy-event.sh" apply "$d/state" feat-imp busy --gen "$gen" \
+    --source claude-hook --event user-prompt-submit
+  local out; out=$(run_crew_state "$d" feat-imp)
+  assert_contains "$out" "state: blocked" "a claude pane on the imports dialog must read blocked"
+  assert_not_contains "$out" "state: working" "the armed busy record must not outrank the dialog"
+  pass "a claude worker on the external-imports dialog reads blocked despite its busy record"
+}
+
 # (f) no run for this crew + a busy pane -> working via pane
 test_no_run_busy_pane() {
   reset_fakes
@@ -2720,6 +2748,7 @@ test_terminal_run_without_live_sibling_is_unchanged
 test_coarse_run_does_not_probe_other_branch_ci_log_for_ready_status
 test_other_branch_run_ignored
 test_no_run_busy_pane
+test_claude_imports_dialog_reads_blocked
 test_no_run_footer_text_alone_is_not_working
 test_no_run_grok_uses_isolated_fallback
 test_no_run_herdr_unknown_uses_backend_capture

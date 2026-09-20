@@ -589,6 +589,36 @@ fm_test_run_spawn_without_node() {
   IFS=$' \t\n'
   PATH="$fakebin${clean_path}" fm_test_run_spawn "$home" "$pane" "$fakebin" "$@"
 }
+# The launch directory is read from the pane itself, so a pane that is not in
+# the directory the spawn predicted must be covered too. The two differ here,
+# and both must carry both keys.
+test_pane_directory_different_from_the_predicted_one_is_covered() {
+  local case_dir home mate other config fakebin id out
+  case_dir="$TMP_ROOT/imports-pane-differs"
+  home="$case_dir/home"
+  mate="$case_dir/mate-home"
+  other="$case_dir/pane-dir"
+  config="$case_dir/claude-config"
+  id="imports-pane-x1"
+  mkdir -p "$config" "$other"
+  fakebin=$(make_spawn_fakebin "$case_dir/fake" gh-axi gh claude)
+  fm_test_spawn_home "$home" claude
+  fm_git_init_commit "$mate"
+  mkdir -p "$mate/bin" "$mate/data"
+  printf '# Firstmate\n' > "$mate/AGENTS.md"
+  git -C "$mate" add AGENTS.md
+  git -C "$mate" -c user.email=t@t -c user.name=t commit --quiet -m agents
+  printf '%s\n' "$id" > "$mate/.fm-secondmate-home"
+  printf 'charter for %s\n' "$id" > "$mate/data/charter.md"
+  out=$(FM_TEST_CLAUDE_CONFIG_DIR="$config" \
+    fm_test_run_spawn "$home" "$other" "$fakebin" "$id" "$mate" --secondmate)
+  expect_code 0 $? "the spawn must succeed: $out"
+  imports_declined "$config/.claude.json" "$mate" \
+    || fail "the predicted launch dir did not get the declined imports answer: $out"
+  imports_declined "$config/.claude.json" "$other" \
+    || fail "the pane's own directory did not get the declined imports answer: $out"
+  pass "fm-spawn.sh: the pane's own directory and the predicted one both get the declined answer"
+}
 
 test_fresh_worktree_is_trusted
 test_registration_is_idempotent
@@ -615,3 +645,4 @@ test_pooled_spawn_preanswers_imports_for_the_launch_dir
 test_non_pooled_spawn_preanswers_imports_for_the_launch_dir
 test_missing_node_skips_the_imports_preanswer_and_still_launches
 test_failed_imports_write_refuses_a_secondmate_spawn
+test_pane_directory_different_from_the_predicted_one_is_covered
