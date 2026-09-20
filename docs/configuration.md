@@ -349,12 +349,14 @@ Unregistered or tampered poll bytes still produce the unauthenticated-check reje
 The shared PR poll also reports unanswered review findings on an open GitHub PR from any reviewer, bot or human, and keys nothing on a reviewer's name.
 A finding is a review thread's first comment, and it is answered when its thread is resolved, when anyone other than its author has replied beneath it, or when the forge reports it outdated or its line gone, which is stale and never blocks.
 A push that leaves the thread untouched does not answer it.
-It blocks when the forge marks the comment a change request, or when its body contains a literal marker that `config/review-blocking-markers` lists for the repository as an `owner/repo marker` line; with no markers the poll says `not-gating=<reviewers>` on the line instead of blocking.
+A review whose state is CHANGES_REQUESTED and that carries no inline comment is a finding of its own and blocks, with no marker needed, until the forge dismisses it or its reviewer's latest review moves on.
+A thread comment blocks when the forge marks its review a change request, or when its body contains a literal marker that `config/review-blocking-markers` lists for the repository as an `owner/repo marker` line; with no markers the poll says `not-gating=<reviewers>` on the line instead of blocking.
 Every other finding is reported and counted but never blocks.
-A poll cycle with a finding not yet raised emits `review <head> blocking=<n> reported=<n> [not-gating=<reviewers>] ids=<comment-id>:<b|n>,...`, and stays silent otherwise.
+A poll cycle with a finding not yet raised emits `review <head> blocking=<n> reported=<n> [not-gating=<reviewers>] [unparsed=<n>] ids=<comment-id>:<b|n>,...`, and stays silent otherwise.
 The watcher queues that line as a check wake and then records each id, with the head it was raised at for information only, in `state/review-handled/`, so a raised finding is never raised again, at any later head, while the gate scan still lists it until it is answered.
 The poll never writes; a thread list too long for one page is treated as unreadable, so it is silent rather than partial.
-`bin/fm-pr-check.sh` refuses to register a ready GitHub PR while `bin/fm-pr-poll.sh --gate` still lists an unanswered blocking finding, naming each comment and how to answer it; a draft PR registers, the record `bin/fm-pr-merge.sh` makes of a PR it just merged is not gated, and it also refuses, saying which, when the thread read fails or the PR has more threads than one page holds, because a gate that cannot read its input must not pass the PR as ready.
+A row whose shape the poll does not understand is never skipped silently: the review line counts it as `unparsed=<n>`, and the gate scan exits 3 so the ready registration refuses.
+`bin/fm-pr-check.sh` refuses to register a ready GitHub PR while `bin/fm-pr-poll.sh --gate` still lists an unanswered blocking finding, naming each comment and how to answer it; a draft PR registers, the record `bin/fm-pr-merge.sh` makes after its merge call, which passes `--merge-record` whether or not it could read the merge outcome, is not gated, and it also refuses, saying which, when the thread read fails or the PR has more threads than one page holds, because a gate that cannot read its input must not pass the PR as ready.
 
 ## Gate defaults (.no-mistakes.yaml)
 

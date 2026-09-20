@@ -65,21 +65,32 @@ esac
 # first comment id, author, whether the forge marks it a change request, body.
 # A resolved or outdated thread, a comment whose line is gone, and a thread with
 # a reply from anyone but the first comment's author never appear. More threads
-# than one page holds is an unreadable answer rather than a partial one.
+# than one page holds is an unreadable answer rather than a partial one. A
+# review whose state is CHANGES_REQUESTED and that carries no inline comment is
+# a finding of its own, so a change request needs no marker in a body; it stays
+# blocking until the forge dismisses it or its reviewer's latest review moves on.
 review_rows() {
   # shellcheck disable=SC2016  # GraphQL variables and jq bindings, not shell expansions.
   gh api graphql --hostname "$host" \
-    -f query='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100){pageInfo{hasNextPage} nodes{id isResolved isOutdated comments(first:50){nodes{id author{login} body path line pullRequestReview{state}}}}}}}}' \
+    -f query='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100){pageInfo{hasNextPage} nodes{id isResolved isOutdated comments(first:50){nodes{id author{login} body path line pullRequestReview{state}}}}} latestReviews(first:50){nodes{id state author{login} body comments(first:1){totalCount}}}}}}' \
     -f owner="$owner" -f name="$repo" -F number="$number" --jq '
-      .data.repository.pullRequest.reviewThreads
-      | if .pageInfo.hasNextPage then error("truncated") else .nodes end
-      | .[]
-      | select((.isResolved | not) and (.isOutdated | not))
-      | .comments.nodes as $c
-      | select(($c | length) > 0 and $c[0].line != null and $c[0].path != null)
-      | select(all($c[1:][]; .author.login == $c[0].author.login))
-      | [$c[0].id, ($c[0].author.login // "unknown"), ($c[0].pullRequestReview.state == "CHANGES_REQUESTED"), ($c[0].body // "" | gsub("[\t\r\n]"; " "))]
-      | @tsv'
+      .data.repository.pullRequest as $pr
+      | (
+          $pr.reviewThreads
+          | if .pageInfo.hasNextPage then error("truncated") else .nodes end
+          | .[]
+          | select((.isResolved | not) and (.isOutdated | not))
+          | .comments.nodes as $c
+          | select(($c | length) > 0 and $c[0].line != null and $c[0].path != null)
+          | select(all($c[1:][]; .author.login == $c[0].author.login))
+          | [$c[0].id, ($c[0].author.login // "unknown"), ($c[0].pullRequestReview.state == "CHANGES_REQUESTED"), ($c[0].body // "" | gsub("[\t\r\n]"; " "))]
+          | @tsv
+        ), (
+          ($pr.latestReviews.nodes // [])[]
+          | select(.state == "CHANGES_REQUESTED" and (.comments.totalCount // 0) == 0)
+          | [.id, (.author.login // "unknown"), true, (.body // "" | gsub("[\t\r\n]"; " "))]
+          | @tsv
+        )'
 }
 
 # The literal severity markers configured for this repository, one per line.
@@ -98,12 +109,15 @@ review_markers_load() {
   fi
 }
 
-# Reads review_rows output and prints "id<TAB>author<TAB>b|n" for each valid row.
+# Reads review_rows output and prints "id<TAB>author<TAB>b|n" for each valid
+# row, and "!<TAB>reason" for each row whose shape it does not understand.
 review_classify() {
   local cid author cr body blocking marker
   while IFS=$'\t' read -r cid author cr body; do
-    case "$cid" in ''|*[!A-Za-z0-9_-]*) continue ;; esac
-    case "$author" in ''|*[!A-Za-z0-9_.[\]-]*) continue ;; esac
+    [ -n "$cid$author$cr$body" ] || continue
+    case "$cid" in ''|*[!A-Za-z0-9_-]*) printf '!\tid\n'; continue ;; esac
+    case "$author" in ''|*[!A-Za-z0-9_.[\]-]*) printf '!\tauthor\n'; continue ;; esac
+    case "$cr" in true|false) ;; *) printf '!\tflag\n'; continue ;; esac
     blocking=n
     [ "$cr" != true ] || blocking=b
     if [ "$blocking" = n ] && [ -n "$REVIEW_MARKERS" ]; then
@@ -112,7 +126,6 @@ review_classify() {
         case "$body" in *"$marker"*) blocking=b; break ;; esac
       done <<< "$REVIEW_MARKERS"
     fi
-    case "$cr" in true|false) ;; *) continue ;; esac
     printf '%s\t%s\t%s\n' "$cid" "$author" "$blocking"
   done
 }
@@ -131,12 +144,16 @@ review_handled() {  # <comment id>
 }
 
 review_report() {  # <head>
-  local rows cid author blocking ids='' login_list='' blocking_n=0 total=0 seen=''
+  local rows cid author blocking ids='' login_list='' blocking_n=0 total=0 seen='' unparsed=0
   rows=$(review_rows 2>/dev/null) || return 0
   review_markers_load
   rows=$(printf '%s\n' "$rows" | review_classify)
   while IFS=$'\t' read -r cid author blocking; do
     [ -n "$cid" ] || continue
+    if [ "$cid" = '!' ]; then
+      unparsed=$((unparsed + 1))
+      continue
+    fi
     review_handled "$cid" && continue
     total=$((total + 1))
     ids="${ids:+$ids,}$cid:$blocking"
@@ -146,8 +163,13 @@ review_report() {  # <head>
       case ",$seen," in *",$author,"*) ;; *) seen="$seen,$author"; login_list="${login_list:+$login_list,}$author" ;; esac
     fi
   done <<< "$rows"
+  if [ "$unparsed" -gt 0 ] && ! review_handled "unparsed-$unparsed"; then
+    ids="${ids:+$ids,}unparsed-$unparsed:n"
+    total=$((total + 1))
+  fi
   [ "$total" -gt 0 ] || return 0
   printf 'review %s blocking=%s reported=%s' "$1" "$blocking_n" "$total"
+  [ "$unparsed" -eq 0 ] || printf ' unparsed=%s' "$unparsed"
   [ -n "$REVIEW_MARKERS" ] || [ -z "$login_list" ] || printf ' not-gating=%s' "$login_list"
   printf ' ids=%s\n' "$ids"
 }
@@ -178,7 +200,9 @@ case "$provider" in
       }
       rm -f "$gate_err"
       review_markers_load
-      printf '%s\n' "$rows" | review_classify | while IFS=$'\t' read -r cid author blocking; do
+      classified=$(printf '%s\n' "$rows" | review_classify)
+      ! printf '%s\n' "$classified" | grep -q '^!' || exit 3
+      printf '%s\n' "$classified" | while IFS=$'\t' read -r cid author blocking; do
         [ "$blocking" = b ] && printf '%s\t%s\n' "$cid" "$author"
       done
       exit 0

@@ -3373,6 +3373,8 @@ test_review_poll_detached_comment_does_not_block() {
   [ -n "$out" ] || fail "the attached form of the same finding was not raised, so detachment proves nothing"
   out=$(poll_review "$dir" change-request-outdated)
   [ -z "$out" ] || fail "a comment detached after a rebase was raised: $out"
+  out=$(poll_review "$dir" outdated-with-line)
+  [ -z "$out" ] || fail "a thread the forge reports outdated was raised although its line still exists: $out"
   out=$(FM_TEST_GH_THREADS="$REVIEW_FIXTURES/change-request-outdated.json" PATH="$dir/fakebin:$BASE_PATH" \
     "$POLL" --gate github https://github.com/o/r/pull/1 github.com o/r 1)
   [ -z "$out" ] || fail "the gate scan listed a detached comment: $out"
@@ -3467,12 +3469,53 @@ test_review_gate_does_not_disturb_merge_recording() {
   local dir
   dir=$(make_case review-merge-record)
   write_task_meta "$dir"
-  FM_PR_CHECK_MERGE_RECORD=1 FM_TEST_GH_THREADS="$REVIEW_FIXTURES/change-request-unanswered.json" \
-    run_check_entry "$dir" task-a https://github.com/o/r/pull/1 >/dev/null 2>&1 \
+  FM_TEST_GH_THREADS="$REVIEW_FIXTURES/change-request-unanswered.json" \
+    run_check_entry "$dir" task-a https://github.com/o/r/pull/1 --merge-record >/dev/null 2>&1 \
     || fail "recording a PR fm-pr-merge just merged was refused over a review finding"
   grep -qxF 'pr=https://github.com/o/r/pull/1' "$dir/home/state/task-a.meta" \
     || fail "the merge record lost its PR reference"
   pass "the review gate leaves the post-merge record alone"
+}
+
+test_review_level_change_request_gates_without_inline_comment() {
+  local dir out
+  dir=$(make_case review-level)
+  make_poll_fixture "$dir"
+  out=$(poll_review "$dir" review-level-change-request)
+  [ "$out" = "review $REVIEW_HEAD blocking=1 reported=1 ids=PRR_kwDODKw3uc8AAAABNdGd6w:b" ] \
+    || fail "a change-request review with no inline comment did not block: $out"
+  out=$(FM_TEST_GH_THREADS="$REVIEW_FIXTURES/review-level-change-request.json" PATH="$dir/fakebin:$BASE_PATH" \
+    "$POLL" --gate github https://github.com/o/r/pull/1 github.com o/r 1)
+  [ "$out" = "$(printf 'PRR_kwDODKw3uc8AAAABNdGd6w\twilliammartin')" ] \
+    || fail "the gate scan did not list the change-request review: $out"
+  out=$(poll_review "$dir" review-level-change-request-with-inline)
+  case "$out" in "review $REVIEW_HEAD blocking=1 reported=1 ids=PRRC_"*) ;; *) fail "a change-request review with an inline comment was counted twice or not at all: $out" ;; esac
+  write_task_meta "$dir"
+  ! FM_TEST_GH_THREADS="$REVIEW_FIXTURES/review-level-change-request.json" \
+    run_check_entry "$dir" task-a https://github.com/o/r/pull/1 >/dev/null 2> "$dir/err" \
+    || fail "ready registration was accepted over a change-request review"
+  assert_grep 'PRR_kwDODKw3uc8AAAABNdGd6w (by williammartin)' "$dir/err" "the refusal did not name the review"
+  pass "a CHANGES_REQUESTED review gates even with no inline comment"
+}
+
+test_review_classify_reports_unrecognised_rows() {
+  local dir out
+  dir=$(make_case review-unparsed)
+  make_poll_fixture "$dir"
+  out=$(poll_review "$dir" unrecognised-comment-id)
+  [ "$out" = "review $REVIEW_HEAD blocking=0 reported=1 unparsed=1 ids=unparsed-1:n" ] \
+    || fail "a row of an unrecognised shape was dropped silently: $out"
+  set +e
+  FM_TEST_GH_THREADS="$REVIEW_FIXTURES/unrecognised-comment-id.json" PATH="$dir/fakebin:$BASE_PATH" \
+    "$POLL" --gate github https://github.com/o/r/pull/1 github.com o/r 1 >/dev/null 2>&1
+  [ $? -eq 3 ] || { set -e; fail "the gate scan did not exit 3 on an unrecognised row"; }
+  set -e
+  write_task_meta "$dir"
+  ! FM_TEST_GH_THREADS="$REVIEW_FIXTURES/unrecognised-comment-id.json" \
+    run_check_entry "$dir" task-a https://github.com/o/r/pull/1 >/dev/null 2> "$dir/err" \
+    || fail "ready registration was accepted over review data it could not read"
+  assert_grep "shape this gate does not understand" "$dir/err" "the refusal did not say the shape was unrecognised"
+  pass "rows of an unrecognised shape are reported and refuse the gate"
 }
 
 test_review_watcher_raises_once_and_records() {
@@ -3559,3 +3602,5 @@ test_review_gate_refuses_when_threads_unreadable
 test_review_gate_refuses_when_threads_truncated
 test_review_watcher_raises_once_and_records
 test_review_gate_does_not_disturb_merge_recording
+test_review_level_change_request_gates_without_inline_comment
+test_review_classify_reports_unrecognised_rows

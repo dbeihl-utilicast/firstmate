@@ -19,8 +19,9 @@
 # already used for pr_head, so GitLab merge requests skip both checks.
 # A ready GitHub PR is also refused while bin/fm-pr-poll.sh --gate lists an
 # unanswered blocking review finding on it; a draft PR is not, and neither is
-# the record bin/fm-pr-merge.sh makes of a PR it has just merged.
-# Usage: fm-pr-check.sh <task-id> <pr-url>
+# the record bin/fm-pr-merge.sh makes after its merge call, which passes
+# --merge-record whether or not it could read the merge outcome.
+# Usage: fm-pr-check.sh <task-id> <pr-url> [--merge-record]
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -122,6 +123,11 @@ fm_pr_body_closes_issue() {
   '
 }
 
+MERGE_RECORD=0
+if [ "$#" -eq 3 ] && [ "$3" = --merge-record ]; then
+  MERGE_RECORD=1
+  set -- "$1" "$2"
+fi
 if [ "$#" -ne 2 ]; then
   echo "error: invalid PR check request" >&2
   exit 2
@@ -253,7 +259,7 @@ EOF
 # A ready PR must not carry an unanswered blocking review finding. The scan is
 # live rather than read from the watcher's handled record, because a finding
 # stays blocking after it was raised until someone answers it.
-if [ "$PROVIDER" = github ] && [ "${FM_PR_CHECK_MERGE_RECORD:-0}" != 1 ] \
+if [ "$PROVIDER" = github ] && [ "$MERGE_RECORD" != 1 ] \
   && ! { [ "${PR_DRAFT_READ_OK:-0}" = 1 ] && [ "${PR_DRAFT:-0}" = 1 ]; }; then
   gate_rc=0
   gate_config=${FM_CONFIG_OVERRIDE:-$FM_HOME/config}
@@ -261,6 +267,9 @@ if [ "$PROVIDER" = github ] && [ "${FM_PR_CHECK_MERGE_RECORD:-0}" != 1 ] \
     "$SCRIPT_DIR/fm-pr-poll.sh" --gate "$PROVIDER" "$URL" "$HOST" "$PROJECT_PATH" "$NUMBER" 2>/dev/null) || gate_rc=$?
   if [ "$gate_rc" -eq 2 ]; then
     echo "error: PR has more review threads than one page reads, so unanswered blocking findings cannot be ruled out: $URL. Mark the PR draft or resolve threads until they fit." >&2
+    exit 1
+  elif [ "$gate_rc" -eq 3 ]; then
+    echo "error: review data on $URL has a shape this gate does not understand, so unanswered blocking findings cannot be ruled out; it is not registered ready. Inspect the PR's review threads, or mark the PR draft." >&2
     exit 1
   elif [ "$gate_rc" -ne 0 ]; then
     echo "error: could not read review threads to check for unanswered blocking findings on $URL, so it is not registered ready. Retry, or mark the PR draft." >&2
