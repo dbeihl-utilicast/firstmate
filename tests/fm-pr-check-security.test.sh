@@ -121,6 +121,9 @@ state_snapshot() {
   )
 }
 
+REVIEW_FIXTURES="$ROOT/tests/assets/review-threads"
+export FM_TEST_GH_THREADS_DEFAULT="$REVIEW_FIXTURES/empty.json"
+
 make_case() {
   local name=$1 dir fakebin fake_root
   dir="$TMP_ROOT/$name"
@@ -142,7 +145,8 @@ if [[ " $* " == *" --slurp "* && " $* " == *" --jq "* ]]; then
   exit 1
 fi
 if [ "${1:-} ${2:-}" = "api graphql" ] && [[ " $* " == *reviewThreads* ]]; then
-  [ -n "${FM_TEST_GH_THREADS:-}" ] || exit 1
+  [ "${FM_TEST_GH_THREADS_FAIL:-0}" = 0 ] || exit 1
+  FM_TEST_GH_THREADS=${FM_TEST_GH_THREADS:-$FM_TEST_GH_THREADS_DEFAULT}
   filter=
   while [ "$#" -gt 0 ]; do
     [ "$1" != --jq ] || filter=$2
@@ -3304,7 +3308,6 @@ test_gitlab_merged_poll_retires() {
   pass "GitHub and GitLab exact merged results share one retirement path"
 }
 
-REVIEW_FIXTURES="$ROOT/tests/assets/review-threads"
 REVIEW_HEAD=0123456789abcdef0123456789abcdef01234567
 REVIEW_NEW_HEAD=fedcba9876543210fedcba9876543210fedcba98
 REVIEW_BLOCKING_ID=PRRC_kwDODKw3uc5eWI9B
@@ -3432,13 +3435,13 @@ test_review_gate_refuses_when_threads_unreadable() {
   dir=$(make_case review-gate-unreadable)
   write_task_meta "$dir"
   set +e
-  run_check_entry "$dir" task-a https://github.com/o/r/pull/1 > "$dir/out" 2> "$dir/err"
+  FM_TEST_GH_THREADS_FAIL=1 run_check_entry "$dir" task-a https://github.com/o/r/pull/1 > "$dir/out" 2> "$dir/err"
   rc=$?
   set -e
   [ "$rc" -ne 0 ] || fail "ready registration was accepted with unreadable review threads"
   assert_grep "could not read review threads" "$dir/err" "the refusal did not say the read failed"
   [ ! -e "$dir/home/state/task-a.check.sh" ] || fail "a refused registration armed a poll"
-  FM_TEST_GH_DRAFT=1 run_check_entry "$dir" task-a https://github.com/o/r/pull/1 >/dev/null 2>&1 \
+  FM_TEST_GH_THREADS_FAIL=1 FM_TEST_GH_DRAFT=1 run_check_entry "$dir" task-a https://github.com/o/r/pull/1 >/dev/null 2>&1 \
     || fail "a draft registration was refused over an unreadable thread list"
   pass "ready registration is refused when the thread read fails"
 }
