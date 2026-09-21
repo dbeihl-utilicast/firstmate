@@ -77,6 +77,9 @@
 # no other writer into the same status stream - a local mate appending directly,
 # or a remote mate's mirrored line - can take the key over or clear it; see the
 # reserved-key rule in bin/fm-classify-lib.sh.
+# A caller may bound remote observation with
+# FM_PENDING_REPLY_REMOTE_OBSERVE_TIMEOUT and override
+# fm_pending_reply_progress to publish progress after each remote result.
 # The operator-facing close of that same keyed decision is still
 # fm-send --resolve-key (bin/fm-send.sh header): it must speak the close note
 # owned below (fm_pending_reply_resolved_note), because a bare answered: note is
@@ -1433,6 +1436,10 @@ fm_pending_reply_tick_one() {  # <state-dir> <corr_id> <busy_state> [secondmate-
 # Scan every pending record for this parent state. Safe to call every poll.
 # Never scrapes secondmate conversation; uses only parent status, backend busy
 # state, and optional secondmate-home wrong-home path checks.
+fm_pending_reply_progress() {
+  :
+}
+
 fm_pending_reply_tick() {  # <state-dir>
   local state=$1 dir rec corr task_id phase delivered meta backend target label busy sm_home harness remote_host
   local observation observation_task found i
@@ -1529,8 +1536,10 @@ fm_pending_reply_tick() {  # <state-dir>
         done
         if [ "$found" = 0 ]; then
           if [ -n "$remote_host" ]; then
-            observation=$("$_FM_PENDING_REPLY_LIB_DIR/fm-on.sh" "$task_id" \
+            observation=$(FM_ON_TIMEOUT="${FM_PENDING_REPLY_REMOTE_OBSERVE_TIMEOUT:-${FM_ON_TIMEOUT:-900}}" \
+              "$_FM_PENDING_REPLY_LIB_DIR/fm-on.sh" "$task_id" \
               fm-remote-secondmate-control.sh observe "$task_id" < /dev/null 2>/dev/null || printf 'unknown')
+            fm_pending_reply_progress
             case "$observation" in busy|idle|fallback-idle|unknown) ;; *) observation=unknown ;; esac
           else
             observation=$(fm_pending_reply_backend_observation "$backend" "$target" "$label" "$harness")

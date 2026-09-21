@@ -66,6 +66,8 @@ If `jq` is missing or hook stdin is empty, the guard exits 0 because it cannot s
 
 `bin/fm-watch.sh` refreshes `state/.last-watcher-beat` at the start of each poll cycle, after each expensive inline step, and immediately before its terminal wait (`event_wait_or_sleep`).
 A slow poll that is still making progress therefore stays inside the grace window; a step that does not return does not refresh the beacon, so the default 300-second floor still means no progress.
+Remote pending-reply observation is the one inline network call in that early cycle path.
+The watcher bounds each such observation to half its resolved freshness grace and refreshes the beacon after every remote result, so the generic 900-second `fm-on.sh` timeout cannot make an otherwise healthy watcher look stale and several remote records cannot collectively hide progress.
 A cycle that overruns the next `FM_POLL` due time stays that same loop: there is no overlapping second poll.
 The terminal wait can still age the beacon up to `FM_POLL` seconds, which is why `fm_poll_derived_grace` remains `max(300, FM_POLL + 60)`.
 A fixed 300-second grace default stops correctly bounding staleness once a home's `FM_POLL` reaches or exceeds it: a perfectly healthy watcher mid-wait would then read stale at the edge of every full poll cycle by definition, which is exactly what a long-poll home (`FM_POLL=300`) hit against the Claude Stop-hook auto-arm (`bin/fm-claude-stop-autoarm.sh`).

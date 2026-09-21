@@ -258,6 +258,19 @@ wait_for_healthy_successor() {
   done
 }
 
+healthy_successor_after_child_close() {  # <exit-code> <signal-name>
+  local rc=$1 signal=$2
+  healthy_watcher && return 0
+  # A signal can be the eviction itself, before the replacement lock exists.
+  # A plain nonzero close accepts only a successor that is already healthy, so
+  # an ordinary terminated cycle does not become a long wait.
+  if [ "$rc" -eq 0 ] || [ "$signal" != none ]; then
+    wait_for_healthy_successor
+    return $?
+  fi
+  return 1
+}
+
 fail_unexplained_cycle() {
   echo "watcher: FAILED - cycle ended without an actionable reason"
   return 1
@@ -484,19 +497,27 @@ owned_child_finished() {
     return 0
   fi
 
+  # A quiet nonzero child exit is not a supervision failure when a verified
+  # singleton successor is live and fresh. Explicit watcher failures and
+  # actionable output retain their original meaning.
+  if ! watch_output_has_wake "$child_out" \
+    && ! grep -q '^watcher: FAILED' "$child_out" 2>/dev/null \
+    && healthy_successor_after_child_close "$rc" "$signal"; then
+    reason_type=nonactionable-exit
+    [ "$rc" -eq 0 ] && reason_type=unexpected-clean-exit
+    cycle_log_append "$rc" "$signal" "$reason_type" "attached:$HEALTHY_PID"
+    print_watch_output "$child_out"
+    rm -f "$child_out" 2>/dev/null || true
+    child=
+    child_out=
+    cycle_mark_predecessor_successor "attached:$HEALTHY_PID"
+    report_attached
+    cycle_begin "$HEALTHY_PID" attached "$HEALTHY_IDENTITY"
+    attach_and_wait "$HEALTHY_PID"
+    return $?
+  fi
+
   if [ "$rc" -eq 0 ]; then
-    if wait_for_healthy_successor; then
-      cycle_log_append "$rc" "$signal" unexpected-clean-exit "attached:$HEALTHY_PID"
-      print_watch_output "$child_out"
-      rm -f "$child_out" 2>/dev/null || true
-      child=
-      child_out=
-      cycle_mark_predecessor_successor "attached:$HEALTHY_PID"
-      report_attached
-      cycle_begin "$HEALTHY_PID" attached "$HEALTHY_IDENTITY"
-      attach_and_wait "$HEALTHY_PID"
-      return $?
-    fi
     print_watch_output "$child_out"
     rm -f "$child_out" 2>/dev/null || true
     child=

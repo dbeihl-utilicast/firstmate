@@ -108,7 +108,7 @@ test_live_stale_watch_lock_is_actionable() {
   err="$dir/watch.err"
   mkdir "$state/.watch.lock"
   printf '%s\n' "$$" > "$state/.watch.lock/pid"
-  touch -t 200001010000 "$state/.last-watcher-beat"
+  touch -t 200001010000 "$state/.last-watcher-beat" "$state/.watch.lock"
   status=0
   PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_GUARD_GRACE=1 FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" 2> "$err" || status=$?
   [ "$status" -ne 0 ] || fail "watcher silently no-opped behind a live stale holder"
@@ -1449,6 +1449,179 @@ test_watch_evict_race_between_two_real_watchers_never_falsely_fails() {
   pass "two real watchers racing to evict the same stale holder never produce a false FAILED escalation"
 }
 
+test_arm_nonactionable_exit_attaches_to_healthy_successor() {
+  # A second arm evicts a stale cycle and establishes its replacement while the
+  # first child exits quietly with a nonzero status. The first arm must follow
+  # that verified successor instead of declaring supervision broken.
+  local dir state fakebin first_out second_out first_arm first_watcher second_arm second_watcher i first_live out
+  dir=$(make_case arm-successor-after-nonactionable-exit)
+  state="$dir/state"
+  fakebin="$dir/fakebin"
+  first_out="$dir/first-arm.out"
+  second_out="$dir/second-arm.out"
+
+  PATH="$fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$state" \
+    FM_GUARD_GRACE=2 FM_WATCHER_STALE_GRACE=2 FM_WATCHER_EVICT_WAIT=1 \
+    FM_ARM_CONFIRM_TIMEOUT=5 FM_POLL=5 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH_ARM" > "$first_out" 2>&1 &
+  first_arm=$!
+  i=0
+  while [ "$i" -lt 100 ]; do
+    grep -qF 'watcher: started pid=' "$first_out" 2>/dev/null && break
+    sleep 0.1
+    i=$((i + 1))
+  done
+  first_watcher=$(cat "$state/.watch.lock/pid" 2>/dev/null || true)
+  if [ -z "$first_watcher" ] \
+    || ! grep -qF "watcher: started pid=$first_watcher" "$first_out"; then
+    kill "$first_arm" 2>/dev/null || true
+    wait "$first_arm" 2>/dev/null || true
+    fail "first arm never established its watcher: $(cat "$first_out")"
+  fi
+
+  # Age both the beacon and holder tenure so the second arm may evict it; the
+  # assertion covers how the first arm classifies that quiet exit.
+  kill -STOP "$first_watcher" 2>/dev/null \
+    || { kill "$first_arm" 2>/dev/null || true; wait "$first_arm" 2>/dev/null || true; fail "could not pause the first watcher for deterministic eviction"; }
+  touch -t 200001010000 "$state/.last-watcher-beat"
+  touch -h -t 200001010000 "$state/.watch.lock"
+  PATH="$fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$state" \
+    FM_WATCH_PREDECESSOR_ARM_PID="$first_arm" \
+    FM_GUARD_GRACE=2 FM_WATCHER_STALE_GRACE=2 FM_WATCHER_EVICT_WAIT=1 \
+    FM_ARM_CONFIRM_TIMEOUT=5 FM_POLL=5 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH_ARM" > "$second_out" 2>&1 &
+  second_arm=$!
+  i=0
+  second_watcher=
+  while [ "$i" -lt 150 ]; do
+    second_watcher=$(cat "$state/.watch.lock/pid" 2>/dev/null || true)
+    if [ -n "$second_watcher" ] && [ "$second_watcher" != "$first_watcher" ] \
+      && grep -qF "watcher: started pid=$second_watcher" "$second_out" 2>/dev/null; then
+      break
+    fi
+    sleep 0.1
+    i=$((i + 1))
+  done
+  [ -n "$second_watcher" ] && [ "$second_watcher" != "$first_watcher" ] \
+    || { kill -CONT "$first_watcher" 2>/dev/null || true; kill -KILL "$first_watcher" 2>/dev/null || true; kill "$first_arm" "$second_arm" 2>/dev/null || true; wait "$first_arm" "$second_arm" 2>/dev/null || true; fail "second arm never established a replacement: $(cat "$second_out")"; }
+  sleep 1
+  first_live=0
+  is_live_non_zombie "$first_arm" && first_live=1
+  out=$(cat "$first_out" 2>/dev/null || true)
+
+  kill "$second_arm" "$first_arm" 2>/dev/null || true
+  wait "$second_arm" 2>/dev/null || true
+  wait "$first_arm" 2>/dev/null || true
+
+  [ "$first_live" -eq 1 ] \
+    || fail "the first arm exited instead of following the healthy successor: $out"
+  case "$out" in
+    *'FAILED - watcher cycle exited'*) fail "the quiet replaced cycle was classified FAILED: $out" ;;
+  esac
+  grep -qF "watcher: attached pid=$second_watcher" "$first_out" \
+    || fail "the first arm did not attach to the proven healthy successor: $out"
+  pass "a non-actionable replaced cycle follows its healthy successor without a false FAILED banner"
+}
+
+test_fresh_replacement_is_not_evicted_on_predecessor_beacon_age() {
+  # A new holder initially sees its predecessor's old beacon. The contender
+  # must use the fresh lock claim as counterevidence and leave that holder alone.
+  local dir state fakebin out holder identity contender status held holder_alive
+  dir=$(make_case fresh-replacement-not-evicted)
+  state="$dir/state"
+  fakebin="$dir/fakebin"
+  out="$dir/watch.out"
+  sleep 300 &
+  holder=$!
+  identity=$(FM_STATE_OVERRIDE="$state" bash -c '. "$1"; fm_pid_identity "$2"' _ "$LIB" "$holder") \
+    || fail "could not record fresh replacement identity"
+  mkdir -p "$state/.watch.lock"
+  printf '%s\n' "$holder" > "$state/.watch.lock/pid"
+  printf '%s\n' "$dir" > "$state/.watch.lock/fm-home"
+  printf '%s\n' "$WATCH" > "$state/.watch.lock/watcher-path"
+  printf '%s\n' "$identity" > "$state/.watch.lock/pid-identity"
+  touch -t 200001010000 "$state/.last-watcher-beat"
+
+  PATH="$fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$state" \
+    FM_GUARD_GRACE=2 FM_WATCHER_STALE_GRACE=2 FM_WATCHER_EVICT_WAIT=1 \
+    FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+    "$WATCH" > "$out" 2>&1 &
+  contender=$!
+  wait_for_exit "$contender" 80
+  status=$?
+  held=$(cat "$state/.watch.lock/pid" 2>/dev/null || true)
+  holder_alive=0
+  is_live_non_zombie "$holder" && holder_alive=1
+
+  kill "$contender" "$holder" 2>/dev/null || true
+  wait "$contender" 2>/dev/null || true
+  wait "$holder" 2>/dev/null || true
+
+  [ "$status" -eq 0 ] \
+    || fail "contender did not stand down behind the fresh replacement (status $status): $(cat "$out")"
+  [ "$holder_alive" -eq 1 ] || fail "fresh replacement was evicted using its predecessor's stale beacon: $(cat "$out")"
+  [ "$held" = "$holder" ] || fail "fresh replacement lost singleton ownership to $held"
+  grep -qF "watcher: already running pid $holder" "$out" \
+    || fail "contender did not report the fresh singleton holder: $(cat "$out")"
+  pass "a fresh replacement cannot be evicted on the predecessor beacon's age"
+}
+
+test_remote_pending_reply_observation_stays_inside_beacon_grace() {
+  # Scale the 900-second remote timeout and 300-second watcher grace down while
+  # using the real boundary. The watcher must beat before its grace expires.
+  local dir state fakebin out corr watcher i age
+  dir=$(make_case remote-observe-beacon)
+  state="$dir/state"
+  fakebin="$dir/fakebin"
+  out="$dir/watch.out"
+  mkdir -p "$dir/data"
+  cat > "$dir/data/secondmates.md" <<EOF
+- remote - Remote fixture (host: fixture-host; root: /remote/root; home: /remote/home; scope: fixture; projects: alpha; added 2026-09-21)
+EOF
+  fm_write_meta "$state/remote.meta" \
+    "window=remote:remote" "harness=claude" "kind=secondmate" "mode=secondmate" \
+    "remote_host=fixture-host" "remote_root=/remote/root" "home=/remote/home"
+  corr=$(FM_HOME="$dir" FM_STATE_OVERRIDE="$state" FM_PENDING_REPLY_GRACE_SECS=999999 bash -c '
+    . "$1"
+    corr=$(fm_pending_reply_create "$2" "$3" remote "observe remote fixture") || exit 1
+    fm_pending_reply_mark_delivered "$3" "$corr" || exit 1
+    printf "%s" "$corr"
+  ' _ "$ROOT/bin/fm-pending-reply-lib.sh" "$dir" "$state") \
+    || fail "could not seed remote pending-reply observation"
+  [ -n "$corr" ] || fail "remote pending-reply fixture produced no correlation"
+  cat > "$fakebin/ssh" <<'SH'
+#!/usr/bin/env bash
+: > "$FM_REMOTE_OBSERVE_STARTED"
+sleep "${FM_ON_TIMEOUT:-6}"
+exit 255
+SH
+  chmod +x "$fakebin/ssh"
+
+  PATH="$fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$dir" FM_STATE_OVERRIDE="$state" \
+    FM_SSH_BIN="$fakebin/ssh" FM_REMOTE_OBSERVE_STARTED="$dir/remote-started" \
+    FM_GUARD_GRACE=4 FM_WATCHER_STALE_GRACE=4 FM_POLL=10 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" 2>&1 &
+  watcher=$!
+  i=0
+  while [ "$i" -lt 100 ] && [ ! -e "$dir/remote-started" ]; do
+    is_live_non_zombie "$watcher" || break
+    sleep 0.1
+    i=$((i + 1))
+  done
+  [ -e "$dir/remote-started" ] \
+    || { kill "$watcher" 2>/dev/null || true; wait "$watcher" 2>/dev/null || true; fail "watcher never began the remote observation: $(cat "$out")"; }
+  sleep 5
+  age=$(FM_STATE_OVERRIDE="$state" bash -c '. "$1"; fm_path_age "$2"' _ "$LIB" "$state/.last-watcher-beat")
+  is_live_non_zombie "$watcher" \
+    || { wait "$watcher" 2>/dev/null || true; fail "watcher exited during the remote observation: $(cat "$out")"; }
+  kill "$watcher" 2>/dev/null || true
+  wait "$watcher" 2>/dev/null || true
+
+  [ "$age" -lt 4 ] \
+    || fail "remote observation outlived watcher grace (beacon age ${age}s, grace 4s)"
+  pass "remote pending-reply observation is bounded below watcher grace"
+}
+
 test_cycle_exit_ledger_links_successor_and_stays_bounded() {
   local dir state fakebin armout check_file first_arm successor_arm successor_pid i size iteration
   dir=$(make_case cycle-ledger)
@@ -1762,5 +1935,8 @@ test_arm_fails_loud_when_no_fresh_watcher_confirmable
 test_arm_evicts_live_holder_with_stale_beacon
 test_watch_reports_benign_race_loss_after_own_eviction_succeeds
 test_watch_evict_race_between_two_real_watchers_never_falsely_fails
+test_arm_nonactionable_exit_attaches_to_healthy_successor
+test_fresh_replacement_is_not_evicted_on_predecessor_beacon_age
+test_remote_pending_reply_observation_stays_inside_beacon_grace
 test_cycle_exit_ledger_links_successor_and_stays_bounded
 test_stopped_watcher_is_live_but_stale_then_exit_is_classified
