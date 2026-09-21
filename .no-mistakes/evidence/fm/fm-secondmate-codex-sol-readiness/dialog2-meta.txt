@@ -1,0 +1,14 @@
+window=firstmate:fm-soldlg2
+endpoint_task_id=soldlg2
+worktree=/private/tmp/fm-codex-sol-live.U0Shb2/sm-dialog2
+project=/private/tmp/fm-codex-sol-live.U0Shb2/sm-dialog2
+harness=codex
+kind=secondmate
+mode=secondmate
+yolo=off
+tasktmp=/tmp/fm-soldlg2
+model=gpt-5.6-sol
+effort=default
+spawn_gen=s1790023685.43274.24146
+home=/private/tmp/fm-codex-sol-live.U0Shb2/sm-dialog2
+projects=

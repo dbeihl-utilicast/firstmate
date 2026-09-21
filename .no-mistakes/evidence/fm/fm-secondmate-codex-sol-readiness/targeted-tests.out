@@ -1,0 +1,159 @@
+FM_TEST_BEGIN 2026-09-21T20:49:14Z tests/fm-codex-harness.test.sh family=pure-contract-unit expected_gate_skip=none
+ok - Codex startup classifier: trust Enter, hooks Down-then-Enter, ready prompt
+# all fm-codex-harness tests passed
+FM_TEST_END 2026-09-21T20:49:14Z tests/fm-codex-harness.test.sh exit=0 duration_ms=68 gate_skip=false
+FM_TEST_BEGIN 2026-09-21T20:49:14Z tests/fm-secondmate-harness.test.sh family=secondmate expected_gate_skip=none
+FM_TEST_BEGIN 2026-09-21T20:49:14Z tests/fm-secondmate-liveness.test.sh family=secondmate expected_gate_skip=none
+ok - fm_backend_tmux_agent_state: separates live, dead, missing, ambiguous, and unreadable
+ok - fm_backend_tmux_agent_state: rejects malformed targets before probing tmux
+ok - fm_backend_herdr_agent_state: preserves missing/no-agent/live/unknown husk behavior
+ok - fm_backend_agent_state: routes tmux/Herdr and keeps Zellij unverified
+ok - sweep: a confirmed-dead secondmate endpoint is killed and respawned
+ok - sweep: an already-live secondmate is untouched and distinguishable in verbose diagnostics
+ok - sweep: an authoritatively missing Pi secondmate window is relaunched
+ok - sweep: an authoritatively missing pi-signed secondmate window is relaunched
+ok - sweep: an existing ambiguous Pi process prevents duplicate recovery
+ok - sweep: transient target unreadability never licenses recovery
+ok - sweep: a failed Herdr pane read has a named unreadable diagnostic and never relaunches
+ok - sweep: malformed, contradictory, and failed Herdr reads never authorize recovery
+ok - sweep: a confirmed missing Herdr pane still permits recovery
+ok - sweep: failed relaunch diagnostics distinguish a confidently missing endpoint
+ok - sweep: an unverified harness blocks recovery with a concrete diagnostic
+ok - sweep: idempotent by construction - a live secondmate is never re-touched on a later run
+ok - sweep: skipped entirely under FM_BOOTSTRAP_DETECT_ONLY=1, exactly like the other mutating sweeps
+ok - sweep: a silent no-op with no kind=secondmate meta present (a secondmate home's own natural scoping)
+ok - sweep: two dead secondmates in one pass both relaunch without task-set self-contention
+# all fm-secondmate-liveness tests passed
+FM_TEST_END 2026-09-21T20:49:57Z tests/fm-secondmate-liveness.test.sh exit=0 duration_ms=42461 gate_skip=false
+ok - A1 fm-harness.sh secondmate resolves the fallback chain; crew mode unchanged
+ok - fm-harness detects only Cursor Agent CLI's exact invocation marker
+ok - C1 fm-harness.sh secondmate-model/secondmate-effort resolve the optional tokens; bare harness stays empty (backward-compat)
+ok - pi-signed identity: authoritative launch selection distinguishes shared wrapper ancestry
+ok - harness identity: dash-leading ps command names are basename operands, not options
+ok - B1 propagate_inheritable_config: copy, idempotence, convergence, absence-mirror, exclusion, no-op, skip diagnostics
+ok - B2 spawn: secondmate runs the secondmate harness; its home inherits declared config
+ok - B3 spawn: an absent secondmate-harness falls back to the crew harness (backward-compat)
+ok - B4 spawn: no config at all -> own harness and no propagation side effects
+ok - B5 spawn: an explicit per-spawn harness arg overrides config/secondmate-harness
+ok - B6 spawn: an unverified resolved secondmate harness is refused (guard intact)
+skip: cursor executable not resolvable in this environment, so the launch could not be built
+ok - B5b spawn: FM_BACKEND wins over inherited config/backend
+ok - B5c spawn: explicit --backend wins over FM_BACKEND and inherited config/backend
+ok - C2 spawn: a bare harness-only secondmate-harness file launches with no model/effort flag (backward-compat)
+ok - C3a spawn: Codex dialog key failure cleans the unpublished endpoint
+ok - C3b spawn: Codex launch-key failure cleans the unpublished endpoint
+ok - C3c spawn: Codex launch-command failure cleans the unpublished endpoint
+ok - C3a spawn: Codex secondmate refuses an empty startup capture
+ok - C3d spawn: Codex secondmate refuses a non-ready startup capture
+ok - C3 spawn: config/secondmate-harness's model token threads --model into the launch and meta
+ok - C3b spawn: config/secondmate-harness 'codex gpt-5.6-sol' uses the existing Codex secondmate launch
+ok - C4 spawn: config/secondmate-harness's model+effort tokens thread into the launch and meta
+ok - C5 spawn: an explicit --model overrides config/secondmate-harness's model token; the file's effort token still applies
+ok - C6 spawn: an explicit --effort overrides config/secondmate-harness's effort token; the file's model token still applies
+ok - C7 spawn: an explicit --harness starts with clean model/effort defaults
+ok - C8 spawn: an explicit --harness still honors explicit model/effort flags
+ok - C9 spawn: secondmate launch pins supervision to its own harness
+ok - C9 spawn: the harness fallback chain still resolves with no tokens; crew/scout launches are unaffected by this feature
+ok - B7 bootstrap sweep pushes, re-converges, and mirrors absence; never inherits secondmate-harness
+ok - B8 bootstrap sweep propagates config even when the home's tracked files are already current
+ok - B9 bootstrap sweep defers new inherited config until the home ignores it
+ok - B10 bootstrap sweep materializes and inherits the startup-memory default while fast-forwarding
+ok - B12b backend inheritance: present values and primary absence converge exactly
+ok - B12c presentation inheritance: the primary default converges on, and only an explicit opt-out propagates off
+ok - B11 bootstrap sweep surfaces config propagation failures
+ok - B11 bootstrap rereads completed config writes after partial propagation
+ok - B12 config-push propagates via shared live discovery, reports items, rereads on change only, and does not fast-forward
+ok - B12d config-reread push to a stopped lane skips and leaves zero outstanding requests
+ok - B13 config-push reports dirty, non-allowing, and invalid homes without failing warnings-only runs
+ok - B14 config-push exits nonzero on real propagation errors
+ok - B14 config-push rereads completed config writes after partial propagation
+ok - B15 config reread is per-home, exact-byte, ordered, and pointer-only
+ok - B16 config reread isolation, ABSENT, generation safety, send failure, and retry
+ok - B20 config reread publication failures retain exact generations for retry
+ok - B21 config reread instruction-write failures retain exact retry generations
+ok - B21 config reread preserves exact bytes when temporary adoption also fails
+ok - B21 config reread serializes concurrent propagation and delivery
+ok - B22 full config reread retry queues drain before new publication
+ok - B23 mixed config reread delivery failures still bound sent history
+ok - B26 config reread delivery stops after the oldest failed generation
+ok - B17 config reread skips unchanged homes and reads destination post-write bytes
+ok - B18 bootstrap config reread path works; spawn flexibility remains defaults-only
+ok - B19 bootstrap respawns before inherited-config reread
+ok - B25 spawn quarantines stale rereads without blocking relaunch
+ok - B24 bootstrap detect-only mode remains filesystem read-only
+# all fm-secondmate-harness tests passed
+FM_TEST_END 2026-09-21T20:53:10Z tests/fm-secondmate-harness.test.sh exit=0 duration_ms=235537 gate_skip=false
+FM_TEST_BEGIN 2026-09-21T20:53:10Z tests/fm-backend-zellij.test.sh family=zellij expected_gate_skip=optional-binary
+ok - fm_backend_zellij_version_check: accepts the verified minimum (0.44.0)
+ok - fm_backend_zellij_version_check: accepts a newer version (0.45.2)
+ok - fm_backend_zellij_version_check: refuses an old version loudly
+ok - fm_backend_zellij_version_check: refuses loudly when zellij is not installed
+ok - fm_backend_zellij_session: defaults to 'firstmate' when FM_ZELLIJ_SESSION is unset
+ok - fm_backend_zellij_session: honors the FM_ZELLIJ_SESSION test-isolation override
+ok - fm_backend_zellij_parse_target: splits '<session>:<pane_id>' on the first colon
+ok - fm_backend_zellij_normalize_key: Enter/Escape/Down/C-c map to zellij's verified key names
+ok - fm_backend_zellij_scoped_title: scopes a primary task title with firstmate plus root hash
+ok - fm_backend_zellij_scoped_title: scopes a secondmate task title with the home marker plus root hash
+ok - fm_backend_zellij_scoped_title: includes the resolved FM_ROOT hash in the home label
+ok - fm_backend_zellij_tab_matches_label: accepts an untagged legacy fm-<id> title when it is the only live tab carrying it
+ok - fm_backend_zellij_tab_matches_label: refuses an untagged legacy label match when 2+ live tabs share it (migration ambiguity guard)
+ok - fm_backend_zellij_list_live: scopes to this home's own tag - excludes a different installation's tagged tab and unrelated tabs
+ok - fm_backend_zellij_resolve_bare_selector: matches the home-scoped tagged title first
+ok - fm_backend_zellij_resolve_bare_selector: refuses an ambiguous untagged legacy label shared by 2+ live tabs
+ok - fm_backend_zellij_resolve_bare_selector: checks every session for the scoped title before legacy fallback
+ok - fm_backend_zellij_resolve_bare_selector: requires untagged legacy labels to be globally unique across sessions
+ok - fm_backend_zellij_session_exists: true when the session name is listed
+ok - fm_backend_zellij_session_exists: false when the session name is not listed
+ok - fm_backend_zellij_server_ensure: reuses an existing session without calling attach
+ok - fm_backend_validate: zellij is a known backend (P3)
+ok - fm_backend_busy_state: zellij (no native primitive) always reports unknown, same as tmux
+ok - fm_backend_zellij_create_task: refuses a duplicate home-scoped tab title (zellij's own new-tab has no uniqueness check)
+ok - fm_backend_zellij_create_task: creates a home-scoped tab and parses tab_id/pane_id from the response
+ok - fm_backend_zellij_create_task: restores focus to the previously-active tab after the steal-focus new-tab call
+ok - fm_backend_zellij_create_task: skips the restore call when there was no previously-active tab
+ok - fm_backend_zellij_capture: small reads use viewport-only dump-screen and trim to N lines locally
+ok - fm_backend_zellij_capture: reads above the watcher-size threshold request --full scrollback
+ok - fm_backend_zellij_capture: fails when the specific pane is absent
+ok - fm_backend_zellij_capture: fails when the target session is not listed as active (session_exists pre-check)
+ok - fm_backend_zellij_send_key: normalizes the key (Escape -> Esc) and targets the explicit pane id
+ok - fm_backend_zellij_send_literal: calls paste with an explicit pane id and a -- separator
+ok - fm_backend_zellij_send_text_line: clears partial input when Enter fails
+ok - fm_backend_zellij_send_text_line: reports unsafe input when cleanup also fails
+ok - fm_backend_zellij_target_ready: expected labels allow matching fm-<id> tabs
+ok - fm_backend_zellij_target_ready: expected labels reject stale pane ids reused by another tab
+ok - fm_backend_zellij_current_path: actively probes with marked begin/end lines and reconstructs wrapped cwd output
+ok - fm_backend_zellij_current_path: never picks up a ~-prefixed banner line as the answer
+ok - fm_backend_zellij_kill: resolves the owning tab id fresh and calls close-tab-by-id (never a bare close-pane)
+ok - fm_backend_zellij_kill: falls back to close-pane when the owning tab cannot be resolved
+ok - fm_backend_zellij_kill: closes the recorded tab id only after label verification
+ok - fm_backend_zellij_kill: skips a stale recorded tab id whose label does not match
+ok - fm_backend_zellij_kill: never fails when the target session no longer exists
+ok - fm-teardown.sh: passes recorded zellij_tab_id with the expected task label
+ok - fm-teardown.sh: force cleanup kills zellij children using the child home tag
+ok - fm_backend_zellij_send_text_submit: reports 'empty' once the composer classifies empty (submitted)
+ok - fm_backend_zellij_send_text_submit: reports 'pending' when the composer still holds the text after retried Enters (swallowed)
+ok - fm_backend_zellij_send_text_submit: an unrelated pane change is not a delivery confirmation (false-positive regression)
+ok - fm_backend_zellij_send_text_submit: refuses confirmation when paste exits successfully without typing
+ok - fm_backend_zellij_send_text_submit: transcript echoes outside the selected composer cannot prove typing
+ok - fm_backend_zellij_send_text_submit: pre-existing text cannot prove a no-op paste landed
+ok - fm_backend_zellij_send_text_submit: unrelated drafts and furniture cannot prove typing
+ok - fm_backend_zellij_send_text_submit: observes wrapped text replacing a shell-prompt placeholder
+ok - fm_backend_zellij_send_text_submit: observes wrapped text in a bare composer
+ok - fm_backend_zellij_send_text_submit: preserves agent glyphs within wrapped content
+ok - fm_backend_zellij_send_text_submit: refuses a live shell below a stale composer
+ok - fm_backend_zellij_composer_state: classifies the real claude-in-zellij --ansi dump as empty
+ok - fm_backend_zellij_composer_state: a dead pane (empty dumps) reads unknown, never a confirmation
+ok - fm_backend_zellij_send_text_submit: reports 'send-failed' when the target session is not active
+ok - fm_backend_zellij_send_text_submit: reports 'send-failed' when the target pane is absent
+ok - fm-peek/fm-send: explicit metadata-matched targets use the recorded zellij backend
+ok - fm-peek: fm-id zellij targets verify the owning tab label before capture
+ok - fm-send: fm-id zellij targets reject pane ids whose tab label no longer matches
+FM_TEST_END 2026-09-21T20:53:28Z tests/fm-backend-zellij.test.sh exit=0 duration_ms=18627 gate_skip=false
+FM_TEST_SUMMARY total=4 failed=0 skipped_gate=0 duration_ms=254527
+FM_TEST_SUMMARY_FAMILY family=pure-contract-unit count=1 duration_ms=68 failed=0
+FM_TEST_SUMMARY_FAMILY family=secondmate count=2 duration_ms=277998 failed=0
+FM_TEST_SUMMARY_FAMILY family=zellij count=1 duration_ms=18627 failed=0
+FM_TEST_SLOWEST rank=1 script=tests/fm-secondmate-harness.test.sh duration_ms=235537
+FM_TEST_SLOWEST rank=2 script=tests/fm-secondmate-liveness.test.sh duration_ms=42461
+FM_TEST_SLOWEST rank=3 script=tests/fm-backend-zellij.test.sh duration_ms=18627
+FM_TEST_SLOWEST rank=4 script=tests/fm-codex-harness.test.sh duration_ms=68

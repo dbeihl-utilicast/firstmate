@@ -1,0 +1,2 @@
+warning: secondmate soldlg sync skipped before launch: primary default-branch commit cannot be resolved
+error: Codex startup in firstmate:fm-soldlg never reached its ready prompt; refusing to publish a worker that cannot begin its turn

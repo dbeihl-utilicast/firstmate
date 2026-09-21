@@ -1,0 +1,131 @@
+===== TRUST DIALOG =====
+----- capture 7 16:48:06 -----
+seed
+fm-soldlg2
+Do you trust the contents of this directory? Working with untrusted contents comes with
+higher risk of prompt injection. Trusting the directory allows project-local config, hooks,
+and exec policies to load.
+
+› 1. Yes, continue
+  2. No, quit
+
+  Press enter to continue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+===== HOOKS DIALOG =====
+----- capture 9 16:48:07 -----
+seed
+fm-soldlg2
+Hooks need review
+                 4 hooks are new or changed.
+                                            Hooks can run outside the sandbox after you trust them.
+
+                                                                                                   › 1. Review hooks
+                                                                                                                      2. Trust all and continue
+                         3. Continue without trusting (hooks won't run)
+
+                                                                         Press enter to confirm or esc to go back
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+===== READY PROMPT =====
+----- capture 11 16:48:07 -----
+seed
+fm-soldlg2
+• Working (1s • esc to interrupt)
+
+› Ask Codex to do anything
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

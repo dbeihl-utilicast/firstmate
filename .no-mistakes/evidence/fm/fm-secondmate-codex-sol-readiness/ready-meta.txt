@@ -1,0 +1,14 @@
+window=firstmate:fm-solrdy
+endpoint_task_id=solrdy
+worktree=/private/tmp/fm-codex-sol-live.U0Shb2/sm-ready
+project=/private/tmp/fm-codex-sol-live.U0Shb2/sm-ready
+harness=codex
+kind=secondmate
+mode=secondmate
+yolo=off
+tasktmp=/tmp/fm-solrdy
+model=gpt-5.6-sol
+effort=default
+spawn_gen=s1790023537.33221.26439
+home=/private/tmp/fm-codex-sol-live.U0Shb2/sm-ready
+projects=

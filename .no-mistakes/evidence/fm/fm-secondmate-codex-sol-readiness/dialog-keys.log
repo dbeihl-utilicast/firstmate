@@ -1,0 +1,13 @@
+           0d                                                            
+
+event=trust-enter
+           1b                                                            
+
+           5b                                                            
+
+           42                                                            
+
+event=hooks-down
+           0d                                                            
+
+event=hooks-enter down=1

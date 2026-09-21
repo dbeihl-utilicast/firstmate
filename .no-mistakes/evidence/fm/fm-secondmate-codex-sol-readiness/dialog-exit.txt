@@ -1,0 +1,1 @@
+dialog_spawn_exit=1

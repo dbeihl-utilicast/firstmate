@@ -1,0 +1,18 @@
+Live Codex Sol secondmate startup gate
+Isolated tmux socket (TMUX_TMPDIR lab); user sessions 0 and fm-exo untouched.
+
+1) Unready command-not-found
+   fm-spawn.sh solcnf --secondmate, pane PATH without codex
+   pane: env: codex: No such file or directory
+   spawn exit 1, error: never reached its ready prompt
+   no state/solcnf.meta; window fm-solcnf killed (only seed remained)
+
+2) Ready prompt publishes
+   same spawn path; pane Codex stand-in painted "Ask Codex to do anything"
+   spawned solrdy harness=codex model=gpt-5.6-sol
+   meta published; window firstmate:fm-solrdy remained
+
+3) Trust then hooks then ready
+   Codex-like TUI stand-in on alternate screen
+   keys received: trust Enter (0d), hooks Down (1b 5b 42), hooks Enter (0d)
+   spawned soldlg2 harness=codex model=gpt-5.6-sol after ready prompt only
