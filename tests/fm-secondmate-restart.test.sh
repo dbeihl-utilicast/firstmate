@@ -111,7 +111,19 @@ case "${1:-}" in
       prev=$a
     done
     printf 'fakepane\n'; exit 0 ;;
-  capture-pane) printf '> \n'; exit 0 ;;
+  capture-pane)
+    target=
+    prev=
+    for a in "$@"; do
+      if [ "$prev" = -t ]; then target=$a; fi
+      prev=$a
+    done
+    if [ "$(cat "$D/command.$target" 2>/dev/null)" = codex ]; then
+      printf '> \n› Ask Codex to do anything\n'
+    else
+      printf '> \n'
+    fi
+    exit 0 ;;
   list-windows) [ -f "$D/windows" ] && cat "$D/windows"; exit 0 ;;
 esac
 exit 0

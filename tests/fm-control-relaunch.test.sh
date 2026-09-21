@@ -112,7 +112,13 @@ case "${1:-}" in
       esac
     done
     printf 'fakepane\n'; exit 0 ;;
-  capture-pane) printf '╭────╮\n│    │\n╰────╯\n'; exit 0 ;;
+  capture-pane)
+    if [ "$(cat "$D/command" 2>/dev/null)" = codex ]; then
+      printf '╭────╮\n│    │\n╰────╯\n› Ask Codex to do anything\n'
+    else
+      printf '╭────╮\n│    │\n╰────╯\n'
+    fi
+    exit 0 ;;
   list-windows) [ -f "$D/windows" ] && cat "$D/windows"; exit 0 ;;
   new-window)
     name=
