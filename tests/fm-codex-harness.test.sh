@@ -44,7 +44,7 @@ got=$(fm_codex_startup_dialog_action "$trust_pane")
 got=$(fm_codex_startup_dialog_action "$hooks_pane")
 [ "$got" = hooks-down-enter ] || fail "hooks review pane classified as '$got', expected hooks-down-enter"
 got=$(fm_codex_startup_dialog_action "$working_pane")
-[ "$got" = none ] || fail "working pane classified as '$got', expected none"
+[ "$got" = ready ] || fail "working pane classified as '$got', expected ready"
 got=$(fm_codex_startup_dialog_action "")
 [ "$got" = none ] || fail "empty pane classified as '$got', expected none"
 
@@ -55,5 +55,5 @@ $hooks_pane"
 got=$(fm_codex_startup_dialog_action "$both")
 [ "$got" = hooks-down-enter ] || fail "combined pane classified as '$got', expected hooks-down-enter"
 
-pass "Codex startup dialog classifier: trust Enter, hooks Down-then-Enter, working is none"
+pass "Codex startup classifier: trust Enter, hooks Down-then-Enter, ready prompt"
 echo "# all fm-codex-harness tests passed"

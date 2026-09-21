@@ -866,6 +866,28 @@ test_spawn_codex_empty_startup_capture_refused() {
   pass "C3a spawn: Codex secondmate refuses an empty startup capture"
 }
 
+test_spawn_codex_unready_startup_capture_refused() {
+  local w sm launchlog backendlog out status
+  w="$TMP_ROOT/spawn-codex-unready-startup-capture"
+  sm="$w/sm"
+  launchlog="$w/launch.log"
+  backendlog="$w/backend.log"
+  mkdir -p "$w/home/config"
+  printf 'codex gpt-5.6-sol\n' > "$w/home/config/secondmate-harness"
+  make_seeded_home "$sm" sm
+  : > "$backendlog"
+
+  out=$(FM_FAKE_PANE_CAPTURE='codex: command not found' FM_FAKE_BACKEND_LOG="$backendlog" \
+    FM_CODEX_READY_POLLS=2 FM_CODEX_POLL_INTERVAL=0 \
+    spawn_secondmate_capture "$w" sm "$sm" "$launchlog" 2>&1); status=$?
+  expect_code 1 "$status" "Codex secondmate spawn must refuse a non-ready startup capture"$'\n'"$out"
+  assert_contains "$(cat "$backendlog")" "kill-window" \
+    "an unready Codex startup capture must close the unpublished endpoint"
+  [ ! -e "$w/home/state/sm.meta" ] \
+    || fail "an unready Codex startup capture must not publish secondmate metadata"
+  pass "C3d spawn: Codex secondmate refuses a non-ready startup capture"
+}
+
 # "<harness> <model>" durably threads --model into the secondmate launch and
 # records it in meta, with no --effort flag (no effort token supplied).
 test_spawn_secondmate_harness_model_token() {
@@ -2753,6 +2775,7 @@ test_spawn_codex_dialog_key_failure_cleans_endpoint
 test_spawn_codex_launch_key_failure_cleans_endpoint
 test_spawn_codex_launch_literal_failure_cleans_endpoint
 test_spawn_codex_empty_startup_capture_refused
+test_spawn_codex_unready_startup_capture_refused
 test_spawn_secondmate_harness_model_token
 test_spawn_secondmate_harness_codex_sol_pin
 test_spawn_secondmate_harness_model_and_effort_tokens

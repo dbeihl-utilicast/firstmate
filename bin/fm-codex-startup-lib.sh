@@ -11,7 +11,7 @@
 #      Down then Enter selects option 2.
 # Both decisions persist for that repository root. Later worktrees skip them.
 #
-# Prints exactly one of: hooks-down-enter | trust-enter | none
+# Prints exactly one of: hooks-down-enter | trust-enter | ready | none
 
 fm_codex_startup_dialog_action() {  # <pane-text>
   local pane=${1-}
@@ -22,6 +22,10 @@ fm_codex_startup_dialog_action() {  # <pane-text>
   fi
   if printf '%s\n' "$pane" | grep -Fq 'Do you trust the contents of this directory?'; then
     printf 'trust-enter'
+    return 0
+  fi
+  if printf '%s\n' "$pane" | grep -Fq 'Ask Codex to do anything'; then
+    printf 'ready'
     return 0
   fi
   printf 'none'
