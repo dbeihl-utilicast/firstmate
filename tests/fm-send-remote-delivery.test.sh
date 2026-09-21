@@ -454,13 +454,16 @@ SH
 
   rc=0
   send_env "$fb" "$home" "$ssh_log" FM_HERDR_LOG="$dir/herdr.log" \
-    "$SEND" rsm --fire-and-forget 0123456789abcdef "wait for reopen" \
+    "$SEND" rsm --fire-and-forget 0123456789abcdef "corr=fedcba9876543210 wait for reopen" \
     >"$dir/out" 2>"$dir/err" || rc=$?
   expect_code 0 "$rc" "a stopped fire-and-forget remote send must be durable: $(cat "$dir/err")"
   rec=$(remote_inbox_records "$rhome")
   [ -n "$rec" ] || fail "a stopped fire-and-forget remote lane did not receive its durable record"
   grep -Fx 'delivery=fire-and-forget' "$rec" >/dev/null \
     || fail "the remote fire-and-forget record lost its delivery mode"
+  if fm_task_inbox_body "$rec" | grep -q 'corr='; then
+    fail "a stopped fire-and-forget record retained a reply correlation"
+  fi
   [ ! -s "$dir/herdr.log" ] || fail "a stopped fire-and-forget remote lane was rung:"$'\n'"$(cat "$dir/herdr.log")"
   pass "fm-send remote: stopped fire-and-forget delivery does not ring"
 }

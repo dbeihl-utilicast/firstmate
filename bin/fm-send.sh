@@ -673,15 +673,20 @@ fm_send_known_undelivered_cleanup() {
 # delivery-confirm is skipped, when the stopped marker is seen at the
 # locked enqueue. An already-open reused correlation is left in place.
 fm_send_mark_stopped_message() {
-  local body corr
+  local body corr prefix=''
   fm_message_mark_from_firstmate "$MESSAGE" MESSAGE
   body=${MESSAGE#"$FM_FROMFIRST_MARK"}
+  if [ -n "$FIRE_AND_FORGET_ID" ] \
+    && [ "${body:0:26}" = "delivery=$FIRE_AND_FORGET_ID " ]; then
+    prefix=${body:0:26}
+    body=${body:26}
+  fi
   corr=$(fm_pending_reply_extract_corr "${body:0:21}")
   if [ "${body:0:5}" = corr= ] && [ -n "$corr" ]; then
     body=${body:21}
     while [ "${body# }" != "$body" ]; do body=${body# }; done
     while [ "${body#$'\t'}" != "$body" ]; do body=${body#$'\t'}; done
-    MESSAGE="${FM_FROMFIRST_MARK}${body}"
+    MESSAGE="${FM_FROMFIRST_MARK}${prefix}${body}"
   fi
 }
 fm_send_drop_created_pending_reply() {
@@ -690,6 +695,8 @@ fm_send_drop_created_pending_reply() {
       echo "error: known-undelivered pending-reply state could not be discarded for $TARGET_TASK_ID" >&2
       return 1
     fi
+    fm_send_mark_stopped_message
+  elif [ -n "$FIRE_AND_FORGET_ID" ]; then
     fm_send_mark_stopped_message
   fi
   PENDING_REPLY_CORR=
@@ -933,6 +940,7 @@ else
   if [ "$MARK_FROM_FIRSTMATE" = 1 ] && [ -n "$FIRE_AND_FORGET_ID" ]; then
     fm_message_mark_from_firstmate "$MESSAGE" MESSAGE
     MESSAGE="${FM_FROMFIRST_MARK}delivery=${FIRE_AND_FORGET_ID} ${MESSAGE#"$FM_FROMFIRST_MARK"}"
+    [ "$STOPPED_LANE_RESOLVE" != 1 ] || fm_send_mark_stopped_message
     FM_SEND_IDEMPOTENT=1
   elif [ "$MARK_FROM_FIRSTMATE" = 1 ] && [ "$STOPPED_LANE_RESOLVE" = 1 ]; then
     fm_send_mark_stopped_message
