@@ -673,12 +673,19 @@ if [ -n "$TARGET_SELECTOR" ] && [ -n "$TARGET_META" ] && [ "$(fm_meta_get "$TARG
   MARK_FROM_FIRSTMATE=1
   TARGET_TASK_ID=$(fm_send_id_from_meta "$TARGET_META")
 fi
-# A --resolve-key close against a captain-stopped lane records the resolution
-# without minting a reply expectation. Presence of the marker is the only
-# trigger; a quiet, unreachable, or merely dead lane without it still mints.
+# A lane carrying state/<id>.stopped has no worker to acknowledge a send.
+# An ordinary send is refused before any pending-reply is minted. A
+# --resolve-key close still records the resolution without minting one.
+# Presence of the marker is the only trigger; a quiet, unreachable, or
+# merely dead lane without it still mints.
 STOPPED_LANE_RESOLVE=0
-if [ -n "$RESOLVE_KEYS" ] && [ -n "$TARGET_TASK_ID" ] && [ -e "$STATE/$TARGET_TASK_ID.stopped" ]; then
-  STOPPED_LANE_RESOLVE=1
+if [ -n "$TARGET_TASK_ID" ] && [ -e "$STATE/$TARGET_TASK_ID.stopped" ]; then
+  if [ -n "$RESOLVE_KEYS" ]; then
+    STOPPED_LANE_RESOLVE=1
+  else
+    echo "error: secondmate $TARGET_TASK_ID is stopped (state/$TARGET_TASK_ID.stopped); reopen it with bin/fm-secondmate-lane.sh reopen $TARGET_TASK_ID before sending. Nothing was sent." >&2
+    exit 1
+  fi
 fi
 
 # Validate the answerer-closes request before any durable mutation or send: the

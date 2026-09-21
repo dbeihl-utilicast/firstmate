@@ -151,7 +151,10 @@ while IFS='|' read -r id home _window meta; do
       remote_nudge=0
       if printf '%s\n' "$remote_out" | grep -Eq '^(pushed|removed):'; then remote_nudge=1; fi
       [ "$remote_pending" -eq 0 ] || remote_nudge=1
-      if [ "$remote_nudge" -eq 1 ]; then
+      if [ -e "$STATE/$id.stopped" ]; then
+        rm -f -- "$remote_marker"
+        echo "  config-reread: skipped, lane is stopped"
+      elif [ "$remote_nudge" -eq 1 ]; then
         if FM_HOME="$FM_HOME" FM_ROOT_OVERRIDE="$FM_ROOT" FM_STATE_OVERRIDE="$STATE" \
           "$SCRIPT_DIR/fm-send.sh" "fm-$id" "$FM_REMOTE_SECOND_MATE_NUDGE_MESSAGE" >/dev/null 2>&1; then
           rm -f -- "$remote_marker"
@@ -235,10 +238,14 @@ while IFS='|' read -r id home _window meta; do
   if reread_out=$(FM_HOME="$FM_HOME" FM_ROOT_OVERRIDE="$FM_ROOT" \
     FM_STATE_OVERRIDE="$STATE" \
     fm_config_send_reread_nudge "$id" "$home_real" "$report" 2>&1); then
-    if [ -n "$(fm_config_reread_changed_items "$report")" ] || [ "$reread_pending" -eq 1 ]; then
-      printf '  config-reread: sent\n'
+    if printf '%s\n' "$reread_out" | grep -qF 'skipped, lane is stopped'; then
+      printf '  config-reread: skipped, lane is stopped\n'
+    else
+      if [ -n "$(fm_config_reread_changed_items "$report")" ] || [ "$reread_pending" -eq 1 ]; then
+        printf '  config-reread: sent\n'
+      fi
+      [ -z "$reread_out" ] || printf '%s\n' "$reread_out"
     fi
-    [ -z "$reread_out" ] || printf '%s\n' "$reread_out"
   else
     errors=1
     if [ -n "$reread_out" ]; then

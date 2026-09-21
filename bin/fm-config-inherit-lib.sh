@@ -41,6 +41,8 @@
 # After successful config/* changes under an already-running secondmate, callers
 # invoke fm_config_send_reread_nudge so the live agent re-reads exact post-write
 # bytes (spawn/respawn already re-reads at launch and needs no redundant nudge).
+# A lane carrying state/<id>.stopped is skipped in one line rather than sent a
+# doorbell nobody will acknowledge.
 #
 # Extensible by design: FM_INHERITABLE_CONFIG is the single declared list of
 # config-dir-relative items the primary propagates. Add an item there and every
@@ -1073,7 +1075,7 @@ fm_config_reread_quarantine_pending() {
 # non-zero - never claim the live agent reread the values.
 fm_config_send_reread_nudge() {
   local id=$1 dest_home=$2 report=$3
-  local dest_home_abs state source_home_abs changed_items pending_paths stage_paths delivery_paths
+  local dest_home_abs parent_state state source_home_abs changed_items pending_paths stage_paths delivery_paths
   local stage_path instruction_path current_stage_path exact_tmp
   local send_failures retry_report_paths retry_report_path retry_stage_path retry_record_path
   [ -n "$id" ] || return 1
@@ -1083,6 +1085,13 @@ fm_config_send_reread_nudge() {
     printf 'CONFIG_REREAD: secondmate %s: send failed: destination home is not readable\n' "$id"
     return 1
   }
+  parent_state="${FM_STATE_OVERRIDE:-${FM_HOME:+$FM_HOME/state}}"
+  if [ -n "$parent_state" ] && [ -e "$parent_state/$id.stopped" ]; then
+    printf 'CONFIG_REREAD: secondmate %s: skipped, lane is stopped\n' "$id"
+    source_home_abs=$(cd "${FM_HOME:-}" 2>/dev/null && pwd -P || true)
+    fm_config_reread_discard_pending "$dest_home_abs" "$id" "$source_home_abs" || true
+    return 0
+  fi
   state="$dest_home_abs/${FM_CONFIG_REREAD_INSTRUCTION_PREFIX_REL%/*}"
   changed_items=$(fm_config_reread_changed_items "$report")
   pending_paths=""
