@@ -36,7 +36,8 @@ Deliver lifecycle actions only through `../../../bin/fm-control.sh <task-id> int
 Never type an interrupt key or exit command through `fm-send`, where routing-marked lifecycle text becomes chat.
 Trust handling is complete only when inspection proves the target started processing its instructions; delivery success alone is not proof.
 Qwen and agy are verified only for crewmate and scout work, never a secondmate or primary.
-Codex is verified for crewmate, scout, and secondmate work; `codex-foundry-luna` remains crewmate and scout only.
+Codex is verified for crewmate and scout work and for secondmate work on Herdr; [`docs/verification/codex-secondmate.md`](../../../docs/verification/codex-secondmate.md) owns that evidence.
+`codex-foundry-luna` remains crewmate and scout only.
 
 ## Detection
 

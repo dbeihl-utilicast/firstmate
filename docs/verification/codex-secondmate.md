@@ -23,14 +23,6 @@ The proof used a disposable parent home, a disposable secondmate home, and `bin/
 The same model flag is the secondmate launch: `codex --model 'gpt-5.6-sol' --dangerously-bypass-approvals-and-sandbox "$(bin/fm-operational-input.sh encode launch-brief < data/charter.md)"`.
 That command does not start `bin/fm-foundry-luna-proxy.py`.
 
-Before this change, bootstrap classified `gpt-5.6-sol` as an unclassified ordinary-dispatch model:
-
-```text
-CREW_DISPATCH: invalid config/crew-dispatch.json - v2 unclassified model: gpt-5.6-sol
-```
-
-The builtin ordinary list and `docs/examples/crew-dispatch.json` had `gpt-5.6-terra` and `gpt-5.6-luna` plus the leftover name `gpt-5.6-sol-xhigh`, and no `codex-sol` profile.
-
 ## First-run dialogs
 
 A fresh secondmate clone painted two dialogs, in order.
@@ -66,7 +58,7 @@ Hooks review, because the firstmate-shaped home ships `.codex/hooks.json`:
 
 Enter on option 1 opens the review UI and leaves the unattended pane idle with no turn.
 Down then Enter selects option 2.
-`bin/fm-spawn.sh` now dismisses both after launch.
+`bin/fm-spawn.sh` dismisses both after launch.
 `tests/fm-codex-harness.test.sh` pins the classifier.
 
 ## Completed turn
@@ -94,5 +86,4 @@ On Herdr, Codex busy is the native `agent_status` (`working` / `idle`), not the 
 bin/fm-test-run.sh tests/fm-codex-harness.test.sh tests/fm-bootstrap.test.sh tests/fm-secondmate-harness.test.sh
 ```
 
-The live proof is this dated record plus the disposable Herdr lab procedure in the shipping PR.
-It is not an opt-in CI live guard: it spends a Codex turn.
+This live proof is not an opt-in CI guard because it spends a Codex turn.
