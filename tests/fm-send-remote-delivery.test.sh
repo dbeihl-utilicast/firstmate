@@ -437,6 +437,51 @@ SH
   pass "fm-send remote: a stopped lane records without a pending reply or doorbell"
 }
 
+test_remote_stopped_fire_and_forget_skips_remote_doorbell() {
+  local dir fb ssh_log home rhome rc rec
+  dir="$TMP_ROOT/remote-stopped-fire-and-forget"; mkdir -p "$dir"
+  fb=$(make_stubs "$dir"); ssh_log="$dir/ssh.log"; : > "$ssh_log"
+  cat > "$fb/herdr" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$FM_HERDR_LOG"
+exit 0
+SH
+  chmod +x "$fb/herdr"
+  rhome=$(setup_remote_secondmate_home remote-stopped-fire-and-forget)
+  home=$(setup_remote_parent_home remote-stopped-fire-and-forget "$rhome")
+  printf 'stopped\n' > "$home/state/rsm.stopped"
+  : > "$dir/herdr.log"
+
+  rc=0
+  send_env "$fb" "$home" "$ssh_log" FM_HERDR_LOG="$dir/herdr.log" \
+    "$SEND" rsm --fire-and-forget 0123456789abcdef "wait for reopen" \
+    >"$dir/out" 2>"$dir/err" || rc=$?
+  expect_code 0 "$rc" "a stopped fire-and-forget remote send must be durable: $(cat "$dir/err")"
+  rec=$(remote_inbox_records "$rhome")
+  [ -n "$rec" ] || fail "a stopped fire-and-forget remote lane did not receive its durable record"
+  grep -Fx 'delivery=fire-and-forget' "$rec" >/dev/null \
+    || fail "the remote fire-and-forget record lost its delivery mode"
+  [ ! -s "$dir/herdr.log" ] || fail "a stopped fire-and-forget remote lane was rung:"$'\n'"$(cat "$dir/herdr.log")"
+  pass "fm-send remote: stopped fire-and-forget delivery does not ring"
+}
+
+test_remote_stopped_retry_is_idempotent() {
+  local dir fb ssh_log home rhome rc count
+  dir="$TMP_ROOT/remote-stopped-retry"; mkdir -p "$dir"
+  fb=$(make_stubs "$dir"); ssh_log="$dir/ssh.log"; : > "$ssh_log"
+  rhome=$(setup_remote_secondmate_home remote-stopped-retry)
+  home=$(setup_remote_parent_home remote-stopped-retry "$rhome")
+  printf 'stopped\n' > "$home/state/rsm.stopped"
+
+  rc=0
+  send_env "$fb" "$home" "$ssh_log" FM_FAKE_SSH_AMBIGUOUS=1 \
+    "$SEND" rsm "wait for reopen" >"$dir/out" 2>"$dir/err" || rc=$?
+  [ "$rc" -ne 0 ] || fail "an ambiguous stopped remote delivery must remain unconfirmed"
+  count=$(remote_inbox_records "$rhome" | grep -c . || true)
+  [ "$count" = 1 ] || fail "an ambiguous stopped remote retry duplicated its durable record: $count"
+  pass "fm-send remote: stopped retry reuses its durable record"
+}
+
 test_remote_send_revalidates_after_retirement_lock() {
   local dir rhome meta lock ready release rc sender_pid holder_pid
   dir="$TMP_ROOT/remote-retire-race"; mkdir -p "$dir"
@@ -824,6 +869,8 @@ test_remote_rerun_is_idempotent
 test_remote_retry_failure_preserves_ambiguous_expectation
 test_remote_fire_and_forget_never_arms_reply_recovery
 test_remote_stopped_lane_records_without_remote_doorbell
+test_remote_stopped_fire_and_forget_skips_remote_doorbell
+test_remote_stopped_retry_is_idempotent
 test_remote_send_revalidates_after_retirement_lock
 test_remote_send_revalidates_parent_route_after_retirement_lock
 test_remote_expected_host_revalidates_final_route

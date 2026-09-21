@@ -672,22 +672,25 @@ fm_send_known_undelivered_cleanup() {
 # A just-created pending-reply for this send is discarded, and later
 # delivery-confirm is skipped, when the stopped marker is seen at the
 # locked enqueue. An already-open reused correlation is left in place.
+fm_send_mark_stopped_message() {
+  local body corr
+  fm_message_mark_from_firstmate "$MESSAGE" MESSAGE
+  body=${MESSAGE#"$FM_FROMFIRST_MARK"}
+  corr=$(fm_pending_reply_extract_corr "${body:0:21}")
+  if [ "${body:0:5}" = corr= ] && [ -n "$corr" ]; then
+    body=${body:21}
+    while [ "${body# }" != "$body" ]; do body=${body# }; done
+    while [ "${body#$'\t'}" != "$body" ]; do body=${body#$'\t'}; done
+    MESSAGE="${FM_FROMFIRST_MARK}${body}"
+  fi
+}
 fm_send_drop_created_pending_reply() {
-  local body
   if [ "$PENDING_REPLY_CREATED" = 1 ] && [ -n "$PENDING_REPLY_CORR" ]; then
     if ! fm_pending_reply_discard_undelivered "$STATE" "$PENDING_REPLY_CORR"; then
       echo "error: known-undelivered pending-reply state could not be discarded for $TARGET_TASK_ID" >&2
       return 1
     fi
-    body=${MESSAGE#"$FM_FROMFIRST_MARK"}
-    case "$body" in
-      "corr=$PENDING_REPLY_CORR"*)
-        body=${body#"corr=$PENDING_REPLY_CORR"}
-        while [ "${body# }" != "$body" ]; do body=${body# }; done
-        while [ "${body#$'\t'}" != "$body" ]; do body=${body#$'\t'}; done
-        MESSAGE="${FM_FROMFIRST_MARK}${body}"
-        ;;
-    esac
+    fm_send_mark_stopped_message
   fi
   PENDING_REPLY_CORR=
   PENDING_REPLY_CREATED=0
@@ -932,9 +935,7 @@ else
     MESSAGE="${FM_FROMFIRST_MARK}delivery=${FIRE_AND_FORGET_ID} ${MESSAGE#"$FM_FROMFIRST_MARK"}"
     FM_SEND_IDEMPOTENT=1
   elif [ "$MARK_FROM_FIRSTMATE" = 1 ] && [ "$STOPPED_LANE_RESOLVE" = 1 ]; then
-    # Marked so a later reopen still sees a from-firstmate close, but never a
-    # pending-reply expectation: nobody remains who can acknowledge it.
-    fm_message_mark_from_firstmate "$MESSAGE" MESSAGE
+    fm_send_mark_stopped_message
   elif [ "$MARK_FROM_FIRSTMATE" = 1 ]; then
     # Reuse an existing correlation id for recovery resends; otherwise create a
     # durable parent expectation before delivery. Transport success never
@@ -1050,6 +1051,7 @@ else
       echo "error: steer not sent to remote secondmate $TARGET_REMOTE_ID: its parent task retired or changed route during target resolution" >&2
       exit 1
     fi
+    STOPPED_LANE_RESOLVE=0
     if [ -n "$TARGET_TASK_ID" ] && [ -e "$STATE/$TARGET_TASK_ID.stopped" ]; then
       STOPPED_LANE_RESOLVE=1
       if ! fm_send_drop_created_pending_reply; then
@@ -1063,6 +1065,9 @@ else
     if [ -n "$FIRE_AND_FORGET_ID" ]; then
       REMOTE_SEND_ARGS+=(fire-and-forget)
     elif [ "$STOPPED_LANE_RESOLVE" = 1 ]; then
+      REMOTE_SEND_ARGS+=(stopped)
+    fi
+    if [ "$STOPPED_LANE_RESOLVE" = 1 ] && [ -n "$FIRE_AND_FORGET_ID" ]; then
       REMOTE_SEND_ARGS+=(stopped)
     fi
     # Each transport attempt is bounded by FM_SEND_REMOTE_BUDGET seconds.
@@ -1167,6 +1172,7 @@ else
       echo "error: steer not sent to $INBOX_TASK_ID: the task retired or changed endpoint during target resolution" >&2
       exit 1
     fi
+    STOPPED_LANE_RESOLVE=0
     if [ -n "$TARGET_TASK_ID" ] && [ -e "$STATE/$TARGET_TASK_ID.stopped" ]; then
       STOPPED_LANE_RESOLVE=1
       if ! fm_send_drop_created_pending_reply; then

@@ -381,12 +381,15 @@ test_ordinary_send_to_stopped_lane_records_without_pending_reply() {
   err="$dir/send.err"
   fm_write_secondmate_meta "$dir/home/state/domain.meta" "$dir/home" "sess:fm-domain"
   printf 'stopped\n' > "$dir/home/state/domain.stopped"
-  run_send "$dir" "$err" -- fm-domain "please reread config"; rc=$?
+  run_send "$dir" "$err" -- fm-domain "corr=0123456789abcdef please reread config"; rc=$?
   [ "$rc" -eq 0 ] || fail "an ordinary send to a stopped lane must be recorded, not refused: $(cat "$err")"
   [ -f "$dir/home/state/domain.inbox/001.msg" ] \
     || fail "an ordinary send to a stopped lane must leave a durable inbox record"
   body=$(record_body _ "$dir/home/state/domain.inbox/001.msg")
   assert_contains "$body" "please reread config" "the recorded body should carry the send text"
+  case "$body" in
+    *'corr='*) fail "a stopped-lane record must not retain a reply correlation: $body" ;;
+  esac
   n=$(find "$dir/home/state/pending-replies" -type f -not -name '.*' 2>/dev/null | wc -l | tr -d ' ')
   [ "$n" = 0 ] || fail "an ordinary send to a stopped lane minted $n pending-reply record(s); want zero"
   [ ! -s "$dir/send.log" ] || fail "a stopped lane was rung:"$'\n'"$(cat "$dir/send.log")"
