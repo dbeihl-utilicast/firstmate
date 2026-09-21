@@ -80,6 +80,7 @@ The gateway now names exactly one stage in the worker-visible error body (and on
 | `az-token` | az exits nonzero, is missing, or returns an unreadable or already-expired token | `az could not produce a token` plus az's own stderr; no retry |
 | `foundry-rejected-token` | az minted a token and Foundry answered 401/403 | `az produced a token and Foundry rejected it`; Foundry's subscription-key sentence is not forwarded |
 | `deployment-or-host` | Foundry 404/`DeploymentNotFound`, or the host cannot be connected | `the Foundry deployment or host is wrong` |
+| `local-allowlist` | the request's model is not on this gateway's allowlist | a local allowlist refusal, not a Foundry deployment or host fault |
 | `unknown` | any other upstream error status | `unknown reason`, and not one of the three stages above |
 
 Pi's `foundry` provider does not use this gateway. It sends `~/.pi/agent/models.json`'s literal `apiKey` to the Foundry `baseUrl`. The same Foundry 401 body on that path is a key rejection, reprinted by `bin/fm-foundry-luna-proxy.py classify --credential api-key`.
@@ -99,10 +100,10 @@ Verified 2026-09-21 on this Spark host, against a recorder and then the live gat
 
 ## The deployment allowlist
 
-The captain authorizes `gpt-5.6-luna` only, and Foundry names the deployment in two independent places.
+The captain authorizes `gpt-5.6-luna` for fleet dispatch, and Foundry names the deployment in two independent places.
 
 `bin/fm-foundry-luna-proxy.py` pins both.
-The JSON body's `model` must be exactly `gpt-5.6-luna`.
+The JSON body's `model` must be exactly `gpt-5.6-luna` on the per-launch `run` gateway; the long-lived `serve` gateway admits `gpt-5.6-luna`, `gpt-5.6-sol`, and `gpt-5.6-terra` for Pi.
 The request path must be exactly `/openai/v1/responses`, so a deployment-scoped URL such as `/openai/deployments/gpt-5.6-terra/chat/completions?api-version=...` carrying an authorized body model is refused locally, before a token is fetched and before any byte leaves the host.
 `bin/fm-spawn.sh` refuses a `--model` other than `gpt-5.6-luna` at spawn time as well.
 
