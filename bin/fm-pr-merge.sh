@@ -74,8 +74,9 @@
 # A GitHub merge is refused, before anything is recorded, while
 # bin/fm-pr-poll.sh --gate lists an unanswered blocking review finding on the
 # pull request, whether the PR was registered as a draft or as ready, and also
-# when that finding state cannot be read (unreadable, truncated, or of a shape
-# the gate does not understand). --override-review-findings <pr-url> is the
+# when that finding state cannot be read (gh missing, authentication failed,
+# unreadable, truncated, or of a shape the gate does not understand), each named
+# distinctly. --override-review-findings <pr-url> is the
 # captain's per-PR override of a listed finding: its value must equal this
 # call's PR URL exactly, it never covers an unreadable state, it is recorded in
 # the task's metadata as review_findings_override=<url>, and the merge report
@@ -882,12 +883,17 @@ gitlab_confirm_merged() {
 REVIEW_OVERRIDDEN=
 review_gate_at_merge() {
   local rows rc=0 list='' id author gate_config="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
+  if ! command -v gh >/dev/null 2>&1; then
+    echo "error: not merging $URL: gh is not installed or not on PATH, so the review threads could not be read and unanswered blocking findings cannot be ruled out" >&2
+    return 1
+  fi
   rows=$(FM_HOME="$FM_HOME" FM_CONFIG_OVERRIDE="$gate_config" \
     "$SCRIPT_DIR/fm-pr-poll.sh" --gate github "$URL" "$FM_PR_HOST" "$FM_PR_PATH" "$PR_NUMBER" 2>/dev/null) || rc=$?
   case "$rc" in
     0) ;;
     2) echo "error: not merging $URL: it has more review threads than one page reads, so unanswered blocking findings cannot be ruled out" >&2; return 1 ;;
     3) echo "error: not merging $URL: its review data has a shape the review gate does not understand, so unanswered blocking findings cannot be ruled out" >&2; return 1 ;;
+    4) echo "error: not merging $URL: GitHub authentication failed, so the review threads could not be read and unanswered blocking findings cannot be ruled out; log in again (gh auth login)" >&2; return 1 ;;
     *) echo "error: not merging $URL: the review threads could not be read, so unanswered blocking findings cannot be ruled out" >&2; return 1 ;;
   esac
   [ -n "$rows" ] || return 0

@@ -175,6 +175,7 @@ case "\${1:-} \${2:-}" in
   "api graphql")
     case " \$* " in *reviewThreads*)
       [ "\${FM_TEST_GH_THREADS_FAIL:-0}" = 0 ] || exit 1
+      [ "\${FM_TEST_GH_THREADS_AUTH:-0}" = 0 ] || { echo 'HTTP 401: Bad credentials' >&2; exit 1; }
       f=; p=; for a in "\$@"; do [ "\$p" != --jq ] || f=\$a; p=\$a; done
       [ -z "\${FM_TEST_GH_THREADS:-}" ] || jq -r "\$f" "\$FM_TEST_GH_THREADS"
       exit 0 ;; esac
@@ -210,6 +211,7 @@ case "${1:-} ${2:-}" in
   "api graphql")
     case " $* " in *reviewThreads*)
       [ "${FM_TEST_GH_THREADS_FAIL:-0}" = 0 ] || exit 1
+      [ "${FM_TEST_GH_THREADS_AUTH:-0}" = 0 ] || { echo 'HTTP 401: Bad credentials' >&2; exit 1; }
       f=; p=; for a in "$@"; do [ "$p" != --jq ] || f=$a; p=$a; done
       [ -z "${FM_TEST_GH_THREADS:-}" ] || jq -r "$f" "$FM_TEST_GH_THREADS"
       exit 0 ;; esac
@@ -243,6 +245,7 @@ case "\${1:-} \${2:-}" in
   "api graphql")
     case " \$* " in *reviewThreads*)
       [ "\${FM_TEST_GH_THREADS_FAIL:-0}" = 0 ] || exit 1
+      [ "\${FM_TEST_GH_THREADS_AUTH:-0}" = 0 ] || { echo 'HTTP 401: Bad credentials' >&2; exit 1; }
       f=; p=; for a in "\$@"; do [ "\$p" != --jq ] || f=\$a; p=\$a; done
       [ -z "\${FM_TEST_GH_THREADS:-}" ] || jq -r "\$f" "\$FM_TEST_GH_THREADS"
       exit 0 ;; esac
@@ -873,6 +876,7 @@ case "${1:-} ${2:-}" in
   "api graphql")
     case " $* " in *reviewThreads*)
       [ "${FM_TEST_GH_THREADS_FAIL:-0}" = 0 ] || exit 1
+      [ "${FM_TEST_GH_THREADS_AUTH:-0}" = 0 ] || { echo 'HTTP 401: Bad credentials' >&2; exit 1; }
       f=; p=; for a in "$@"; do [ "$p" != --jq ] || f=$a; p=$a; done
       [ -z "${FM_TEST_GH_THREADS:-}" ] || jq -r "$f" "$FM_TEST_GH_THREADS"
       exit 0 ;; esac
@@ -1208,6 +1212,46 @@ test_github_merge_refused_when_finding_state_unreadable() {
   assert_grep 'shape the review gate does not understand' "$case_dir/stderr" \
     "review-gate-unreadable: the refusal did not say the shape was not understood"
   pass "fm-pr-merge refuses a merge whose review finding state cannot be read"
+}
+
+test_github_merge_names_a_missing_gh_and_a_failed_login_distinctly() {
+  local case_dir ghless_path rc
+  case_dir=$(make_case review-gate-gh-missing)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" 5454545454545454545454545454545454545454
+  rm "$case_dir/fakebin/gh"
+  ghless_path="$case_dir/path-without-gh"
+  mirror_path_without "$ghless_path" gh "$case_dir/fakebin"
+  : > "$case_dir/gh-axi.log"
+  set +e
+  PATH="$ghless_path" run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/95 \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 1 "$rc" "review-gate-gh-missing: a merge without gh must refuse"
+  assert_grep 'gh is not installed or not on PATH' "$case_dir/stderr" \
+    "review-gate-gh-missing: the refusal did not name the missing gh"
+  assert_no_grep 'authentication failed' "$case_dir/stderr" \
+    "review-gate-gh-missing: a missing gh was reported as an authentication failure"
+
+  case_dir=$(make_case review-gate-auth-failed)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" 5555555555555555555555555555555555555555
+  write_github_outcome "$case_dir" MERGED true false main
+  : > "$case_dir/gh-axi.log"
+  set +e
+  FM_TEST_GH_THREADS_AUTH=1 run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/96 \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 1 "$rc" "review-gate-auth-failed: a merge with a failed login must refuse"
+  assert_grep 'GitHub authentication failed' "$case_dir/stderr" \
+    "review-gate-auth-failed: the refusal did not name the failed login"
+  assert_no_grep 'not installed' "$case_dir/stderr" \
+    "review-gate-auth-failed: a failed login was reported as a missing gh"
+  assert_no_grep 'pr merge' "$case_dir/gh-axi.log" \
+    "review-gate-auth-failed: a merge was attempted after a failed login"
+  pass "fm-pr-merge names a missing gh and a failed login distinctly"
 }
 
 test_github_zero_exit_queue_required_refuses_with_exact_retry() {
@@ -2046,7 +2090,8 @@ case "\${1:-} \${2:-}" in
     esac
     ;;
   "pr merge") printf 'merged:\n  number: %s\n  status: ok\n' "\${3:-}" ; exit 0 ;;
-  "api graphql") case " \$* " in *reviewThreads*) [ "\${FM_TEST_GH_THREADS_FAIL:-0}" = 0 ] || exit 1; exit 0 ;; esac; cat "\$FM_TEST_GH_OUTCOME" ; exit 0 ;;
+  "api graphql") case " \$* " in *reviewThreads*) [ "\${FM_TEST_GH_THREADS_FAIL:-0}" = 0 ] || exit 1
+      [ "\${FM_TEST_GH_THREADS_AUTH:-0}" = 0 ] || { echo 'HTTP 401: Bad credentials' >&2; exit 1; }; exit 0 ;; esac; cat "\$FM_TEST_GH_OUTCOME" ; exit 0 ;;
   api\ *) cat "\$FM_TEST_GH_RULES" ; exit 0 ;;
 esac
 exit 0
@@ -2293,6 +2338,7 @@ case "${1:-} ${2:-}" in
   "api graphql")
     case " $* " in *reviewThreads*)
       [ "${FM_TEST_GH_THREADS_FAIL:-0}" = 0 ] || exit 1
+      [ "${FM_TEST_GH_THREADS_AUTH:-0}" = 0 ] || { echo 'HTTP 401: Bad credentials' >&2; exit 1; }
       f=; p=; for a in "$@"; do [ "$p" != --jq ] || f=$a; p=$a; done
       [ -z "${FM_TEST_GH_THREADS:-}" ] || jq -r "$f" "$FM_TEST_GH_THREADS"
       exit 0 ;; esac
@@ -2885,3 +2931,4 @@ test_backend_override_bypasses_unreadable_user_config
 test_github_merge_refused_for_unanswered_blocking_finding
 test_github_merge_allowed_after_override_and_recorded
 test_github_merge_refused_when_finding_state_unreadable
+test_github_merge_names_a_missing_gh_and_a_failed_login_distinctly
