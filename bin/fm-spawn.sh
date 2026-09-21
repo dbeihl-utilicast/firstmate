@@ -428,6 +428,8 @@ fm_backlog_directory_present "$STATE" "state directory" || {
 . "$SCRIPT_DIR/fm-backend.sh"
 # shellcheck source=bin/fm-control-lib.sh
 . "$SCRIPT_DIR/fm-control-lib.sh"
+# shellcheck source=bin/fm-codex-startup-lib.sh
+. "$SCRIPT_DIR/fm-codex-startup-lib.sh"
 # shellcheck source=bin/fm-qwen-lib.sh
 . "$SCRIPT_DIR/fm-qwen-lib.sh"
 # shellcheck source=bin/fm-gate-refuse-lib.sh
@@ -3112,6 +3114,64 @@ agy_post_launch_pane() {  # <plain-pane-capture>
   '
 }
 
+# Codex can stop on a directory-trust dialog and, on a firstmate-shaped home
+# that ships .codex/hooks.json, a hooks-review dialog. Enter on the hooks
+# dialog confirms "Review hooks" and wedges the pane; Down then Enter selects
+# "Trust all and continue". bin/fm-codex-startup-lib.sh owns the classifier.
+spawn_capture_pane() {
+  case "$BACKEND" in
+    tmux) tmux capture-pane -p -J -t "$T" -S -120 2>/dev/null || true ;;
+    herdr) fm_backend_herdr_capture "$T" 200 2>/dev/null || true ;;
+    *) printf '' ;;
+  esac
+}
+
+codex_wait_for_startup_dialogs() {
+  local pane action i=0 quiet=0 seen=0
+  local max=${FM_CODEX_READY_POLLS:-40} interval=${FM_CODEX_POLL_INTERVAL:-0.5}
+  while [ "$i" -lt "$max" ]; do
+    pane=$(spawn_capture_pane)
+    action=$(fm_codex_startup_dialog_action "$pane")
+    case "$action" in
+      hooks-down-enter)
+        seen=1
+        quiet=0
+        spawn_send_key "$T" Down || return 1
+        sleep 0.3
+        spawn_send_key "$T" Enter || return 1
+        ;;
+      trust-enter)
+        seen=1
+        quiet=0
+        spawn_send_key "$T" Enter || return 1
+        ;;
+      none)
+        if [ "$seen" -eq 1 ]; then
+          return 0
+        fi
+        # An empty capture is a test stub or a pane that has not painted; do
+        # not wait the trusted-root budget on it.
+        if [ -z "$pane" ]; then
+          quiet=$((quiet + 1))
+          [ "$quiet" -ge 2 ] && return 0
+        else
+          quiet=$((quiet + 1))
+          # Already-trusted roots never paint a dialog; stop after ~4s of none.
+          [ "$quiet" -ge 8 ] && return 0
+        fi
+        ;;
+    esac
+    i=$((i + 1))
+    [ "$i" -ge "$max" ] || sleep "$interval"
+  done
+  pane=$(spawn_capture_pane)
+  action=$(fm_codex_startup_dialog_action "$pane")
+  [ "$action" = none ] && return 0
+  echo "error: Codex startup dialog still on screen in $T ($action); refusing to publish a worker that cannot begin its turn" >&2
+  unpublished_endpoint_cleanup
+  return 1
+}
+
 agy_wait_for_delivery() {
   local pane raw i=0 accepted=0 seen=0 max=${FM_AGY_READY_POLLS:-60} interval=${FM_AGY_POLL_INTERVAL:-0.5}
   while [ "$i" -lt "$max" ]; do
@@ -3992,6 +4052,9 @@ if [ "${HERDR_PROJECTED:-0}" -eq 1 ]; then
   spawn_herdr_presentation_order_lock_release
 fi
 spawn_send_key "$T" Enter
+if [ "$HARNESS" = codex ] || [ "$HARNESS" = codex-foundry-luna ]; then
+  codex_wait_for_startup_dialogs || exit 1
+fi
 if [ "$HARNESS" = agy ]; then
   AGY_DELIVERY_RC=0
   agy_wait_for_delivery || AGY_DELIVERY_RC=$?

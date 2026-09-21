@@ -2815,6 +2815,7 @@ fm_backend_herdr_normalize_key() {  # <key>
   case "$1" in
     Enter|enter) printf 'enter' ;;
     Escape|escape|Esc|esc) printf 'escape' ;;
+    Down|down) printf 'down' ;;
     C-c|c-c|ctrl+c|Ctrl+C) printf 'ctrl+c' ;;
     # C-u clears a composer line. fm-send.sh's muse interrupt path needs it to
     # drop the prompt muse restores into the composer after Escape.
