@@ -176,7 +176,9 @@ _fm_task_inbox_write_record_locked() {  # <inbox-dir> <text> [delivery-mode]
   if ! {
     printf 'schema=%s\n' "$FM_TASK_INBOX_SCHEMA"
     printf 'at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    [ "$delivery_mode" != fire-and-forget ] || printf 'delivery=fire-and-forget\n'
+    case "$delivery_mode" in
+      fire-and-forget|stopped) printf 'delivery=%s\n' "$delivery_mode" ;;
+    esac
     printf -- '--\n'
     printf '%s' "$text"
   } > "$tmp"; then
@@ -220,7 +222,7 @@ fm_task_inbox_write() {  # <state-dir> <task-id> <text> [delivery-mode]
 # practice because a marked secondmate request embeds a per-request correlation
 # token in its body.
 fm_task_inbox_write_idempotent() {  # <state-dir> <task-id> <text> [delivery-mode] [dedup-handled]
-  local state=$1 task=$2 text=$3 delivery_mode=${4:-} dedup_handled=${5:-0} dir lock want have f rec='' reused=0 relocated=0 relocated_base='' status=0
+  local state=$1 task=$2 text=$3 delivery_mode=${4:-} dedup_handled=${5:-0} dir lock want have f record_mode rec='' reused=0 relocated=0 relocated_base='' status=0
   dir=$(fm_task_inbox_dir "$state" "$task")
   mkdir -p "$dir/handled" || return 1
   lock="$dir/.seq.lock"
@@ -238,18 +240,17 @@ fm_task_inbox_write_idempotent() {  # <state-dir> <task-id> <text> [delivery-mod
             && [ "${f##*/}" != "$relocated_base" ]; then
             continue
           fi
-          if [ "$delivery_mode" = fire-and-forget ]; then
-            if ! fm_task_inbox_is_fire_and_forget "$f"; then
-              if [ ! -e "$f" ]; then
-                relocated=1
-                relocated_base=${f##*/}
-                break
-              fi
-              continue
-            fi
-          elif fm_task_inbox_is_fire_and_forget "$f"; then
-            continue
-          elif [ ! -e "$f" ]; then
+          if ! record_mode=$(fm_task_inbox_delivery_mode "$f"); then
+            relocated=1
+            relocated_base=${f##*/}
+            break
+          fi
+          case "$delivery_mode" in
+            fire-and-forget) [ "$record_mode" = fire-and-forget ] || continue ;;
+            stopped) [ "$record_mode" = stopped ] || continue ;;
+            *) case "$record_mode" in fire-and-forget|stopped) continue ;; esac ;;
+          esac
+          if [ ! -e "$f" ]; then
             relocated=1
             relocated_base=${f##*/}
             break
@@ -499,7 +500,7 @@ fm_task_inbox_ring() {  # <backend> <target> <record-path> [expected-label]
   return 0
 }
 
-fm_task_inbox_is_fire_and_forget() {  # <record-path>
+fm_task_inbox_delivery_mode() {  # <record-path>
   local rec=$1
   if [ ! -f "$rec" ]; then
     rec="${rec%/*}/handled/${rec##*/}"
@@ -507,9 +508,17 @@ fm_task_inbox_is_fire_and_forget() {  # <record-path>
   fi
   awk '
     $0 == "--" { exit }
-    $0 == "delivery=fire-and-forget" { found=1 }
-    END { exit(found ? 0 : 1) }
+    $0 == "delivery=fire-and-forget" { mode="fire-and-forget" }
+    $0 == "delivery=stopped" { mode="stopped" }
+    END { print mode }
   ' "$rec"
+}
+
+fm_task_inbox_is_fire_and_forget() {  # <record-path>
+  case "$(fm_task_inbox_delivery_mode "$1")" in
+    fire-and-forget|stopped) return 0 ;;
+  esac
+  return 1
 }
 
 # Oldest escalation-tracked unhandled record, or fail when none is due.

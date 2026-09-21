@@ -669,28 +669,52 @@ fm_send_known_undelivered_cleanup() {
     fm_pending_reply_reset_known_undelivered "$STATE" "$PENDING_REPLY_CORR"
   fi
 }
-fm_send_refuse_stopped_delivery() {
-  fm_send_known_undelivered_cleanup || \
-    echo "error: known-undelivered pending-reply state could not be reset for $TARGET_TASK_ID" >&2
-  echo "error: secondmate $TARGET_TASK_ID is stopped (state/$TARGET_TASK_ID.stopped); reopen it with bin/fm-secondmate-lane.sh reopen $TARGET_TASK_ID before sending. Nothing was sent." >&2
+# A just-created pending-reply for this send is discarded, and later
+# delivery-confirm is skipped, when the stopped marker is seen at the
+# locked enqueue. An already-open reused correlation is left in place.
+fm_send_mark_stopped_message() {
+  local body corr prefix=''
+  fm_message_mark_from_firstmate "$MESSAGE" MESSAGE
+  body=${MESSAGE#"$FM_FROMFIRST_MARK"}
+  if [ -n "$FIRE_AND_FORGET_ID" ] \
+    && [ "${body:0:26}" = "delivery=$FIRE_AND_FORGET_ID " ]; then
+    prefix=${body:0:26}
+    body=${body:26}
+  fi
+  corr=$(fm_pending_reply_extract_corr "${body:0:21}")
+  if [ "${body:0:5}" = corr= ] && [ -n "$corr" ]; then
+    body=${body:21}
+    while [ "${body# }" != "$body" ]; do body=${body# }; done
+    while [ "${body#$'\t'}" != "$body" ]; do body=${body#$'\t'}; done
+    MESSAGE="${FM_FROMFIRST_MARK}${prefix}${body}"
+  fi
+}
+fm_send_drop_created_pending_reply() {
+  if [ "$PENDING_REPLY_CREATED" = 1 ] && [ -n "$PENDING_REPLY_CORR" ]; then
+    if ! fm_pending_reply_discard_undelivered "$STATE" "$PENDING_REPLY_CORR"; then
+      echo "error: known-undelivered pending-reply state could not be discarded for $TARGET_TASK_ID" >&2
+      return 1
+    fi
+    fm_send_mark_stopped_message
+  elif [ -n "$FIRE_AND_FORGET_ID" ]; then
+    fm_send_mark_stopped_message
+  fi
+  PENDING_REPLY_CORR=
+  PENDING_REPLY_CREATED=0
 }
 if [ -n "$TARGET_SELECTOR" ] && [ -n "$TARGET_META" ] && [ "$(fm_meta_get "$TARGET_META" kind)" = secondmate ]; then
   MARK_FROM_FIRSTMATE=1
   TARGET_TASK_ID=$(fm_send_id_from_meta "$TARGET_META")
 fi
 # A lane carrying state/<id>.stopped has no worker to acknowledge a send.
-# An ordinary send is refused before any pending-reply is minted. A
-# --resolve-key close still records the resolution without minting one.
-# Presence of the marker is the only trigger; a quiet, unreachable, or
-# merely dead lane without it still mints.
+# The durable inbox record is still written so a later reopen can take it.
+# No pending-reply is minted, and the doorbell is not rung. A --resolve-key
+# close still records the resolution without minting one. Presence of the
+# marker is the only trigger; a quiet, unreachable, or merely dead lane
+# without it still mints.
 STOPPED_LANE_RESOLVE=0
 if [ -n "$TARGET_TASK_ID" ] && [ -e "$STATE/$TARGET_TASK_ID.stopped" ]; then
-  if [ -n "$RESOLVE_KEYS" ]; then
-    STOPPED_LANE_RESOLVE=1
-  else
-    echo "error: secondmate $TARGET_TASK_ID is stopped (state/$TARGET_TASK_ID.stopped); reopen it with bin/fm-secondmate-lane.sh reopen $TARGET_TASK_ID before sending. Nothing was sent." >&2
-    exit 1
-  fi
+  STOPPED_LANE_RESOLVE=1
 fi
 
 # Validate the answerer-closes request before any durable mutation or send: the
@@ -916,11 +940,10 @@ else
   if [ "$MARK_FROM_FIRSTMATE" = 1 ] && [ -n "$FIRE_AND_FORGET_ID" ]; then
     fm_message_mark_from_firstmate "$MESSAGE" MESSAGE
     MESSAGE="${FM_FROMFIRST_MARK}delivery=${FIRE_AND_FORGET_ID} ${MESSAGE#"$FM_FROMFIRST_MARK"}"
+    [ "$STOPPED_LANE_RESOLVE" != 1 ] || fm_send_mark_stopped_message
     FM_SEND_IDEMPOTENT=1
   elif [ "$MARK_FROM_FIRSTMATE" = 1 ] && [ "$STOPPED_LANE_RESOLVE" = 1 ]; then
-    # Marked so a later reopen still sees a from-firstmate close, but never a
-    # pending-reply expectation: nobody remains who can acknowledge it.
-    fm_message_mark_from_firstmate "$MESSAGE" MESSAGE
+    fm_send_mark_stopped_message
   elif [ "$MARK_FROM_FIRSTMATE" = 1 ]; then
     # Reuse an existing correlation id for recovery resends; otherwise create a
     # durable parent expectation before delivery. Transport success never
@@ -1036,16 +1059,24 @@ else
       echo "error: steer not sent to remote secondmate $TARGET_REMOTE_ID: its parent task retired or changed route during target resolution" >&2
       exit 1
     fi
-    if [ -e "$STATE/$TARGET_TASK_ID.stopped" ] && [ "$STOPPED_LANE_RESOLVE" != 1 ]; then
-      fm_lock_release "$REMOTE_META_LOCK"
-      fm_send_refuse_stopped_delivery
-      exit 1
+    STOPPED_LANE_RESOLVE=0
+    if [ -n "$TARGET_TASK_ID" ] && [ -e "$STATE/$TARGET_TASK_ID.stopped" ]; then
+      STOPPED_LANE_RESOLVE=1
+      if ! fm_send_drop_created_pending_reply; then
+        fm_lock_release "$REMOTE_META_LOCK"
+        exit 1
+      fi
     fi
     remote_rc=0
     remote_completion_unknown=0
     REMOTE_SEND_ARGS=("$TARGET_REMOTE_ID" "$MESSAGE")
-    if [ -n "$FIRE_AND_FORGET_ID" ] || [ "$STOPPED_LANE_RESOLVE" = 1 ]; then
+    if [ -n "$FIRE_AND_FORGET_ID" ]; then
       REMOTE_SEND_ARGS+=(fire-and-forget)
+    elif [ "$STOPPED_LANE_RESOLVE" = 1 ]; then
+      REMOTE_SEND_ARGS+=(stopped)
+    fi
+    if [ "$STOPPED_LANE_RESOLVE" = 1 ] && [ -n "$FIRE_AND_FORGET_ID" ]; then
+      REMOTE_SEND_ARGS+=(stopped)
     fi
     # Each transport attempt is bounded by FM_SEND_REMOTE_BUDGET seconds.
     # fm_run_timed's 124 means the attempt was killed at the bound with remote
@@ -1149,14 +1180,19 @@ else
       echo "error: steer not sent to $INBOX_TASK_ID: the task retired or changed endpoint during target resolution" >&2
       exit 1
     fi
-    if [ -e "$STATE/$TARGET_TASK_ID.stopped" ] && [ "$STOPPED_LANE_RESOLVE" != 1 ]; then
-      fm_lock_release "$INBOX_META_LOCK"
-      fm_send_refuse_stopped_delivery
-      exit 1
+    STOPPED_LANE_RESOLVE=0
+    if [ -n "$TARGET_TASK_ID" ] && [ -e "$STATE/$TARGET_TASK_ID.stopped" ]; then
+      STOPPED_LANE_RESOLVE=1
+      if ! fm_send_drop_created_pending_reply; then
+        fm_lock_release "$INBOX_META_LOCK"
+        exit 1
+      fi
     fi
     inbox_delivery=
-    if [ -n "$FIRE_AND_FORGET_ID" ] || [ "$STOPPED_LANE_RESOLVE" = 1 ]; then
+    if [ -n "$FIRE_AND_FORGET_ID" ]; then
       inbox_delivery=fire-and-forget
+    elif [ "$STOPPED_LANE_RESOLVE" = 1 ]; then
+      inbox_delivery=stopped
     fi
     INBOX_RECORD=$(fm_task_inbox_write_idempotent "$STATE" "$INBOX_TASK_ID" "$MESSAGE" \
       "$inbox_delivery" "${FM_SEND_IDEMPOTENT:-0}") || inbox_write_rc=$?

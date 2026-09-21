@@ -84,7 +84,13 @@ case "$VERB" in
     fi
     ;;
   reopen)
-    rm -f -- "$MARKER"
+    META_LOCK=$(fm_meta_lock_path "$META") || die "could not resolve metadata lock for '$ID'"
+    fm_lock_acquire_wait "$META_LOCK"
+    if ! rm -f -- "$MARKER"; then
+      fm_lock_release "$META_LOCK"
+      die "could not clear stopped marker for '$ID'"
+    fi
+    fm_lock_release "$META_LOCK"
     "$SCRIPT_DIR/fm-spawn.sh" "$ID" --secondmate
     ;;
   *) die "unknown verb '$VERB'; expected stop or reopen" ;;

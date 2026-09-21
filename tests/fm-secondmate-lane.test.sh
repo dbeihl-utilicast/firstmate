@@ -102,6 +102,31 @@ STUB
   pass "lane: stop treats a missing endpoint as already complete"
 }
 
+test_reopen_waits_for_delivery_metadata_lock() {
+  local w holder reopener rc=0
+  w=$(new_lane_world reopen-lock)
+  : > "$w/home/state/sm1.stopped"
+  bash -c '
+    . "$1"
+    fm_lock_acquire_wait "$2"
+    touch "$3"
+    while [ ! -e "$4" ]; do sleep 0.05; done
+    fm_lock_release "$2"
+  ' _ "$w/bin/fm-wake-lib.sh" "$w/home/state/.meta-sm1.lock" "$w/held" "$w/release" &
+  holder=$!
+  while [ ! -e "$w/held" ]; do sleep 0.05; done
+  lane "$w" reopen sm1 >"$w/reopen.out" &
+  reopener=$!
+  sleep 0.1
+  assert_present "$w/home/state/sm1.stopped" "reopen must not clear the marker while delivery owns metadata"
+  touch "$w/release"
+  wait "$holder"
+  wait "$reopener" || rc=$?
+  [ "$rc" -eq 0 ] || fail "reopen should complete after delivery releases metadata: $(cat "$w/reopen.out")"
+  assert_absent "$w/home/state/sm1.stopped" "reopen must clear the marker after the delivery lock releases"
+  pass "lane: reopen serializes marker clearing with delivery metadata"
+}
+
 test_reopen_clears_marker_and_relaunches() {
   local w
   w=$(new_lane_world reopen)
@@ -126,6 +151,7 @@ test_stop_remote_uses_host_stop_verb
 test_marker_survives_failed_stop
 test_stop_waits_for_delivery_metadata_lock
 test_stop_missing_endpoint_is_already_complete
+test_reopen_waits_for_delivery_metadata_lock
 test_reopen_clears_marker_and_relaunches
 test_refuses_unregistered_and_bad_verb
 echo "# all fm-secondmate-lane tests passed"
