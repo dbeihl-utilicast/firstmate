@@ -160,6 +160,7 @@ mkdir -p "$STATE"
 WATCH_LOCK="$STATE/.watch.lock"
 WATCH_PATH="$SCRIPT_DIR/fm-watch.sh"
 WATCHER_DOWNTIME_MARKER="$STATE/.watcher-down"
+WATCHER_EVICTION_HANDOFF="$STATE/.watch-eviction"
 # The singleton-lock acquisition, EXIT trap, and the blocking supervision loop
 # all live below the source guard at the very bottom of this file (see "Main
 # entry"). Sourcing this file for unit tests therefore loads the functions -
@@ -196,6 +197,22 @@ POLL=${FM_POLL:-15}                   # seconds between cycles
 # and the poll cadence". This recomputes the library default above now that
 # the real configured POLL is known.
 WATCHER_STALE_GRACE=${FM_WATCHER_STALE_GRACE:-${FM_GUARD_GRACE:-$(fm_poll_derived_grace "$POLL")}}
+PENDING_REPLY_REMOTE_OBSERVE_TIMEOUT=$((WATCHER_STALE_GRACE / 2))
+[ "$PENDING_REPLY_REMOTE_OBSERVE_TIMEOUT" -gt 0 ] || PENDING_REPLY_REMOTE_OBSERVE_TIMEOUT=1
+
+# Liveness beacon for fm-guard.sh: a fresh mtime means this watcher has made
+# progress. Only this process writes it, so a helper cannot make a wedged poll
+# look healthy. docs/turnend-guard.md owns the full contract.
+touch_watcher_beat() {
+  touch "$STATE/.last-watcher-beat"
+}
+
+# Remote pending-reply observations can be sequential. Refresh after each one
+# returns so several bounded observations cannot collectively resemble a wedge.
+fm_pending_reply_progress() {
+  touch_watcher_beat
+}
+
 HEARTBEAT=${FM_HEARTBEAT:-600}        # base seconds between heartbeat scans
 HEARTBEAT_MAX=${FM_HEARTBEAT_MAX:-7200}  # heartbeat backoff cap
 CHECK_INTERVAL=${FM_CHECK_INTERVAL:-300}  # seconds between *.check.sh sweeps
@@ -2039,14 +2056,25 @@ if [ "${BASH_SOURCE[0]}" != "$0" ]; then
   return 0
 fi
 
-# Stop a live lock holder whose beacon went stale, but only when the lock's own
-# home, watcher path, and recorded process identity prove it is this home's
-# watcher. TERM first, then KILL, each bounded by fm_watcher_evict_wait seconds.
+# Stop a live lock holder only when both its beacon and lock claim are stale,
+# and only when the lock's own home, watcher path, and recorded process identity
+# prove it is this home's watcher. TERM first, then KILL, each bounded by
+# fm_watcher_evict_wait seconds.
 WATCHER_EVICT_WAIT=$(fm_watcher_evict_wait)
+record_watcher_eviction_handoff() {  # <pid>
+  local pid=$1 identity tmp
+  identity=$(fm_pid_identity "$pid" 2>/dev/null || true)
+  [ -n "$identity" ] || return 1
+  tmp=$(mktemp "$STATE/.watch-eviction.XXXXXX") || return 1
+  printf '%s\t%s\n' "$pid" "$identity" > "$tmp" && mv -f "$tmp" "$WATCHER_EVICTION_HANDOFF"
+  rm -f "$tmp" 2>/dev/null || true
+}
+
 evict_stale_watcher() {  # <pid> <staleness>
   local pid=$1 staleness=$2 sig i
   for sig in TERM KILL; do
     fm_watcher_lock_matches_pid "$STATE" "$WATCH_PATH" "$pid" "$FM_HOME" || return 1
+    [ "$sig" != TERM ] || record_watcher_eviction_handoff "$pid" || true
     kill "-$sig" "$pid" 2>/dev/null || true
     i=0
     while fm_pid_alive "$pid" && [ "$i" -lt $((WATCHER_EVICT_WAIT * 10)) ]; do
@@ -2073,7 +2101,9 @@ if ! fm_lock_try_acquire "$WATCH_LOCK"; then
   if [ -n "$held_pid" ]; then
     if [ -e "$BEAT" ]; then
       beat_age=$(fm_path_age "$BEAT")
-      if [ "$beat_age" -ge "$WATCHER_STALE_GRACE" ]; then
+      lock_age=$(fm_path_age "$WATCH_LOCK")
+      if [ "$beat_age" -ge "$WATCHER_STALE_GRACE" ] \
+        && [ "$lock_age" -ge "$WATCHER_STALE_GRACE" ]; then
         staleness="heartbeat is stale for ${beat_age}s (>${WATCHER_STALE_GRACE}s)"
       fi
     elif [ "$(fm_path_age "$WATCH_LOCK")" -ge "$WATCHER_STALE_GRACE" ]; then
@@ -2223,6 +2253,7 @@ printf '%s\n' "$WATCH_PATH" > "$WATCH_LOCK/watcher-path" || true
 FM_WATCH_DELIVERY_PID=$WATCHER_PID
 FM_WATCH_DELIVERY_IDENTITY=$(fm_pid_identity "$WATCHER_PID" 2>/dev/null || true)
 printf '%s\n' "$FM_WATCH_DELIVERY_IDENTITY" > "$WATCH_LOCK/pid-identity" 2>/dev/null || true
+touch_watcher_beat
 
 [ -e "$STATE/.last-heartbeat" ] || touch "$STATE/.last-heartbeat"
 
@@ -2265,13 +2296,6 @@ resurface_after_downtime() {
   wake "check: rearm-resurface"
 }
 
-# Liveness beacon for fm-guard.sh: a fresh mtime means this watcher has made
-# progress. Only this process writes it, so a helper cannot make a wedged poll
-# look healthy. docs/turnend-guard.md owns the full contract.
-touch_watcher_beat() {
-  touch "$STATE/.last-watcher-beat"
-}
-
 while :; do
   # Self-eviction: if the singleton lock no longer names this process, a second
   # watcher has taken over (e.g. a transient duplicate from a racy arm). Stand
@@ -2300,7 +2324,8 @@ while :; do
   # parent reports, observe backend busy/idle turn completion, send one recovery
   # repost after grace, and escalate once if the recovery turn is also missed.
   # No conversation scraping; unresolved records are never silently expired.
-  fm_pending_reply_tick "$STATE" || true
+  FM_PENDING_REPLY_REMOTE_OBSERVE_TIMEOUT="$PENDING_REPLY_REMOTE_OBSERVE_TIMEOUT" \
+    fm_pending_reply_tick "$STATE" || true
   touch_watcher_beat
 
   # A live secondmate endpoint does not prove that its own wake loop is alive.

@@ -36,13 +36,15 @@
 # stale-beacon, dead-pid, or reused-pid holder either self-heals (the fresh child
 # steals the abandoned lock per the singleton self-eviction/steal path and is confirmed) or this
 # returns the FAILED line. On started it waits the child and propagates the wake
-# reason; on attached it stays live across identity-matched successors. A cycle
-# that ends with no reason line and no healthy successor is resolved against the
-# watcher's identity-bound delivery record: a matching record reports that wake
-# and exits 0, and only a cycle that delivered nothing is the typed nonzero
-# failure. Neither is ever a clean empty completion. On FAILED it exits non-zero
-# so the failure is loud. A live cycle already present means re-arm attaches - do
-# not start a second watcher.
+# reason; on attached it stays live across identity-matched successors. A
+# zero/empty cycle that ends with no reason line and no healthy successor is
+# resolved against the watcher's identity-bound delivery record: a matching
+# record reports that wake and exits 0, and only a cycle that delivered nothing
+# is the typed nonzero failure. A quiet nonzero close waits for a successor only
+# when the child matches a durable eviction handoff; otherwise it remains a
+# typed failure. Neither is ever a clean empty completion. On FAILED it exits
+# non-zero so the failure is loud. A live cycle already present means re-arm
+# attaches - do not start a second watcher.
 #
 # Every observed watcher cycle appends one tab-separated lifecycle record to
 # state/.watch-cycle-exits.log. The arm layer owns that bounded ledger; it records
@@ -103,6 +105,7 @@ lock_snapshot() {
 
 WATCH_DELIVERY_LOG="$STATE/.watch-deliveries.log"
 WATCH_DELIVERY_LOCK="$STATE/.watch-deliveries.lock"
+WATCHER_EVICTION_HANDOFF="$STATE/.watch-eviction"
 
 cycle_active=0
 cycle_watcher_pid=none
@@ -256,6 +259,23 @@ wait_for_healthy_successor() {
     [ "$(date +%s)" -ge "$deadline" ] && return 1
     sleep 0.2
   done
+}
+
+eviction_handoff_matches_child() {
+  local pid identity
+  [ -f "$WATCHER_EVICTION_HANDOFF" ] || return 1
+  IFS=$'\t' read -r pid identity < "$WATCHER_EVICTION_HANDOFF" || return 1
+  [ "$pid" = "$cycle_watcher_pid" ] && [ "$identity" = "$cycle_watcher_identity" ]
+}
+
+healthy_successor_after_child_close() {  # <exit-code> <signal-name>
+  local rc=$1 signal=$2
+  healthy_watcher && return 0
+  if [ "$rc" -eq 0 ] || [ "$signal" != none ] || eviction_handoff_matches_child; then
+    wait_for_healthy_successor
+    return $?
+  fi
+  return 1
 }
 
 fail_unexplained_cycle() {
@@ -484,19 +504,27 @@ owned_child_finished() {
     return 0
   fi
 
+  # A quiet nonzero child exit is not a supervision failure when a verified
+  # singleton successor is live and fresh. Explicit watcher failures and
+  # actionable output retain their original meaning.
+  if ! watch_output_has_wake "$child_out" \
+    && ! grep -q '^watcher: FAILED' "$child_out" 2>/dev/null \
+    && healthy_successor_after_child_close "$rc" "$signal"; then
+    reason_type=nonactionable-exit
+    [ "$rc" -eq 0 ] && reason_type=unexpected-clean-exit
+    cycle_log_append "$rc" "$signal" "$reason_type" "attached:$HEALTHY_PID"
+    print_watch_output "$child_out"
+    rm -f "$child_out" 2>/dev/null || true
+    child=
+    child_out=
+    cycle_mark_predecessor_successor "attached:$HEALTHY_PID"
+    report_attached
+    cycle_begin "$HEALTHY_PID" attached "$HEALTHY_IDENTITY"
+    attach_and_wait "$HEALTHY_PID"
+    return $?
+  fi
+
   if [ "$rc" -eq 0 ]; then
-    if wait_for_healthy_successor; then
-      cycle_log_append "$rc" "$signal" unexpected-clean-exit "attached:$HEALTHY_PID"
-      print_watch_output "$child_out"
-      rm -f "$child_out" 2>/dev/null || true
-      child=
-      child_out=
-      cycle_mark_predecessor_successor "attached:$HEALTHY_PID"
-      report_attached
-      cycle_begin "$HEALTHY_PID" attached "$HEALTHY_IDENTITY"
-      attach_and_wait "$HEALTHY_PID"
-      return $?
-    fi
     print_watch_output "$child_out"
     rm -f "$child_out" 2>/dev/null || true
     child=
