@@ -92,6 +92,7 @@ printf '%s\n' "$*" >> "$FM_TEST_GH_LOG"
 case "${1:-} ${2:-}" in
   "pr view") printf '%s\n' 1111111111111111111111111111111111111111 ;;
   "api graphql")
+    case " $* " in *reviewThreads*) exit 0 ;; esac
     printf '%s\n' 'state=MERGED' 'merged=true' 'queued=false' 'base=main'
     ;;
 esac

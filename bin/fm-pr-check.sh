@@ -19,8 +19,12 @@
 # already used for pr_head, so GitLab merge requests skip both checks.
 # A ready GitHub PR is also refused while bin/fm-pr-poll.sh --gate lists an
 # unanswered blocking review finding on it; a draft PR is not, and neither is
-# the record bin/fm-pr-merge.sh makes after its merge call, which passes
-# --merge-record whether or not it could read the merge outcome.
+# the record bin/fm-pr-merge.sh makes before it calls the forge to merge. That
+# record passes --merge-record: it runs the same scan but only reports, with one
+# stderr warning line, what a merge already ordered goes ahead with, and never
+# changes the exit status. A PR registered while draft is deliberately not
+# gated, so the gate binds at the moment of ready registration, not for the
+# PR's whole life.
 # Usage: fm-pr-check.sh <task-id> <pr-url> [--merge-record]
 set -eu
 
@@ -259,13 +263,27 @@ EOF
 # A ready PR must not carry an unanswered blocking review finding. The scan is
 # live rather than read from the watcher's handled record, because a finding
 # stays blocking after it was raised until someone answers it.
-if [ "$PROVIDER" = github ] && [ "$MERGE_RECORD" != 1 ] \
-  && ! { [ "${PR_DRAFT_READ_OK:-0}" = 1 ] && [ "${PR_DRAFT:-0}" = 1 ]; }; then
+if [ "$PROVIDER" = github ] \
+  && { [ "$MERGE_RECORD" = 1 ] || ! { [ "${PR_DRAFT_READ_OK:-0}" = 1 ] && [ "${PR_DRAFT:-0}" = 1 ]; }; }; then
   gate_rc=0
   gate_config=${FM_CONFIG_OVERRIDE:-$FM_HOME/config}
   gate_rows=$(FM_HOME="$FM_HOME" FM_CONFIG_OVERRIDE="$gate_config" \
     "$SCRIPT_DIR/fm-pr-poll.sh" --gate "$PROVIDER" "$URL" "$HOST" "$PROJECT_PATH" "$NUMBER" 2>/dev/null) || gate_rc=$?
-  if [ "$gate_rc" -eq 2 ]; then
+  if [ "$MERGE_RECORD" = 1 ]; then
+    case "$gate_rc" in
+      0)
+        if [ -n "$gate_rows" ]; then
+          gate_all=$(printf '%s\n' "$gate_rows" | while IFS=$'\t' read -r gate_id gate_author gate_kind; do
+            printf '%s (by %s), ' "$gate_id" "$gate_author"
+          done)
+          echo "warning: merging with unanswered blocking review finding(s): ${gate_all%, }" >&2
+        fi
+        ;;
+      2) echo "warning: merging without being able to read review threads on $URL (truncated)" >&2 ;;
+      3) echo "warning: merging without being able to read review threads on $URL (unrecognised shape)" >&2 ;;
+      *) echo "warning: merging without being able to read review threads on $URL (unreadable)" >&2 ;;
+    esac
+  elif [ "$gate_rc" -eq 2 ]; then
     echo "error: PR has more review threads than one page reads, so unanswered blocking findings cannot be ruled out: $URL. Mark the PR draft or resolve threads until they fit." >&2
     exit 1
   elif [ "$gate_rc" -eq 3 ]; then

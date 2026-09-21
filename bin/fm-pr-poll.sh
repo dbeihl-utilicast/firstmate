@@ -196,7 +196,13 @@ case "$provider" in
     if [ "$mode" = gate ]; then
       gate_err=$(mktemp) || exit 1
       rows=$(review_rows 2>"$gate_err") || {
-        grep -q truncated "$gate_err" && gate_rc=2 || gate_rc=1
+        if grep -q truncated "$gate_err"; then
+          gate_rc=2
+        elif grep -qiE 'HTTP 401|bad credentials|gh auth login|not logged in' "$gate_err"; then
+          gate_rc=4
+        else
+          gate_rc=1
+        fi
         rm -f "$gate_err"
         exit "$gate_rc"
       }
