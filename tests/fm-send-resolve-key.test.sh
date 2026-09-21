@@ -748,6 +748,7 @@ test_remote_reserved_pending_reply_key_closes_locally() {
   dir="$TMP_ROOT/remote-reserved"; mkdir -p "$dir"
   fb=$(make_stubs "$dir"); log="$dir/send.log"; ssh_log="$dir/ssh.log"; : > "$ssh_log"
   home=$(setup_remote_home remote-reserved)
+  printf 'stopped\n' > "$home/state/rsm.stopped"
   corr=d448ea86afa4bf67
   key="pending-reply-$corr"
   printf 'blocked [key=%s]: pending-reply-missed: task=rsm pending-reply-id=%s request=ship it\n' \

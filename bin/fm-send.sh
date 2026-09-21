@@ -1036,7 +1036,7 @@ else
       echo "error: steer not sent to remote secondmate $TARGET_REMOTE_ID: its parent task retired or changed route during target resolution" >&2
       exit 1
     fi
-    if [ -e "$STATE/$TARGET_TASK_ID.stopped" ]; then
+    if [ -e "$STATE/$TARGET_TASK_ID.stopped" ] && [ "$STOPPED_LANE_RESOLVE" != 1 ]; then
       fm_lock_release "$REMOTE_META_LOCK"
       fm_send_refuse_stopped_delivery
       exit 1
@@ -1149,7 +1149,7 @@ else
       echo "error: steer not sent to $INBOX_TASK_ID: the task retired or changed endpoint during target resolution" >&2
       exit 1
     fi
-    if [ -e "$STATE/$TARGET_TASK_ID.stopped" ]; then
+    if [ -e "$STATE/$TARGET_TASK_ID.stopped" ] && [ "$STOPPED_LANE_RESOLVE" != 1 ]; then
       fm_lock_release "$INBOX_META_LOCK"
       fm_send_refuse_stopped_delivery
       exit 1
