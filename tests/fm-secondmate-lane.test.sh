@@ -61,6 +61,47 @@ test_marker_survives_failed_stop() {
   pass "lane: the marker is written before, and survives, a failed agent exit"
 }
 
+test_stop_waits_for_delivery_metadata_lock() {
+  local w holder rc=0
+  w=$(new_lane_world stop-lock)
+  bash -c '
+    . "$1"
+    fm_lock_acquire_wait "$2"
+    touch "$3"
+    while [ ! -e "$4" ]; do sleep 0.05; done
+    fm_lock_release "$2"
+  ' _ "$w/bin/fm-wake-lib.sh" "$w/home/state/.meta-sm1.lock" "$w/held" "$w/release" &
+  holder=$!
+  while [ ! -e "$w/held" ]; do sleep 0.05; done
+  lane "$w" stop sm1 >"$w/stop.out" &
+  local stopper=$!
+  sleep 0.1
+  assert_absent "$w/home/state/sm1.stopped" "stop must not publish its marker while delivery owns metadata"
+  touch "$w/release"
+  wait "$holder"
+  wait "$stopper" || rc=$?
+  [ "$rc" -eq 0 ] || fail "stop should complete after the metadata lock releases: $(cat "$w/stop.out")"
+  assert_present "$w/home/state/sm1.stopped" "stop must publish the marker after metadata delivery releases"
+  pass "lane: stop serializes marker publication with delivery metadata"
+}
+
+# The marker is written first, so a gone endpoint is already the state stop
+# wants. Other exit failures stay errors (test_marker_survives_failed_stop).
+test_stop_missing_endpoint_is_already_complete() {
+  local w out rc
+  w=$(new_lane_world stop-gone)
+  cat > "$w/bin/fm-control.sh" <<'STUB'
+#!/usr/bin/env bash
+echo "error: task sm1's recorded endpoint is gone, so there is no agent to stop; reconcile the task before any further control action" >&2
+exit 1
+STUB
+  chmod +x "$w/bin/fm-control.sh"
+  out=$(lane "$w" stop sm1); rc=$?
+  [ "$rc" -eq 0 ] || fail "stop should succeed when the recorded endpoint is already gone: $out"
+  assert_present "$w/home/state/sm1.stopped" "stop must still record the marker"
+  pass "lane: stop treats a missing endpoint as already complete"
+}
+
 test_reopen_clears_marker_and_relaunches() {
   local w
   w=$(new_lane_world reopen)
@@ -83,6 +124,8 @@ test_refuses_unregistered_and_bad_verb() {
 test_stop_local_records_marker_and_exits_agent
 test_stop_remote_uses_host_stop_verb
 test_marker_survives_failed_stop
+test_stop_waits_for_delivery_metadata_lock
+test_stop_missing_endpoint_is_already_complete
 test_reopen_clears_marker_and_relaunches
 test_refuses_unregistered_and_bad_verb
 echo "# all fm-secondmate-lane tests passed"

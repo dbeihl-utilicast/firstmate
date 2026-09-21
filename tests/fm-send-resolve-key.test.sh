@@ -30,6 +30,10 @@
 #      (the operator path the OPEN DECISIONS hint names), while an unrelated
 #      writer's answered: note still cannot hijack or clear that key. A reserved
 #      key this send cannot close refuses before anything is sent.
+#   9. Resolving a request against a lane carrying state/<id>.stopped records
+#      the resolution without minting a new pending-reply expectation: zero
+#      outstanding requests, not one. A live secondmate without that marker
+#      still mints one, so the skip is the stopped marker, not every resolve.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -117,6 +121,20 @@ setup_home() {  # <name> -> echoes a fresh home dir with an empty state/
 
 drain_out() {  # <home>
   FM_STATE_OVERRIDE="$1/state" "$DRAIN" 2>/dev/null
+}
+
+# Count pending-reply records whose phase is not resolved. Resolved records
+# stay on disk, so a file listing is not the outstanding count.
+outstanding_pending_replies() {  # <state>
+  local rec phase n=0
+  for rec in "$1/pending-replies"/*; do
+    [ -f "$rec" ] || continue
+    phase=$(bash -c '. "$1"; fm_pending_reply_get "$2" phase' \
+      _ "$ROOT/bin/fm-pending-reply-lib.sh" "$rec")
+    [ "$phase" = resolved ] && continue
+    n=$((n + 1))
+  done
+  printf '%s' "$n"
 }
 
 test_answer_send_closes_open_decision() {
@@ -388,6 +406,8 @@ test_local_secondmate_answer_marked_and_closed() {
   if printf '%s' "$out" | grep -F 'OPEN DECISIONS' >/dev/null; then
     fail "the answered secondmate decision still lists as open: $out"
   fi
+  [ "$(outstanding_pending_replies "$home/state")" = 1 ] \
+    || fail "a live secondmate answer must still mint one outstanding pending-reply, got $(outstanding_pending_replies "$home/state")"
   pass "fm-send --resolve-key: a marked local-secondmate answer closes with the plain answer text"
 }
 
@@ -695,11 +715,40 @@ test_failed_close_recovery_command_is_shell_safe() {
   pass "fm-send --resolve-key: failed-close recovery commands safely quote operator text and paths"
 }
 
+# Closing a stale request against a stopped lane must not mint a replacement
+# pending-reply: the closing message is otherwise reply-bearing and the stopped
+# lane never acknowledges it. Acceptance: zero outstanding, not one.
+test_resolve_key_against_stopped_lane_mints_no_pending_reply() {
+  local dir fb log home rc out n
+  dir="$TMP_ROOT/stopped-resolve"; mkdir -p "$dir"
+  fb=$(make_stubs "$dir"); log="$dir/send.log"
+  home=$(setup_home stopped-resolve)
+  fm_write_secondmate_meta "$home/state/domain.meta" "$home" "sess:fm-domain"
+  printf 'stopped\n' > "$home/state/domain.stopped"
+  printf 'blocked [key=pending-reply-abcdef0123456789]: pending-reply-missed: task=domain pending-reply-id=abcdef0123456789 request=config reread\n' \
+    > "$home/state/domain.status"
+
+  run_send "$fb" "$home" "$log" domain --resolve-key pending-reply-abcdef0123456789 \
+    "ack, lane is down"; rc=$?
+  expect_code 0 "$rc" "resolving a request against a stopped lane should succeed"
+  grep -F "pending-reply-resolved: task=domain pending-reply-id=abcdef0123456789 via=operator-resolve-key" \
+    "$home/state/domain.status" >/dev/null \
+    || fail "the resolution was not recorded:"$'\n'"$(cat "$home/state/domain.status")"
+  out=$(drain_out "$home")
+  if printf '%s' "$out" | grep -F 'OPEN DECISIONS' >/dev/null; then
+    fail "the resolved request still lists as open: $out"
+  fi
+  n=$(outstanding_pending_replies "$home/state")
+  [ "$n" = 0 ] || fail "resolving against a stopped lane left $n outstanding request(s); want zero"
+  pass "fm-send --resolve-key: a stopped lane records the resolution with zero outstanding requests"
+}
+
 test_remote_reserved_pending_reply_key_closes_locally() {
   local dir fb log home ssh_log rc out key corr
   dir="$TMP_ROOT/remote-reserved"; mkdir -p "$dir"
   fb=$(make_stubs "$dir"); log="$dir/send.log"; ssh_log="$dir/ssh.log"; : > "$ssh_log"
   home=$(setup_remote_home remote-reserved)
+  printf 'stopped\n' > "$home/state/rsm.stopped"
   corr=d448ea86afa4bf67
   key="pending-reply-$corr"
   printf 'blocked [key=%s]: pending-reply-missed: task=rsm pending-reply-id=%s request=ship it\n' \
@@ -740,4 +789,5 @@ test_unrelated_writer_cannot_close_or_hijack_reserved_key
 test_unclosable_reserved_key_refuses_before_send
 test_long_decision_key_refuses_before_send
 test_failed_close_recovery_command_is_shell_safe
+test_resolve_key_against_stopped_lane_mints_no_pending_reply
 test_remote_reserved_pending_reply_key_closes_locally

@@ -22,6 +22,9 @@
 #      retryable send failure that could duplicate the durable instruction.
 #   9. An unwritable inbox is a real local failure: nonzero exit, nothing
 #      typed, and a just-created pending-reply expectation is discarded.
+#  10. A deliberate send to a lane carrying state/<id>.stopped is refused with
+#      a message that names the stop and how to reopen, and mints no pending
+#      reply. Only that marker refuses; a live secondmate still mints.
 # Every case below that passes a literal `$...` message quotes it on purpose
 # (the point is sending an unexpanded `$` line), so SC2016 is disabled.
 # shellcheck disable=SC2016
@@ -372,6 +375,58 @@ test_unwritable_inbox_fails_loudly() {
   pass "fm-send inbox: an unwritable record is a loud local failure that leaves no false expectation"
 }
 
+test_deliberate_send_to_stopped_lane_is_refused() {
+  local dir err rc n
+  dir=$(setup_case stopped-send)
+  err="$dir/send.err"
+  fm_write_secondmate_meta "$dir/home/state/domain.meta" "$dir/home" "sess:fm-domain"
+  printf 'stopped\n' > "$dir/home/state/domain.stopped"
+  run_send "$dir" "$err" -- fm-domain "please reread config"; rc=$?
+  [ "$rc" -ne 0 ] || fail "a deliberate send to a stopped lane must be refused"
+  assert_contains "$(cat "$err")" "stopped" "the refusal must name the stop"
+  assert_contains "$(cat "$err")" "reopen" "the refusal must tell the sender how to reopen the lane"
+  assert_contains "$(cat "$err")" "domain" "the refusal must name the stopped lane"
+  [ ! -e "$dir/home/state/domain.inbox/001.msg" ] \
+    || fail "a refused send queued an inbox record nobody will read"
+  n=$(find "$dir/home/state/pending-replies" -type f -not -name '.*' 2>/dev/null | wc -l | tr -d ' ')
+  [ "$n" = 0 ] || fail "a refused send minted $n pending-reply record(s); want zero"
+  pass "fm-send inbox: a deliberate send to a stopped lane is refused and mints nothing"
+}
+
+test_marker_appearing_before_enqueue_discards_pending_reply() {
+  local dir err holder sender rc=0 i
+  dir=$(setup_case stopped-race)
+  err="$dir/send.err"
+  fm_write_secondmate_meta "$dir/home/state/domain.meta" "$dir/home" "sess:fm-domain"
+  bash -c '
+    . "$1"
+    fm_lock_acquire_wait "$2"
+    touch "$3"
+    while [ ! -e "$4" ]; do sleep 0.05; done
+    fm_lock_release "$2"
+  ' _ "$ROOT/bin/fm-wake-lib.sh" "$dir/home/state/.meta-domain.lock" "$dir/held" "$dir/release" &
+  holder=$!
+  while [ ! -e "$dir/held" ]; do sleep 0.05; done
+  run_send "$dir" "$err" -- fm-domain "please reread config" &
+  sender=$!
+  i=0
+  while [ ! -d "$dir/home/state/pending-replies" ] && [ "$i" -lt 100 ]; do
+    sleep 0.05
+    i=$((i + 1))
+  done
+  [ -d "$dir/home/state/pending-replies" ] || fail "the blocked send did not prepare its pending reply"
+  printf 'stopped\n' > "$dir/home/state/domain.stopped"
+  touch "$dir/release"
+  wait "$holder"
+  wait "$sender" || rc=$?
+  [ "$rc" -ne 0 ] || fail "a marker published before enqueue must refuse the send"
+  [ ! -e "$dir/home/state/domain.inbox/001.msg" ] \
+    || fail "a stopped lane received an inbox record after final validation"
+  [ -z "$(find "$dir/home/state/pending-replies" -type f -not -name '.*' 2>/dev/null)" ] \
+    || fail "a refused blocked send retained a pending-reply expectation"
+  pass "fm-send inbox: final stopped validation discards an undelivered pending reply"
+}
+
 test_resend_of_claimed_record_rings_inbox_root
 test_text_steer_rides_inbox
 test_opt_in_record_receipt
@@ -386,3 +441,5 @@ test_secondmate_marker_and_enqueue_delivery
 test_post_enqueue_bookkeeping_failure_is_not_retryable
 test_meta_lock_contention_fails_bounded
 test_unwritable_inbox_fails_loudly
+test_deliberate_send_to_stopped_lane_is_refused
+test_marker_appearing_before_enqueue_discards_pending_reply

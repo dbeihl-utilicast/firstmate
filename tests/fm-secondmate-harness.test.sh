@@ -1607,6 +1607,32 @@ test_config_push_propagates_reports_without_ff_or_nudge() {
   pass "B12 config-push propagates via shared live discovery, reports items, rereads on change only, and does not fast-forward"
 }
 
+# A stopped lane has no worker to acknowledge a config-reread doorbell. The
+# push must skip the send, say so in one line, and leave zero outstanding
+# pending-reply records. Only the stopped marker skips; a live lane still sends.
+test_config_reread_push_skips_stopped_lane() {
+  local w c1 out err status n
+  w=$(new_world config-push-stopped)
+  c1=$(git -C "$w/main" rev-parse HEAD)
+  add_sm_worktree "$w" sm "$c1"
+  printf '{"default":{"harness":"codex"}}\n' > "$w/home/config/crew-dispatch.json"
+  printf 'codex\n' > "$w/home/config/crew-harness"
+  printf 'stopped\n' > "$w/home/state/sm.stopped"
+  record_live_watcher_fixture "$w/home"
+  err="$w/config-push-stopped.err"
+  out=$(run_config_push "$w" 2>"$err"); status=$?
+  expect_code 0 "$status" "a config-reread push to a stopped lane should skip, not fail"
+  assert_contains "$out" "skipped, lane is stopped" \
+    "a stopped-lane config-reread must say so in one line"
+  assert_not_contains "$out" "config-reread: sent" \
+    "a stopped lane must not be reported as sent"
+  [ ! -e "$w/home/state/sm.inbox/001.msg" ] \
+    || fail "a skipped config-reread queued an inbox record"
+  n=$(find "$w/home/state/pending-replies" -type f -not -name '.*' 2>/dev/null | wc -l | tr -d ' ')
+  [ "$n" = 0 ] || fail "a config-reread push to a stopped lane left $n outstanding request(s); want zero"
+  pass "B12d config-reread push to a stopped lane skips and leaves zero outstanding requests"
+}
+
 test_config_push_reports_skips_dirty_and_invalid_home() {
   local w head out err status stale_real dirty_real bad_home err_text tmp
   w=$(new_world config-push-warnings)
@@ -2607,6 +2633,7 @@ test_presentation_inheritance_default_on_and_opt_out
 test_bootstrap_sweep_surfaces_config_propagation_failure
 test_bootstrap_rereads_after_partial_propagation
 test_config_push_propagates_reports_without_ff_or_nudge
+test_config_reread_push_skips_stopped_lane
 test_config_push_reports_skips_dirty_and_invalid_home
 test_config_push_exits_nonzero_on_copy_error
 test_config_push_rereads_after_partial_propagation
