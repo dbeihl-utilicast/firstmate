@@ -85,6 +85,18 @@ The gateway now names exactly one stage in the worker-visible error body (and on
 Pi's `foundry` provider does not use this gateway. It sends `~/.pi/agent/models.json`'s literal `apiKey` to the Foundry `baseUrl`. The same Foundry 401 body on that path is a key rejection, reprinted by `bin/fm-foundry-luna-proxy.py classify --credential api-key`.
 No retry was added: the reproduction of an az failure was a durable login/CA error, not a single transient call that recovered on a second try.
 
+## Pi on the same gateway
+
+Verified 2026-09-21 on this Spark host, against a recorder and then the live gateway, without printing credentials:
+
+- Pi interpolates `"apiKey": "$FM_FOUNDRY_LUNA_SECRET"` (unset: `No API key found for foundry.`).
+- Pi's `openai-responses` client POSTs `/openai/v1/responses` with `Authorization: Bearer`, `stream: true`, and the deployment name in the JSON `model` field. That is the one route the gateway relays. Pi did not GET `/models`.
+- The luna-only body pin would have 403'd `gpt-5.6-sol` and `gpt-5.6-terra`. The gateway allowlist now includes those three names. Fleet spawn still pins luna.
+- A long-lived systemd user unit (`fm-foundry-luna-gateway.service`, Restart=always, port 17653) is this host's existing service mechanism. Linger is already on.
+- Isolated Pi `--print` through that gateway returned `pong` for `gpt-5.6-luna`, `gpt-5.6-sol`, and `gpt-5.6-terra`.
+- With the gateway stopped, Pi using `$FM_FOUNDRY_LUNA_SECRET` printed only `Connection error.` Pi using `bin/fm-foundry-luna-gateway-secret.sh` plus a fail-reason token printed `API key auth failed ... foundry-luna-gateway-is-not-running-on-127.0.0.1:17653-not-az-token-refresh-not-subscription-key`.
+- After that proof, `~/.pi/agent/models.json` provider `foundry` was repointed at `http://127.0.0.1:17653/openai/v1` with a `!` apiKey command (no Azure key). A subsequent default-home Pi launch on luna returned `pong`.
+
 ## The deployment allowlist
 
 The captain authorizes `gpt-5.6-luna` only, and Foundry names the deployment in two independent places.

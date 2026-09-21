@@ -256,7 +256,7 @@ test_refuses_every_unauthorized_deployment_name() {
   proxy_port=${proxy_info##* }
   baseline=$(cat "$calls")
 
-  for name in gpt-5.6-terra gpt-5.6-sol claude-sonnet-5 claude-opus-5; do
+  for name in gpt-4o gpt-5.6-unauth claude-sonnet-5 claude-opus-5; do
     body=$(curl -sS -o "$TMP_ROOT/refuse-body" -w '%{http_code}' \
       -X POST "http://127.0.0.1:$proxy_port/openai/v1/responses" \
       -H 'Content-Type: application/json' \
@@ -1262,6 +1262,115 @@ test_classify_api_key_401_is_not_a_token_refresh_failure() {
   pass "fm-foundry-luna-proxy: classify reprints a key 401 as a key rejection, never as a token refresh"
 }
 
+test_relays_luna_sol_and_terra() {
+  local az_dir calls upstream_info upstream_pid upstream_port
+  local proxy_info proxy_pid proxy_port status name
+
+  az_dir="$TMP_ROOT/az-three"
+  calls="$TMP_ROOT/az-three-calls"
+  fm_write_fake_az "$az_dir" "$calls"
+
+  printf '{"ok":true}\n' > "$TMP_ROOT/upstream-three-body"
+  upstream_info=$(fm_start_fake_upstream_reply 200 "$TMP_ROOT/upstream-three-body")
+  upstream_pid=${upstream_info%% *}
+  upstream_port=${upstream_info##* }
+
+  proxy_info=$(fm_start_proxy "$az_dir" "$upstream_port")
+  proxy_pid=${proxy_info%% *}
+  proxy_port=${proxy_info##* }
+
+  for name in gpt-5.6-luna gpt-5.6-sol gpt-5.6-terra; do
+    status=$(curl -sS -o "$TMP_ROOT/three-body" -w '%{http_code}' \
+      -X POST "http://127.0.0.1:$proxy_port/openai/v1/responses" \
+      -H 'Content-Type: application/json' \
+      -H "$AUTH_HEADER" \
+      -d "{\"model\":\"$name\",\"input\":[],\"stream\":true}")
+    if [ "$status" -ge 400 ]; then
+      kill "$proxy_pid" "$upstream_pid" 2>/dev/null
+      fail "pointing Pi at this gateway must not drop $name: HTTP $status $(cat "$TMP_ROOT/three-body")"
+    fi
+  done
+
+  kill "$proxy_pid" "$upstream_pid" 2>/dev/null
+  wait "$proxy_pid" "$upstream_pid" 2>/dev/null
+  pass "fm-foundry-luna-proxy: relays gpt-5.6-luna, gpt-5.6-sol, and gpt-5.6-terra so Pi does not lose two models"
+}
+
+test_classify_gateway_down_is_not_a_foundry_or_token_failure() {
+  local out
+  out=$(python3 "$PROXY" classify --gateway-down --port 17653)
+  assert_contains "$out" '"stage": "gateway-down"' "a down gateway names the gateway-down stage"
+  assert_contains "$out" "the Foundry luna gateway is not running on 127.0.0.1:17653" \
+    "a down gateway names the loopback address"
+  assert_contains "$out" "not an az token-refresh failure" \
+    "a down gateway is not described as a token refresh"
+  assert_contains "$out" "not a Foundry subscription-key rejection" \
+    "a down gateway is not described as a subscription-key failure"
+  pass "fm-foundry-luna-proxy: classify --gateway-down is its own stage, not one of the three Foundry failures"
+}
+
+test_gateway_secret_helper_refuses_when_the_port_is_down() {
+  local secret_file out status
+  secret_file="$TMP_ROOT/gateway.secret"
+  printf 'fm-test-gateway-fixture-not-a-credential' > "$secret_file"
+  chmod 600 "$secret_file"
+
+  status=0
+  FM_FOUNDRY_LUNA_SECRET_FILE="$secret_file" FM_FOUNDRY_LUNA_PORT=1 \
+    "$ROOT/bin/fm-foundry-luna-gateway-secret.sh" \
+    foundry-luna-gateway-is-not-running-on-127.0.0.1-not-az-token-refresh \
+    >"$TMP_ROOT/secret-helper-out" 2>"$TMP_ROOT/secret-helper-err" || status=$?
+
+  [ "$status" -ne 0 ] || fail "the secret helper must exit nonzero when the gateway port is closed"
+  [ ! -s "$TMP_ROOT/secret-helper-out" ] \
+    || fail "a down gateway must not print the admission secret"
+  assert_contains "$(cat "$TMP_ROOT/secret-helper-err")" "the Foundry luna gateway is not running" \
+    "the secret helper names the down gateway rather than a token refresh"
+  assert_not_contains "$(cat "$TMP_ROOT/secret-helper-err")" "fm-test-gateway-fixture-not-a-credential" \
+    "the secret helper must never print the secret on stderr"
+  pass "fm-foundry-luna-gateway-secret: a closed port is a down-gateway failure, not a leaked secret"
+}
+
+test_serve_admits_FM_FOUNDRY_LUNA_SECRET() {
+  local az_dir calls upstream_info upstream_pid upstream_port
+  local portfile pid port status
+
+  az_dir="$TMP_ROOT/az-serve-secret"
+  calls="$TMP_ROOT/az-serve-secret-calls"
+  fm_write_fake_az "$az_dir" "$calls"
+  printf '{"ok":true}\n' > "$TMP_ROOT/serve-secret-ok"
+  upstream_info=$(fm_start_fake_upstream_reply 200 "$TMP_ROOT/serve-secret-ok")
+  upstream_pid=${upstream_info%% *}
+  upstream_port=${upstream_info##* }
+
+  portfile=$(mktemp "$TMP_ROOT/serve-secret-port.XXXXXX")
+  PATH="$az_dir:$PATH" \
+    FM_FOUNDRY_LUNA_TEST_UPSTREAM_HOST="127.0.0.1:$upstream_port" \
+    env -u FM_FOUNDRY_LUNA_TEST_SECRET \
+    FM_FOUNDRY_LUNA_SECRET="$GATEWAY_SECRET" \
+    python3 "$PROXY" serve 0 > "$portfile" 2>"$TMP_ROOT/serve-secret-err" &
+  pid=$!
+  port=
+  for _ in $(seq 1 50); do
+    [ -s "$portfile" ] && { port=$(cat "$portfile"); break; }
+    sleep 0.1
+  done
+  [ -n "$port" ] || {
+    kill "$pid" "$upstream_pid" 2>/dev/null
+    fail "serve with FM_FOUNDRY_LUNA_SECRET never printed a listening port: $(cat "$TMP_ROOT/serve-secret-err")"
+  }
+
+  status=$(curl -sS -o /dev/null -w '%{http_code}' \
+    -X POST "http://127.0.0.1:$port/openai/v1/responses" \
+    -H 'Content-Type: application/json' \
+    -H "$AUTH_HEADER" \
+    -d '{"model":"gpt-5.6-luna","input":[]}')
+  kill "$pid" "$upstream_pid" 2>/dev/null
+  wait "$pid" "$upstream_pid" 2>/dev/null
+  expect_code 200 "$status" "serve must admit the caller holding FM_FOUNDRY_LUNA_SECRET"
+  pass "fm-foundry-luna-proxy: serve accepts FM_FOUNDRY_LUNA_SECRET for the long-lived host gateway"
+}
+
 test_refuses_every_unauthorized_deployment_name
 test_refresh_path_obtains_a_new_token_per_request_when_expired
 test_caches_a_still_valid_token_across_requests
@@ -1284,3 +1393,7 @@ test_foundry_404_is_classified_as_wrong_deployment_or_host
 test_unreachable_host_is_classified_as_wrong_deployment_or_host
 test_unknown_upstream_5xx_is_explicitly_unknown
 test_classify_api_key_401_is_not_a_token_refresh_failure
+test_relays_luna_sol_and_terra
+test_classify_gateway_down_is_not_a_foundry_or_token_failure
+test_gateway_secret_helper_refuses_when_the_port_is_down
+test_serve_admits_FM_FOUNDRY_LUNA_SECRET

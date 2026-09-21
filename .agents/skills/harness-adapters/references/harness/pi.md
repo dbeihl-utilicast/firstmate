@@ -32,16 +32,15 @@ Multiple positional arguments become separate queued messages; the spawn templat
 
 ## Foundry custom provider
 
-Pi's `foundry` provider is not the token-refreshing gateway `bin/fm-foundry-luna-proxy.py`.
-It reads `~/.pi/agent/models.json` and sends that provider's `apiKey` straight to the configured `baseUrl`.
-A literal key is sent as `api-key` unless `"authHeader": true` makes it a bearer.
-This Azure AI Foundry resource authenticates with an AAD token from `az`, not a subscription key, so a literal `apiKey` is rejected with Foundry's HTTP 401 sentence about an "invalid subscription key".
-That sentence is a key rejection, not an az token-refresh failure.
-`bin/fm-foundry-luna-proxy.py classify --credential api-key --status 401 --body FILE` reprints it in those words.
-The captain-owned config change that makes Pi send an AAD bearer instead is: replace the literal `apiKey` with `"!az account get-access-token --resource https://cognitiveservices.azure.com --subscription <subscription_id from this home's config/foundry-luna.json> -o tsv --query accessToken"` and set `"authHeader": true`.
-Pi resolves `!command` apiKey values at request time.
-Do not edit `~/.pi/agent/models.json` from a crewmate task.
-The dispatched `codex-foundry-luna` path is the one that goes through the gateway.
+Pi's `foundry` provider is not the per-task `run` wrapper that spawn uses for `codex-foundry-luna`.
+It reads `~/.pi/agent/models.json` and sends that provider's `apiKey` as `Authorization: Bearer` to the configured `baseUrl`.
+A literal Azure key there is rejected by this Foundry resource with HTTP 401 "invalid subscription key"; that is a key rejection, not an az token-refresh failure.
+Pi can take the key from the environment: `"apiKey": "$FM_FOUNDRY_LUNA_SECRET"` (unresolved: "No API key found for foundry.").
+Pi's `openai-responses` client POSTs `/openai/v1/responses` with `stream: true` and the deployment name in the JSON `model` field, which is the one route the gateway relays.
+The gateway allowlists `gpt-5.6-luna`, `gpt-5.6-sol`, and `gpt-5.6-terra`; a luna-only pin would have dropped the other two Pi already lists.
+A down gateway must not look like those Foundry failures: `bin/fm-foundry-luna-proxy.py classify --gateway-down` and `bin/fm-foundry-luna-gateway-secret.sh` name it.
+The captain-owned Pi config that points at the long-lived loopback gateway, without storing an Azure key, is `baseUrl` `http://127.0.0.1:17653/openai/v1` and `apiKey` a `!` invocation of `bin/fm-foundry-luna-gateway-secret.sh` (plus a fail-reason token Pi will quote if the gateway is down).
+Do not put the admission secret in a log, status line, test fixture, or report.
 
 A project trust dialog can appear on the first Pi run in any not-yet-trusted directory, including a clean worktree.
 Accept it with Enter and verify the instructions begin processing.

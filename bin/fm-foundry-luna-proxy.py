@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 # fm-foundry-luna-proxy.py - local token-refreshing gateway for the Azure AI
-# Foundry `gpt-5.6-luna` deployment, the only deployment the captain has
-# authorized for fleet dispatch. The Foundry account host and subscription id
-# are private operational data (this fork is public), so neither is
-# hard-coded here: both are read from the local, gitignored config file named
-# by FM_FOUNDRY_LUNA_CONFIG, which bin/fm-spawn.sh resolves from the
-# launching home's own config/foundry-luna.json (inherited into secondmate
-# homes by bin/fm-config-inherit-lib.sh so a secondmate's own crewmates can
-# reach it too). Absent, unreadable, malformed, or non-Azure config refuses
-# to start rather than falling back to any built-in host.
+# Foundry deployments this host is allowed to reach. Fleet dispatch
+# (codex-foundry-luna) still pins `gpt-5.6-luna` at spawn. The long-lived
+# loopback service also relays `gpt-5.6-sol` and `gpt-5.6-terra`, the other
+# two models Pi already lists, so pointing Pi at this gateway does not
+# quietly drop them. The Foundry account host and subscription id are
+# private operational data (this fork is public), so neither is hard-coded
+# here: both are read from the local, gitignored config file named by
+# FM_FOUNDRY_LUNA_CONFIG, which bin/fm-spawn.sh resolves from the launching
+# home's own config/foundry-luna.json (inherited into secondmate homes by
+# bin/fm-config-inherit-lib.sh so a secondmate's own crewmates can reach it
+# too). Absent, unreadable, malformed, or non-Azure config refuses to start
+# rather than falling back to any built-in host.
 #
 # Why this exists: an AAD access token expires in about an hour and an
 # overnight worker outlives it, but the OpenAI-compatible CLI this proxy sits
@@ -27,18 +30,18 @@
 # It also carries the deployment allowlist. Foundry names the deployment in two
 # places - the JSON body's `model` and the deployment-scoped URL - so both are
 # pinned: only the single route the configured base_url produces is relayed, and
-# only `gpt-5.6-luna` in the body. Anything else is refused locally before a
-# token is fetched, so an unauthorized deployment cannot rack up Azure cost.
+# only an allowlisted model in the body. Anything else is refused locally before
+# a token is fetched, so an unauthorized deployment cannot rack up Azure cost.
 #
-# When a Foundry request fails, the body names exactly one of four stages so a
-# worker cannot paraphrase three different causes into "invalid subscription
-# key": az could not produce a token (az's own stderr is included; this is
-# usually that host's login, not a refresh-logic bug); az produced a token and
-# Foundry rejected it; the deployment or host is wrong; or an explicit unknown.
-# A key-based client (Pi's foundry provider in ~/.pi/agent/models.json) is the
-# same four-way split via `classify --credential api-key`, which refuses to
-# describe a key rejection as a token refresh. There is no retry: a single az
-# failure is durable until that host's login is renewed.
+# When a Foundry request fails, the body names exactly one stage so a worker
+# cannot paraphrase different causes into "invalid subscription key": az could
+# not produce a token (az's own stderr is included; this is usually that host's
+# login, not a refresh-logic bug); az produced a token and Foundry rejected it;
+# the deployment or host is wrong; the loopback gateway itself is not running;
+# or an explicit unknown. A key-based client (Pi's foundry provider in
+# ~/.pi/agent/models.json) is classified via `classify --credential api-key`,
+# which refuses to describe a key rejection as a token refresh. There is no
+# retry: a single az failure is durable until that host's login is renewed.
 import hmac
 import http.client
 import http.server
@@ -52,8 +55,13 @@ import threading
 import time
 import traceback
 
+# Fleet dispatch (codex-foundry-luna) still pins gpt-5.6-luna at spawn.
+# The long-lived host gateway also relays the other two Foundry deployments
+# Pi already lists, so pointing Pi at this proxy does not quietly drop them.
 ALLOWED_MODEL = "gpt-5.6-luna"
+ALLOWED_MODELS = frozenset(("gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra"))
 ALLOWED_PATH = "/openai/v1/responses"
+GATEWAY_PORT_DEFAULT = 17653
 FOUNDRY_HOST_SUFFIX = ".services.ai.azure.com"
 # Exactly one DNS label (RFC 1123: alnum, interior hyphens, 1-63 chars) plus
 # the literal Foundry suffix - no extra subdomain labels, no path, no port,
@@ -73,6 +81,7 @@ STAGE_AZ_TOKEN = "az-token"
 STAGE_FOUNDRY_REJECTED_TOKEN = "foundry-rejected-token"
 STAGE_DEPLOYMENT_OR_HOST = "deployment-or-host"
 STAGE_API_KEY = "api-key"
+STAGE_GATEWAY_DOWN = "gateway-down"
 STAGE_UNKNOWN = "unknown"
 SUBSCRIPTION_KEY_SNIPPET = "invalid subscription key"
 AZ_STDERR_LIMIT = 512
@@ -249,6 +258,19 @@ def classify_connect_failure(exc):
     }
 
 
+def classify_gateway_down(port):
+    """The loopback gateway itself is not running. Distinct from the three Foundry stages."""
+    return {
+        "stage": STAGE_GATEWAY_DOWN,
+        "message": (
+            "the Foundry luna gateway is not running on 127.0.0.1:%s. "
+            "This is not an az token-refresh failure, not a Foundry subscription-key rejection, "
+            "and not a wrong Azure deployment."
+            % port
+        ),
+    }
+
+
 def classify_upstream(status, body, credential="az-token"):
     """Name the failing stage from an upstream Foundry reply.
 
@@ -401,11 +423,13 @@ def make_handler(token_cache, client_secret, upstream_host=UPSTREAM_HOST, upstre
                 self._reject(400, "request body is not valid JSON")
                 return
             model = parsed.get("model")
-            if model != ALLOWED_MODEL:
+            if model not in ALLOWED_MODELS:
+                allowed = ", ".join(sorted(ALLOWED_MODELS))
                 self._reject(
                     403,
-                    "deployment %r is not authorized; only %r may be dispatched"
-                    % (model, ALLOWED_MODEL),
+                    "deployment %r is not authorized; only %s may be dispatched"
+                    % (model, allowed),
+                    stage=STAGE_DEPLOYMENT_OR_HOST,
                 )
                 return
             self._forward(body)
@@ -537,11 +561,14 @@ def cmd_serve(argv):
     own secret so no admission value ever exists outside this process and the
     child it starts.
     """
-    client_secret = os.environ.get("FM_FOUNDRY_LUNA_TEST_SECRET", "")
+    client_secret = os.environ.get("FM_FOUNDRY_LUNA_TEST_SECRET", "") or os.environ.get(
+        CLIENT_SECRET_ENV, ""
+    )
     if not client_secret:
         sys.exit(
-            "fm-foundry-luna-proxy: serve needs FM_FOUNDRY_LUNA_TEST_SECRET to name "
-            "the secret it admits; refusing to serve an unauthenticated AAD token broker"
+            "fm-foundry-luna-proxy: serve needs FM_FOUNDRY_LUNA_TEST_SECRET or "
+            "%s to name the secret it admits; refusing to serve an unauthenticated "
+            "AAD token broker" % CLIENT_SECRET_ENV
         )
     port = int(argv[0]) if argv else 0
     server = start_server(port, client_secret)
@@ -612,6 +639,8 @@ def cmd_classify(argv):
     body = ""
     az_stderr = None
     connect_error = None
+    gateway_down = False
+    port = GATEWAY_PORT_DEFAULT
     i = 0
     while i < len(argv):
         arg = argv[i]
@@ -638,14 +667,27 @@ def cmd_classify(argv):
             connect_error = argv[i + 1]
             i += 2
             continue
+        if arg == "--gateway-down":
+            gateway_down = True
+            i += 1
+            continue
+        if arg == "--port" and i + 1 < len(argv):
+            try:
+                port = int(argv[i + 1])
+            except ValueError:
+                sys.exit("fm-foundry-luna-proxy: classify --port needs an integer")
+            i += 2
+            continue
         sys.exit(
             "usage: fm-foundry-luna-proxy.py classify --az-stderr FILE | "
             "--credential az-token|api-key --status N --body FILE | "
-            "--connect-error TEXT"
+            "--connect-error TEXT | --gateway-down [--port N]"
         )
     if credential not in ("az-token", "api-key"):
         sys.exit("fm-foundry-luna-proxy: classify --credential must be az-token or api-key")
-    if az_stderr is not None:
+    if gateway_down:
+        classified = classify_gateway_down(port)
+    elif az_stderr is not None:
         classified = classify_az_failure(AzTokenError("az could not produce a token", az_stderr))
     elif connect_error is not None:
         classified = classify_connect_failure(connect_error)
@@ -655,7 +697,7 @@ def cmd_classify(argv):
         sys.exit(
             "usage: fm-foundry-luna-proxy.py classify --az-stderr FILE | "
             "--credential az-token|api-key --status N --body FILE | "
-            "--connect-error TEXT"
+            "--connect-error TEXT | --gateway-down [--port N]"
         )
     sys.stdout.write(json.dumps({"error": classified}) + "\n")
 
@@ -682,7 +724,7 @@ def main(argv):
     sys.exit(
         "usage: fm-foundry-luna-proxy.py serve <port> | run -- <command> [args...] | "
         "classify --az-stderr FILE | --credential az-token|api-key --status N --body FILE | "
-        "--connect-error TEXT"
+        "--connect-error TEXT | --gateway-down [--port N]"
     )
 
 
