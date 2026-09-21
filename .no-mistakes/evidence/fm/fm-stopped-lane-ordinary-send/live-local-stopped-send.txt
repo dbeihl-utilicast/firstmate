@@ -1,0 +1,11 @@
+LIVE LOCAL STOPPED-LANE SEND
+fm-send exit: 0
+durable record: state/domain.inbox/001.msg
+record headers/body:
+schema=fm-task-inbox.v1
+at=2026-09-21T18:27:53Z
+delivery=stopped
+--
+[fm-from-firstmate]⁣inspect after reopenpending reply records: none
+actual tmux worker pane after send:
+WORKER-READY

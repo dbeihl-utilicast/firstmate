@@ -1,0 +1,12 @@
+LIVE LOCAL STOPPED-MARKER RACE
+fm-send exit after stopped marker appeared under metadata lock: 0
+pending reply records before marker: 1
+pending reply records after durable enqueue: 0
+record headers/body:
+schema=fm-task-inbox.v1
+at=2026-09-21T18:28:28Z
+delivery=stopped
+--
+[fm-from-firstmate]⁣race transition request
+actual tmux worker pane after send:
+WORKER-READY

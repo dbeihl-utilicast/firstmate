@@ -1,0 +1,12 @@
+LIVE LOCAL STOPPED FIRE-AND-FORGET SEND
+fm-send exit: 0
+durable record: state/domain.inbox/001.msg
+record headers/body:
+schema=fm-task-inbox.v1
+at=2026-09-21T18:28:13Z
+delivery=fire-and-forget
+--
+[fm-from-firstmate]⁣delivery=0123456789abcdef hold for reopen
+pending reply records: none
+actual tmux worker pane after send:
+WORKER-READY
