@@ -3221,6 +3221,9 @@ agy_wait_for_delivery() {
 # the already-launched pane. Kill it here rather than leaving an autonomous
 # orphan outside task control.
 unpublished_endpoint_cleanup() {
+  if [ "$RELAUNCH" -eq 1 ] && [ "$RELAUNCH_ENDPOINT_PENDING" != 1 ]; then
+    return 0
+  fi
   [ "$BACKEND" = orca ] && return 0
   local tab_id=
   [ "$BACKEND" = zellij ] && tab_id=$ZELLIJ_TAB_ID
@@ -4069,8 +4072,14 @@ if [ "${HERDR_PROJECTED:-0}" -eq 1 ]; then
   HERDR_PROJECTION_ABORT_CLEANUP=0
   spawn_herdr_presentation_order_lock_release
 fi
-spawn_send_key "$T" Enter
-if [ "$HARNESS" = codex ]; then
+if ! spawn_send_key "$T" Enter; then
+  if [ "$KIND" = secondmate ] && [ "$HARNESS" = codex ]; then
+    echo "error: unable to start Codex in $T; refusing to publish a worker that cannot begin its turn" >&2
+    unpublished_endpoint_cleanup
+    exit 1
+  fi
+fi
+if [ "$KIND" = secondmate ] && [ "$HARNESS" = codex ]; then
   codex_wait_for_startup_dialogs || exit 1
 fi
 if [ "$HARNESS" = agy ]; then
