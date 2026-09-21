@@ -411,11 +411,16 @@ inbox_steer_escalate_unavailable() {  # <window> <task> <record>
 # stale path instead of silently re-ringing forever; acknowledgement or teardown
 # still makes the race quiet. The attempt is data-plane typing or a
 # composer-protected skip, never a wake, so normal retries keep the watcher
-# blocking. Runs for secondmates
+# blocking. A lane carrying state/<id>.stopped produces no inbox stale wakes
+# at all: stop already wrote that marker, and a stopped lane has no worker to
+# recover. Only that marker suppresses the wake. Quiet, unreachable, dead,
+# missing, ambiguous, and unreadable agent states without it keep the behavior
+# above. Runs for secondmates
 # too: their pane-staleness exemption is about quiet panes being healthy,
 # while an unacknowledged instruction past the ladder is a stuck steer.
 inbox_steer_check() {  # <window> <task>
   local w=$1 task=$2 action verb rec count tail40 reason ring_rc backend agent_state
+  [ ! -e "$STATE/$task.stopped" ] || return 0
   action=$(fm_task_inbox_due_action "$STATE" "$task") || return 0
   verb=${action%% *}
   [ "$verb" != quiet ] || return 0

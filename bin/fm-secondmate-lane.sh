@@ -7,8 +7,11 @@
 #   stop    Record state/<id>.stopped, then exit the mate's agent through the
 #           control plane, keeping its endpoint, home, and every uncommitted
 #           change. The marker is written first, so a failure or crash after it
-#           still leaves the lane held down. A remote mate is stopped on its
-#           host through fm-remote-secondmate-control.sh stop.
+#           still leaves the lane held down. A missing recorded endpoint is
+#           already the state this verb wants, so stop treats that as complete
+#           rather than an error; any other control-plane failure is still
+#           reported. A remote mate is stopped on its host through
+#           fm-remote-secondmate-control.sh stop.
 #   reopen  Remove the marker, then relaunch the mate through fm-spawn.sh
 #           --secondmate. Reopen is the only path that clears the marker.
 #
@@ -44,14 +47,32 @@ if ! { [ -f "$META" ] && grep -q '^kind=secondmate$' "$META"; }; then
 fi
 REMOTE_HOST=$(fm_meta_get "$META" remote_host)
 
+# Run the post-marker exit. A gone endpoint is already stopped; any other
+# failure is still the caller's error. Prints the child's stdout/stderr on
+# success or on a real failure, and stays silent on the gone-endpoint case
+# because that message is no longer an error.
+run_stop_exit() {
+  local out rc=0
+  out=$("$@" < /dev/null 2>&1) || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    case "$out" in
+      *"recorded endpoint is gone"*) return 0 ;;
+    esac
+    printf '%s\n' "$out" >&2
+    return "$rc"
+  fi
+  printf '%s\n' "$out"
+  echo
+  return 0
+}
+
 case "$VERB" in
   stop)
     printf 'stopped %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$MARKER"
     if [ -n "$REMOTE_HOST" ]; then
-      "$SCRIPT_DIR/fm-on.sh" "$ID" fm-remote-secondmate-control.sh stop "$ID" < /dev/null
+      run_stop_exit "$SCRIPT_DIR/fm-on.sh" "$ID" fm-remote-secondmate-control.sh stop "$ID"
     else
-      "$SCRIPT_DIR/fm-control.sh" "$ID" exit
-      echo
+      run_stop_exit "$SCRIPT_DIR/fm-control.sh" "$ID" exit
     fi
     ;;
   reopen)

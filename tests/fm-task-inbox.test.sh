@@ -26,6 +26,10 @@
 #   6. Dead panes: the doorbell line is a shell no-op when executed by a bare
 #      shell, the ring skips an agent the backend classifies dead, and the
 #      watcher surfaces such a record exactly once instead of re-ringing.
+#   7. A lane carrying state/<id>.stopped produces no inbox stale wakes at all,
+#      whether its agent reads dead or merely idle: a stopped lane has no
+#      worker to recover. Quiet, unreachable, dead, missing, ambiguous, and
+#      unreadable agent states without that marker keep their current wakes.
 set -u
 
 # shellcheck source=tests/wake-helpers.sh
@@ -996,6 +1000,57 @@ test_watcher_dead_pane_ignores_stale_busy_state() {
   pass "watcher: dead-pane recovery overrides stale busy state"
 }
 
+# The stopped marker, not agent death, is the lever. A dead pane without it
+# still wakes (test_watcher_dead_pane_escalates_once_without_ringing); the
+# same unhandled record with state/<id>.stopped must not.
+test_watcher_stopped_lane_dead_pane_never_wakes() {
+  local dir state out log pid rec
+  dir=$(setup_watch_case stopped-dead)
+  state="$dir/state"; out="$dir/watch.out"; log="$dir/send.log"; : > "$log"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "please continue")
+  age_path "$rec"
+  printf 'stopped\n' > "$state/t1.stopped"
+  watch_bg "$state" "$dir/fakebin" "$out" \
+    FM_SEND_LOG="$log" FM_FAKE_TMUX_CAPTURE="$(idle_capture "$dir")" \
+    FM_FAKE_TMUX_AGENT=zsh FM_TASK_INBOX_RING_MAX=99
+  pid=$!
+  sleep 4
+  kill -0 "$pid" 2>/dev/null \
+    || fail "a stopped lane's unhandled record woke supervision:"$'\n'"$(cat "$out")"
+  kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+  [ ! -s "$log" ] || fail "a stopped lane was typed into:"$'\n'"$(cat "$log")"
+  [ ! -s "$state/.wake-queue" ] \
+    || fail "a stopped lane queued an inbox stale wake:"$'\n'"$(cat "$state/.wake-queue")"
+  [ -f "$rec" ] || fail "suppressing the wake must leave the durable record in place"
+  [ ! -e "$state/t1.inbox/.escalated" ] || fail "a stopped lane must not enter the escalation ladder"
+  pass "watcher: a stopped lane's unhandled record produces no inbox stale wake, even when the agent is dead"
+}
+
+# Quiet without the marker still rings (test_watcher_rerings_idle_pane_quietly).
+# The marker alone must suppress the wake on an idle pane too, so a merely
+# quiet or unreachable lane is not weakened.
+test_watcher_stopped_lane_idle_pane_never_wakes() {
+  local dir state out log pid rec
+  dir=$(setup_watch_case stopped-idle)
+  state="$dir/state"; out="$dir/watch.out"; log="$dir/send.log"; : > "$log"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "please continue")
+  age_path "$rec"
+  printf 'stopped\n' > "$state/t1.stopped"
+  watch_bg "$state" "$dir/fakebin" "$out" \
+    FM_SEND_LOG="$log" FM_FAKE_TMUX_CAPTURE="$(idle_capture "$dir")" \
+    FM_TASK_INBOX_RING_MAX=99
+  pid=$!
+  sleep 4
+  kill -0 "$pid" 2>/dev/null \
+    || fail "a stopped idle lane's unhandled record woke supervision:"$'\n'"$(cat "$out")"
+  kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+  [ ! -s "$log" ] || fail "a stopped idle lane was typed into:"$'\n'"$(cat "$log")"
+  [ ! -s "$state/.wake-queue" ] \
+    || fail "a stopped idle lane queued an inbox stale wake:"$'\n'"$(cat "$state/.wake-queue")"
+  [ -f "$rec" ] || fail "suppressing the wake must leave the durable record in place"
+  pass "watcher: a stopped lane produces no inbox stale wake on an idle pane either"
+}
+
 test_write_is_durable_and_exact
 test_doorbell_is_a_shell_noop
 test_doorbell_rejects_terminal_controls
@@ -1028,3 +1083,5 @@ test_watcher_surfaces_unwritable_ladder
 test_watcher_escalates_once_after_budget
 test_watcher_dead_pane_escalates_once_without_ringing
 test_watcher_dead_pane_ignores_stale_busy_state
+test_watcher_stopped_lane_dead_pane_never_wakes
+test_watcher_stopped_lane_idle_pane_never_wakes
