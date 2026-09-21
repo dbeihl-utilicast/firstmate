@@ -66,7 +66,11 @@ EOF
     ;;
   capture-pane)
     printf '%s\n' "$*" >> "$FM_FAKE_TMUX_LOG"
-    cat "$FM_FAKE_TMUX_CAPTURE"
+    if [ -r "${FM_FAKE_TMUX_CAPTURE:-}" ]; then
+      cat "$FM_FAKE_TMUX_CAPTURE"
+    else
+      printf '%s\n' '› Ask Codex to do anything'
+    fi
     exit 0
     ;;
 esac
