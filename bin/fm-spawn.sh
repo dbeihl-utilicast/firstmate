@@ -3144,14 +3144,23 @@ codex_wait_for_startup_dialogs() {
       hooks-down-enter)
         seen=1
         quiet=0
-        spawn_send_key "$T" Down || return 1
+        spawn_send_key "$T" Down || {
+          unpublished_endpoint_cleanup
+          return 1
+        }
         sleep 0.3
-        spawn_send_key "$T" Enter || return 1
+        spawn_send_key "$T" Enter || {
+          unpublished_endpoint_cleanup
+          return 1
+        }
         ;;
       trust-enter)
         seen=1
         quiet=0
-        spawn_send_key "$T" Enter || return 1
+        spawn_send_key "$T" Enter || {
+          unpublished_endpoint_cleanup
+          return 1
+        }
         ;;
       none)
         if [ "$seen" -eq 1 ]; then
