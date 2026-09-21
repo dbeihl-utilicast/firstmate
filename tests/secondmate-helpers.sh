@@ -20,8 +20,10 @@ make_fake_tmux() {
   fakebin=$(fm_fakebin "$dir")
   capture="$dir/pane.txt"
   # A real, positively identified empty agent composer. A blank capture is
-  # deliberately unknown under the fleet-wide strict blank-row posture.
-  printf '❯\n' > "$capture"
+  # deliberately unknown under the fleet-wide strict blank-row posture. Also
+  # carries Codex's verified ready prompt so a `codex --secondmate` spawn
+  # against this generic fixture clears fm-spawn.sh's Codex startup gate.
+  printf '❯\n› Ask Codex to do anything\n' > "$capture"
   cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u
