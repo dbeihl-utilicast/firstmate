@@ -369,6 +369,10 @@
       "audience": "operator-example"
     },
     {
+      "path": "docs/examples/foundry-luna-gateway.service",
+      "audience": "operator-example"
+    },
+    {
       "path": "docs/examples/watched-tools.json",
       "audience": "operator-example"
     },

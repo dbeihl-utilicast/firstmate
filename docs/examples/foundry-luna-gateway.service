@@ -1,0 +1,21 @@
+[Unit]
+Description=Firstmate Foundry luna loopback gateway
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+# Copy to ~/.config/systemd/user/, point ExecStart at this home's firstmate
+# bin/fm-foundry-luna-proxy.py, and fill EnvironmentFile with
+# FM_FOUNDRY_LUNA_CONFIG, FM_FOUNDRY_LUNA_SECRET, and FM_FOUNDRY_LUNA_PORT=17653.
+# The secret is the gateway admission value, not an Azure key. Never log it.
+EnvironmentFile=/path/to/firstmate-home/config/foundry-luna-gateway.env
+ExecStart=/usr/bin/python3 /path/to/firstmate/bin/fm-foundry-luna-proxy.py serve 17653
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

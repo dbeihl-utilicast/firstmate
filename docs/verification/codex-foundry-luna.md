@@ -60,7 +60,8 @@ The gateway mints a fresh random secret per launch and passes it to codex, its o
 It is deliberately not an assignment on the launch command: under `config/launch-env-allowlist` that text becomes `/bin/sh`'s own `-c` argument, and `/proc/<pid>/cmdline` is world-readable, so a secret placed there would be readable by every local uid rather than only the operator.
 Any request whose `Authorization` header is not exactly that secret is answered 401, before a route check, a deployment check, or a token fetch.
 The secret never leaves the host either: `_forward` strips the caller's `Authorization` header and replaces it with the gateway's own fetched token.
-`serve` is the foreground test mode and takes its admission secret from `FM_FOUNDRY_LUNA_TEST_SECRET`, refusing to start without one, because a curl client has no child environment to read one from.
+`serve` is the long-lived loopback service (and the foreground test mode).
+It takes its admission secret from `FM_FOUNDRY_LUNA_SECRET` or `FM_FOUNDRY_LUNA_TEST_SECRET`, refusing to start without one, because a Pi or curl client has no child environment minted per launch.
 
 ## Getting a token at all
 
@@ -68,12 +69,47 @@ The secret never leaves the host either: `_forward` strips the caller's `Authori
 Between them a missing or aged-out credential is a launch that fails loudly at the operator rather than a live pane whose every turn answers a silent 502, which supervision would read as a wedged worker.
 That startup fetch is one per launch, not one per turn; the cache then serves every turn until shortly before expiry.
 
+## Failure diagnosis
+
+Verified 2026-09-21 against a fake `az` and a fake upstream in `tests/fm-foundry-luna-proxy.test.sh`, plus a live account check that Foundry's own 401 body is identical for a garbage bearer, an `api-key` header, and a dummy key sent as bearer, while a real az token returned HTTP 200 and a wrong deployment name returned HTTP 404 `DeploymentNotFound`.
+The TokenCache refresh path was already correct; the defect was that all three failures reached a worker as Foundry's "invalid subscription key" sentence or as a silent pane.
+
+The gateway now names exactly one stage in the worker-visible error body (and on stderr when az fails at startup, because the wrapped command never starts):
+
+| Stage | When | Worker-visible words include |
+|---|---|---|
+| `az-token` | az exits nonzero, is missing, or returns an unreadable or already-expired token | `az could not produce a token` plus az's own stderr; no retry |
+| `foundry-rejected-token` | az minted a token and Foundry answered 401/403 | `az produced a token and Foundry rejected it`; Foundry's subscription-key sentence is not forwarded |
+| `deployment-or-host` | Foundry 404/`DeploymentNotFound`, or the host cannot be connected | `the Foundry deployment or host is wrong` |
+| `local-allowlist` | the request's model is not on this gateway's allowlist | a local allowlist refusal, not a Foundry deployment or host fault |
+| `gateway-down` | the loopback `serve` process is not listening | `the Foundry luna gateway is not running`; not a token refresh |
+| `unknown` | any other upstream error status | `unknown reason`, not az-token, foundry-rejected-token, or deployment-or-host |
+
+These stages apply to both gateways this binary can start.
+The per-launch `run` gateway is what `codex-foundry-luna` spawn wraps: it admits `gpt-5.6-luna` alone.
+The long-lived `serve` gateway is what Pi uses on this host: it admits `gpt-5.6-luna`, `gpt-5.6-sol`, and `gpt-5.6-terra`.
+Pi reaches Foundry through that `serve` loopback gateway and holds no Azure credential; `classify --credential api-key` remains only for a client that still sent a key.
+No retry was added: the reproduction of an az failure was a durable login/CA error, not a single transient call that recovered on a second try.
+
+## Pi on the same gateway
+
+Verified 2026-09-21 on this Spark host, against a recorder and then the live gateway, without printing credentials:
+
+- Pi can interpolate `"apiKey": "$FM_FOUNDRY_LUNA_SECRET"` (unset: `No API key found for foundry.`).
+- After the live proof, Pi's foundry provider uses a `!` command that reads the gateway admission secret only while `serve` is listening, not an Azure key.
+- Pi's `openai-responses` client POSTs `/openai/v1/responses` with `Authorization: Bearer`, `stream: true`, and the deployment name in the JSON `model` field. That is the one route the gateway relays. Pi did not GET `/models`.
+- The luna-only body pin would have 403'd `gpt-5.6-sol` and `gpt-5.6-terra`. The long-lived `serve` gateway allowlist now includes those three names; the per-launch `run` gateway and fleet spawn stay luna-only.
+- A long-lived systemd user unit (`fm-foundry-luna-gateway.service`, Restart=always, port 17653) is this host's existing service mechanism. Linger is already on.
+- Isolated Pi `--print` through that gateway returned `pong` for `gpt-5.6-luna`, `gpt-5.6-sol`, and `gpt-5.6-terra`.
+- With the gateway stopped, Pi using `$FM_FOUNDRY_LUNA_SECRET` printed only `Connection error.` Pi using `bin/fm-foundry-luna-gateway-secret.sh` plus a fail-reason token printed `API key auth failed ... foundry-luna-gateway-is-not-running-on-127.0.0.1:17653-not-az-token-refresh-not-subscription-key`.
+- After that proof, `~/.pi/agent/models.json` provider `foundry` was repointed at `http://127.0.0.1:17653/openai/v1` with a `!` apiKey command (no Azure key). A subsequent default-home Pi launch on luna returned `pong`.
+
 ## The deployment allowlist
 
-The captain authorizes `gpt-5.6-luna` only, and Foundry names the deployment in two independent places.
+The captain authorizes `gpt-5.6-luna` for fleet dispatch, and Foundry names the deployment in two independent places.
 
 `bin/fm-foundry-luna-proxy.py` pins both.
-The JSON body's `model` must be exactly `gpt-5.6-luna`.
+The JSON body's `model` must be exactly `gpt-5.6-luna` on the per-launch `run` gateway; the long-lived `serve` gateway admits `gpt-5.6-luna`, `gpt-5.6-sol`, and `gpt-5.6-terra` for Pi.
 The request path must be exactly `/openai/v1/responses`, so a deployment-scoped URL such as `/openai/deployments/gpt-5.6-terra/chat/completions?api-version=...` carrying an authorized body model is refused locally, before a token is fetched and before any byte leaves the host.
 `bin/fm-spawn.sh` refuses a `--model` other than `gpt-5.6-luna` at spawn time as well.
 

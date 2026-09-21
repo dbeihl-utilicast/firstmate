@@ -123,6 +123,54 @@ fm_start_proxy() {
   printf '%s %s\n' "$pid" "$port"
 }
 
+# fm_start_fake_upstream_reply <status> <body-file> -> prints "<pid> <port>"
+# Serves one fixed JSON body at the given status for every POST, so a test can
+# force Foundry's 401/404/500 shapes without a live account.
+fm_start_fake_upstream_reply() {
+  local status=$1 body_file=$2 script="$TMP_ROOT/fake_upstream_reply_$$_$RANDOM.py" portfile
+  portfile=$(mktemp "$TMP_ROOT/upstream-reply-port.XXXXXX")
+  cat > "$script" <<'PY'
+import http.server
+import pathlib
+import sys
+
+status = int(sys.argv[1])
+body = pathlib.Path(sys.argv[2]).read_bytes()
+
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
+    def do_POST(self):
+        n = int(self.headers.get("Content-Length", "0"))
+        self.rfile.read(n)
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Retry-After", "7")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *_args):
+        pass
+
+
+srv = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+print(srv.server_address[1])
+sys.stdout.flush()
+srv.serve_forever()
+PY
+  python3 "$script" "$status" "$body_file" > "$portfile" 2>"$TMP_ROOT/upstream-reply-err-$$" &
+  local pid=$!
+  local port=
+  for _ in $(seq 1 50); do
+    [ -s "$portfile" ] && { port=$(cat "$portfile"); break; }
+    sleep 0.1
+  done
+  [ -n "$port" ] || fail "classified-reply upstream never printed a listening port"
+  printf '%s %s\n' "$pid" "$port"
+}
+
 # fm_write_fake_az <dir> <calls-file>
 # Mints "FAKE-TOKEN-<n>" on the n'th invocation, reporting an expiry 30
 # seconds in the future - comfortably not-yet-expired at fetch time (the
@@ -209,7 +257,7 @@ test_refuses_every_unauthorized_deployment_name() {
   proxy_port=${proxy_info##* }
   baseline=$(cat "$calls")
 
-  for name in gpt-5.6-terra gpt-5.6-sol claude-sonnet-5 claude-opus-5; do
+  for name in gpt-4o gpt-5.6-unauth claude-sonnet-5 claude-opus-5; do
     body=$(curl -sS -o "$TMP_ROOT/refuse-body" -w '%{http_code}' \
       -X POST "http://127.0.0.1:$proxy_port/openai/v1/responses" \
       -H 'Content-Type: application/json' \
@@ -220,8 +268,10 @@ test_refuses_every_unauthorized_deployment_name() {
       kill "$proxy_pid" "$upstream_pid" 2>/dev/null
       fail "refusal did not fail red for deployment '$name': got HTTP $status $(cat "$TMP_ROOT/refuse-body")"
     fi
-    assert_contains "$(cat "$TMP_ROOT/refuse-body")" "not authorized" \
-      "refusal body for '$name' names the reason"
+    assert_contains "$(cat "$TMP_ROOT/refuse-body")" '"stage": "local-allowlist"' \
+      "refusal body for '$name' names a local allowlist refusal"
+    assert_not_contains "$(cat "$TMP_ROOT/refuse-body")" "deployment-or-host" \
+      "a local refusal for '$name' is not a wrong Foundry deployment or host"
   done
 
   kill "$proxy_pid" "$upstream_pid" 2>/dev/null
@@ -799,8 +849,14 @@ SH
     || fail "the gateway must exit non-zero when it cannot obtain a token, instead of serving"
   [ ! -e "$ran" ] \
     || fail "the wrapped command must never start when the gateway could not obtain a token"
-  [ ! -s "$TMP_ROOT/broken-stderr" ] \
-    || fail "a failed startup token fetch must not write to the pane's stderr, got: $(cat "$TMP_ROOT/broken-stderr")"
+  assert_contains "$(cat "$TMP_ROOT/broken-stderr")" "az could not produce a token" \
+    "a failed startup token fetch must name az as the failing stage"
+  assert_contains "$(cat "$TMP_ROOT/broken-stderr")" "please run 'az login'" \
+    "a failed startup token fetch must surface az's own stderr, not swallow it"
+  assert_not_contains "$(cat "$TMP_ROOT/broken-stderr")" "Traceback" \
+    "a failed startup token fetch must not print a raw traceback"
+  assert_not_contains "$(cat "$TMP_ROOT/broken-stderr")" "invalid subscription key" \
+    "an az failure must not be described as a subscription-key failure"
   [ ! -s "$TMP_ROOT/broken-stdout" ] \
     || fail "a failed startup token fetch must not write to the pane's stdout, got: $(cat "$TMP_ROOT/broken-stdout")"
   assert_equals "1" "$(cat "$calls")" \
@@ -813,10 +869,10 @@ SH
     > /dev/null 2>"$TMP_ROOT/broken-loud-stderr"
   status=$?
   [ "$status" -ne 0 ] || fail "a named access log must not turn a failed startup fetch into a success"
-  [ ! -s "$TMP_ROOT/broken-loud-stderr" ] \
-    || fail "a named access log must replace stderr on the startup path too, got: $(cat "$TMP_ROOT/broken-loud-stderr")"
-  [ -s "$log" ] \
-    || fail "a named access log must record why the gateway refused to serve, and nothing was written"
+  assert_contains "$(cat "$TMP_ROOT/broken-loud-stderr")" "az could not produce a token" \
+    "startup still names az on stderr when a log file is also named, because the wrapped command never starts"
+  assert_contains "$(cat "$log")" "az could not produce a token" \
+    "a named access log must record the classified az failure"
 
   out=$(PATH="$az_dir:$PATH" FM_FOUNDRY_LUNA_TEST_SECRET="$GATEWAY_SECRET" \
     timeout 10 python3 "$PROXY" serve 0 2>"$TMP_ROOT/broken-serve-stderr")
@@ -956,21 +1012,407 @@ SH
       || fail "the proxy must refuse to serve when az reports an expires_on that is $scenario"
     [ ! -s "$out_file" ] \
       || fail "an unreadable expires_on ($scenario) must not print to the pane's stdout, got: $(cat "$out_file")"
-    [ ! -s "$err_file" ] \
-      || fail "an unreadable expires_on ($scenario) must not print a raw traceback to the pane's stderr, got: $(cat "$err_file")"
+    assert_contains "$(cat "$err_file")" "az could not produce a token" \
+      "an unreadable expires_on ($scenario) must name az as the failing stage"
+    assert_not_contains "$(cat "$err_file")" "Traceback" \
+      "an unreadable expires_on ($scenario) must not print a raw traceback to the pane's stderr"
 
     log="$TMP_ROOT/expiry-$scenario-access.log"
     loud_err="$TMP_ROOT/expiry-$scenario-loud-stderr"
     PATH="$az_dir:$PATH" FM_FOUNDRY_LUNA_TEST_SECRET="$GATEWAY_SECRET" FM_FOUNDRY_LUNA_LOG="$log" \
       timeout 5 python3 "$PROXY" serve 0 > /dev/null 2>"$loud_err"
-    [ ! -s "$loud_err" ] \
-      || fail "a named access log must replace stderr for an unreadable expiry ($scenario) too, got: $(cat "$loud_err")"
-    [ -s "$log" ] \
-      || fail "a named access log must record why the gateway refused to serve for an unreadable expiry ($scenario)"
+    assert_contains "$(cat "$loud_err")" "az could not produce a token" \
+      "an unreadable expiry ($scenario) still names az on stderr when a log file is also named"
+    assert_contains "$(cat "$log")" "az could not produce a token" \
+      "a named access log must record the classified az failure for an unreadable expiry ($scenario)"
     assert_not_contains "$(cat "$log")" "FAKE-TOKEN" \
       "the refusal log for an unreadable expiry ($scenario) must never record the token value"
   done
   pass "fm-foundry-luna-proxy: refuses to serve when az reports a token with an unreadable expires_on, never crashing with a raw traceback"
+}
+
+test_az_failure_on_refresh_names_az_and_surfaces_stderr() {
+  local az_dir calls upstream_info upstream_pid upstream_port
+  local proxy_info proxy_pid proxy_port status body
+
+  az_dir="$TMP_ROOT/az-refresh-fail"
+  calls="$TMP_ROOT/az-refresh-fail-calls"
+  mkdir -p "$az_dir"
+  : > "$calls"
+  # First call (startup) succeeds with a near-future expiry so the next
+  # request must refresh; the second call fails with distinctive stderr.
+  cat > "$az_dir/az" <<SH
+#!/usr/bin/env bash
+set -u
+n=\$(( \$(cat "$calls") + 1 ))
+echo "\$n" > "$calls"
+if [ "\$n" -gt 1 ]; then
+  echo "AADSTS700082: The refresh token has expired due to inactivity." >&2
+  echo "Please run 'az login' to setup account." >&2
+  exit 1
+fi
+printf '{"accessToken":"FAKE-TOKEN-FIRST","expires_on":%s}\n' "\$(( \$(date +%s) + 30 ))"
+SH
+  chmod +x "$az_dir/az"
+
+  printf '{"ok":true}\n' > "$TMP_ROOT/upstream-ok-body"
+  upstream_info=$(fm_start_fake_upstream_reply 200 "$TMP_ROOT/upstream-ok-body")
+  upstream_pid=${upstream_info%% *}
+  upstream_port=${upstream_info##* }
+
+  proxy_info=$(fm_start_proxy "$az_dir" "$upstream_port")
+  proxy_pid=${proxy_info%% *}
+  proxy_port=${proxy_info##* }
+
+  status=$(curl -sS -o "$TMP_ROOT/az-refresh-fail-body" -w '%{http_code}' \
+    -X POST "http://127.0.0.1:$proxy_port/openai/v1/responses" \
+    -H 'Content-Type: application/json' \
+    -H "$AUTH_HEADER" \
+    -d '{"model":"gpt-5.6-luna","input":[]}')
+  body=$(cat "$TMP_ROOT/az-refresh-fail-body")
+
+  kill "$proxy_pid" "$upstream_pid" 2>/dev/null
+  wait "$proxy_pid" "$upstream_pid" 2>/dev/null
+
+  expect_code 502 "$status" "az failing to mint a token on refresh must be HTTP 502, not a Foundry 401"
+  assert_contains "$body" '"stage": "az-token"' "the body names the az-token stage"
+  assert_contains "$body" "az could not produce a token" "the body names az as the failing stage"
+  assert_contains "$body" "AADSTS700082" "the body surfaces az's own stderr rather than swallowing it"
+  assert_not_contains "$body" "invalid subscription key" \
+    "an az failure must not be described as a subscription-key failure"
+  assert_not_contains "$body" "FAKE-TOKEN" "the body must never include the token value"
+  assert_equals "2" "$(cat "$calls")" \
+    "a single az failure must not be retried; startup plus one refresh is exactly two calls"
+  pass "fm-foundry-luna-proxy: an az refresh failure names az, surfaces stderr, and is not retried"
+}
+
+test_foundry_401_is_classified_as_token_rejection_not_subscription_key() {
+  local az_dir calls upstream_info upstream_pid upstream_port
+  local proxy_info proxy_pid proxy_port status body
+
+  az_dir="$TMP_ROOT/az-reject"
+  calls="$TMP_ROOT/az-reject-calls"
+  fm_write_fake_az "$az_dir" "$calls"
+
+  printf '%s\n' '{"error":{"code":"401","message":"Access denied due to invalid subscription key or wrong API endpoint. Make sure to provide a valid key for an active subscription and use a correct regional API endpoint for your resource."}}' \
+    > "$TMP_ROOT/upstream-401-body"
+  upstream_info=$(fm_start_fake_upstream_reply 401 "$TMP_ROOT/upstream-401-body")
+  upstream_pid=${upstream_info%% *}
+  upstream_port=${upstream_info##* }
+
+  proxy_info=$(fm_start_proxy "$az_dir" "$upstream_port")
+  proxy_pid=${proxy_info%% *}
+  proxy_port=${proxy_info##* }
+
+  status=$(curl -sS -o "$TMP_ROOT/foundry-401-body" -w '%{http_code}' \
+    -X POST "http://127.0.0.1:$proxy_port/openai/v1/responses" \
+    -H 'Content-Type: application/json' \
+    -H "$AUTH_HEADER" \
+    -d '{"model":"gpt-5.6-luna","input":[]}')
+  body=$(cat "$TMP_ROOT/foundry-401-body")
+
+  kill "$proxy_pid" "$upstream_pid" 2>/dev/null
+  wait "$proxy_pid" "$upstream_pid" 2>/dev/null
+
+  expect_code 401 "$status" "Foundry rejecting the az token keeps HTTP 401"
+  assert_contains "$body" '"stage": "foundry-rejected-token"' "the body names the token-rejection stage"
+  assert_contains "$body" "az produced a token and Foundry rejected it" \
+    "the body says az produced a token and Foundry rejected it"
+  assert_not_contains "$body" "invalid subscription key" \
+    "Foundry's subscription-key sentence must not be the diagnosis on this AAD route"
+  assert_not_contains "$body" "token refresh failed" \
+    "a Foundry 401 after a successful az fetch is not a token-refresh failure"
+  pass "fm-foundry-luna-proxy: Foundry 401 after an az token is classified as token rejection, not a subscription key"
+}
+
+test_foundry_404_is_classified_as_wrong_deployment_or_host() {
+  local az_dir calls upstream_info upstream_pid upstream_port
+  local proxy_info proxy_pid proxy_port status body
+
+  az_dir="$TMP_ROOT/az-404"
+  calls="$TMP_ROOT/az-404-calls"
+  fm_write_fake_az "$az_dir" "$calls"
+
+  printf '%s\n' '{"error":{"type":"invalid_request_error","code":"DeploymentNotFound","message":"The API deployment for this resource does not exist."}}' \
+    > "$TMP_ROOT/upstream-404-body"
+  upstream_info=$(fm_start_fake_upstream_reply 404 "$TMP_ROOT/upstream-404-body")
+  upstream_pid=${upstream_info%% *}
+  upstream_port=${upstream_info##* }
+
+  proxy_info=$(fm_start_proxy "$az_dir" "$upstream_port")
+  proxy_pid=${proxy_info%% *}
+  proxy_port=${proxy_info##* }
+
+  status=$(curl -sS -o "$TMP_ROOT/foundry-404-body" -w '%{http_code}' \
+    -X POST "http://127.0.0.1:$proxy_port/openai/v1/responses" \
+    -H 'Content-Type: application/json' \
+    -H "$AUTH_HEADER" \
+    -d '{"model":"gpt-5.6-luna","input":[]}')
+  body=$(cat "$TMP_ROOT/foundry-404-body")
+
+  kill "$proxy_pid" "$upstream_pid" 2>/dev/null
+  wait "$proxy_pid" "$upstream_pid" 2>/dev/null
+
+  expect_code 404 "$status" "a missing deployment keeps HTTP 404"
+  assert_contains "$body" '"stage": "deployment-or-host"' "the body names the deployment-or-host stage"
+  assert_contains "$body" "the Foundry deployment or host is wrong" \
+    "the body says the deployment or host is wrong"
+  assert_contains "$body" "DeploymentNotFound" "the body still carries Foundry's deployment-not-found detail"
+  assert_not_contains "$body" "invalid subscription key" \
+    "a missing deployment must not be described as a subscription-key failure"
+  pass "fm-foundry-luna-proxy: Foundry 404 is classified as a wrong deployment or host"
+}
+
+test_unreachable_host_is_classified_as_wrong_deployment_or_host() {
+  local az_dir calls proxy_info proxy_pid proxy_port status body
+
+  az_dir="$TMP_ROOT/az-unreach"
+  calls="$TMP_ROOT/az-unreach-calls"
+  fm_write_fake_az "$az_dir" "$calls"
+
+  # Port 1 on loopback refuses connections: the configured host cannot be reached.
+  proxy_info=$(fm_start_proxy "$az_dir" 1)
+  proxy_pid=${proxy_info%% *}
+  proxy_port=${proxy_info##* }
+
+  status=$(curl -sS -o "$TMP_ROOT/unreach-body" -w '%{http_code}' --max-time 5 \
+    -X POST "http://127.0.0.1:$proxy_port/openai/v1/responses" \
+    -H 'Content-Type: application/json' \
+    -H "$AUTH_HEADER" \
+    -d '{"model":"gpt-5.6-luna","input":[]}')
+  body=$(cat "$TMP_ROOT/unreach-body")
+
+  kill "$proxy_pid" 2>/dev/null
+  wait "$proxy_pid" 2>/dev/null
+
+  expect_code 502 "$status" "an unreachable host must be an HTTP error, not an empty reply"
+  assert_contains "$body" '"stage": "deployment-or-host"' "the body names the deployment-or-host stage"
+  assert_contains "$body" "the Foundry deployment or host is wrong" \
+    "the body says the deployment or host is wrong"
+  assert_not_contains "$body" "token refresh failed" \
+    "an unreachable host is not a token-refresh failure"
+  pass "fm-foundry-luna-proxy: an unreachable Foundry host is classified as a wrong deployment or host"
+}
+
+test_unknown_upstream_5xx_is_explicitly_unknown() {
+  local az_dir calls upstream_info upstream_pid upstream_port
+  local proxy_info proxy_pid proxy_port status body
+
+  az_dir="$TMP_ROOT/az-500"
+  calls="$TMP_ROOT/az-500-calls"
+  fm_write_fake_az "$az_dir" "$calls"
+
+  printf '%s\n' '{"error":{"message":"internal server error"}}' > "$TMP_ROOT/upstream-500-body"
+  upstream_info=$(fm_start_fake_upstream_reply 500 "$TMP_ROOT/upstream-500-body")
+  upstream_pid=${upstream_info%% *}
+  upstream_port=${upstream_info##* }
+
+  proxy_info=$(fm_start_proxy "$az_dir" "$upstream_port")
+  proxy_pid=${proxy_info%% *}
+  proxy_port=${proxy_info##* }
+
+  status=$(curl -sS -D "$TMP_ROOT/foundry-500-headers.raw" -o "$TMP_ROOT/foundry-500-body" -w '%{http_code}' \
+    -X POST "http://127.0.0.1:$proxy_port/openai/v1/responses" \
+    -H 'Content-Type: application/json' \
+    -H "$AUTH_HEADER" \
+    -d '{"model":"gpt-5.6-luna","input":[]}')
+  body=$(cat "$TMP_ROOT/foundry-500-body")
+  tr '[:upper:]' '[:lower:]' < "$TMP_ROOT/foundry-500-headers.raw" > "$TMP_ROOT/foundry-500-headers"
+
+  kill "$proxy_pid" "$upstream_pid" 2>/dev/null
+  wait "$proxy_pid" "$upstream_pid" 2>/dev/null
+
+  expect_code 500 "$status" "an unclassified Foundry 500 keeps HTTP 500"
+  assert_contains "$body" '"stage": "unknown"' "the body names the unknown stage"
+  assert_contains "$body" "unknown reason" "the body says the failure is unknown"
+  assert_contains "$body" "internal server error" "the body keeps Foundry's own words"
+  assert_contains "$(cat "$TMP_ROOT/foundry-500-headers")" "retry-after: 7" "Retry-After survives the rewrite"
+  assert_not_contains "$body" "az could not produce a token" \
+    "an unknown 500 must not be blamed on az"
+  assert_not_contains "$body" "invalid subscription key" \
+    "an unknown 500 must not be described as a subscription-key failure"
+  pass "fm-foundry-luna-proxy: an unclassified Foundry 500 is an explicit unknown, not one of the three stages"
+}
+
+test_classify_api_key_401_is_not_a_token_refresh_failure() {
+  local body_file out
+
+  body_file="$TMP_ROOT/classify-apikey-401.json"
+  printf '%s\n' '{"error":{"code":"401","message":"Access denied due to invalid subscription key or wrong API endpoint. Make sure to provide a valid key for an active subscription and use a correct regional API endpoint for your resource."}}' \
+    > "$body_file"
+
+  out=$(python3 "$PROXY" classify --credential api-key --status 401 --body "$body_file")
+  assert_contains "$out" '"stage": "api-key"' "a key 401 names the api-key stage"
+  assert_contains "$out" "Foundry rejected the API key" "a key 401 says Foundry rejected the API key"
+  assert_contains "$out" "not an az token-refresh failure" \
+    "a key 401 says this is not an az token-refresh failure"
+  assert_contains "$out" "models.json" "a key 401 names Pi's provider config as the credential source"
+  assert_not_contains "$out" "invalid subscription key" \
+    "the classified key 401 must not repeat Foundry's subscription-key sentence as the diagnosis"
+
+  out=$(python3 "$PROXY" classify --credential az-token --status 401 --body "$body_file")
+  assert_contains "$out" '"stage": "foundry-rejected-token"' \
+    "the same Foundry 401 with an az token is token rejection, not a key failure"
+  assert_contains "$out" "az produced a token and Foundry rejected it" \
+    "the az-token classification of that 401 names the az token stage"
+
+  printf 'AADSTS700082: The refresh token has expired due to inactivity.\n' > "$TMP_ROOT/classify-az-stderr"
+  out=$(python3 "$PROXY" classify --az-stderr "$TMP_ROOT/classify-az-stderr")
+  assert_contains "$out" '"stage": "az-token"' "classify --az-stderr names the az-token stage"
+  assert_contains "$out" "AADSTS700082" "classify --az-stderr keeps az's own words"
+
+  out=$(python3 "$PROXY" classify --connect-error "Connection refused")
+  assert_contains "$out" '"stage": "deployment-or-host"' "classify --connect-error names deployment-or-host"
+  assert_contains "$out" "the Foundry deployment or host is wrong" \
+    "classify --connect-error says the host is wrong"
+  pass "fm-foundry-luna-proxy: classify reprints a key 401 as a key rejection, never as a token refresh"
+}
+
+test_run_gateway_admits_luna_alone() {
+  local az_dir calls upstream_info upstream_pid upstream_port child_script name
+
+  az_dir="$TMP_ROOT/az-run-allow"
+  calls="$TMP_ROOT/az-run-allow-calls"
+  fm_write_fake_az "$az_dir" "$calls"
+
+  printf '{"ok":true}\n' > "$TMP_ROOT/upstream-run-allow-body"
+  upstream_info=$(fm_start_fake_upstream_reply 200 "$TMP_ROOT/upstream-run-allow-body")
+  upstream_pid=${upstream_info%% *}
+  upstream_port=${upstream_info##* }
+
+  for name in gpt-5.6-luna gpt-5.6-sol gpt-5.6-terra; do
+    child_script="$TMP_ROOT/run-allow-child-$name.sh"
+    cat > "$child_script" <<SH
+#!/usr/bin/env bash
+curl -s -o /dev/null -w '%{http_code}' \\
+  -X POST "http://127.0.0.1:\$1/openai/v1/responses" \\
+  -H 'Content-Type: application/json' \\
+  -H "Authorization: Bearer \$FM_FOUNDRY_LUNA_SECRET" \\
+  -d '{"model":"$name","input":[]}' > "\$2"
+SH
+    chmod +x "$child_script"
+    PATH="$az_dir:$PATH" \
+      FM_FOUNDRY_LUNA_TEST_UPSTREAM_HOST="127.0.0.1:$upstream_port" \
+      python3 "$PROXY" run -- "$child_script" __FOUNDRYLUNAPORT__ "$TMP_ROOT/run-allow-$name"
+    if [ "$name" = gpt-5.6-luna ]; then
+      expect_code 200 "$(cat "$TMP_ROOT/run-allow-$name")" "the run gateway relays $name"
+    else
+      expect_code 403 "$(cat "$TMP_ROOT/run-allow-$name")" "the run gateway refuses $name"
+    fi
+  done
+
+  kill "$upstream_pid" 2>/dev/null
+  wait "$upstream_pid" 2>/dev/null
+  pass "fm-foundry-luna-proxy: the per-launch run gateway relays luna and refuses sol and terra"
+}
+
+test_relays_luna_sol_and_terra() {
+  local az_dir calls upstream_info upstream_pid upstream_port
+  local proxy_info proxy_pid proxy_port status name
+
+  az_dir="$TMP_ROOT/az-three"
+  calls="$TMP_ROOT/az-three-calls"
+  fm_write_fake_az "$az_dir" "$calls"
+
+  printf '{"ok":true}\n' > "$TMP_ROOT/upstream-three-body"
+  upstream_info=$(fm_start_fake_upstream_reply 200 "$TMP_ROOT/upstream-three-body")
+  upstream_pid=${upstream_info%% *}
+  upstream_port=${upstream_info##* }
+
+  proxy_info=$(fm_start_proxy "$az_dir" "$upstream_port")
+  proxy_pid=${proxy_info%% *}
+  proxy_port=${proxy_info##* }
+
+  for name in gpt-5.6-luna gpt-5.6-sol gpt-5.6-terra; do
+    status=$(curl -sS -o "$TMP_ROOT/three-body" -w '%{http_code}' \
+      -X POST "http://127.0.0.1:$proxy_port/openai/v1/responses" \
+      -H 'Content-Type: application/json' \
+      -H "$AUTH_HEADER" \
+      -d "{\"model\":\"$name\",\"input\":[],\"stream\":true}")
+    if [ "$status" -ge 400 ]; then
+      kill "$proxy_pid" "$upstream_pid" 2>/dev/null
+      fail "pointing Pi at this gateway must not drop $name: HTTP $status $(cat "$TMP_ROOT/three-body")"
+    fi
+  done
+
+  kill "$proxy_pid" "$upstream_pid" 2>/dev/null
+  wait "$proxy_pid" "$upstream_pid" 2>/dev/null
+  pass "fm-foundry-luna-proxy: relays gpt-5.6-luna, gpt-5.6-sol, and gpt-5.6-terra so Pi does not lose two models"
+}
+
+test_classify_gateway_down_is_not_a_foundry_or_token_failure() {
+  local out
+  out=$(python3 "$PROXY" classify --gateway-down --port 17653)
+  assert_contains "$out" '"stage": "gateway-down"' "a down gateway names the gateway-down stage"
+  assert_contains "$out" "the Foundry luna gateway is not running on 127.0.0.1:17653" \
+    "a down gateway names the loopback address"
+  assert_contains "$out" "not an az token-refresh failure" \
+    "a down gateway is not described as a token refresh"
+  assert_contains "$out" "not a Foundry subscription-key rejection" \
+    "a down gateway is not described as a subscription-key failure"
+  pass "fm-foundry-luna-proxy: classify --gateway-down is its own stage, not one of the three Foundry failures"
+}
+
+test_gateway_secret_helper_refuses_when_the_port_is_down() {
+  local secret_file out status
+  secret_file="$TMP_ROOT/gateway.secret"
+  printf 'fm-test-gateway-fixture-not-a-credential' > "$secret_file"
+  chmod 600 "$secret_file"
+
+  status=0
+  FM_FOUNDRY_LUNA_SECRET_FILE="$secret_file" FM_FOUNDRY_LUNA_PORT=1 \
+    "$ROOT/bin/fm-foundry-luna-gateway-secret.sh" \
+    foundry-luna-gateway-is-not-running-on-127.0.0.1-not-az-token-refresh \
+    >"$TMP_ROOT/secret-helper-out" 2>"$TMP_ROOT/secret-helper-err" || status=$?
+
+  [ "$status" -ne 0 ] || fail "the secret helper must exit nonzero when the gateway port is closed"
+  [ ! -s "$TMP_ROOT/secret-helper-out" ] \
+    || fail "a down gateway must not print the admission secret"
+  assert_contains "$(cat "$TMP_ROOT/secret-helper-err")" "the Foundry luna gateway is not running" \
+    "the secret helper names the down gateway rather than a token refresh"
+  assert_not_contains "$(cat "$TMP_ROOT/secret-helper-err")" "fm-test-gateway-fixture-not-a-credential" \
+    "the secret helper must never print the secret on stderr"
+  pass "fm-foundry-luna-gateway-secret: a closed port is a down-gateway failure, not a leaked secret"
+}
+
+test_serve_admits_FM_FOUNDRY_LUNA_SECRET() {
+  local az_dir calls upstream_info upstream_pid upstream_port
+  local portfile pid port status
+
+  az_dir="$TMP_ROOT/az-serve-secret"
+  calls="$TMP_ROOT/az-serve-secret-calls"
+  fm_write_fake_az "$az_dir" "$calls"
+  printf '{"ok":true}\n' > "$TMP_ROOT/serve-secret-ok"
+  upstream_info=$(fm_start_fake_upstream_reply 200 "$TMP_ROOT/serve-secret-ok")
+  upstream_pid=${upstream_info%% *}
+  upstream_port=${upstream_info##* }
+
+  portfile=$(mktemp "$TMP_ROOT/serve-secret-port.XXXXXX")
+  PATH="$az_dir:$PATH" \
+    FM_FOUNDRY_LUNA_TEST_UPSTREAM_HOST="127.0.0.1:$upstream_port" \
+    env -u FM_FOUNDRY_LUNA_TEST_SECRET \
+    FM_FOUNDRY_LUNA_SECRET="$GATEWAY_SECRET" \
+    python3 "$PROXY" serve 0 > "$portfile" 2>"$TMP_ROOT/serve-secret-err" &
+  pid=$!
+  port=
+  for _ in $(seq 1 50); do
+    [ -s "$portfile" ] && { port=$(cat "$portfile"); break; }
+    sleep 0.1
+  done
+  [ -n "$port" ] || {
+    kill "$pid" "$upstream_pid" 2>/dev/null
+    fail "serve with FM_FOUNDRY_LUNA_SECRET never printed a listening port: $(cat "$TMP_ROOT/serve-secret-err")"
+  }
+
+  status=$(curl -sS -o /dev/null -w '%{http_code}' \
+    -X POST "http://127.0.0.1:$port/openai/v1/responses" \
+    -H 'Content-Type: application/json' \
+    -H "$AUTH_HEADER" \
+    -d '{"model":"gpt-5.6-luna","input":[]}')
+  kill "$pid" "$upstream_pid" 2>/dev/null
+  wait "$pid" "$upstream_pid" 2>/dev/null
+  expect_code 200 "$status" "serve must admit the caller holding FM_FOUNDRY_LUNA_SECRET"
+  pass "fm-foundry-luna-proxy: serve accepts FM_FOUNDRY_LUNA_SECRET for the long-lived host gateway"
 }
 
 test_refuses_every_unauthorized_deployment_name
@@ -989,3 +1431,14 @@ test_refuses_to_serve_without_a_gateway_secret
 test_refuses_to_serve_when_the_first_token_fetch_fails
 test_refuses_to_start_when_the_foundry_config_is_missing_or_invalid
 test_refuses_to_serve_when_the_token_expiry_is_unreadable
+test_az_failure_on_refresh_names_az_and_surfaces_stderr
+test_foundry_401_is_classified_as_token_rejection_not_subscription_key
+test_foundry_404_is_classified_as_wrong_deployment_or_host
+test_unreachable_host_is_classified_as_wrong_deployment_or_host
+test_unknown_upstream_5xx_is_explicitly_unknown
+test_classify_api_key_401_is_not_a_token_refresh_failure
+test_relays_luna_sol_and_terra
+test_run_gateway_admits_luna_alone
+test_classify_gateway_down_is_not_a_foundry_or_token_failure
+test_gateway_secret_helper_refuses_when_the_port_is_down
+test_serve_admits_FM_FOUNDRY_LUNA_SECRET
