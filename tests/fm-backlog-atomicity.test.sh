@@ -1596,6 +1596,55 @@ test_completion_closes_a_scout_with_its_report() {
   pass "completion closes a scout item against its report"
 }
 
+# Closing a later item must not archive a Done row whose task record still
+# exists. Unprotected older Done rows remain eligible for the configured keep.
+test_completion_does_not_prune_a_done_row_while_its_record_exists() {
+  local case_dir home backlog archive extra1 stale extra2 fresh
+  extra1=atomic-retain-extra1
+  stale=atomic-retain-stale
+  extra2=atomic-retain-extra2
+  fresh=atomic-retain-fresh
+  case_dir=$(make_home close-keeps-recorded-done)
+  home=$(home_of "$case_dir")
+  backlog=$(backlog_of "$case_dir")
+  archive="$home/data/done-archive.md"
+  cat > "$home/.tasks.toml" <<'EOF'
+backend = "markdown"
+
+[markdown]
+path = "data/backlog.md"
+archive = "data/done-archive.md"
+done_keep = 1
+EOF
+  add_item "$case_dir" "$extra1"
+  start_item "$case_dir" "$extra1"
+  tasks-axi "done" "$extra1" --file "$backlog" --no-prune >/dev/null
+  add_item "$case_dir" "$stale"
+  start_item "$case_dir" "$stale"
+  tasks-axi "done" "$stale" --file "$backlog" --no-prune >/dev/null
+  write_task_meta "$case_dir" "$stale" ship local-only "spawn_gen=spawn-retain-stale"
+  add_item "$case_dir" "$extra2"
+  start_item "$case_dir" "$extra2"
+  tasks-axi "done" "$extra2" --file "$backlog" --no-prune >/dev/null
+  add_item "$case_dir" "$fresh"
+  start_item "$case_dir" "$fresh"
+  write_task_meta "$case_dir" "$fresh" ship local-only "spawn_gen=spawn-retain-fresh"
+
+  run_teardown "$case_dir" "$fresh" >/dev/null \
+    || fail "teardown of the later item failed while a recorded Done row existed"
+  [ "$(row_state "$case_dir" "$fresh")" = "done" ] \
+    || fail "the later item was not closed"
+  [ "$(row_state "$case_dir" "$stale")" = "done" ] \
+    || fail "closing a later item pruned a Done row whose task record still exists"
+  assert_present "$home/state/$stale.meta" \
+    "the recorded Done row lost its leftover task record"
+  [ "$(row_state "$case_dir" "$extra1")" = "" ] \
+    || fail "an older Done row with no task record survived retention: $(row_state "$case_dir" "$extra1")"
+  assert_grep "$extra1" "$archive" \
+    "the unprotected older Done row was not archived"
+  pass "completion keeps a Done row while its task record still exists"
+}
+
 test_completion_refuses_a_legacy_record_without_an_incarnation() {
   local case_dir id meta out rc=0
   id=atomic-close-legacy-no-incarnation-b7
@@ -3037,6 +3086,7 @@ test_dispatch_does_not_resurrect_a_row_closed_after_preflight
 test_dispatch_fails_when_its_row_vanishes_after_preflight
 test_completion_closes_a_local_only_ship_before_reporting_success
 test_completion_closes_a_scout_with_its_report
+test_completion_does_not_prune_a_done_row_while_its_record_exists
 test_completion_refuses_a_legacy_record_without_an_incarnation
 test_completion_refuses_ambiguous_incarnation_metadata
 test_completion_records_a_relative_report_for_relocated_data
