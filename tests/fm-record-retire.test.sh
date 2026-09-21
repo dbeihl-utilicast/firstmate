@@ -147,6 +147,30 @@ test_record_only_retirement_requires_closed_row_and_deliverable() {
   pass "record retirement: finished proof requires closure and a deliverable"
 }
 
+# Retention can archive a Done row while the stale record is still waiting to
+# retire. The missing row is not an open row: retirement still needs the
+# deliverable, and still refuses an in-flight row.
+test_record_only_retirement_completes_when_done_row_already_pruned() {
+  local dir="$TMP_ROOT/pruned-done-row" rc=0
+  make_case "$dir"
+  rm -f "$dir/rows/old"
+  rc=0
+  run_retire "$dir" >/dev/null 2>&1 || rc=$?
+  expect_code 0 "$rc" "a finished scout whose Done row was already pruned should retire"
+  [ ! -e "$dir/home/state/old.meta" ] || fail "a pruned-row retirement left the record active"
+  [ -f "$dir/home/state/retired/old.meta" ] || fail "a pruned-row retirement left no audit copy"
+  [ -f "$dir/home/state/retired/old.receipt" ] || fail "a pruned-row retirement left no receipt"
+
+  make_case "$dir-no-report"
+  rm -f "$dir-no-report/rows/old" "$dir-no-report/home/data/old/report.md"
+  rc=0
+  run_retire "$dir-no-report" >/dev/null 2>&1 || rc=$?
+  expect_code 1 "$rc" "a pruned Done row without a deliverable must not retire"
+  [ -f "$dir-no-report/home/state/old.meta" ] \
+    || fail "a pruned row without a report retired the unlanded record"
+  pass "record retirement: a pruned Done row still retires when the deliverable remains"
+}
+
 # The stale record itself must no longer have a live endpoint, even when its
 # backlog and deliverable look complete.
 test_record_only_retirement_refuses_live_retiring_endpoint() {
@@ -562,6 +586,7 @@ test_retired_secondmate_is_excluded_from_broadcast_enumeration
 test_record_only_retirement_preserves_reused_slot
 test_record_only_retirement_moves_polling_sidecars
 test_record_only_retirement_requires_closed_row_and_deliverable
+test_record_only_retirement_completes_when_done_row_already_pruned
 test_record_only_retirement_refuses_live_retiring_endpoint
 test_record_only_retirement_requires_positive_active_owner
 test_record_only_retirement_retry_repairs_receipt_and_sidecars

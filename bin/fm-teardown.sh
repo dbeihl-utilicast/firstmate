@@ -132,7 +132,8 @@
 # Usage: fm-teardown.sh <task-id> [--force] [--legacy-record] [--retire-record]
 #   --retire-record archives only a finished record whose live Treehouse slot is
 #   already claimed by another active record. It never touches the endpoint,
-#   worktree, pool slot, backlog, or stopped-lane marker.
+#   worktree, pool slot, backlog, or stopped-lane marker. A Done row already
+#   pruned by retention still counts as closed when the deliverable remains.
 #   --force skips ordinary-task dirty and landed-work checks, skips scout report
 #   checks, and discards secondmate child work for kind=secondmate. Only use it
 #   when the captain has explicitly said to discard the work.
@@ -513,13 +514,16 @@ record_ship_branch_on_default() {  # <record>
   return 1
 }
 
-# Finished means both lifecycle closure and durable delivery evidence: a scout's
-# report, or a ship's landed work. Endpoint liveness is checked separately so a
-# prematurely closed live task stays owned.
+# Finished means durable delivery evidence plus lifecycle closure: a Done row,
+# or a Done row retention already pruned. An open row still refuses. Endpoint
+# liveness is checked separately so a prematurely closed live task stays owned.
 record_proved_finished() {  # <record> <task-id>
   local rec=$1 rec_id=$2 rec_kind
-  fm_backlog_row_probe "$DATA" "$rec_id" || return 1
-  [ "${FM_BACKLOG_ROW_STATE%% *}" = "done" ] || return 1
+  if fm_backlog_row_probe "$DATA" "$rec_id"; then
+    [ "${FM_BACKLOG_ROW_STATE%% *}" = "done" ] || return 1
+  else
+    [ "${FM_BACKLOG_ROW_RESULT:-}" = not_found ] || return 1
+  fi
   rec_kind=$(fm_meta_get "$rec" kind)
   [ -n "$rec_kind" ] || rec_kind=ship
   if [ "$rec_kind" = scout ]; then
@@ -658,7 +662,7 @@ retire_record_only() {
       return 1
     fi
     if ! record_proved_finished "$source_meta" "$ID"; then
-      echo "REFUSED: task $ID needs both a closed backlog row and a scout report or landed ship work; nothing was changed" >&2
+      echo "REFUSED: task $ID needs a closed or already-pruned Done row and a scout report or landed ship work; nothing was changed" >&2
       return 1
     fi
     endpoint_state=$(record_endpoint_state "$source_meta" "$ID")

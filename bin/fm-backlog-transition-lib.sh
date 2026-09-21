@@ -38,6 +38,12 @@
 # with no `.tasks.toml` gets tasks-axi's built-in defaults.
 # bin/fm-tasks-axi-lib.sh owns backend precedence and configuration failures.
 #
+# RETENTION. `fm_backlog_done` never lets tasks-axi archive a Done row while
+# `state/<id>.meta` still exists. It closes with `--no-prune`, then prunes with
+# a keep floor of the oldest remaining live-record Done row so unprotected
+# older rows still age out at `done_keep`. A Done list that cannot be read
+# skips pruning rather than archiving a live record.
+#
 # CRASH RECOVERY. Only teardown needs a durable record: it removes the meta and
 # with it the completion links, so a process killed between the two halves would
 # leave nothing to reconstruct the close from. It writes
@@ -508,10 +514,124 @@ fm_backlog_start() {  # <data-dir> <id>
   fm_backlog_mutate "$1" start "$2"
 }
 
-fm_backlog_done() {  # <data-dir> <id> [flag...]
-  local data=$1 id=$2
-  shift 2
-  fm_backlog_mutate "$data" "done" "$id" "$@"
+fm_backlog_configured_done_keep() {  # <data-dir>
+  local root toml keep
+  root=$(fm_backlog_root "$1") || return 1
+  toml="$root/.tasks.toml"
+  if [ -f "$toml" ] && [ ! -L "$toml" ]; then
+    keep=$(LC_ALL=C awk '
+      function trim(value) {
+        sub(/^[[:space:]]+/, "", value)
+        sub(/[[:space:]]+$/, "", value)
+        return value
+      }
+      BEGIN { section=""; found=0 }
+      {
+        line=$0
+        sub(/[[:space:]]*#.*/, "", line)
+        line=trim(line)
+        if (line ~ /^\[[^]]+\]$/) {
+          section=substr(line, 2, length(line) - 2)
+          next
+        }
+        if (section == "markdown" && line ~ /^done_keep[[:space:]]*=/) {
+          sub(/^done_keep[[:space:]]*=[[:space:]]*/, "", line)
+          line=trim(line)
+          if (line ~ /^[0-9]+$/) {
+            print line
+            found=1
+            exit
+          }
+        }
+      }
+      END { if (!found) exit 1 }
+    ' "$toml") && {
+      printf '%s\n' "$keep"
+      return 0
+    }
+  fi
+  printf '10\n'
+}
+
+# Newest-first Done ids from the live backlog. Returns 1 when the list cannot
+# be read or the row ids cannot be parsed, so callers skip pruning rather than
+# archiving blindly.
+fm_backlog_done_ids() {  # <data-dir>
+  local out count parsed
+  out=$(fm_backlog_row_list "$1" --state "done") || return 1
+  count=$(printf '%s\n' "$out" | awk '/^count: [0-9]+$/ { print $2; exit }')
+  case "$count" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  parsed=$(printf '%s\n' "$out" | awk '
+    /^tasks\[/ { in_tasks=1; next }
+    in_tasks && /^  [A-Za-z0-9._-]+,/ {
+      id=$0
+      sub(/^  /, "", id)
+      sub(/,.*/, "", id)
+      print id
+      next
+    }
+    in_tasks && NF { in_tasks=0 }
+  ')
+  if [ "$(printf '%s\n' "$parsed" | awk 'NF { n++ } END { print n + 0 }')" != "$count" ]; then
+    return 1
+  fi
+  printf '%s\n' "$parsed"
+}
+
+fm_backlog_prune_done() {  # <data-dir> <keep>
+  local data authorized_data=$1 keep=$2 source_status
+  if ! data=$(fm_backlog_data_absolute "$1"); then
+    FM_BACKLOG_TRANSITION_ERROR="data directory cannot be resolved: $1"
+    return 1
+  fi
+  fm_backlog_source_present "$data" "$authorized_data"
+  source_status=$?
+  [ "$source_status" -eq 0 ] || return "$source_status"
+  fm_backlog_tasks_axi_addressing "$data"
+  source_status=$?
+  [ "$source_status" -eq 0 ] || return "$source_status"
+  if [ -n "$FM_BACKLOG_AXI_FILE" ]; then
+    (cd "$FM_BACKLOG_AXI_ROOT" 2>/dev/null && fm_tasks_axi prune --state "done" --keep "$keep" --file "$FM_BACKLOG_AXI_FILE" >/dev/null)
+  else
+    (cd "$FM_BACKLOG_AXI_ROOT" 2>/dev/null && fm_tasks_axi prune --state "done" --keep "$keep" >/dev/null)
+  fi
+}
+
+# Keep every Done row whose task record still exists. tasks-axi prune archives
+# from the oldest end of the newest-first Done list, so the keep floor is the
+# 1-based index of the oldest live record in that list.
+fm_backlog_prune_done_keeping_records() {  # <data-dir> <state-dir>
+  local data=$1 state=$2 keep id idx=0 floor=0 ids_out
+  [ -n "$state" ] && [ -d "$state" ] && [ ! -L "$state" ] || return 0
+  keep=$(fm_backlog_configured_done_keep "$data") || keep=10
+  case "$keep" in
+    ''|*[!0-9]*) keep=10 ;;
+  esac
+  ids_out=$(fm_backlog_done_ids "$data") || return 0
+  while IFS= read -r id; do
+    [ -n "$id" ] || continue
+    idx=$((idx + 1))
+    if [ -f "$state/$id.meta" ] && [ ! -L "$state/$id.meta" ]; then
+      floor=$idx
+    fi
+  done <<EOF
+$ids_out
+EOF
+  if [ "$floor" -gt "$keep" ]; then
+    keep=$floor
+  fi
+  fm_backlog_prune_done "$data" "$keep" || return 0
+  return 0
+}
+
+fm_backlog_done() {  # <data-dir> <id> <state-dir> [flag...]
+  local data=$1 id=$2 state=$3
+  shift 3
+  fm_backlog_mutate "$data" "done" "$id" "$@" --no-prune || return 1
+  fm_backlog_prune_done_keeping_records "$data" "$state" || true
+  return 0
 }
 
 fm_backlog_row_artifact_supported() {
@@ -806,7 +926,7 @@ fm_backlog_close_transition() {
   local meta=$1 marker=$2 data=$3 id=$4 state=$5
   shift 5
   [ -z "$meta" ] || fm_backlog_record_remove "$meta" "task record" "$state" || return 1
-  fm_backlog_done "$data" "$id" "$@" || return 1
+  fm_backlog_done "$data" "$id" "$state" "$@" || return 1
   fm_backlog_record_remove "$marker" "pending-close record" "$state"
 }
 
