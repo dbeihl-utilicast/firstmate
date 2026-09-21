@@ -130,6 +130,7 @@ case "${1:-}" in
     exit 0
     ;;
   has-session|new-session|new-window|kill-window|set-window-option) exit 0 ;;
+  capture-pane) printf '%s\n' "${FM_FAKE_CODEX_PANE:-› Ask Codex to do anything}"; exit 0 ;;
   send-keys)
     case "${4:-}" in
       *' fm-grok-home '*)

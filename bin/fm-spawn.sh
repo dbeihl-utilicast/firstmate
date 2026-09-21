@@ -4070,8 +4070,8 @@ if ! spawn_send_literal "$T" "$LAUNCH"; then
   if [ "$KIND" = secondmate ] && [ "$HARNESS" = codex ]; then
     echo "error: unable to deliver Codex launch in $T; refusing to publish a worker that cannot begin its turn" >&2
     unpublished_endpoint_cleanup
-    exit 1
   fi
+  exit 1
 fi
 sleep 0.3
 if [ "${HERDR_PROJECTED:-0}" -eq 1 ]; then
@@ -4082,8 +4082,8 @@ if ! spawn_send_key "$T" Enter; then
   if [ "$KIND" = secondmate ] && [ "$HARNESS" = codex ]; then
     echo "error: unable to start Codex in $T; refusing to publish a worker that cannot begin its turn" >&2
     unpublished_endpoint_cleanup
-    exit 1
   fi
+  exit 1
 fi
 if [ "$KIND" = secondmate ] && [ "$HARNESS" = codex ]; then
   codex_wait_for_startup_dialogs || exit 1
