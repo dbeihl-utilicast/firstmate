@@ -176,7 +176,9 @@ _fm_task_inbox_write_record_locked() {  # <inbox-dir> <text> [delivery-mode]
   if ! {
     printf 'schema=%s\n' "$FM_TASK_INBOX_SCHEMA"
     printf 'at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    [ "$delivery_mode" != fire-and-forget ] || printf 'delivery=fire-and-forget\n'
+    case "$delivery_mode" in
+      fire-and-forget|stopped) printf 'delivery=%s\n' "$delivery_mode" ;;
+    esac
     printf -- '--\n'
     printf '%s' "$text"
   } > "$tmp"; then
@@ -507,7 +509,7 @@ fm_task_inbox_is_fire_and_forget() {  # <record-path>
   fi
   awk '
     $0 == "--" { exit }
-    $0 == "delivery=fire-and-forget" { found=1 }
+    $0 == "delivery=fire-and-forget" || $0 == "delivery=stopped" { found=1 }
     END { exit(found ? 0 : 1) }
   ' "$rec"
 }

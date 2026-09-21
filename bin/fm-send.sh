@@ -673,9 +673,21 @@ fm_send_known_undelivered_cleanup() {
 # delivery-confirm is skipped, when the stopped marker is seen at the
 # locked enqueue. An already-open reused correlation is left in place.
 fm_send_drop_created_pending_reply() {
+  local body
   if [ "$PENDING_REPLY_CREATED" = 1 ] && [ -n "$PENDING_REPLY_CORR" ]; then
-    fm_pending_reply_discard_undelivered "$STATE" "$PENDING_REPLY_CORR" || \
-      echo "error: known-undelivered pending-reply state could not be reset for $TARGET_TASK_ID" >&2
+    if ! fm_pending_reply_discard_undelivered "$STATE" "$PENDING_REPLY_CORR"; then
+      echo "error: known-undelivered pending-reply state could not be discarded for $TARGET_TASK_ID" >&2
+      return 1
+    fi
+    body=${MESSAGE#"$FM_FROMFIRST_MARK"}
+    case "$body" in
+      "corr=$PENDING_REPLY_CORR"*)
+        body=${body#"corr=$PENDING_REPLY_CORR"}
+        while [ "${body# }" != "$body" ]; do body=${body# }; done
+        while [ "${body#$'\t'}" != "$body" ]; do body=${body#$'\t'}; done
+        MESSAGE="${FM_FROMFIRST_MARK}${body}"
+        ;;
+    esac
   fi
   PENDING_REPLY_CORR=
   PENDING_REPLY_CREATED=0
@@ -1040,13 +1052,18 @@ else
     fi
     if [ -n "$TARGET_TASK_ID" ] && [ -e "$STATE/$TARGET_TASK_ID.stopped" ]; then
       STOPPED_LANE_RESOLVE=1
-      fm_send_drop_created_pending_reply
+      if ! fm_send_drop_created_pending_reply; then
+        fm_lock_release "$REMOTE_META_LOCK"
+        exit 1
+      fi
     fi
     remote_rc=0
     remote_completion_unknown=0
     REMOTE_SEND_ARGS=("$TARGET_REMOTE_ID" "$MESSAGE")
-    if [ -n "$FIRE_AND_FORGET_ID" ] || [ "$STOPPED_LANE_RESOLVE" = 1 ]; then
+    if [ -n "$FIRE_AND_FORGET_ID" ]; then
       REMOTE_SEND_ARGS+=(fire-and-forget)
+    elif [ "$STOPPED_LANE_RESOLVE" = 1 ]; then
+      REMOTE_SEND_ARGS+=(stopped)
     fi
     # Each transport attempt is bounded by FM_SEND_REMOTE_BUDGET seconds.
     # fm_run_timed's 124 means the attempt was killed at the bound with remote
@@ -1152,11 +1169,16 @@ else
     fi
     if [ -n "$TARGET_TASK_ID" ] && [ -e "$STATE/$TARGET_TASK_ID.stopped" ]; then
       STOPPED_LANE_RESOLVE=1
-      fm_send_drop_created_pending_reply
+      if ! fm_send_drop_created_pending_reply; then
+        fm_lock_release "$INBOX_META_LOCK"
+        exit 1
+      fi
     fi
     inbox_delivery=
-    if [ -n "$FIRE_AND_FORGET_ID" ] || [ "$STOPPED_LANE_RESOLVE" = 1 ]; then
+    if [ -n "$FIRE_AND_FORGET_ID" ]; then
       inbox_delivery=fire-and-forget
+    elif [ "$STOPPED_LANE_RESOLVE" = 1 ]; then
+      inbox_delivery=stopped
     fi
     INBOX_RECORD=$(fm_task_inbox_write_idempotent "$STATE" "$INBOX_TASK_ID" "$MESSAGE" \
       "$inbox_delivery" "${FM_SEND_IDEMPOTENT:-0}") || inbox_write_rc=$?

@@ -405,6 +405,38 @@ test_remote_fire_and_forget_never_arms_reply_recovery() {
   pass "fm-send remote: fire-and-forget delivery is idempotent without reply recovery"
 }
 
+test_remote_stopped_lane_records_without_remote_doorbell() {
+  local dir fb ssh_log home rhome rc rec action
+  dir="$TMP_ROOT/remote-stopped"; mkdir -p "$dir"
+  fb=$(make_stubs "$dir"); ssh_log="$dir/ssh.log"; : > "$ssh_log"
+  cat > "$fb/herdr" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$FM_HERDR_LOG"
+exit 0
+SH
+  chmod +x "$fb/herdr"
+  rhome=$(setup_remote_secondmate_home remote-stopped)
+  home=$(setup_remote_parent_home remote-stopped "$rhome")
+  printf 'stopped\n' > "$home/state/rsm.stopped"
+  : > "$dir/herdr.log"
+
+  rc=0
+  send_env "$fb" "$home" "$ssh_log" FM_HERDR_LOG="$dir/herdr.log" \
+    "$SEND" rsm "wait for reopen" >"$dir/out" 2>"$dir/err" || rc=$?
+  expect_code 0 "$rc" "a stopped remote lane must accept a durable send: $(cat "$dir/err")"
+  rec=$(remote_inbox_records "$rhome")
+  [ -n "$rec" ] || fail "a stopped remote lane did not receive its durable record"
+  grep -Fx 'delivery=stopped' "$rec" >/dev/null \
+    || fail "the remote stopped-lane record did not preserve stopped delivery mode"
+  [ ! -s "$dir/herdr.log" ] || fail "a stopped remote lane was rung:"$'\n'"$(cat "$dir/herdr.log")"
+  [ -z "$(find "$home/state/pending-replies" -type f -not -name '.*' 2>/dev/null)" ] \
+    || fail "a stopped remote lane minted a pending reply"
+  action=$(FM_TASK_INBOX_GRACE_SECS=0 FM_TASK_INBOX_RING_MAX=0 \
+    fm_task_inbox_due_action "$rhome/state/parent-route" rsm)
+  [ "$action" = quiet ] || fail "the remote stopped record armed inbox escalation: $action"
+  pass "fm-send remote: a stopped lane records without a pending reply or doorbell"
+}
+
 test_remote_send_revalidates_after_retirement_lock() {
   local dir rhome meta lock ready release rc sender_pid holder_pid
   dir="$TMP_ROOT/remote-retire-race"; mkdir -p "$dir"
@@ -791,6 +823,7 @@ test_remote_steer_lands_in_remote_inbox
 test_remote_rerun_is_idempotent
 test_remote_retry_failure_preserves_ambiguous_expectation
 test_remote_fire_and_forget_never_arms_reply_recovery
+test_remote_stopped_lane_records_without_remote_doorbell
 test_remote_send_revalidates_after_retirement_lock
 test_remote_send_revalidates_parent_route_after_retirement_lock
 test_remote_expected_host_revalidates_final_route
