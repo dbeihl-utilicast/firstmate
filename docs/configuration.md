@@ -604,6 +604,7 @@ The file is a JSON object with two string fields.
 `host` must be exactly one DNS label plus the literal suffix `.services.ai.azure.com` (case-insensitive) - no extra subdomain labels, no path, no port, and no other shape, so neither a malformed value nor a crafted one that merely contains that suffix elsewhere in the string can redirect the gateway's real AAD bearer token to an arbitrary host.
 `subscription_id` must be a GUID, the Azure subscription id `az account get-access-token` resolves the token against.
 Neither field, nor anything else in this file, is a secret: the AAD token itself is fetched inline by `az` at the point of use and is never read from this file, written to it, or logged.
+When a Foundry request fails, the gateway names whether az could not produce a token, az produced a token and Foundry rejected it, or the deployment or host is wrong, rather than forwarding Foundry's "invalid subscription key" sentence; Pi's separate `foundry` provider in `~/.pi/agent/models.json` is not this gateway, and `bin/fm-foundry-luna-proxy.py classify` owns that key-rejection wording.
 
 ```json
 {

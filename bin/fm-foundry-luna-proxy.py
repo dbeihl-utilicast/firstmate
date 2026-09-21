@@ -29,6 +29,16 @@
 # pinned: only the single route the configured base_url produces is relayed, and
 # only `gpt-5.6-luna` in the body. Anything else is refused locally before a
 # token is fetched, so an unauthorized deployment cannot rack up Azure cost.
+#
+# When a Foundry request fails, the body names exactly one of four stages so a
+# worker cannot paraphrase three different causes into "invalid subscription
+# key": az could not produce a token (az's own stderr is included; this is
+# usually that host's login, not a refresh-logic bug); az produced a token and
+# Foundry rejected it; the deployment or host is wrong; or an explicit unknown.
+# A key-based client (Pi's foundry provider in ~/.pi/agent/models.json) is the
+# same four-way split via `classify --credential api-key`, which refuses to
+# describe a key rejection as a token refresh. There is no retry: a single az
+# failure is durable until that host's login is renewed.
 import hmac
 import http.client
 import http.server
@@ -59,6 +69,14 @@ SUBSCRIPTION_ID_RE = re.compile(
 )
 TOKEN_RESOURCE = "https://cognitiveservices.azure.com"
 REFRESH_MARGIN_SECONDS = 300
+STAGE_AZ_TOKEN = "az-token"
+STAGE_FOUNDRY_REJECTED_TOKEN = "foundry-rejected-token"
+STAGE_DEPLOYMENT_OR_HOST = "deployment-or-host"
+STAGE_API_KEY = "api-key"
+STAGE_UNKNOWN = "unknown"
+SUBSCRIPTION_KEY_SNIPPET = "invalid subscription key"
+AZ_STDERR_LIMIT = 512
+UPSTREAM_BODY_LIMIT = 300
 
 ACCESS_LOG_PATH = os.environ.get("FM_FOUNDRY_LUNA_LOG", "")
 CLIENT_SECRET_ENV = "FM_FOUNDRY_LUNA_SECRET"
@@ -144,9 +162,14 @@ def resolve_upstream(override):
     return override, "http"
 
 
-UPSTREAM_HOST, UPSTREAM_SCHEME = resolve_upstream(
-    os.environ.get("FM_FOUNDRY_LUNA_TEST_UPSTREAM_HOST", "")
-)
+# classify never contacts Foundry or az, so it must not require the endpoint
+# config that serve/run resolve at import.
+if len(sys.argv) >= 2 and sys.argv[1] == "classify":
+    UPSTREAM_HOST, UPSTREAM_SCHEME = "127.0.0.1", "http"
+else:
+    UPSTREAM_HOST, UPSTREAM_SCHEME = resolve_upstream(
+        os.environ.get("FM_FOUNDRY_LUNA_TEST_UPSTREAM_HOST", "")
+    )
 
 
 class TokenCache:
@@ -165,6 +188,139 @@ class TokenCache:
             return self._token
 
 
+class AzTokenError(Exception):
+    """az did not produce a usable token. az_stderr is the CLI's own words."""
+
+    def __init__(self, message, az_stderr=""):
+        super().__init__(message)
+        self.az_stderr = az_stderr or ""
+
+
+def _one_line(text, limit):
+    text = " ".join((text or "").split())
+    if len(text) > limit:
+        return text[:limit] + "..."
+    return text
+
+
+def _sanitize_az_stderr(text):
+    text = re.sub(
+        r"eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9._-]{20,}",
+        "<redacted-token>",
+        text or "",
+    )
+    text = re.sub(r"(?i)accessToken\s*[:=]\s*\S+", "accessToken=<redacted>", text)
+    return _one_line(text, AZ_STDERR_LIMIT)
+
+
+def classify_az_failure(exc):
+    """Stage (a): az could not produce a token. Surface az's own stderr."""
+    stderr = ""
+    detail = ""
+    if isinstance(exc, AzTokenError):
+        stderr = _sanitize_az_stderr(exc.az_stderr)
+        detail = str(exc)
+    elif isinstance(exc, subprocess.CalledProcessError):
+        stderr = _sanitize_az_stderr(exc.stderr or "")
+        detail = "az exited %s" % exc.returncode
+    else:
+        detail = "%s" % exc
+    message = (
+        "az could not produce a token. "
+        "This is not a Foundry subscription-key failure and not a token-refresh logic bug. "
+        "This host's Azure login usually needs renewing; no code change will mint a token."
+    )
+    if stderr:
+        message += " az stderr: " + stderr
+    elif detail and detail != "az could not produce a token":
+        message += " " + detail
+    return {"stage": STAGE_AZ_TOKEN, "message": message}
+
+
+def classify_connect_failure(exc):
+    """Stage (c): the configured host could not be reached."""
+    return {
+        "stage": STAGE_DEPLOYMENT_OR_HOST,
+        "message": (
+            "the Foundry deployment or host is wrong: could not connect (%s). "
+            "This is not an az token-refresh failure."
+            % _one_line("%s" % exc, 200)
+        ),
+    }
+
+
+def classify_upstream(status, body, credential="az-token"):
+    """Name the failing stage from an upstream Foundry reply.
+
+    credential is az-token (this gateway sent an AAD bearer) or api-key (a
+    client such as Pi sent a subscription key). Foundry's own 401 body uses
+    the same 'invalid subscription key' sentence for both, so the credential
+    kind is what distinguishes them; the classified words never send a key
+    rejection hunting a token refresh.
+    """
+    if isinstance(body, bytes):
+        text = body.decode("utf-8", "replace")
+    else:
+        text = body or ""
+    snippet = _one_line(text, UPSTREAM_BODY_LIMIT)
+    if credential == "api-key":
+        if (
+            status in (401, 403)
+            or SUBSCRIPTION_KEY_SNIPPET in text.lower()
+        ):
+            return {
+                "stage": STAGE_API_KEY,
+                "message": (
+                    "Foundry rejected the API key this client sent. "
+                    "This Azure AI Foundry route does not use a subscription key, "
+                    "and this failure is not an az token-refresh failure. "
+                    "For Pi, that key is the foundry provider apiKey in "
+                    "~/.pi/agent/models.json, not the local AAD gateway."
+                ),
+            }
+        if status == 404 or "DeploymentNotFound" in text:
+            return {
+                "stage": STAGE_DEPLOYMENT_OR_HOST,
+                "message": (
+                    "the Foundry deployment or host is wrong. " + snippet
+                ).rstrip(),
+            }
+        return {
+            "stage": STAGE_UNKNOWN,
+            "message": (
+                "Foundry request failed for an unknown reason (HTTP %s). "
+                "This is not classified as az failing to produce a token, "
+                "Foundry rejecting an az token, or a wrong deployment or host."
+                % status
+            ),
+        }
+    if status in (401, 403):
+        return {
+            "stage": STAGE_FOUNDRY_REJECTED_TOKEN,
+            "message": (
+                "az produced a token and Foundry rejected it. "
+                "This gateway sent an AAD bearer token, not a subscription key. "
+                "This is not an az token-refresh failure and not a missing API key."
+            ),
+        }
+    if status == 404 or "DeploymentNotFound" in text:
+        return {
+            "stage": STAGE_DEPLOYMENT_OR_HOST,
+            "message": (
+                "the Foundry deployment or host is wrong. " + snippet
+            ).rstrip(),
+        }
+    return {
+        "stage": STAGE_UNKNOWN,
+        "message": (
+            "Foundry request failed for an unknown reason (HTTP %s). "
+            "This is not classified as az failing to produce a token, "
+            "Foundry rejecting an az token, or a wrong deployment or host."
+            % status
+        ),
+    }
+
+
 def fetch_az_token(subscription=None, resource=TOKEN_RESOURCE):
     """Runs `az account get-access-token` and returns (token, epoch_expiry).
 
@@ -179,25 +335,39 @@ def fetch_az_token(subscription=None, resource=TOKEN_RESOURCE):
     """
     if subscription is None:
         _, subscription = resolve_foundry_config()
-    proc = subprocess.run(
-        [
-            "az", "account", "get-access-token",
-            "--subscription", subscription,
-            "--resource", resource,
-            "-o", "json",
-        ],
-        capture_output=True, text=True, check=True,
-    )
-    data = json.loads(proc.stdout)
+    try:
+        proc = subprocess.run(
+            [
+                "az", "account", "get-access-token",
+                "--subscription", subscription,
+                "--resource", resource,
+                "-o", "json",
+            ],
+            capture_output=True, text=True, check=False,
+        )
+    except OSError as exc:
+        raise AzTokenError(
+            "az executable could not be started: %s" % exc
+        ) from exc
+    if proc.returncode != 0:
+        raise AzTokenError(
+            "az could not produce a token",
+            az_stderr=proc.stderr or "",
+        )
+    try:
+        data = json.loads(proc.stdout)
+    except ValueError as exc:
+        raise AzTokenError("az did not return JSON for a token") from exc
     try:
         expires_at = float(data["expires_on"])
-    except (TypeError, ValueError) as exc:
-        raise ValueError(
+        token = data["accessToken"]
+    except (TypeError, ValueError, KeyError) as exc:
+        raise AzTokenError(
             "az reported a token with an unreadable expires_on value"
         ) from exc
     if expires_at <= time.time():
-        raise ValueError("az reported a token that is already expired")
-    return data["accessToken"], expires_at
+        raise AzTokenError("az reported a token that is already expired")
+    return token, expires_at
 
 
 def make_handler(token_cache, client_secret, upstream_host=UPSTREAM_HOST, upstream_scheme=UPSTREAM_SCHEME):
@@ -240,8 +410,11 @@ def make_handler(token_cache, client_secret, upstream_host=UPSTREAM_HOST, upstre
                 return
             self._forward(body)
 
-        def _reject(self, status, message):
-            payload = json.dumps({"error": {"message": message}}).encode()
+        def _reject(self, status, message, stage=None):
+            error = {"message": message}
+            if stage:
+                error["stage"] = stage
+            payload = json.dumps({"error": error}).encode()
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(payload)))
@@ -251,8 +424,9 @@ def make_handler(token_cache, client_secret, upstream_host=UPSTREAM_HOST, upstre
         def _forward(self, body):
             try:
                 token = token_cache.get()
-            except (subprocess.CalledProcessError, OSError, ValueError, KeyError):
-                self._reject(502, "token refresh failed")
+            except AzTokenError as exc:
+                classified = classify_az_failure(exc)
+                self._reject(502, classified["message"], stage=classified["stage"])
                 return
             headers = {
                 k: v
@@ -267,6 +441,9 @@ def make_handler(token_cache, client_secret, upstream_host=UPSTREAM_HOST, upstre
                 conn.request("POST", self.path, body=body, headers=headers)
                 upstream = conn.getresponse()
                 self._relay(upstream)
+            except (OSError, http.client.HTTPException) as exc:
+                classified = classify_connect_failure(exc)
+                self._reject(502, classified["message"], stage=classified["stage"])
             finally:
                 conn.close()
 
@@ -276,7 +453,19 @@ def make_handler(token_cache, client_secret, upstream_host=UPSTREAM_HOST, upstre
             A streamed Foundry reply arrives chunked with no Content-Length, so
             its framing cannot be copied through: it is re-chunked here, flushed
             per read so a streaming client renders as the turn arrives.
+            Error statuses are read in full and rewritten to name the failing
+            stage; Foundry's own 401 'invalid subscription key' sentence is
+            never forwarded as the diagnosis on this AAD-bearer route.
             """
+            if upstream.status >= 400:
+                body = upstream.read()
+                classified = classify_upstream(upstream.status, body, credential="az-token")
+                self._reject(
+                    upstream.status,
+                    classified["message"],
+                    stage=classified["stage"],
+                )
+                return
             declared = upstream.getheader("Content-Length")
             self.log_request(upstream.status)
             self.send_response_only(upstream.status)
@@ -330,8 +519,10 @@ def start_server(port, client_secret):
     token_cache = TokenCache(fetch_az_token)
     try:
         token_cache.get()
-    except (subprocess.CalledProcessError, OSError, ValueError, KeyError):
-        log_silently("initial AAD token fetch failed; refusing to serve")
+    except AzTokenError as exc:
+        classified = classify_az_failure(exc)
+        log_silently(classified["message"])
+        sys.stderr.write("fm-foundry-luna-proxy: %s\n" % classified["message"])
         raise SystemExit(70)
     server = Gateway(("127.0.0.1", port), make_handler(token_cache, client_secret))
     return server
@@ -403,13 +594,96 @@ def cmd_run(argv):
         server.shutdown()
 
 
+def cmd_classify(argv):
+    """classify: print the worker-visible diagnosis for a captured failure.
+
+    This is the same wording the gateway puts in an HTTP error body, so a
+    key-based client (Pi) can be told the truth without sending its key
+    through this process. Does not call az and does not contact Foundry.
+
+    usage:
+      classify --az-stderr FILE
+      classify --credential az-token|api-key --status N --body FILE
+      classify --connect-error TEXT
+    FILE may be - for stdin.
+    """
+    credential = "az-token"
+    status = None
+    body = ""
+    az_stderr = None
+    connect_error = None
+    i = 0
+    while i < len(argv):
+        arg = argv[i]
+        if arg == "--credential" and i + 1 < len(argv):
+            credential = argv[i + 1]
+            i += 2
+            continue
+        if arg == "--status" and i + 1 < len(argv):
+            try:
+                status = int(argv[i + 1])
+            except ValueError:
+                sys.exit("fm-foundry-luna-proxy: classify --status needs an integer")
+            i += 2
+            continue
+        if arg == "--body" and i + 1 < len(argv):
+            body = _read_classify_arg(argv[i + 1])
+            i += 2
+            continue
+        if arg == "--az-stderr" and i + 1 < len(argv):
+            az_stderr = _read_classify_arg(argv[i + 1])
+            i += 2
+            continue
+        if arg == "--connect-error" and i + 1 < len(argv):
+            connect_error = argv[i + 1]
+            i += 2
+            continue
+        sys.exit(
+            "usage: fm-foundry-luna-proxy.py classify --az-stderr FILE | "
+            "--credential az-token|api-key --status N --body FILE | "
+            "--connect-error TEXT"
+        )
+    if credential not in ("az-token", "api-key"):
+        sys.exit("fm-foundry-luna-proxy: classify --credential must be az-token or api-key")
+    if az_stderr is not None:
+        classified = classify_az_failure(AzTokenError("az could not produce a token", az_stderr))
+    elif connect_error is not None:
+        classified = classify_connect_failure(connect_error)
+    elif status is not None:
+        classified = classify_upstream(status, body, credential=credential)
+    else:
+        sys.exit(
+            "usage: fm-foundry-luna-proxy.py classify --az-stderr FILE | "
+            "--credential az-token|api-key --status N --body FILE | "
+            "--connect-error TEXT"
+        )
+    sys.stdout.write(json.dumps({"error": classified}) + "\n")
+
+
+def _read_classify_arg(path):
+    if path == "-":
+        return sys.stdin.read()
+    try:
+        with open(path, "r") as fh:
+            return fh.read()
+    except OSError as exc:
+        sys.exit("fm-foundry-luna-proxy: classify cannot read %r: %s" % (path, exc))
+
+
 def main(argv):
     if len(argv) >= 2 and argv[1] == "run":
         sys.exit(cmd_run(argv[2:]))
     if len(argv) >= 2 and argv[1] == "serve":
         cmd_serve(argv[2:])
         return
-    sys.exit("usage: fm-foundry-luna-proxy.py serve <port> | run -- <command> [args...]")
+    if len(argv) >= 2 and argv[1] == "classify":
+        cmd_classify(argv[2:])
+        return
+    sys.exit(
+        "usage: fm-foundry-luna-proxy.py serve <port> | run -- <command> [args...] | "
+        "classify --az-stderr FILE | --credential az-token|api-key --status N --body FILE | "
+        "--connect-error TEXT"
+    )
 
 
 if __name__ == "__main__":

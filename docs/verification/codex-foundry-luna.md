@@ -68,6 +68,23 @@ The secret never leaves the host either: `_forward` strips the caller's `Authori
 Between them a missing or aged-out credential is a launch that fails loudly at the operator rather than a live pane whose every turn answers a silent 502, which supervision would read as a wedged worker.
 That startup fetch is one per launch, not one per turn; the cache then serves every turn until shortly before expiry.
 
+## Failure diagnosis
+
+Verified 2026-09-21 against a fake `az` and a fake upstream in `tests/fm-foundry-luna-proxy.test.sh`, plus a live account check that Foundry's own 401 body is identical for a garbage bearer, an `api-key` header, and a dummy key sent as bearer, while a real az token returned HTTP 200 and a wrong deployment name returned HTTP 404 `DeploymentNotFound`.
+The TokenCache refresh path was already correct; the defect was that all three failures reached a worker as Foundry's "invalid subscription key" sentence or as a silent pane.
+
+The gateway now names exactly one stage in the worker-visible error body (and on stderr when az fails at startup, because the wrapped command never starts):
+
+| Stage | When | Worker-visible words include |
+|---|---|---|
+| `az-token` | az exits nonzero, is missing, or returns an unreadable or already-expired token | `az could not produce a token` plus az's own stderr; no retry |
+| `foundry-rejected-token` | az minted a token and Foundry answered 401/403 | `az produced a token and Foundry rejected it`; Foundry's subscription-key sentence is not forwarded |
+| `deployment-or-host` | Foundry 404/`DeploymentNotFound`, or the host cannot be connected | `the Foundry deployment or host is wrong` |
+| `unknown` | any other upstream error status | `unknown reason`, and not one of the three stages above |
+
+Pi's `foundry` provider does not use this gateway. It sends `~/.pi/agent/models.json`'s literal `apiKey` to the Foundry `baseUrl`. The same Foundry 401 body on that path is a key rejection, reprinted by `bin/fm-foundry-luna-proxy.py classify --credential api-key`.
+No retry was added: the reproduction of an az failure was a durable login/CA error, not a single transient call that recovered on a second try.
+
 ## The deployment allowlist
 
 The captain authorizes `gpt-5.6-luna` only, and Foundry names the deployment in two independent places.

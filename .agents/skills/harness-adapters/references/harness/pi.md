@@ -30,6 +30,19 @@ The router's Detection section owns how launch markers and ancestry select betwe
 Keep the instructions as one positional argument.
 Multiple positional arguments become separate queued messages; the spawn template already preserves the one-argument shape.
 
+## Foundry custom provider
+
+Pi's `foundry` provider is not the token-refreshing gateway `bin/fm-foundry-luna-proxy.py`.
+It reads `~/.pi/agent/models.json` and sends that provider's `apiKey` straight to the configured `baseUrl`.
+A literal key is sent as `api-key` unless `"authHeader": true` makes it a bearer.
+This Azure AI Foundry resource authenticates with an AAD token from `az`, not a subscription key, so a literal `apiKey` is rejected with Foundry's HTTP 401 sentence about an "invalid subscription key".
+That sentence is a key rejection, not an az token-refresh failure.
+`bin/fm-foundry-luna-proxy.py classify --credential api-key --status 401 --body FILE` reprints it in those words.
+The captain-owned config change that makes Pi send an AAD bearer instead is: replace the literal `apiKey` with `"!az account get-access-token --resource https://cognitiveservices.azure.com --subscription <subscription_id from this home's config/foundry-luna.json> -o tsv --query accessToken"` and set `"authHeader": true`.
+Pi resolves `!command` apiKey values at request time.
+Do not edit `~/.pi/agent/models.json` from a crewmate task.
+The dispatched `codex-foundry-luna` path is the one that goes through the gateway.
+
 A project trust dialog can appear on the first Pi run in any not-yet-trusted directory, including a clean worktree.
 Accept it with Enter and verify the instructions begin processing.
 The decision persists per path in `~/.pi/agent/trust.json`, so later spawns in the same pooled slot skip it.
