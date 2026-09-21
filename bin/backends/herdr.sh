@@ -2807,10 +2807,11 @@ fm_backend_herdr_send_literal() {  # <target> <text>
 }
 
 # fm_backend_herdr_normalize_key: map firstmate's key vocabulary (Enter,
-# Escape, C-c, as used by fm-send.sh --key and stuck-crewmate-recovery) onto
-# herdr's `pane send-keys` names. Verified empirically: enter, escape/esc, and
-# both ctrl+c/C-c all work (case-insensitive on herdr's side, but normalize
-# explicitly rather than relying on that).
+# Escape, Down, C-c, as used by fm-send.sh --key, Codex secondmate startup,
+# and stuck-crewmate-recovery) onto herdr's `pane send-keys` names. Verified
+# empirically: enter, escape/esc, down, and both ctrl+c/C-c all work
+# (case-insensitive on herdr's side, but normalize explicitly rather than
+# relying on that).
 fm_backend_herdr_normalize_key() {  # <key>
   case "$1" in
     Enter|enter) printf 'enter' ;;

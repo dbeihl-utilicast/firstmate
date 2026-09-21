@@ -3118,6 +3118,9 @@ agy_post_launch_pane() {  # <plain-pane-capture>
 # that ships .codex/hooks.json, a hooks-review dialog. Enter on the hooks
 # dialog confirms "Review hooks" and wedges the pane; Down then Enter selects
 # "Trust all and continue". bin/fm-codex-startup-lib.sh owns the classifier.
+# Publish a Codex secondmate only on ready; fail closed with endpoint cleanup
+# for empty, unreadable, or nonempty unready panes. The Codex harness reference
+# owns that startup contract.
 spawn_capture_pane() {
   case "$BACKEND" in
     tmux) tmux capture-pane -p -J -t "$T" -S -120 2>/dev/null ;;

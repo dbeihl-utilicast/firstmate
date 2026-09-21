@@ -11,7 +11,9 @@
 #      Down then Enter selects option 2.
 # Both decisions persist for that repository root. Later worktrees skip them.
 #
-# Prints exactly one of: hooks-down-enter | trust-enter | ready | none
+# Prints exactly one of: hooks-down-enter | trust-enter | ready | none.
+# ready is the verified prompt "Ask Codex to do anything".
+# nonempty unready text such as command-not-found is none.
 
 fm_codex_startup_dialog_action() {  # <pane-text>
   local pane=${1-}

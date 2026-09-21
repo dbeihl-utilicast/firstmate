@@ -58,8 +58,9 @@ Hooks review, because the firstmate-shaped home ships `.codex/hooks.json`:
 
 Enter on option 1 opens the review UI and leaves the unattended pane idle with no turn.
 Down then Enter selects option 2.
-`bin/fm-spawn.sh` dismisses both after launch.
+`bin/fm-spawn.sh` dismisses both after launch and publishes only after the verified ready prompt; the Codex harness reference owns that contract.
 `tests/fm-codex-harness.test.sh` pins the classifier.
+`tests/fm-secondmate-harness.test.sh` pins the fail-closed publish gate.
 
 ## Completed turn
 
@@ -73,7 +74,7 @@ Metadata recorded `harness=codex`, `kind=secondmate`, `model=gpt-5.6-sol`, `back
 Herdr `agent get` moved `unknown` (dialog) → `idle` (dialog) → `working` for seven polls → `idle`.
 The idle capture after that working interval contained the assistant line `• PONG-SOL` and `Token usage: total=31,432 input=31,242 (+ 11,008 cached) output=190 (reasoning 180)`.
 
-On Herdr, Codex busy is the native `agent_status` (`working` / `idle`), not the earlier tmux TUI semantic-busy unknown.
+On Herdr, native `agent get` reported `working` / `idle` for that turn; that status is not a firstmate semantic busy source.
 
 ## Interrupt and exit
 
