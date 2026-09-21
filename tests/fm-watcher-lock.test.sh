@@ -1479,8 +1479,8 @@ test_arm_nonactionable_exit_attaches_to_healthy_successor() {
     fail "first arm never established its watcher: $(cat "$first_out")"
   fi
 
-  # Age both the beacon and holder tenure so the second arm may evict it; the
-  # assertion covers how the first arm classifies that quiet exit.
+  # Pause the old watcher only until the evictor has sent TERM. Continuing it
+  # then exercises the watcher's TERM trap, which closes quietly with rc=1.
   kill -STOP "$first_watcher" 2>/dev/null \
     || { kill "$first_arm" 2>/dev/null || true; wait "$first_arm" 2>/dev/null || true; fail "could not pause the first watcher for deterministic eviction"; }
   touch -t 200001010000 "$state/.last-watcher-beat"
@@ -1491,6 +1491,14 @@ test_arm_nonactionable_exit_attaches_to_healthy_successor() {
     FM_ARM_CONFIRM_TIMEOUT=5 FM_POLL=5 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH_ARM" > "$second_out" 2>&1 &
   second_arm=$!
+  i=0
+  while [ "$i" -lt 100 ] && [ ! -s "$state/.watch-eviction" ]; do
+    sleep 0.02
+    i=$((i + 1))
+  done
+  [ -s "$state/.watch-eviction" ] \
+    || { kill "$first_arm" "$second_arm" 2>/dev/null || true; wait "$first_arm" "$second_arm" 2>/dev/null || true; fail "second arm did not record its eviction handoff: $(cat "$second_out")"; }
+  kill -CONT "$first_watcher" 2>/dev/null || true
   i=0
   second_watcher=
   while [ "$i" -lt 150 ]; do

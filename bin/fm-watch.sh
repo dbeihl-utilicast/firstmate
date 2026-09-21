@@ -160,6 +160,7 @@ mkdir -p "$STATE"
 WATCH_LOCK="$STATE/.watch.lock"
 WATCH_PATH="$SCRIPT_DIR/fm-watch.sh"
 WATCHER_DOWNTIME_MARKER="$STATE/.watcher-down"
+WATCHER_EVICTION_HANDOFF="$STATE/.watch-eviction"
 # The singleton-lock acquisition, EXIT trap, and the blocking supervision loop
 # all live below the source guard at the very bottom of this file (see "Main
 # entry"). Sourcing this file for unit tests therefore loads the functions -
@@ -2059,10 +2060,20 @@ fi
 # home, watcher path, and recorded process identity prove it is this home's
 # watcher. TERM first, then KILL, each bounded by fm_watcher_evict_wait seconds.
 WATCHER_EVICT_WAIT=$(fm_watcher_evict_wait)
+record_watcher_eviction_handoff() {  # <pid>
+  local pid=$1 identity tmp
+  identity=$(fm_pid_identity "$pid" 2>/dev/null || true)
+  [ -n "$identity" ] || return 1
+  tmp=$(mktemp "$STATE/.watch-eviction.XXXXXX") || return 1
+  printf '%s\t%s\n' "$pid" "$identity" > "$tmp" && mv -f "$tmp" "$WATCHER_EVICTION_HANDOFF"
+  rm -f "$tmp" 2>/dev/null || true
+}
+
 evict_stale_watcher() {  # <pid> <staleness>
   local pid=$1 staleness=$2 sig i
   for sig in TERM KILL; do
     fm_watcher_lock_matches_pid "$STATE" "$WATCH_PATH" "$pid" "$FM_HOME" || return 1
+    [ "$sig" != TERM ] || record_watcher_eviction_handoff "$pid" || true
     kill "-$sig" "$pid" 2>/dev/null || true
     i=0
     while fm_pid_alive "$pid" && [ "$i" -lt $((WATCHER_EVICT_WAIT * 10)) ]; do

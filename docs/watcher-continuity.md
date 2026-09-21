@@ -95,7 +95,7 @@ The same suite pins the counted-equals-presentable invariant against `bin/fm-gua
 
 `bin/fm-watch-arm.sh` never returns a clean empty success.
 An actionable child output returns that reason normally.
-A child return with no actionable reason and no explicit watcher failure rechecks the home lock and beacon, then attaches to a verified healthy successor when one exists regardless of the old child's exit status.
+A child return with no actionable reason and no explicit watcher failure rechecks the home lock and beacon, then attaches to a verified healthy successor when one exists; a quiet nonzero close also spends the bounded successor window when its PID and identity match the evictor's durable handoff record.
 A zero/empty child return with no successor resolves the close against the watcher's bounded terminal-delivery ledger.
 An attached arm follows verified identity-matched successors and resolves the same way when that chain ends without one, because it holds no handle on the watcher's stdout and cannot read the reason line itself.
 Before releasing its singleton lock after printing an actionable reason, the watcher records that reason with its PID and process identity in `state/.watch-deliveries.log`.

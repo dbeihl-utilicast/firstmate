@@ -103,6 +103,7 @@ lock_snapshot() {
 
 WATCH_DELIVERY_LOG="$STATE/.watch-deliveries.log"
 WATCH_DELIVERY_LOCK="$STATE/.watch-deliveries.lock"
+WATCHER_EVICTION_HANDOFF="$STATE/.watch-eviction"
 
 cycle_active=0
 cycle_watcher_pid=none
@@ -258,13 +259,17 @@ wait_for_healthy_successor() {
   done
 }
 
+eviction_handoff_matches_child() {
+  local pid identity
+  [ -f "$WATCHER_EVICTION_HANDOFF" ] || return 1
+  IFS=$'\t' read -r pid identity < "$WATCHER_EVICTION_HANDOFF" || return 1
+  [ "$pid" = "$cycle_watcher_pid" ] && [ "$identity" = "$cycle_watcher_identity" ]
+}
+
 healthy_successor_after_child_close() {  # <exit-code> <signal-name>
   local rc=$1 signal=$2
   healthy_watcher && return 0
-  # A signal can be the eviction itself, before the replacement lock exists.
-  # A plain nonzero close accepts only a successor that is already healthy, so
-  # an ordinary terminated cycle does not become a long wait.
-  if [ "$rc" -eq 0 ] || [ "$signal" != none ]; then
+  if [ "$rc" -eq 0 ] || [ "$signal" != none ] || eviction_handoff_matches_child; then
     wait_for_healthy_successor
     return $?
   fi
