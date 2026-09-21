@@ -37,7 +37,7 @@ It reads `~/.pi/agent/models.json` and sends that provider's `apiKey` as `Author
 A literal Azure key there is rejected by this Foundry resource with HTTP 401 "invalid subscription key"; that is a key rejection, not an az token-refresh failure.
 Pi can take the key from the environment: `"apiKey": "$FM_FOUNDRY_LUNA_SECRET"` (unresolved: "No API key found for foundry.").
 Pi's `openai-responses` client POSTs `/openai/v1/responses` with `stream: true` and the deployment name in the JSON `model` field, which is the one route the gateway relays.
-The gateway allowlists `gpt-5.6-luna`, `gpt-5.6-sol`, and `gpt-5.6-terra`; a luna-only pin would have dropped the other two Pi already lists.
+The long-lived `serve` gateway allowlists `gpt-5.6-luna`, `gpt-5.6-sol`, and `gpt-5.6-terra`; a luna-only pin would have dropped the other two Pi already lists. The per-launch `run` gateway stays luna-only.
 A down gateway must not look like those Foundry failures: `bin/fm-foundry-luna-proxy.py classify --gateway-down` and `bin/fm-foundry-luna-gateway-secret.sh` name it.
 The captain-owned Pi config that points at the long-lived loopback gateway, without storing an Azure key, is `baseUrl` `http://127.0.0.1:17653/openai/v1` and `apiKey` a `!` invocation of `bin/fm-foundry-luna-gateway-secret.sh` (plus a fail-reason token Pi will quote if the gateway is down).
 Do not put the admission secret in a log, status line, test fixture, or report.

@@ -91,7 +91,7 @@ Verified 2026-09-21 on this Spark host, against a recorder and then the live gat
 
 - Pi interpolates `"apiKey": "$FM_FOUNDRY_LUNA_SECRET"` (unset: `No API key found for foundry.`).
 - Pi's `openai-responses` client POSTs `/openai/v1/responses` with `Authorization: Bearer`, `stream: true`, and the deployment name in the JSON `model` field. That is the one route the gateway relays. Pi did not GET `/models`.
-- The luna-only body pin would have 403'd `gpt-5.6-sol` and `gpt-5.6-terra`. The gateway allowlist now includes those three names. Fleet spawn still pins luna.
+- The luna-only body pin would have 403'd `gpt-5.6-sol` and `gpt-5.6-terra`. The long-lived `serve` gateway allowlist now includes those three names; the per-launch `run` gateway and fleet spawn stay luna-only.
 - A long-lived systemd user unit (`fm-foundry-luna-gateway.service`, Restart=always, port 17653) is this host's existing service mechanism. Linger is already on.
 - Isolated Pi `--print` through that gateway returned `pong` for `gpt-5.6-luna`, `gpt-5.6-sol`, and `gpt-5.6-terra`.
 - With the gateway stopped, Pi using `$FM_FOUNDRY_LUNA_SECRET` printed only `Connection error.` Pi using `bin/fm-foundry-luna-gateway-secret.sh` plus a fail-reason token printed `API key auth failed ... foundry-luna-gateway-is-not-running-on-127.0.0.1:17653-not-az-token-refresh-not-subscription-key`.

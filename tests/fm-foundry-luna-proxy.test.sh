@@ -146,6 +146,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.rfile.read(n)
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
+        self.send_header("Retry-After", "7")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -267,8 +268,10 @@ test_refuses_every_unauthorized_deployment_name() {
       kill "$proxy_pid" "$upstream_pid" 2>/dev/null
       fail "refusal did not fail red for deployment '$name': got HTTP $status $(cat "$TMP_ROOT/refuse-body")"
     fi
-    assert_contains "$(cat "$TMP_ROOT/refuse-body")" "not authorized" \
-      "refusal body for '$name' names the reason"
+    assert_contains "$(cat "$TMP_ROOT/refuse-body")" '"stage": "local-allowlist"' \
+      "refusal body for '$name' names a local allowlist refusal"
+    assert_not_contains "$(cat "$TMP_ROOT/refuse-body")" "deployment-or-host" \
+      "a local refusal for '$name' is not a wrong Foundry deployment or host"
   done
 
   kill "$proxy_pid" "$upstream_pid" 2>/dev/null
@@ -1208,12 +1211,13 @@ test_unknown_upstream_5xx_is_explicitly_unknown() {
   proxy_pid=${proxy_info%% *}
   proxy_port=${proxy_info##* }
 
-  status=$(curl -sS -o "$TMP_ROOT/foundry-500-body" -w '%{http_code}' \
+  status=$(curl -sS -D "$TMP_ROOT/foundry-500-headers.raw" -o "$TMP_ROOT/foundry-500-body" -w '%{http_code}' \
     -X POST "http://127.0.0.1:$proxy_port/openai/v1/responses" \
     -H 'Content-Type: application/json' \
     -H "$AUTH_HEADER" \
     -d '{"model":"gpt-5.6-luna","input":[]}')
   body=$(cat "$TMP_ROOT/foundry-500-body")
+  tr 'A-Z' 'a-z' < "$TMP_ROOT/foundry-500-headers.raw" > "$TMP_ROOT/foundry-500-headers"
 
   kill "$proxy_pid" "$upstream_pid" 2>/dev/null
   wait "$proxy_pid" "$upstream_pid" 2>/dev/null
@@ -1221,6 +1225,8 @@ test_unknown_upstream_5xx_is_explicitly_unknown() {
   expect_code 500 "$status" "an unclassified Foundry 500 keeps HTTP 500"
   assert_contains "$body" '"stage": "unknown"' "the body names the unknown stage"
   assert_contains "$body" "unknown reason" "the body says the failure is unknown"
+  assert_contains "$body" "internal server error" "the body keeps Foundry's own words"
+  assert_contains "$(cat "$TMP_ROOT/foundry-500-headers")" "retry-after: 7" "Retry-After survives the rewrite"
   assert_not_contains "$body" "az could not produce a token" \
     "an unknown 500 must not be blamed on az"
   assert_not_contains "$body" "invalid subscription key" \
@@ -1260,6 +1266,44 @@ test_classify_api_key_401_is_not_a_token_refresh_failure() {
   assert_contains "$out" "the Foundry deployment or host is wrong" \
     "classify --connect-error says the host is wrong"
   pass "fm-foundry-luna-proxy: classify reprints a key 401 as a key rejection, never as a token refresh"
+}
+
+test_run_gateway_admits_luna_alone() {
+  local az_dir calls upstream_info upstream_pid upstream_port child_script name
+
+  az_dir="$TMP_ROOT/az-run-allow"
+  calls="$TMP_ROOT/az-run-allow-calls"
+  fm_write_fake_az "$az_dir" "$calls"
+
+  printf '{"ok":true}\n' > "$TMP_ROOT/upstream-run-allow-body"
+  upstream_info=$(fm_start_fake_upstream_reply 200 "$TMP_ROOT/upstream-run-allow-body")
+  upstream_pid=${upstream_info%% *}
+  upstream_port=${upstream_info##* }
+
+  for name in gpt-5.6-luna gpt-5.6-sol gpt-5.6-terra; do
+    child_script="$TMP_ROOT/run-allow-child-$name.sh"
+    cat > "$child_script" <<SH
+#!/usr/bin/env bash
+curl -s -o /dev/null -w '%{http_code}' \\
+  -X POST "http://127.0.0.1:\$1/openai/v1/responses" \\
+  -H 'Content-Type: application/json' \\
+  -H "Authorization: Bearer \$FM_FOUNDRY_LUNA_SECRET" \\
+  -d '{"model":"$name","input":[]}' > "\$2"
+SH
+    chmod +x "$child_script"
+    PATH="$az_dir:$PATH" \
+      FM_FOUNDRY_LUNA_TEST_UPSTREAM_HOST="127.0.0.1:$upstream_port" \
+      python3 "$PROXY" run -- "$child_script" __FOUNDRYLUNAPORT__ "$TMP_ROOT/run-allow-$name"
+    if [ "$name" = gpt-5.6-luna ]; then
+      expect_code 200 "$(cat "$TMP_ROOT/run-allow-$name")" "the run gateway relays $name"
+    else
+      expect_code 403 "$(cat "$TMP_ROOT/run-allow-$name")" "the run gateway refuses $name"
+    fi
+  done
+
+  kill "$upstream_pid" 2>/dev/null
+  wait "$upstream_pid" 2>/dev/null
+  pass "fm-foundry-luna-proxy: the per-launch run gateway relays luna and refuses sol and terra"
 }
 
 test_relays_luna_sol_and_terra() {
@@ -1394,6 +1438,7 @@ test_unreachable_host_is_classified_as_wrong_deployment_or_host
 test_unknown_upstream_5xx_is_explicitly_unknown
 test_classify_api_key_401_is_not_a_token_refresh_failure
 test_relays_luna_sol_and_terra
+test_run_gateway_admits_luna_alone
 test_classify_gateway_down_is_not_a_foundry_or_token_failure
 test_gateway_secret_helper_refuses_when_the_port_is_down
 test_serve_admits_FM_FOUNDRY_LUNA_SECRET

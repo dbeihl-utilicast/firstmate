@@ -606,7 +606,7 @@ The file is a JSON object with two string fields.
 `subscription_id` must be a GUID, the Azure subscription id `az account get-access-token` resolves the token against.
 Neither field, nor anything else in this file, is a secret: the AAD token itself is fetched inline by `az` at the point of use and is never read from this file, written to it, or logged.
 When a Foundry request fails, the gateway names whether az could not produce a token, az produced a token and Foundry rejected it, the deployment or host is wrong, or the loopback gateway itself is not running, rather than forwarding Foundry's "invalid subscription key" sentence; Pi's separate `foundry` provider in `~/.pi/agent/models.json` can be pointed at this loopback gateway with `apiKey` from `$FM_FOUNDRY_LUNA_SECRET` or `bin/fm-foundry-luna-gateway-secret.sh`, and `bin/fm-foundry-luna-proxy.py classify` owns that wording.
-Fleet dispatch still pins `gpt-5.6-luna` at spawn; the long-lived gateway also relays `gpt-5.6-sol` and `gpt-5.6-terra` so a Pi foundry provider that lists all three is not quietly reduced to one.
+The per-launch gateway that fleet dispatch uses admits only `gpt-5.6-luna`; the long-lived `serve` gateway also relays `gpt-5.6-sol` and `gpt-5.6-terra` so a Pi foundry provider that lists all three is not quietly reduced to one.
 A copyable user-unit is `docs/examples/foundry-luna-gateway.service`. The env file is host-local and is not inherited into secondmate homes.
 
 ```json

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # fm-foundry-luna-proxy.py - local token-refreshing gateway for the Azure AI
-# Foundry deployments this host is allowed to reach. Fleet dispatch
-# (codex-foundry-luna) still pins `gpt-5.6-luna` at spawn. The long-lived
-# loopback service also relays `gpt-5.6-sol` and `gpt-5.6-terra`, the other
-# two models Pi already lists, so pointing Pi at this gateway does not
-# quietly drop them. The Foundry account host and subscription id are
+# Foundry deployments this host is allowed to reach. The per-launch `run`
+# gateway (codex-foundry-luna) admits `gpt-5.6-luna` alone. The long-lived
+# `serve` loopback service admits `gpt-5.6-luna`, `gpt-5.6-sol` and
+# `gpt-5.6-terra`, the three models Pi lists, so pointing Pi at it does not
+# quietly drop any. The Foundry account host and subscription id are
 # private operational data (this fork is public), so neither is hard-coded
 # here: both are read from the local, gitignored config file named by
 # FM_FOUNDRY_LUNA_CONFIG, which bin/fm-spawn.sh resolves from the launching
@@ -55,11 +55,8 @@ import threading
 import time
 import traceback
 
-# Fleet dispatch (codex-foundry-luna) still pins gpt-5.6-luna at spawn.
-# The long-lived host gateway also relays the other two Foundry deployments
-# Pi already lists, so pointing Pi at this proxy does not quietly drop them.
-ALLOWED_MODEL = "gpt-5.6-luna"
-ALLOWED_MODELS = frozenset(("gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra"))
+RUN_MODELS = frozenset(("gpt-5.6-luna",))
+SERVE_MODELS = frozenset(("gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra"))
 ALLOWED_PATH = "/openai/v1/responses"
 GATEWAY_PORT_DEFAULT = 17653
 FOUNDRY_HOST_SUFFIX = ".services.ai.azure.com"
@@ -81,6 +78,7 @@ STAGE_AZ_TOKEN = "az-token"
 STAGE_FOUNDRY_REJECTED_TOKEN = "foundry-rejected-token"
 STAGE_DEPLOYMENT_OR_HOST = "deployment-or-host"
 STAGE_API_KEY = "api-key"
+STAGE_LOCAL_ALLOWLIST = "local-allowlist"
 STAGE_GATEWAY_DOWN = "gateway-down"
 STAGE_UNKNOWN = "unknown"
 SUBSCRIPTION_KEY_SNIPPET = "invalid subscription key"
@@ -312,8 +310,8 @@ def classify_upstream(status, body, credential="az-token"):
             "message": (
                 "Foundry request failed for an unknown reason (HTTP %s). "
                 "This is not classified as az failing to produce a token, "
-                "Foundry rejecting an az token, or a wrong deployment or host."
-                % status
+                "Foundry rejecting an az token, or a wrong deployment or host. "
+                "Foundry said: %s" % (status, snippet)
             ),
         }
     if status in (401, 403):
@@ -337,8 +335,8 @@ def classify_upstream(status, body, credential="az-token"):
         "message": (
             "Foundry request failed for an unknown reason (HTTP %s). "
             "This is not classified as az failing to produce a token, "
-            "Foundry rejecting an az token, or a wrong deployment or host."
-            % status
+            "Foundry rejecting an az token, or a wrong deployment or host. "
+            "Foundry said: %s" % (status, snippet)
         ),
     }
 
@@ -392,7 +390,7 @@ def fetch_az_token(subscription=None, resource=TOKEN_RESOURCE):
     return token, expires_at
 
 
-def make_handler(token_cache, client_secret, upstream_host=UPSTREAM_HOST, upstream_scheme=UPSTREAM_SCHEME):
+def make_handler(token_cache, client_secret, upstream_host=UPSTREAM_HOST, upstream_scheme=UPSTREAM_SCHEME, allowed_models=RUN_MODELS):
     class Handler(http.server.BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
@@ -423,18 +421,18 @@ def make_handler(token_cache, client_secret, upstream_host=UPSTREAM_HOST, upstre
                 self._reject(400, "request body is not valid JSON")
                 return
             model = parsed.get("model")
-            if model not in ALLOWED_MODELS:
-                allowed = ", ".join(sorted(ALLOWED_MODELS))
+            if model not in allowed_models:
+                allowed = ", ".join(sorted(allowed_models))
                 self._reject(
                     403,
-                    "deployment %r is not authorized; only %s may be dispatched"
-                    % (model, allowed),
-                    stage=STAGE_DEPLOYMENT_OR_HOST,
+                    "this local gateway's allowlist refused model %r before "
+                    "contacting Foundry; it relays only %s" % (model, allowed),
+                    stage=STAGE_LOCAL_ALLOWLIST,
                 )
                 return
             self._forward(body)
 
-        def _reject(self, status, message, stage=None):
+        def _reject(self, status, message, stage=None, extra_headers=()):
             error = {"message": message}
             if stage:
                 error["stage"] = stage
@@ -442,6 +440,8 @@ def make_handler(token_cache, client_secret, upstream_host=UPSTREAM_HOST, upstre
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(payload)))
+            for name, value in extra_headers:
+                self.send_header(name, value)
             self.end_headers()
             self.wfile.write(payload)
 
@@ -488,6 +488,11 @@ def make_handler(token_cache, client_secret, upstream_host=UPSTREAM_HOST, upstre
                     upstream.status,
                     classified["message"],
                     stage=classified["stage"],
+                    extra_headers=[
+                        (k, v)
+                        for k, v in upstream.getheaders()
+                        if k.lower() == "retry-after"
+                    ],
                 )
                 return
             declared = upstream.getheader("Content-Length")
@@ -534,7 +539,7 @@ class Gateway(http.server.ThreadingHTTPServer):
         log_silently("error handling request from %s" % (client_address,))
 
 
-def start_server(port, client_secret):
+def start_server(port, client_secret, allowed_models=RUN_MODELS):
     """Binds the listening socket. The bound port is the ONE the gateway serves.
 
     Takes the first token BEFORE binding, so an unusable credential is a launch
@@ -548,7 +553,7 @@ def start_server(port, client_secret):
         log_silently(classified["message"])
         sys.stderr.write("fm-foundry-luna-proxy: %s\n" % classified["message"])
         raise SystemExit(70)
-    server = Gateway(("127.0.0.1", port), make_handler(token_cache, client_secret))
+    server = Gateway(("127.0.0.1", port), make_handler(token_cache, client_secret, allowed_models=allowed_models))
     return server
 
 
@@ -571,7 +576,7 @@ def cmd_serve(argv):
             "AAD token broker" % CLIENT_SECRET_ENV
         )
     port = int(argv[0]) if argv else 0
-    server = start_server(port, client_secret)
+    server = start_server(port, client_secret, SERVE_MODELS)
     sys.stdout.write("%d\n" % server.server_address[1])
     sys.stdout.flush()
     server.serve_forever()
