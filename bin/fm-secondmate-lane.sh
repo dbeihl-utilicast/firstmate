@@ -41,6 +41,8 @@ MARKER="$STATE/$ID.stopped"
 
 # shellcheck source=bin/fm-backend.sh
 . "$SCRIPT_DIR/fm-backend.sh"
+# shellcheck source=bin/fm-wake-lib.sh
+. "$SCRIPT_DIR/fm-wake-lib.sh"
 
 if ! { [ -f "$META" ] && grep -q '^kind=secondmate$' "$META"; }; then
   die "no registered secondmate '$ID' in $STATE"
@@ -68,7 +70,13 @@ run_stop_exit() {
 
 case "$VERB" in
   stop)
-    printf 'stopped %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$MARKER"
+    META_LOCK=$(fm_meta_lock_path "$META") || die "could not resolve metadata lock for '$ID'"
+    fm_lock_acquire_wait "$META_LOCK"
+    if ! printf 'stopped %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$MARKER"; then
+      fm_lock_release "$META_LOCK"
+      die "could not record stopped marker for '$ID'"
+    fi
+    fm_lock_release "$META_LOCK"
     if [ -n "$REMOTE_HOST" ]; then
       run_stop_exit "$SCRIPT_DIR/fm-on.sh" "$ID" fm-remote-secondmate-control.sh stop "$ID"
     else

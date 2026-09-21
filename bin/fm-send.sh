@@ -669,6 +669,11 @@ fm_send_known_undelivered_cleanup() {
     fm_pending_reply_reset_known_undelivered "$STATE" "$PENDING_REPLY_CORR"
   fi
 }
+fm_send_refuse_stopped_delivery() {
+  fm_send_known_undelivered_cleanup || \
+    echo "error: known-undelivered pending-reply state could not be reset for $TARGET_TASK_ID" >&2
+  echo "error: secondmate $TARGET_TASK_ID is stopped (state/$TARGET_TASK_ID.stopped); reopen it with bin/fm-secondmate-lane.sh reopen $TARGET_TASK_ID before sending. Nothing was sent." >&2
+}
 if [ -n "$TARGET_SELECTOR" ] && [ -n "$TARGET_META" ] && [ "$(fm_meta_get "$TARGET_META" kind)" = secondmate ]; then
   MARK_FROM_FIRSTMATE=1
   TARGET_TASK_ID=$(fm_send_id_from_meta "$TARGET_META")
@@ -1031,6 +1036,11 @@ else
       echo "error: steer not sent to remote secondmate $TARGET_REMOTE_ID: its parent task retired or changed route during target resolution" >&2
       exit 1
     fi
+    if [ -e "$STATE/$TARGET_TASK_ID.stopped" ]; then
+      fm_lock_release "$REMOTE_META_LOCK"
+      fm_send_refuse_stopped_delivery
+      exit 1
+    fi
     remote_rc=0
     remote_completion_unknown=0
     REMOTE_SEND_ARGS=("$TARGET_REMOTE_ID" "$MESSAGE")
@@ -1137,6 +1147,11 @@ else
         fm_pending_reply_discard_undelivered "$STATE" "$PENDING_REPLY_CORR" || true
       fi
       echo "error: steer not sent to $INBOX_TASK_ID: the task retired or changed endpoint during target resolution" >&2
+      exit 1
+    fi
+    if [ -e "$STATE/$TARGET_TASK_ID.stopped" ]; then
+      fm_lock_release "$INBOX_META_LOCK"
+      fm_send_refuse_stopped_delivery
       exit 1
     fi
     inbox_delivery=
