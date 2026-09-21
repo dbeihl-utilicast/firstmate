@@ -155,6 +155,7 @@ test_secondmate_model_effort_tokens() {
 absent file -> own harness, empty model/effort^ABSENT^claude^^
 bare harness only -> empty model/effort (backward-compat)^claude^claude^^
 harness + model -> model only^claude opus^claude^opus^
+harness + Codex sol model -> model only^codex gpt-5.6-sol^codex^gpt-5.6-sol^
 harness + model + effort -> both^claude opus high^claude^opus^high
 signed Pi wrapper + model + effort preserves every token^pi-signed openai-codex/gpt-5.6-sol max^pi-signed^openai-codex/gpt-5.6-sol^max
 default harness token -> falls back to crew, empty model/effort^default^claude^^
@@ -785,6 +786,36 @@ test_spawn_secondmate_harness_model_token() {
     "model-token: launch did not carry --model opus"
   assert_not_contains "$launch" "--effort" "model-token: launch must not carry an --effort flag"
   pass "C3 spawn: config/secondmate-harness's model token threads --model into the launch and meta"
+}
+
+# A Codex sol pin is the existing Codex secondmate launch with only the model
+# name changed: config/secondmate-harness "codex gpt-5.6-sol" must thread
+# --model gpt-5.6-sol and keep the secondmate template (no parent turn-end
+# notify hook).
+test_spawn_secondmate_harness_codex_sol_pin() {
+  local w sm meta launchlog launch out status
+  w="$TMP_ROOT/spawn-codex-sol-pin"
+  sm="$w/sm"
+  launchlog="$w/launch.log"
+  mkdir -p "$w/home/config"
+  printf 'codex gpt-5.6-sol\n' > "$w/home/config/secondmate-harness"
+  make_seeded_home "$sm" sm
+
+  out=$(spawn_secondmate_capture "$w" sm "$sm" "$launchlog" 2>&1); status=$?
+  expect_code 0 "$status" "codex-sol pin secondmate spawn should succeed"$'\n'"$out"
+
+  meta="$w/home/state/sm.meta"
+  [ "$(meta_field "$meta" harness)" = codex ] || fail "codex-sol pin: meta harness not codex"
+  [ "$(meta_field "$meta" model)" = gpt-5.6-sol ] \
+    || fail "codex-sol pin: meta model not gpt-5.6-sol (got '$(meta_field "$meta" model)')"
+  launch=$(cat "$launchlog")
+  assert_contains "$launch" "codex --model 'gpt-5.6-sol' --dangerously-bypass-approvals-and-sandbox" \
+    "codex-sol pin: launch did not use the existing Codex path with --model gpt-5.6-sol"
+  assert_not_contains "$launch" "notify=" \
+    "codex-sol pin: secondmate Codex launch included the parent turn-end notify hook"
+  assert_not_contains "$launch" "fm-foundry-luna-proxy" \
+    "codex-sol pin: Codex sol must not take the Foundry luna gateway path"
+  pass "C3b spawn: config/secondmate-harness 'codex gpt-5.6-sol' uses the existing Codex secondmate launch"
 }
 
 # "<harness> <model> <effort>" threads both flags into the launch and meta.
@@ -2617,6 +2648,7 @@ test_spawn_backend_precedence_over_inherited_config
 test_spawn_explicit_backend_precedence_over_env_and_inherited_config
 test_spawn_bare_harness_no_model_effort_flag
 test_spawn_secondmate_harness_model_token
+test_spawn_secondmate_harness_codex_sol_pin
 test_spawn_secondmate_harness_model_and_effort_tokens
 test_spawn_explicit_model_overrides_secondmate_harness_token
 test_spawn_explicit_effort_overrides_secondmate_harness_token

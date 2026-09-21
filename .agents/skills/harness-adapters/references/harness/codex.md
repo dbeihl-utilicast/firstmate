@@ -6,7 +6,7 @@ Verified on 2026-06-11 with codex-cli 0.139.0 unless a fact gives a newer versio
 
 | Fact | Value |
 |---|---|
-| Busy state | Unknown until a semantic source is live-verified: the app-server turn lifecycle is unreachable for a pane worker, and project lifecycle hooks did not fire for a Firstmate-launched worker. |
+| Busy state | On Herdr, native `agent get` reports `working` during a Codex secondmate turn and `idle` when it finishes. Tmux semantic busy remains unverified: the app-server turn lifecycle is unreachable for a pane worker, and project lifecycle hooks did not fire for a Firstmate-launched tmux worker. |
 | Exit command | `/quit`; its slash popup needs about one second between text and Enter, which the shared submit path used by the control plane handles. |
 | Interrupt | Single Escape. |
 | Skill invocation | `$<skill>`, for example `$no-mistakes`; `/<skill>` is Claude-only and Codex rejects it as "Unrecognized command". |
@@ -16,8 +16,14 @@ Verified on 2026-06-11 with codex-cli 0.139.0 unless a fact gives a newer versio
 | Model discovery | Open the current interactive session's `/model` picker. |
 
 A directory trust dialog appears on the first run for a repository root: "Do you trust the contents of this directory?"
-Accept it with Enter and verify the instructions begin processing.
+Accept it with Enter (option 1, "Yes, continue" is focused) and verify the instructions begin processing.
 The decision persists for the repository, so later worktrees of the same project skip it.
+A firstmate-shaped home that ships `.codex/hooks.json` then shows "Hooks need review" with option 1 "Review hooks" focused.
+Enter there opens the review UI and wedges an unattended worker; Down then Enter selects option 2, "Trust all and continue".
+`bin/fm-spawn.sh` dismisses both dialogs after launch so a Codex secondmate can begin its turn.
+`gpt-5.6-sol` is the Codex-plan model on this same `codex` path via `--model gpt-5.6-sol`; it is not a Foundry adapter.
+
+Codex is verified as a secondmate runtime on Herdr: see [`docs/verification/codex-secondmate.md`](../../../../../docs/verification/codex-secondmate.md).
 
 ## Skill popup
 

@@ -465,6 +465,10 @@
       "audience": "maintainer-verification"
     },
     {
+      "path": "docs/verification/codex-secondmate.md",
+      "audience": "maintainer-verification"
+    },
+    {
       "path": "docs/verification/dispatch-auth.md",
       "audience": "maintainer-verification"
     },

@@ -96,6 +96,8 @@ For a local route, an explicit per-spawn `--harness` flag, positional harness ar
 A remote route accepts only a verified harness adapter and refuses a raw launch command at the host boundary.
 When the file's tokens do apply, an explicit per-spawn `--model` or `--effort` flag always wins over the file's token for that axis.
 Because this resolves from the file on every spawn, the pin is durable across every respawn (recovery, `/updatefirstmate`, restart) exactly like the harness axis itself - e.g. `config/secondmate-harness` containing `claude opus` keeps a secondmate pinned to Opus even if the primary's own default model later changes.
+A Codex sol pin is `codex gpt-5.6-sol` on that same line: the existing Codex secondmate launch with only the model name changed.
+This file cannot be `config/crew-dispatch.json`: the mate pin is one durable runtime, while crew dispatch is a per-task quota-aware array for the workers that mate then supervises, so a dispatch edit never moves live secondmates.
 This is secondmate-only: crewmate/scout model resolution is untouched by this file.
 
 This section is the single owner of the secondmate sync and inherited-local-material propagation contract; `session-start-recovery` and `harness-adapters` point here.
