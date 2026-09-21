@@ -3131,7 +3131,7 @@ spawn_capture_pane() {
 }
 
 codex_wait_for_startup_dialogs() {
-  local pane action i=0 quiet=0 seen=0
+  local pane action i=0
   local max=${FM_CODEX_READY_POLLS:-40} interval=${FM_CODEX_POLL_INTERVAL:-0.5}
   while [ "$i" -lt "$max" ]; do
     if ! pane=$(spawn_capture_pane); then
@@ -3142,8 +3142,6 @@ codex_wait_for_startup_dialogs() {
     action=$(fm_codex_startup_dialog_action "$pane")
     case "$action" in
       hooks-down-enter)
-        seen=1
-        quiet=0
         spawn_send_key "$T" Down || {
           unpublished_endpoint_cleanup
           return 1
@@ -3155,22 +3153,12 @@ codex_wait_for_startup_dialogs() {
         }
         ;;
       trust-enter)
-        seen=1
-        quiet=0
         spawn_send_key "$T" Enter || {
           unpublished_endpoint_cleanup
           return 1
         }
         ;;
-      none)
-        if [ "$seen" -eq 1 ]; then
-          return 0
-        fi
-        quiet=$((quiet + 1))
-        if [ -n "$pane" ] && [ "$quiet" -ge 8 ]; then
-          return 0
-        fi
-        ;;
+      ready) return 0 ;;
     esac
     i=$((i + 1))
     [ "$i" -ge "$max" ] || sleep "$interval"
@@ -3181,10 +3169,10 @@ codex_wait_for_startup_dialogs() {
     echo "error: Codex startup state in $T remained empty; refusing to publish a worker that cannot begin its turn" >&2
   else
     action=$(fm_codex_startup_dialog_action "$pane")
-    if [ "$action" = none ]; then
+    if [ "$action" = ready ]; then
       return 0
     fi
-    echo "error: Codex startup dialog still on screen in $T ($action); refusing to publish a worker that cannot begin its turn" >&2
+    echo "error: Codex startup in $T never reached its ready prompt; refusing to publish a worker that cannot begin its turn" >&2
   fi
   unpublished_endpoint_cleanup
   return 1
