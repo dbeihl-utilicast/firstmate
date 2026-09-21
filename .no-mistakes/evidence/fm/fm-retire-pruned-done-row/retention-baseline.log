@@ -1,0 +1,1 @@
+not ok - closing a later item pruned a Done row whose task record still exists

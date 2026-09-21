@@ -1,0 +1,19 @@
+ok - record retirement: a moved lane has one live broadcast destination
+ok - record retirement: a reused pooled slot is never returned
+ok - record retirement: polling, status, and routing sidecars retire with the record
+ok - record retirement: finished proof requires closure and a deliverable
+ok - record retirement: a pruned Done row still retires when the deliverable remains
+ok - record retirement: the retiring endpoint must be gone
+ok - record retirement: replacement ownership is positively proved
+ok - record retirement: retry repairs receipt without re-proving a claimant
+ok - record retirement: ambiguous same-id resume refuses without finalizing
+ok - record retirement: incomplete retirement blocks same-id spawn
+ok - record retirement: complete retirement allows same-id spawn
+ok - record retirement: metadata becomes inactive before receipt publication
+ok - record retirement: GitHub PR state distinguishes landed ship work
+ok - record retirement: merged PR proof binds owner, repository, and number
+ok - record retirement: only an active claimant proves slot ownership
+ok - record retirement: inactive identity is excluded from delivery
+ok - record retirement: still-owned slot is preserved
+ok - record retirement: stopped marker remains owned by reopen
+ok - record retirement: interrupted retirement resumes and finishes sidecars
