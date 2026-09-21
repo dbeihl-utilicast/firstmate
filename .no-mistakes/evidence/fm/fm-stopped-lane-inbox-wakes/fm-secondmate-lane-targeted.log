@@ -1,0 +1,8 @@
+ok - lane: stop on a local mate records the marker and exits the agent
+ok - lane: stop on a remote mate routes to the host stop verb
+ok - lane: the marker is written before, and survives, a failed agent exit
+ok - lane: stop serializes marker publication with delivery metadata
+ok - lane: stop treats a missing endpoint as already complete
+ok - lane: reopen clears the marker and relaunches
+ok - lane: unregistered ids and unknown verbs are refused
+# all fm-secondmate-lane tests passed

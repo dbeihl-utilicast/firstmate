@@ -1,0 +1,34 @@
+ok - inbox: a steer is written durably and round-trips byte-exact with a self-describing doorbell
+ok - inbox: a hostile-path doorbell executes as a no-op in bare shells
+ok - inbox: terminal-control paths are rejected without typing
+ok - inbox: the ring skips dead or missing endpoints and still rings live or unclassifiable endpoints
+ok - inbox: the idempotent enqueue dedups only an exact still-unhandled re-run
+ok - inbox take: a crash before take leaves the message unread
+ok - inbox take: a taker killed after claim is recovered and replayed
+ok - inbox take: an expired claim replays even while its tagged process lives
+ok - watcher: an abandoned claim returns to the inbox and is re-rung
+ok - inbox: an identical resend of a claimed record does not enqueue a duplicate
+ok - inbox: recovery removes an empty dead claimant directory
+ok - inbox: recovery and allocation serialize without overwriting an instruction
+ok - inbox: allocation refuses an occupied destination and retries with a new sequence
+ok - inbox: dedup follows recovery plus re-claim without creating a duplicate
+ok - inbox: recovery binds claims to process start identity and reports malformed claimant directories
+ok - inbox take: the lowest unhandled record is moved before its body is returned
+ok - inbox take: concurrent takers atomically move each record exactly once
+ok - inbox: an enqueue racing a take follows the record already acknowledged
+ok - inbox: the handled mv is the idempotent ack and sequences are never reissued
+ok - inbox: concurrent writers serialize on the sequence lock and lose nothing
+ok - inbox: a writer retries when a competing lock vanishes after its failed claim
+ok - inbox: ladder bookkeeping ignores a concurrently removed inbox
+ok - inbox: fire-and-forget records stay durable and outside the ladder
+ok - inbox: the re-ring ladder paces by grace, escalates once, and resets on ack
+ok - watcher: an unhandled aged message on an idle pane re-rings without waking firstmate, and the ack silences it
+ok - watcher: a busy pane just waits - the record is durable and no doorbell is typed
+ok - watcher: a healthy or empty inbox stays completely silent
+ok - watcher: acknowledgement silences an unwritable ladder without a stale wake
+ok - watcher: unwritable ladder bookkeeping surfaces a stale wake after the doorbell
+ok - watcher: a spent ring budget emits exactly one ordinary stale wake for recovery
+ok - watcher: a positively dead pane is never typed into and surfaces exactly one stale wake
+ok - watcher: dead-pane recovery overrides stale busy state
+ok - watcher: a stopped lane's unhandled record produces no inbox stale wake, even when the agent is dead
+ok - watcher: a stopped lane produces no inbox stale wake on an idle pane either

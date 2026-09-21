@@ -1,0 +1,51 @@
+== Stop reports success when its real tmux endpoint is absent ==
+stop_exit=0 marker=present
+stop_output:
+== Stop waits for a real in-flight delivery metadata lock before publishing its marker ==
+marker_while_delivery_lock_held=absent
+marker_after_delivery_lock_release=present
+== Ordinary send to stopped lane is refused before inbox/pending-reply delivery ==
+ordinary_send_exit=1 inbox_001=absent pending_files=0
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  2 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the requested message WILL still be sent.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e /home/dbeihl/.no-mistakes/worktrees/4962ffbf57ea/01M31ZFVCN8NWM0H4EP39DMZDT/.pi/extensions/fm-primary-turnend-guard.ts -e /home/dbeihl/.no-mistakes/worktrees/4962ffbf57ea/01M31ZFVCN8NWM0H4EP39DMZDT/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+error: secondmate domain is stopped (state/domain.stopped); reopen it with bin/fm-secondmate-lane.sh reopen domain before sending. Nothing was sent.
+== Operator resolves stale pending-reply against stopped lane without a replacement expectation ==
+resolve_exit=0 inbox_001=present pending_files=0 tmux_typed_lines=0
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+resolved_status:
+blocked [key=pending-reply-abcdef0123456789]: pending-reply-missed: task=domain pending-reply-id=abcdef0123456789 request=config reread
+resolved [key=pending-reply-abcdef0123456789]: pending-reply-resolved: task=domain pending-reply-id=abcdef0123456789 via=operator-resolve-key ack, lane is down
+open_decisions_after_resolve:
+(none)
+== Real watcher leaves stopped lane unread record quiet ==
+watch_exit=124 (124 means still polling as expected) wake_queue=absent doorbell_lines=0 escalation=absent
+Terminated
+== Real config push skips its config-reread doorbell for a stopped seeded lane ==
+config_push_exit=0 reread_skip=1 inbox_001=absent pending_files=0
+config-push: /tmp/fm-stopped-live.4LAgwc/config-home -> live secondmate homes
+secondmate sm (/tmp/fm-stopped-live.4LAgwc/sm-home):
+  crew-dispatch.json: pushed
+  crew-harness: pushed
+  backlog-backend: unchanged
+  backend: unchanged
+  herdr-presentation-spaces: unchanged
+  startup-memory-budget: unchanged
+  trace-context: unchanged - session-scoped
+  launch-env-allowlist: unchanged
+  host-plugins.json: unchanged
+  foundry-luna.json: unchanged
+  data/captain-shared.md: unchanged
+  config-reread: skipped, lane is stopped
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 0s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e /tmp/fm-stopped-live.4LAgwc/config-main/.pi/extensions/fm-primary-turnend-guard.ts -e /tmp/fm-stopped-live.4LAgwc/config-main/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+LIVE STOPPED-LANE E2E: PASS
