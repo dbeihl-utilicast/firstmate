@@ -2056,9 +2056,10 @@ if [ "${BASH_SOURCE[0]}" != "$0" ]; then
   return 0
 fi
 
-# Stop a live lock holder whose beacon went stale, but only when the lock's own
-# home, watcher path, and recorded process identity prove it is this home's
-# watcher. TERM first, then KILL, each bounded by fm_watcher_evict_wait seconds.
+# Stop a live lock holder only when both its beacon and lock claim are stale,
+# and only when the lock's own home, watcher path, and recorded process identity
+# prove it is this home's watcher. TERM first, then KILL, each bounded by
+# fm_watcher_evict_wait seconds.
 WATCHER_EVICT_WAIT=$(fm_watcher_evict_wait)
 record_watcher_eviction_handoff() {  # <pid>
   local pid=$1 identity tmp
