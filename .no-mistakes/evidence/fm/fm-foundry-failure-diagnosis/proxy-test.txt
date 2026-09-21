@@ -1,0 +1,27 @@
+ok - fm-foundry-luna-proxy: refuses every unauthorized deployment name before reaching Azure
+ok - fm-foundry-luna-proxy: an expired cached token is refreshed, never reused stale, on every request
+ok - fm-foundry-luna-proxy: a still-valid cached token is reused instead of refetched
+ok - fm-foundry-luna-proxy: refuses a deployment-scoped route before any token is fetched
+ok - fm-foundry-luna-proxy: a chunked streamed reply is relayed with framing the client can end on
+ok - fm-foundry-luna-proxy: refuses a non-loopback upstream override instead of forwarding a token to it
+ok - fm-foundry-luna-proxy: run mode is silent on the error path too, unless FM_FOUNDRY_LUNA_LOG names a file
+ok - fm-foundry-luna-proxy: 'run' serves the wrapped command on the port it resolves for it, and stops when the command exits
+ok - fm-foundry-luna-proxy: two gateways alive at once each serve the port they bound themselves
+ok - fm-foundry-luna-proxy: 'run' mints its own admission secret and hands it only to its child's environment
+ok - fm-foundry-luna-proxy: a wrapped command that cannot start is reported, never as a pane traceback
+ok - fm-foundry-luna-proxy: refuses a local caller that does not hold this task's gateway secret
+ok - fm-foundry-luna-proxy: refuses to start without this task's gateway secret
+ok - fm-foundry-luna-proxy: refuses to serve at all when the first token fetch fails
+ok - fm-foundry-luna-proxy: refuses to start when the Foundry config is missing, malformed, names a non-Azure host, or names a non-GUID subscription id
+ok - fm-foundry-luna-proxy: refuses to serve when az reports a token with an unreadable expires_on, never crashing with a raw traceback
+ok - fm-foundry-luna-proxy: an az refresh failure names az, surfaces stderr, and is not retried
+ok - fm-foundry-luna-proxy: Foundry 401 after an az token is classified as token rejection, not a subscription key
+ok - fm-foundry-luna-proxy: Foundry 404 is classified as a wrong deployment or host
+ok - fm-foundry-luna-proxy: an unreachable Foundry host is classified as a wrong deployment or host
+ok - fm-foundry-luna-proxy: an unclassified Foundry 500 is an explicit unknown, not one of the three stages
+ok - fm-foundry-luna-proxy: classify reprints a key 401 as a key rejection, never as a token refresh
+ok - fm-foundry-luna-proxy: relays gpt-5.6-luna, gpt-5.6-sol, and gpt-5.6-terra so Pi does not lose two models
+ok - fm-foundry-luna-proxy: the per-launch run gateway relays luna and refuses sol and terra
+ok - fm-foundry-luna-proxy: classify --gateway-down is its own stage, not one of the three Foundry failures
+ok - fm-foundry-luna-gateway-secret: a closed port is a down-gateway failure, not a leaked secret
+ok - fm-foundry-luna-proxy: serve accepts FM_FOUNDRY_LUNA_SECRET for the long-lived host gateway
