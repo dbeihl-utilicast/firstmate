@@ -1320,26 +1320,39 @@ test_arm_evicts_live_holder_with_stale_beacon() {
 test_watch_reports_benign_race_loss_after_own_eviction_succeeds() {
   # Two independent re-arm triggers can both evict the same stale-beacon live
   # holder and then race the follow-up lock acquisition. This simulates the
-  # sibling evictor as a direct fm_lock_try_acquire racer (rather than a
-  # second real fm-watch.sh, whose natural timing only wins this race a
-  # fraction of the time): it wins the internal steal mutex the instant the
-  # shared holder dies - ahead of fm-watch.sh's own coarser 0.1s poll - then
-  # holds it through a deliberately widened remove-and-recreate window so
-  # fm-watch.sh's follow-up acquisition attempt is certain to land inside it
-  # at least once. fm-watch.sh's own eviction of the same holder must still
-  # succeed, and its follow-up acquisition must report the sibling's settled
-  # live pid as a benign "already running" exit 0, not the FAILED escalation.
-  local dir state fakebin out holder identity lockdir winner_pid sim i status
+  # sibling evictor as a direct fm_lock_try_acquire racer. Its lock handoff
+  # runs synchronously inside the real watcher's SIGTERM call, so the watcher
+  # cannot attempt its follow-up acquisition before the sibling has installed
+  # its live winner. This proves the lost-race behavior without relying on the
+  # scheduler to run a background racer in a tiny timing window.
+  local dir state fakebin out holder identity lockdir winner_pid i status
   dir=$(make_case watch-race-benign-loss)
   state="$dir/state"
   fakebin="$dir/fakebin"
   out="$dir/watch.out"
   lockdir="$state/.watch.lock"
 
-  (bash -c 'trap "" TERM; while :; do :; done' & printf '%s\n' "$!" > "$dir/holder.pid"; wait) 2>/dev/null &
-  i=0
-  while [ "$i" -lt 50 ] && [ ! -s "$dir/holder.pid" ]; do sleep 0.02; i=$((i + 1)); done
-  holder=$(cat "$dir/holder.pid")
+  sleep 300 &
+  winner_pid=$!
+  # The stale holder's TERM handler models the sibling completing its lock
+  # claim while the evictor waits for TERM to take effect. It installs the
+  # winner before exiting, so the evictor's mandatory post-eviction recheck
+  # observes the settled singleton rather than a scheduler-dependent gap.
+  FM_STATE_OVERRIDE="$state" FM_TEST_LIB="$LIB" FM_TEST_LOCKDIR="$lockdir" \
+    FM_TEST_WINNER_PID="$winner_pid" bash -c '
+      handoff() {
+        . "$FM_TEST_LIB"
+        fm_lock_try_acquire "$FM_TEST_LOCKDIR.steal" || exit 7
+        fm_lock_remove_path "$FM_TEST_LOCKDIR"
+        mkdir "$FM_TEST_LOCKDIR" || exit 8
+        printf "%s\n" "$FM_TEST_WINNER_PID" > "$FM_TEST_LOCKDIR/pid"
+        fm_lock_release "$FM_TEST_LOCKDIR.steal"
+        exit 0
+      }
+      trap handoff TERM
+      while :; do :; done
+    ' &
+  holder=$!
   identity=$(FM_STATE_OVERRIDE="$state" bash -c '. "$1"; fm_pid_identity "$2"' _ "$LIB" "$holder")
   mkdir "$lockdir"
   printf '%s\n' "$holder" > "$lockdir/pid"
@@ -1348,28 +1361,13 @@ test_watch_reports_benign_race_loss_after_own_eviction_succeeds() {
   printf '%s\n' "$identity" > "$lockdir/pid-identity"
   touch -t 200001010000 "$state/.last-watcher-beat" "$lockdir"
 
-  sleep 300 &
-  winner_pid=$!
-  FM_STATE_OVERRIDE="$state" bash -c '
-    . "$1"
-    lockdir=$2; target=$3; winner=$4
-    while fm_pid_alive "$target"; do sleep 0.01; done
-    fm_lock_try_acquire "$lockdir.steal" || exit 7
-    fm_lock_remove_path "$lockdir"
-    sleep 0.8
-    mkdir "$lockdir"
-    printf "%s\n" "$winner" > "$lockdir/pid"
-    fm_lock_release "$lockdir.steal"
-  ' _ "$LIB" "$lockdir" "$holder" "$winner_pid" &
-  sim=$!
-
   status=0
-  PATH="$fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$state" FM_WATCHER_EVICT_WAIT=1 FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" 2>&1 &
+  PATH="$fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$state" \
+    FM_WATCHER_EVICT_WAIT=1 FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" 2>&1 &
   watchpid=$!
   wait_for_exit "$watchpid" 100
   status=$?
 
-  wait "$sim" || fail "steal-mutex racer failed: $(cat "$out")"
   kill "$winner_pid" 2>/dev/null || true
   wait "$winner_pid" 2>/dev/null || true
   kill -KILL "$holder" 2>/dev/null || true
