@@ -669,28 +669,30 @@ fm_send_known_undelivered_cleanup() {
     fm_pending_reply_reset_known_undelivered "$STATE" "$PENDING_REPLY_CORR"
   fi
 }
-fm_send_refuse_stopped_delivery() {
-  fm_send_known_undelivered_cleanup || \
-    echo "error: known-undelivered pending-reply state could not be reset for $TARGET_TASK_ID" >&2
-  echo "error: secondmate $TARGET_TASK_ID is stopped (state/$TARGET_TASK_ID.stopped); reopen it with bin/fm-secondmate-lane.sh reopen $TARGET_TASK_ID before sending. Nothing was sent." >&2
+# A just-created pending-reply for this send is discarded, and later
+# delivery-confirm is skipped, when the stopped marker is seen at the
+# locked enqueue. An already-open reused correlation is left in place.
+fm_send_drop_created_pending_reply() {
+  if [ "$PENDING_REPLY_CREATED" = 1 ] && [ -n "$PENDING_REPLY_CORR" ]; then
+    fm_pending_reply_discard_undelivered "$STATE" "$PENDING_REPLY_CORR" || \
+      echo "error: known-undelivered pending-reply state could not be reset for $TARGET_TASK_ID" >&2
+  fi
+  PENDING_REPLY_CORR=
+  PENDING_REPLY_CREATED=0
 }
 if [ -n "$TARGET_SELECTOR" ] && [ -n "$TARGET_META" ] && [ "$(fm_meta_get "$TARGET_META" kind)" = secondmate ]; then
   MARK_FROM_FIRSTMATE=1
   TARGET_TASK_ID=$(fm_send_id_from_meta "$TARGET_META")
 fi
 # A lane carrying state/<id>.stopped has no worker to acknowledge a send.
-# An ordinary send is refused before any pending-reply is minted. A
-# --resolve-key close still records the resolution without minting one.
-# Presence of the marker is the only trigger; a quiet, unreachable, or
-# merely dead lane without it still mints.
+# The durable inbox record is still written so a later reopen can take it.
+# No pending-reply is minted, and the doorbell is not rung. A --resolve-key
+# close still records the resolution without minting one. Presence of the
+# marker is the only trigger; a quiet, unreachable, or merely dead lane
+# without it still mints.
 STOPPED_LANE_RESOLVE=0
 if [ -n "$TARGET_TASK_ID" ] && [ -e "$STATE/$TARGET_TASK_ID.stopped" ]; then
-  if [ -n "$RESOLVE_KEYS" ]; then
-    STOPPED_LANE_RESOLVE=1
-  else
-    echo "error: secondmate $TARGET_TASK_ID is stopped (state/$TARGET_TASK_ID.stopped); reopen it with bin/fm-secondmate-lane.sh reopen $TARGET_TASK_ID before sending. Nothing was sent." >&2
-    exit 1
-  fi
+  STOPPED_LANE_RESOLVE=1
 fi
 
 # Validate the answerer-closes request before any durable mutation or send: the
@@ -1036,10 +1038,9 @@ else
       echo "error: steer not sent to remote secondmate $TARGET_REMOTE_ID: its parent task retired or changed route during target resolution" >&2
       exit 1
     fi
-    if [ -e "$STATE/$TARGET_TASK_ID.stopped" ] && [ "$STOPPED_LANE_RESOLVE" != 1 ]; then
-      fm_lock_release "$REMOTE_META_LOCK"
-      fm_send_refuse_stopped_delivery
-      exit 1
+    if [ -n "$TARGET_TASK_ID" ] && [ -e "$STATE/$TARGET_TASK_ID.stopped" ]; then
+      STOPPED_LANE_RESOLVE=1
+      fm_send_drop_created_pending_reply
     fi
     remote_rc=0
     remote_completion_unknown=0
@@ -1149,10 +1150,9 @@ else
       echo "error: steer not sent to $INBOX_TASK_ID: the task retired or changed endpoint during target resolution" >&2
       exit 1
     fi
-    if [ -e "$STATE/$TARGET_TASK_ID.stopped" ] && [ "$STOPPED_LANE_RESOLVE" != 1 ]; then
-      fm_lock_release "$INBOX_META_LOCK"
-      fm_send_refuse_stopped_delivery
-      exit 1
+    if [ -n "$TARGET_TASK_ID" ] && [ -e "$STATE/$TARGET_TASK_ID.stopped" ]; then
+      STOPPED_LANE_RESOLVE=1
+      fm_send_drop_created_pending_reply
     fi
     inbox_delivery=
     if [ -n "$FIRE_AND_FORGET_ID" ] || [ "$STOPPED_LANE_RESOLVE" = 1 ]; then
