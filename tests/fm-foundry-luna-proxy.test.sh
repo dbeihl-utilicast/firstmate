@@ -1217,7 +1217,7 @@ test_unknown_upstream_5xx_is_explicitly_unknown() {
     -H "$AUTH_HEADER" \
     -d '{"model":"gpt-5.6-luna","input":[]}')
   body=$(cat "$TMP_ROOT/foundry-500-body")
-  tr 'A-Z' 'a-z' < "$TMP_ROOT/foundry-500-headers.raw" > "$TMP_ROOT/foundry-500-headers"
+  tr '[:upper:]' '[:lower:]' < "$TMP_ROOT/foundry-500-headers.raw" > "$TMP_ROOT/foundry-500-headers"
 
   kill "$proxy_pid" "$upstream_pid" 2>/dev/null
   wait "$proxy_pid" "$upstream_pid" 2>/dev/null
