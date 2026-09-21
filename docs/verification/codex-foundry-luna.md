@@ -60,7 +60,8 @@ The gateway mints a fresh random secret per launch and passes it to codex, its o
 It is deliberately not an assignment on the launch command: under `config/launch-env-allowlist` that text becomes `/bin/sh`'s own `-c` argument, and `/proc/<pid>/cmdline` is world-readable, so a secret placed there would be readable by every local uid rather than only the operator.
 Any request whose `Authorization` header is not exactly that secret is answered 401, before a route check, a deployment check, or a token fetch.
 The secret never leaves the host either: `_forward` strips the caller's `Authorization` header and replaces it with the gateway's own fetched token.
-`serve` is the foreground test mode and takes its admission secret from `FM_FOUNDRY_LUNA_TEST_SECRET`, refusing to start without one, because a curl client has no child environment to read one from.
+`serve` is the long-lived loopback service (and the foreground test mode).
+It takes its admission secret from `FM_FOUNDRY_LUNA_SECRET` or `FM_FOUNDRY_LUNA_TEST_SECRET`, refusing to start without one, because a Pi or curl client has no child environment minted per launch.
 
 ## Getting a token at all
 
@@ -81,16 +82,21 @@ The gateway now names exactly one stage in the worker-visible error body (and on
 | `foundry-rejected-token` | az minted a token and Foundry answered 401/403 | `az produced a token and Foundry rejected it`; Foundry's subscription-key sentence is not forwarded |
 | `deployment-or-host` | Foundry 404/`DeploymentNotFound`, or the host cannot be connected | `the Foundry deployment or host is wrong` |
 | `local-allowlist` | the request's model is not on this gateway's allowlist | a local allowlist refusal, not a Foundry deployment or host fault |
-| `unknown` | any other upstream error status | `unknown reason`, and not one of the three stages above |
+| `gateway-down` | the loopback `serve` process is not listening | `the Foundry luna gateway is not running`; not a token refresh |
+| `unknown` | any other upstream error status | `unknown reason`, not az-token, foundry-rejected-token, or deployment-or-host |
 
-Pi's `foundry` provider does not use this gateway. It sends `~/.pi/agent/models.json`'s literal `apiKey` to the Foundry `baseUrl`. The same Foundry 401 body on that path is a key rejection, reprinted by `bin/fm-foundry-luna-proxy.py classify --credential api-key`.
+These stages apply to both gateways this binary can start.
+The per-launch `run` gateway is what `codex-foundry-luna` spawn wraps: it admits `gpt-5.6-luna` alone.
+The long-lived `serve` gateway is what Pi uses on this host: it admits `gpt-5.6-luna`, `gpt-5.6-sol`, and `gpt-5.6-terra`.
+Pi reaches Foundry through that `serve` loopback gateway and holds no Azure credential; `classify --credential api-key` remains only for a client that still sent a key.
 No retry was added: the reproduction of an az failure was a durable login/CA error, not a single transient call that recovered on a second try.
 
 ## Pi on the same gateway
 
 Verified 2026-09-21 on this Spark host, against a recorder and then the live gateway, without printing credentials:
 
-- Pi interpolates `"apiKey": "$FM_FOUNDRY_LUNA_SECRET"` (unset: `No API key found for foundry.`).
+- Pi can interpolate `"apiKey": "$FM_FOUNDRY_LUNA_SECRET"` (unset: `No API key found for foundry.`).
+- After the live proof, Pi's foundry provider uses a `!` command that reads the gateway admission secret only while `serve` is listening, not an Azure key.
 - Pi's `openai-responses` client POSTs `/openai/v1/responses` with `Authorization: Bearer`, `stream: true`, and the deployment name in the JSON `model` field. That is the one route the gateway relays. Pi did not GET `/models`.
 - The luna-only body pin would have 403'd `gpt-5.6-sol` and `gpt-5.6-terra`. The long-lived `serve` gateway allowlist now includes those three names; the per-launch `run` gateway and fleet spawn stay luna-only.
 - A long-lived systemd user unit (`fm-foundry-luna-gateway.service`, Restart=always, port 17653) is this host's existing service mechanism. Linger is already on.
