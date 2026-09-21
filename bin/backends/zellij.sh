@@ -440,12 +440,12 @@ fm_backend_zellij_send_literal() {  # <target> <text> [expected-label]
 }
 
 # fm_backend_zellij_normalize_key: map firstmate's key vocabulary (Enter,
-# Escape, C-c, as used by fm-send.sh --key and stuck-crewmate-recovery) onto
-# zellij's verified `action send-keys` names. Verified empirically: "Enter",
-# "Esc", and "Down" work; "Escape" and "escape" are REJECTED ("Invalid key"); Ctrl-C
-# must be the single argument "Ctrl c" (a space-separated two-word key
-# expression passed as ONE shell arg) - "C-c", "Ctrl+c", and two separate argv
-# words all fail.
+# Escape, Down, C-c, as used by fm-send.sh --key, Codex secondmate startup,
+# and stuck-crewmate-recovery) onto zellij's verified `action send-keys` names.
+# Verified empirically: "Enter", "Esc", and "Down" work; "Escape" and "escape"
+# are REJECTED ("Invalid key"); Ctrl-C must be the single argument "Ctrl c"
+# (a space-separated two-word key expression passed as ONE shell arg) -
+# "C-c", "Ctrl+c", and two separate argv words all fail.
 fm_backend_zellij_normalize_key() {  # <key>
   case "$1" in
     Enter|enter) printf 'Enter' ;;
