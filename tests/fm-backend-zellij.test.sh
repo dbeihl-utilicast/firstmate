@@ -224,10 +224,11 @@ test_normalize_key() {
     [ "$(fm_backend_zellij_normalize_key Enter)" = Enter ] || { echo "Enter failed" >&2; exit 1; }
     [ "$(fm_backend_zellij_normalize_key Escape)" = Esc ] || { echo "Escape failed" >&2; exit 1; }
     [ "$(fm_backend_zellij_normalize_key Esc)" = Esc ] || { echo "Esc failed" >&2; exit 1; }
+    [ "$(fm_backend_zellij_normalize_key Down)" = Down ] || { echo "Down failed" >&2; exit 1; }
     [ "$(fm_backend_zellij_normalize_key C-c)" = "Ctrl c" ] || { echo "C-c failed" >&2; exit 1; }
     [ "$(fm_backend_zellij_normalize_key ctrl+c)" = "Ctrl c" ] || { echo "ctrl+c failed" >&2; exit 1; }
   ) || fail "fm_backend_zellij_normalize_key did not map firstmate's key vocabulary to zellij's verified names"
-  pass "fm_backend_zellij_normalize_key: Enter/Escape/C-c map to zellij's verified Enter/Esc/'Ctrl c'"
+  pass "fm_backend_zellij_normalize_key: Enter/Escape/Down/C-c map to zellij's verified key names"
 }
 
 # --- home-scoped tab titles (cross-home collision fix) ------------------------
