@@ -115,7 +115,8 @@ Dropped cards are named on stderr as `dropped-landed-card:` lines so a rebuild s
 The landing procedure requires one immediate board rebuild to remove already-stale merged-PR and superseded-version cards without a committed migration or change-worktree state mutation.
 A subject whose state cannot be established is kept, because a wrongly shown card is safer than a wrongly hidden call.
 The validator's reservation scope must equal the adapter's reconcile-classification scope, which is all card types because the captured payload carries no card type.
-Owner-aware routing for remote-secondmate decision cards is tracked separately: that follow-up must query landedness and route reconciliation in the authoritative secondmate home while honoring the remote and local consistency principle.
+The board payload contract in [`bin/fm-bearings-board.sh`](../bin/fm-bearings-board.sh) presents a second-mate captain-held task as `<secondmate>/<task>`.
+Owner-aware routing for remote-secondmate decision cards is tracked separately: that follow-up must query landedness and route the captain's answer and reconciliation in the authoritative secondmate home while honoring the remote and local consistency principle.
 Until then, an absent main-home task passes through this hygiene check unchanged, and its Reconcile selection remains announced but cannot create a main-home request because the main intake refuses an absent task.
 For a main-home call, the reconcile option is the recovery path for whatever still slips through.
 
