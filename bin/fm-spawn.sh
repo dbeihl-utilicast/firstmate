@@ -1061,7 +1061,7 @@ relaunch_replacement_meta_published() {
 }
 
 spawn_herdr_created_endpoint() {
-  local session=$1 workspace=$2 label=$3 prior=$4 tabs candidates tab candidate= pane
+  local session=$1 workspace=$2 label=$3 prior=$4 tabs candidates tab candidate='' pane
   tabs=$(fm_backend_herdr_cli "$session" tab list --workspace "$workspace" 2>/dev/null) || return 2
   printf '%s' "$tabs" | jq -e '(.result.tabs | type) == "array"' >/dev/null 2>&1 || return 2
   candidates=$(printf '%s' "$tabs" | jq -r --arg label "$label" '.result.tabs[] | select(.label == $label) | .tab_id') || return 2
