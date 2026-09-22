@@ -12,8 +12,9 @@
 # Orca currently supports Enter and C-c only, and rejects Escape.
 #
 # Stopped lane: state/<id>.stopped (bin/fm-secondmate-lane.sh's pause marker)
-# is checked before every send and again before inbox delivery. A refusal names
-# the lane and reopen command; reopen the lane first, then resend.
+# is checked before every send and again before inbox delivery. Key and local
+# typed dispatch hold the lane metadata lock from final check through send;
+# refused typed sends discard prepared pending replies. Reopen, then resend.
 #
 # Two data planes:
 #

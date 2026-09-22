@@ -64,7 +64,9 @@
 # the caller surfaces that failure instead of retrying silently; a concurrently
 # removed inbox is a quiet no-op. Escalation deliberately queues the wake before
 # writing the deduplication marker: normal polls surface an unchanged oldest
-# and unhandled count once, while a new unhandled record can surface it again.
+# and highest eligible sequence once, while a newer record can surface it again.
+# The watcher captures that sequence before queuing the wake, so a record
+# arriving during wake publication remains eligible for a later escalation.
 # A crash or marker failure may produce a rare duplicate rather than lose a wake.
 #
 # Inbox paths containing bytes outside printable ASCII are unsupported. The
