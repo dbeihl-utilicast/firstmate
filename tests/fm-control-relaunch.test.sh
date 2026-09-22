@@ -1297,9 +1297,9 @@ test_reused_codex_stale_ready_does_not_mask_current_failure() {
     "the current command-not-found output was hidden by stale readiness"
   assert_not_contains "$out" "relaunched $id" \
     "a stale ready prompt published an unready replacement"
-  assert_present "$meta" "an unready reused endpoint lost its replacement record"
+  assert_present "$meta" "an unready reused endpoint lost its prior record"
   assert_grep "fm-$id" "$dir/fake/windows" "an unready reused endpoint was retired"
-  [ "$(journal_field "$dir" "$id" rollback)" = none-new-record-kept ] \
+  [ "$(journal_field "$dir" "$id" rollback)" = prior-record-kept ] \
     || fail "the reused endpoint failure was reported as the wrong rollback state"
   pass "fm-control relaunch: stale readiness cannot confirm the current Codex launch"
 }
