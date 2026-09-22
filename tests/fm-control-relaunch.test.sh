@@ -829,7 +829,7 @@ test_turnend_auth_paths_are_owned_by_the_control_adapter() {
   pass "fm-control-lib: one owner resolves each harness's turn-end registry entry, and refuses a malformed token"
 }
 
-test_secondmate_relaunch_picks_up_the_configured_harness_pin() {
+test_secondmate_relaunch_preserves_the_recorded_profile() {
   local dir home out rc
   dir=$(new_case smpin sm3)
   home="$dir/home"
@@ -856,20 +856,19 @@ test_secondmate_relaunch_picks_up_the_configured_harness_pin() {
   } > "$home/state/sm3.meta"
   printf '%s\n' "fm-sm3" > "$dir/fake/windows"
   printf '%s' "$dir/smhome" > "$dir/fake/cwd"
-  printf 'codex' > "$dir/fake/becomes"
+  printf 'claude' > "$dir/fake/becomes"
   out=$(run_control "$dir" sm3 relaunch); rc=$?
-  expect_code 0 "$rc" "a configured secondmate harness should relaunch"$'\n'"$out"
-  [ "$(journal_field "$dir" sm3 to_harness)" = codex ] \
-    || fail "a secondmate relaunch should pick up the configured harness pin, got '$(journal_field "$dir" sm3 to_harness)'"
-  [ "$(journal_field "$dir" sm3 to_model)" = some-model ] \
-    || fail "the configured model token should come with the pin"
-  [ "$(journal_field "$dir" sm3 to_effort)" = high ] \
-    || fail "the configured effort token should come with the pin"
-  assert_not_contains "$out" "not a verified harness" "codex is a verified harness"
-  pass "fm-control relaunch: a secondmate relaunch re-resolves its durable configured harness pin"
+  expect_code 0 "$rc" "a secondmate should relaunch on its recorded profile"$'\n'"$out"
+  [ "$(journal_field "$dir" sm3 to_harness)" = claude ] \
+    || fail "a secondmate relaunch should preserve its recorded harness, got '$(journal_field "$dir" sm3 to_harness)'"
+  [ "$(journal_field "$dir" sm3 to_model)" = default ] \
+    || fail "the fleet-wide model default flattened the recorded profile"
+  [ "$(journal_field "$dir" sm3 to_effort)" = default ] \
+    || fail "the fleet-wide effort default flattened the recorded profile"
+  pass "fm-control relaunch: a secondmate preserves its recorded profile"
 }
 
-test_secondmate_relaunch_ignores_invalid_configured_effort_before_stop() {
+test_secondmate_relaunch_does_not_consult_invalid_fleet_effort() {
   local dir home out rc
   dir=$(new_case invalid-effort sm6)
   home="$dir/home"
@@ -895,14 +894,14 @@ test_secondmate_relaunch_ignores_invalid_configured_effort_before_stop() {
   } > "$home/state/sm6.meta"
   printf '%s\n' "fm-sm6" > "$dir/fake/windows"
   printf '%s' "$dir/smhome" > "$dir/fake/cwd"
-  printf 'codex' > "$dir/fake/becomes"
+  printf 'claude' > "$dir/fake/becomes"
   out=$(run_control "$dir" sm6 relaunch); rc=$?
-  expect_code 0 "$rc" "an invalid configured effort should be ignored before stop"$'\n'"$out"
-  assert_contains "$out" "effort token 'impossible'" \
-    "relaunch should surface the same warning as a normal secondmate spawn"
+  expect_code 0 "$rc" "an unrelated invalid fleet effort should not affect relaunch"$'\n'"$out"
+  assert_not_contains "$out" "effort token 'impossible'" \
+    "relaunch consulted the fleet-wide default instead of the task record"
   [ "$(journal_field "$dir" sm6 to_effort)" = default ] \
     || fail "invalid configured effort should normalize to default"
-  pass "fm-control relaunch: invalid configured effort is ignored before stop"
+  pass "fm-control relaunch: an invalid fleet effort does not affect the recorded profile"
 }
 
 # agy is a verified adapter, but only for crewmates and scouts: it has no
@@ -2167,8 +2166,8 @@ test_relaunch_onto_an_unverified_harness_is_refused
 test_prior_harness_turnend_registry_entry_is_cleared
 test_wiring_removal_failure_refuses_before_replacement_arm
 test_turnend_auth_paths_are_owned_by_the_control_adapter
-test_secondmate_relaunch_picks_up_the_configured_harness_pin
-test_secondmate_relaunch_ignores_invalid_configured_effort_before_stop
+test_secondmate_relaunch_preserves_the_recorded_profile
+test_secondmate_relaunch_does_not_consult_invalid_fleet_effort
 test_secondmate_relaunch_onto_a_crewmate_only_adapter_refuses_before_stop
 test_qwen_relaunch_without_auth_refuses_before_stop
 test_qwen_relaunch_without_executable_refuses_before_stop

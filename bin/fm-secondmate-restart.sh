@@ -2,16 +2,19 @@
 # Restart second mates onto the current instruction surface and launch-time
 # wiring, persisting their open records first.
 #
-# Usage: fm-secondmate-restart.sh <secondmate-id>... [--help]
+# Usage: fm-secondmate-restart.sh [--harness <name>] [--model <name>]
+#                                 [--effort <level>] <secondmate-id>...
 #
 # This is the executable half of /updatefirstmate's reload step. A running agent
 # holds AGENTS.md and every skill it has loaded frozen from launch, and no
 # verified harness offers a reload, so a re-read steer cannot replace either -
 # it appends a second copy of the mate's own job description with no defined
 # precedence. Replacing the agent is the only mechanism that guarantees the new
-# bytes are the ones read, and the only one that re-resolves the launch-time
+# bytes are the ones read, and the only one that reconstructs the launch-time
 # wiring - harness, model, effort, turn-end hooks, and every other flag a harness
-# reads once at startup. That second half is why the update pass sends every live
+# reads once at startup. A restart preserves the runtime recorded for each mate;
+# the optional profile flags deliberately change every named mate instead of
+# consulting the fleet-wide default. That second half is why the update pass sends every live
 # mate here, including one already on the target commit: launch-time wiring is
 # not derivable from a git diff, so an unchanged tracked surface does not mean
 # the running agent is already on the current behavior.
@@ -104,19 +107,50 @@ case "$PERSIST_WAIT" in ''|*[!0-9]*) echo "error: FM_SECONDMATE_PERSIST_WAIT mus
 case "$PERSIST_POLL" in ''|*[!0-9]*|0) echo "error: FM_SECONDMATE_PERSIST_POLL must be a positive integer: $PERSIST_POLL" >&2; exit 2 ;; esac
 
 IDS=()
+DUPLICATE_IDS=()
+TOTAL_INPUTS=0
+PROFILE_HARNESS=""
+PROFILE_MODEL=""
+PROFILE_EFFORT=""
+PROFILE_HARNESS_SET=0
+PROFILE_MODEL_SET=0
+PROFILE_EFFORT_SET=0
+want_value=""
 for arg in "$@"; do
+  if [ -n "$want_value" ]; then
+    case "$want_value" in
+      harness) PROFILE_HARNESS=$arg; PROFILE_HARNESS_SET=1 ;;
+      model) PROFILE_MODEL=$arg; PROFILE_MODEL_SET=1 ;;
+      effort) PROFILE_EFFORT=$arg; PROFILE_EFFORT_SET=1 ;;
+    esac
+    want_value=""
+    continue
+  fi
   case "$arg" in
+    -h|--help) usage; exit 0 ;;
+    --harness) want_value=harness; continue ;;
+    --harness=*) PROFILE_HARNESS=${arg#--harness=}; PROFILE_HARNESS_SET=1; continue ;;
+    --model) want_value=model; continue ;;
+    --model=*) PROFILE_MODEL=${arg#--model=}; PROFILE_MODEL_SET=1; continue ;;
+    --effort) want_value=effort; continue ;;
+    --effort=*) PROFILE_EFFORT=${arg#--effort=}; PROFILE_EFFORT_SET=1; continue ;;
     -*) echo "error: unexpected argument '$arg'" >&2; usage >&2; exit 2 ;;
   esac
   # /updatefirstmate's action line names each mate by its fm-<id> selector; the
   # bare id is equally acceptable so a hand-run stays natural.
   id=${arg#fm-}
   case "$id" in ''|*[!A-Za-z0-9._-]*) echo "error: invalid second mate id: $arg" >&2; exit 2 ;; esac
+  TOTAL_INPUTS=$((TOTAL_INPUTS + 1))
   case " ${IDS[*]:-} " in
-    *" $id "*) continue ;;
+    *" $id "*) DUPLICATE_IDS+=("$id"); continue ;;
   esac
   IDS+=("$id")
 done
+[ -z "$want_value" ] || { echo "error: --$want_value requires a value" >&2; exit 2; }
+[ "$PROFILE_HARNESS_SET" -eq 0 ] || [ -n "$PROFILE_HARNESS" ] || { echo "error: --harness requires a non-empty value" >&2; exit 2; }
+[ "$PROFILE_MODEL_SET" -eq 0 ] || [ -n "$PROFILE_MODEL" ] || { echo "error: --model requires a non-empty value" >&2; exit 2; }
+[ "$PROFILE_EFFORT_SET" -eq 0 ] || [ -n "$PROFILE_EFFORT" ] || { echo "error: --effort requires a non-empty value" >&2; exit 2; }
+case "$PROFILE_EFFORT" in ''|default|low|medium|high|xhigh|max|ultra) ;; *) echo "error: --effort must be default, low, medium, high, xhigh, max, or ultra" >&2; exit 2 ;; esac
 [ "${#IDS[@]}" -gt 0 ] || { usage >&2; exit 2; }
 
 # Per-mate pass state, kept as parallel indexed arrays so this stays bash-3.2
@@ -133,11 +167,17 @@ MODEL=()
 EFFORT=()
 RESTART_PID=()
 RESTART_RESULT=()
+OUTCOME=()
 
 restarted_count=0
 nudged_count=0
 unreached_count=0
 skipped_count=0
+
+for id in "${DUPLICATE_IDS[@]+"${DUPLICATE_IDS[@]}"}"; do
+  skipped_count=$((skipped_count + 1))
+  printf 'skipped: %s: duplicate argument; the mate is processed once\n' "$id"
+done
 
 # The first line of a command's output that carries anything, flattened to one
 # readable line with its "error: " prefix dropped. A refusal's own words are the
@@ -207,7 +247,8 @@ restart_mate() {  # <array-index>
     fm_lock_release "$remote_lock" || true
   else
     restart_out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
-      "$SCRIPT_DIR/fm-control.sh" "$id" relaunch 2>&1)
+      "$SCRIPT_DIR/fm-control.sh" "$id" relaunch \
+      --harness "${HARNESS[i]}" --model "${MODEL[i]}" --effort "${EFFORT[i]}" 2>&1)
     restart_rc=$?
   fi
   if [ "$restart_rc" -eq 0 ]; then
@@ -273,6 +314,7 @@ harvest_restarts() {
       *) unreached_count=$((unreached_count + 1)) ;;
     esac
     PLAN[i]="done"
+    OUTCOME[i]="reported"
     restart_active_count=$((restart_active_count - 1))
     i=$((i + 1))
   done
@@ -321,6 +363,7 @@ while [ "$i" -lt "${#IDS[@]}" ]; do
   HARNESS[i]=""
   MODEL[i]=""
   EFFORT[i]=""
+  OUTCOME[i]=""
   if [ -e "$STATE/$id.stopped" ]; then
     PLAN[i]="stopped"
     skipped_count=$((skipped_count + 1))
@@ -336,26 +379,29 @@ while [ "$i" -lt "${#IDS[@]}" ]; do
   PLACEMENT[i]=$FM_SECONDMATE_RESTART_PLACEMENT
   HOST[i]=$FM_SECONDMATE_RESTART_HOST
   HARNESS[i]=$FM_SECONDMATE_RESTART_HARNESS
-  if [ "${PLACEMENT[i]}" = remote ]; then
-    # A local relaunch re-resolves this home's durable secondmate pin on its own,
-    # which is the one owner of that resolution. A remote one cannot: it runs in
-    # a home whose config/secondmate-harness is deliberately NOT inherited, so
-    # the file on that host belongs to a different home and re-resolving there
-    # would silently move the mate onto another runtime. Resolve the pin here and
-    # pass it explicitly, so both placements land on the same decision.
-    HARNESS[i]=$("$SCRIPT_DIR/fm-harness.sh" secondmate 2>/dev/null || true)
-    [ -n "${HARNESS[i]}" ] || HARNESS[i]=$FM_SECONDMATE_RESTART_HARNESS
-    MODEL[i]=$("$SCRIPT_DIR/fm-harness.sh" secondmate-model 2>/dev/null || true)
-    EFFORT[i]=$("$SCRIPT_DIR/fm-harness.sh" secondmate-effort 2>/dev/null || true)
-    case "${EFFORT[i]}" in
-      ''|low|medium|high|xhigh|max|ultra) ;;
-      *) EFFORT[i]="" ;;
-    esac
-    if [ "${EFFORT[i]}" = ultra ] && ! "$SCRIPT_DIR/fm-harness.sh" validate-native-effort "${HARNESS[i]}" "${MODEL[i]}" "${EFFORT[i]}"; then
-      REASON[i]="the configured Ultra profile does not select native Codex through Pi"
-      i=$((i + 1))
-      continue
+  MODEL[i]=${FM_SECONDMATE_RESTART_MODEL:-default}
+  EFFORT[i]=${FM_SECONDMATE_RESTART_EFFORT:-default}
+  [ -n "${MODEL[i]}" ] || MODEL[i]=default
+  [ -n "${EFFORT[i]}" ] || EFFORT[i]=default
+  if [ "$PROFILE_HARNESS_SET" -eq 1 ]; then
+    if [ "$PROFILE_HARNESS" != "${HARNESS[i]}" ]; then
+      [ "$PROFILE_MODEL_SET" -eq 1 ] || MODEL[i]=default
+      [ "$PROFILE_EFFORT_SET" -eq 1 ] || EFFORT[i]=default
     fi
+    HARNESS[i]=$PROFILE_HARNESS
+  fi
+  [ "$PROFILE_MODEL_SET" -eq 0 ] || MODEL[i]=$PROFILE_MODEL
+  [ "$PROFILE_EFFORT_SET" -eq 0 ] || EFFORT[i]=$PROFILE_EFFORT
+  if ! fm_control_harness_supported "${HARNESS[i]}" \
+    || ! fm_control_harness_supports_kind "${HARNESS[i]}" secondmate; then
+    REASON[i]="the requested worker runtime '${HARNESS[i]}' has no verified restart mechanics for a second mate"
+    i=$((i + 1))
+    continue
+  fi
+  if [ "${EFFORT[i]}" = ultra ] && ! "$SCRIPT_DIR/fm-harness.sh" validate-native-effort "${HARNESS[i]}" "${MODEL[i]}" "${EFFORT[i]}"; then
+    REASON[i]="the requested Ultra profile does not select native Codex through Pi"
+    i=$((i + 1))
+    continue
   fi
 
   if ! corr=$(fm_pending_reply_create "$FM_HOME" "$STATE" "$id" \
@@ -393,9 +439,11 @@ while [ "$i" -lt "${#IDS[@]}" ]; do
     pending_count=$((pending_count + 1))
   elif [ "${PLAN[i]}" = stopped ]; then
     PLAN[i]="done"
+    OUTCOME[i]="reported"
   else
     fall_back_to_nudge "${IDS[$i]}" "${REASON[i]}"
     PLAN[i]="done"
+    OUTCOME[i]="reported"
   fi
   i=$((i + 1))
 done
@@ -431,6 +479,7 @@ while [ "$((pending_count + restart_active_count))" -gt 0 ]; do
         fall_back_to_nudge "${IDS[$i]}" \
           "it did not confirm within ${PERSIST_WAIT}s that its open work is written down ($(timeout_evidence "$i")), so its conversation was not spent"
         PLAN[i]="done"
+        OUTCOME[i]="reported"
         pending_count=$((pending_count - 1))
       fi
     else
@@ -445,8 +494,17 @@ done
 
 # --- summary ---------------------------------------------------------------
 
+i=0
+while [ "$i" -lt "${#IDS[@]}" ]; do
+  if [ -z "${OUTCOME[i]}" ]; then
+    report_unreached "${IDS[$i]}" "the restart pass ended without publishing an outcome"
+    OUTCOME[i]="reported"
+  fi
+  i=$((i + 1))
+done
+
 printf 'summary: %d of %d restarted, %d nudged, %d unreached' \
-  "$restarted_count" "${#IDS[@]}" "$nudged_count" "$unreached_count"
+  "$restarted_count" "$TOTAL_INPUTS" "$nudged_count" "$unreached_count"
 [ "$skipped_count" -eq 0 ] || printf ', %d skipped' "$skipped_count"
 printf '\n'
 [ "$((nudged_count + unreached_count))" -eq 0 ] || exit 3
