@@ -476,6 +476,11 @@ __FM_BEARINGS_BOARD_DATA__
   data.captains_call.forEach(function (item) {
     var card = el("div", "fm-card fm-card--poster bb-decision");
     var pad = el("div", "bb-decision__pad");
+    /* A key of the form <secondmate>/<task> names a decision owned by a
+       second mate's home. Owner-aware routing for its answer is not built
+       yet, so this card is shown but never solicits a Queue-answer click
+       that could only vanish once submitted. */
+    var secondMate = typeof item.key === "string" && item.key.indexOf("/") !== -1;
 
     var top = el("div", "bb-decision__top");
     if (item.type === "merge") {
@@ -485,6 +490,7 @@ __FM_BEARINGS_BOARD_DATA__
       top.appendChild(badge("solid", "decision"));
       top.appendChild(el("span", "bb-decision__repo", item.repo));
     }
+    if (secondMate) top.appendChild(badge("warn", "not yet routable"));
     pad.appendChild(top);
 
     pad.appendChild(el("h3", "bb-decision__title", item.title));
@@ -502,6 +508,16 @@ __FM_BEARINGS_BOARD_DATA__
       if (item.about) ctx.appendChild(ctxRow("about", item.about));
       if (item.decide) ctx.appendChild(ctxRow("decide", item.decide));
       pad.appendChild(ctx);
+    }
+
+    if (secondMate) {
+      pad.appendChild(el("p", "bb-decision__detail",
+        "Owned by " + item.key.split("/")[0] + " - owner-aware routing to its home " +
+        "is not ready yet, so this board cannot take your answer. See " +
+        "docs/captain-hold-lifecycle.md."));
+      card.appendChild(pad);
+      deck.appendChild(card);
+      return;
     }
 
     var form = document.createElement("form");
