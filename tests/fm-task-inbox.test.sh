@@ -787,6 +787,42 @@ test_ring_ladder_policy() {
   pass "inbox: the re-ring ladder paces by grace, escalates once, and resets on ack"
 }
 
+# report.md section 1b: escalation keyed only to the oldest record stays
+# quiet forever once that head is stuck, even as newer messages pile up.
+test_escalation_rekeys_to_unhandled_count_not_just_oldest() {
+  local state rec1 rec2 action
+  state="$TMP_ROOT/queue-depth/state"; mkdir -p "$state"
+  rec1=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "stuck head")
+  age_path "$rec1"
+  printf '001.msg\t3\t100\n' > "$state/t1.inbox/.ring-state"
+  action=$(FM_TASK_INBOX_GRACE_SECS=60 FM_TASK_INBOX_RING_MAX=3 inbox_lib "$state" fm_task_inbox_due_action "$state" t1)
+  [ "$action" = "escalate $rec1 3" ] || fail "a spent ring budget should escalate, got: $action"
+  inbox_lib "$state" fm_task_inbox_record_escalated "$state" t1 "$rec1"
+  action=$(FM_TASK_INBOX_GRACE_SECS=60 FM_TASK_INBOX_RING_MAX=3 inbox_lib "$state" fm_task_inbox_due_action "$state" t1)
+  [ "$action" = quiet ] || fail "an unchanged queue behind an escalated head should stay quiet, got: $action"
+  rec2=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "piled up behind it")
+  action=$(FM_TASK_INBOX_GRACE_SECS=60 FM_TASK_INBOX_RING_MAX=3 inbox_lib "$state" fm_task_inbox_due_action "$state" t1)
+  [ "$action" = "escalate $rec1 3" ] \
+    || fail "a newer message behind the same stuck head should re-escalate, got: $action"
+  [ -f "$rec2" ] || fail "the new message must stay durable while the head is still stuck"
+  pass "inbox: escalation re-fires when the unhandled queue grows behind the same stuck oldest"
+}
+
+# The pre-fix marker format was just the base name, no count: it must still
+# parse (as count=0), so an already-escalated lane re-escalates once on its
+# first poll under the fix rather than staying silently quiet forever.
+test_legacy_escalated_marker_format_migrates_forward() {
+  local state rec action
+  state="$TMP_ROOT/queue-depth-legacy/state"; mkdir -p "$state"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "stuck head")
+  age_path "$rec"
+  printf '001.msg\n' > "$state/t1.inbox/.escalated"
+  action=$(FM_TASK_INBOX_GRACE_SECS=60 FM_TASK_INBOX_RING_MAX=3 inbox_lib "$state" fm_task_inbox_due_action "$state" t1)
+  [ "$action" = "escalate $rec 0" ] \
+    || fail "a legacy no-count escalated marker should re-escalate once under the fix, got: $action"
+  pass "inbox: a legacy single-field .escalated marker parses as count=0 and re-escalates once"
+}
+
 setup_watch_case() {  # <name> -> echoes case dir; state in <dir>/state
   local name=$1 dir
   dir="$TMP_ROOT/$name"
@@ -968,7 +1004,7 @@ test_watcher_dead_pane_escalates_once_without_ringing() {
     || fail "the stale wake should say the agent has exited:"$'\n'"$(cat "$state/.wake-queue")"
   grep -qF "$rec" "$state/.wake-queue" || fail "the stale wake should name the record path"
   [ -f "$rec" ] || fail "the durable record must survive for recovery"
-  [ "$(cat "$state/t1.inbox/.escalated")" = "${rec##*/}" ] \
+  [ "$(cut -f1 "$state/t1.inbox/.escalated")" = "${rec##*/}" ] \
     || fail "the escalation marker should suppress further surfacing of this record"
   [ ! -e "$state/t1.inbox/.ring-state" ] || fail "a dead pane must not enter the re-ring ladder"
   # The ladder is capped: nothing further is due for this record, so no later
@@ -995,7 +1031,7 @@ test_watcher_dead_pane_ignores_stale_busy_state() {
   [ "$(grep -cF 'unread firstmate instruction' "$state/.wake-queue" 2>/dev/null || true)" = 1 ] \
     || fail "a busy-marked dead pane should surface exactly once:"$'\n'"$(cat "$state/.wake-queue" 2>/dev/null)"
   [ -f "$rec" ] || fail "the durable record must survive stale busy-state recovery"
-  [ "$(cat "$state/t1.inbox/.escalated")" = "${rec##*/}" ] \
+  [ "$(cut -f1 "$state/t1.inbox/.escalated")" = "${rec##*/}" ] \
     || fail "stale busy-state recovery should suppress repeated surfacing"
   pass "watcher: dead-pane recovery overrides stale busy state"
 }
@@ -1075,6 +1111,8 @@ test_writer_retries_after_a_vanished_lock_collision
 test_ladder_writes_ignore_vanished_inbox
 test_fire_and_forget_records_never_enter_the_ladder
 test_ring_ladder_policy
+test_escalation_rekeys_to_unhandled_count_not_just_oldest
+test_legacy_escalated_marker_format_migrates_forward
 test_watcher_rerings_idle_pane_quietly
 test_watcher_waits_on_busy_pane
 test_watcher_quiet_on_healthy_inbox

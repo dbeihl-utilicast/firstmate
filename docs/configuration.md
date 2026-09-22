@@ -77,7 +77,7 @@ state/               runtime records and signals; gitignored
   <id>.reconcile-nudged  epoch second of the last inventory-reconcile nudge sent to this secondmate; bin/fm-secondmate-reconcile.sh owns its per-home cooldown window
   <id>.backlog-close  the exact backlog transition a teardown recorded before removing the task's record, so an interrupted cleanup can still be finished at the next session start; bin/fm-backlog-transition-lib.sh owns its format and replay, and a landed transition removes it
   <id>.inbox/          durable steering inbox: sequenced firstmate instruction records the worker acknowledges by claiming them under claimed/, then completing them into its handled/ subdirectory (bin/fm-inbox-take.sh); a claim is bound to its PID and process-start identity, and a dead or lease-expired claim returns to the inbox, where lease expiry can replay an instruction while the original taker is still alive; written by fm-send, with ordinary records re-rung and escalated by the watcher while explicit fire-and-forget records are excluded from that ladder and a lane carrying state/<id>.stopped produces no inbox stale wakes, and removed by teardown (bin/fm-task-inbox-lib.sh, bin/fm-watch.sh)
-  <id>.stopped       presence marker that bin/fm-secondmate-lane.sh stop writes and reopen clears; a stopped lane is never relaunched at session start, its unhandled inbox records do not wake supervision, its existing pending-reply records remain untouched until reopen, an ordinary send still records without ringing or minting a pending-reply expectation, and resolving a request against it records the close without minting one (bin/fm-secondmate-lane.sh, bin/fm-watch.sh, bin/fm-send.sh, bin/fm-pending-reply-lib.sh)
+  <id>.stopped       presence marker that bin/fm-secondmate-lane.sh stop writes and reopen clears; a stopped lane is never relaunched at session start, its unhandled inbox records do not wake supervision, its existing pending-reply records remain untouched until reopen, and fm-send refuses every send against it (text, --key, --resolve-key, and --fire-and-forget alike, before any durable mutation), naming the lane and the reopen command, until reopen clears the marker (bin/fm-secondmate-lane.sh, bin/fm-watch.sh, bin/fm-send.sh, bin/fm-pending-reply-lib.sh)
   <id>.nm-fix-rounds  per-run per-step fix-round counter for an active no-mistakes gate loop; written only by bin/fm-nm-fix-round.sh, removed by teardown
   <id>.meta          task metadata; each producer script's header owns its exact fields and mutation contract, with docs/configuration.md routing operator-facing backend and trace-context details
   retired/           guarded record-only retirement audit: `bin/fm-teardown.sh <id> --retire-record` moves a stale metadata record here only after another active record proves it owns the same live Treehouse slot and the stale task has both lifecycle closure (a current Done row or one retention already pruned) and durable delivery evidence (a scout report, or a ship's recorded PR merged or task-branch head reachable from a remote default-branch ref, so a stray report never counts); the metadata moves first so the identity is inactive for routing and liveness before its polling, routing, and lease sidecars follow into `retired/<id>.sidecars/`, with a `retired/<id>.receipt` bound to the record's exact `spawn_gen`; an interrupted run is finished by rerunning the same command, which completes that exact incarnation without needing the claimant to still be active, refuses a receipt from another generation, an active same-id record with the same generation, or a newer same-id record (left for manual reconciliation); a fresh spawn of the same id is refused while its retained record lacks a complete receipt (bin/fm-task-retire-lib.sh); the slot is never returned or reset
@@ -552,15 +552,15 @@ Listing a name does not provision it in a daemon's environment or transfer crede
 
 Choose the minimum additions for the authentication method actually in use:
 
-| Provider or Git transport | Additional names needed |
-| --- | --- |
-| Provider login stored under the normal home directory | None for the environment contract; the same user still has access to that provider's stored login. |
-| Provider configured through environment variables | The exact credential and endpoint names required by that provider, for example `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`; a multi-provider tool needs each provider it will actually use. |
-| Custom provider store | Its configured location variables, such as `CODEX_HOME`, `GROK_HOME`, or `XDG_CONFIG_HOME`; Firstmate's existing explicit Claude store assignment still apply. |
-| codex-foundry-luna (Azure AI Foundry gpt-5.6-luna) | None to add: its local token-refreshing gateway (`bin/fm-foundry-luna-proxy.py`) authenticates with `az account get-access-token` under the worker's own home directory, the same as any provider login stored there, and nothing it uses is placed in the launch environment or on the launch command. The gateway is codex's parent, so it passes its own minted `FM_FOUNDRY_LUNA_SECRET` straight into codex's environment and the allowlist needs no entry for it. |
-| Git over SSH with an agent | `SSH_AUTH_SOCK`; add `GIT_SSH_COMMAND` only if the chosen transport requires that override. |
-| Git over SSH with a key file | No credential variable when normal SSH configuration selects the key; file permissions and any passphrase handling still apply. |
-| Git over HTTPS with a credential helper | Whatever the configured helper requires; a GitHub CLI helper using an environment token needs its selected `GH_TOKEN` or `GITHUB_TOKEN`. |
+| Provider or Git transport                             | Additional names needed                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Provider login stored under the normal home directory | None for the environment contract; the same user still has access to that provider's stored login.                                                                                                                                                                                                                                                                                                                                                                     |
+| Provider configured through environment variables     | The exact credential and endpoint names required by that provider, for example `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`; a multi-provider tool needs each provider it will actually use.                                                                                                                                                                                                                                                                                |
+| Custom provider store                                 | Its configured location variables, such as `CODEX_HOME`, `GROK_HOME`, or `XDG_CONFIG_HOME`; Firstmate's existing explicit Claude store assignment still apply.                                                                                                                                                                                                                                                                                                         |
+| codex-foundry-luna (Azure AI Foundry gpt-5.6-luna)    | None to add: its local token-refreshing gateway (`bin/fm-foundry-luna-proxy.py`) authenticates with `az account get-access-token` under the worker's own home directory, the same as any provider login stored there, and nothing it uses is placed in the launch environment or on the launch command. The gateway is codex's parent, so it passes its own minted `FM_FOUNDRY_LUNA_SECRET` straight into codex's environment and the allowlist needs no entry for it. |
+| Git over SSH with an agent                            | `SSH_AUTH_SOCK`; add `GIT_SSH_COMMAND` only if the chosen transport requires that override.                                                                                                                                                                                                                                                                                                                                                                            |
+| Git over SSH with a key file                          | No credential variable when normal SSH configuration selects the key; file permissions and any passphrase handling still apply.                                                                                                                                                                                                                                                                                                                                        |
+| Git over HTTPS with a credential helper               | Whatever the configured helper requires; a GitHub CLI helper using an environment token needs its selected `GH_TOKEN` or `GITHUB_TOKEN`.                                                                                                                                                                                                                                                                                                                               |
 
 Verify the selected provider login and Git transport after opting in; Firstmate does not infer credentials from model names or install a secret manager.
 Raw launch commands run under noninteractive POSIX `sh` with this option and must use compatible syntax.
@@ -595,10 +595,7 @@ The file is a JSON object with two arrays.
       "source": "https://github.com/example/example-plugins.git"
     }
   ],
-  "plugins": [
-    "example-core@example-plugins",
-    "example-docs@example-plugins"
-  ]
+  "plugins": ["example-core@example-plugins", "example-docs@example-plugins"]
 }
 ```
 
@@ -643,16 +640,16 @@ Bootstrap emits `CREW_DISPATCH: invalid ...` for a missing or non-2 `schema_vers
 This section is the single owner of the canonical V2 schema and its per-field semantics.
 `AGENTS.md` section 4 owns the always-loaded dispatch intake boundary, and `quota-array-dispatch` owns the completion-aware profile-array selection procedure.
 
-| V2 field | Required contents and effect |
-| --- | --- |
-| `schema_version` | The number `2`. |
-| `placement` | Non-empty capability map and ordered target rules, `unmatched: "retain-intake-home"`, and an `enforcement` object. `enforcement.current` must be `"advisory"` and `not_read_by` must name `fm-bootstrap` and `fm-spawn`: bootstrap validates this data, but neither path uses it to route work. `mechanical_owner` records the intended future routing owner; the example names `intake-and-backlog-handoff`. |
-| `dispatch` | `selector: "quota-array-dispatch"`, non-empty `target_host_checks` naming checks for firstmate to perform on the target host, `higher_reasoning_requires_reason: true`, and `history_ref: "data/crew-dispatch-history.md"`. These declarations do not run checks or write history. |
-| `constraints` | At least one constraint. Each names `allowed_task_shapes` (the task shapes that may use the blocked classes), `blocked_model_classes` (each value must be a known `model_class`), `unknown_model_class: "treat_as_blocked"`, and `on_no_eligible_candidate: "report"`. The last two values are fixed on purpose. |
+| V2 field          | Required contents and effect                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `schema_version`  | The number `2`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `placement`       | Non-empty capability map and ordered target rules, `unmatched: "retain-intake-home"`, and an `enforcement` object. `enforcement.current` must be `"advisory"` and `not_read_by` must name `fm-bootstrap` and `fm-spawn`: bootstrap validates this data, but neither path uses it to route work. `mechanical_owner` records the intended future routing owner; the example names `intake-and-backlog-handoff`.                                                                                                                     |
+| `dispatch`        | `selector: "quota-array-dispatch"`, non-empty `target_host_checks` naming checks for firstmate to perform on the target host, `higher_reasoning_requires_reason: true`, and `history_ref: "data/crew-dispatch-history.md"`. These declarations do not run checks or write history.                                                                                                                                                                                                                                                |
+| `constraints`     | At least one constraint. Each names `allowed_task_shapes` (the task shapes that may use the blocked classes), `blocked_model_classes` (each value must be a known `model_class`), `unknown_model_class: "treat_as_blocked"`, and `on_no_eligible_candidate: "report"`. The last two values are fixed on purpose.                                                                                                                                                                                                                  |
 | `ordinary_models` | Optional non-empty array of bare model names classified `ordinary`. When omitted, bootstrap uses the built-in default: `gpt-5.6-terra`, `gpt-5.6-sol`, `sonnet`, `claude-sonnet-5`, `gpt-5.6-sol-xhigh`, `grok-4.6`, `cursor-grok-4.6-high-fast`, `composer-2.5`, `gpt-5.6-luna`, and `claude-opus-5`. An existing V2 file without this field keeps validating. A present list replaces that default rather than merging with it. Names matching the structural astra or fable patterns, and names that contain `/`, are refused. |
-| `exceptions` | Exactly `[]`. Quota eligibility, runway, and ranking follow `quota-array-dispatch`. |
-| `rules` | A non-empty ordered array of `id`, natural-language `when`, `reasoning`, and non-empty `use` profiles. `match`, `independence`, and `decision_refs` are optional; an absent `match` matches whatever no earlier rule already claimed, so rule order carries a fallback rule's precedence. A fixed reasoning rule must name an effort target and require a dispatch reason. |
-| `default` | A non-empty quota-aware array of profiles used only when no task-shaped rule matches. A profile whose `model_class` is listed in `blocked_model_classes` is rejected here. |
+| `exceptions`      | Exactly `[]`. Quota eligibility, runway, and ranking follow `quota-array-dispatch`.                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `rules`           | A non-empty ordered array of `id`, natural-language `when`, `reasoning`, and non-empty `use` profiles. `match`, `independence`, and `decision_refs` are optional; an absent `match` matches whatever no earlier rule already claimed, so rule order carries a fallback rule's precedence. A fixed reasoning rule must name an effort target and require a dispatch reason.                                                                                                                                                        |
+| `default`         | A non-empty quota-aware array of profiles used only when no task-shaped rule matches. A profile whose `model_class` is listed in `blocked_model_classes` is rejected here.                                                                                                                                                                                                                                                                                                                                                        |
 
 The `placement.rules` and `rules` arrays carry rule order; `default` defines default membership.
 Separate `precedence` and `dispatch.ordinary_default_profiles` declarations are rejected.
@@ -746,9 +743,13 @@ This section is the single owner of the canonical schema.
     {
       "name": "<label used in the report>",
       "command": "<optional bare executable name to find on PATH>",
-      "version_args": ["<optional args that make it print its version, default --version>"],
+      "version_args": [
+        "<optional args that make it print its version, default --version>"
+      ],
       "announce_pattern": "<optional extended regex matching the tool's own update announcement>",
-      "announce_args": ["<optional args for the command that carries that announcement, default version_args>"],
+      "announce_args": [
+        "<optional args for the command that carries that announcement, default version_args>"
+      ],
       "git": {
         "repo": "<optional absolute path to a local clone>",
         "remote": "<optional remote name, default origin>",
@@ -1010,7 +1011,7 @@ Never run the registered blocking source command directly in a conversational tu
 
 ## Process-to-event sources (state/procevent)
 
-A long-polling external process is registered as a *source* through its adapter, whose header and `--help` own the commands and flags.
+A long-polling external process is registered as a _source_ through its adapter, whose header and `--help` own the commands and flags.
 `bin/fm-procevent.sh` owns the generic contract; built-in adapters retain their tracked `bin/fm-procevent-<adapter>.sh` commands, while an explicitly bound external adapter routes through the trusted host contract above.
 `bin/fm-procevent-lavish.sh` is the first built-in adapter and wraps only the currently published `lavish-axi poll` interface.
 That adapter, and only that adapter, retries the one exact transient response a cut-short listener returns while its marks remain available (`error: Lavish Editor poll response was interrupted` with `code: SERVER_ERROR`), up to 12 times with poll starts at least 5 seconds apart, so an internal retry never reaches the runner as a captured result.
@@ -1132,25 +1133,25 @@ The published `lavish-axi poll` clears feedback destructively before returning i
 Never describe this path as at-least-once, no-loss, or lossless.
 `docs/verification/process-event-sources.md` holds the measurements and `.agents/skills/process-event-sources/SKILL.md` owns the handling procedure.
 
-## Spoken interface and captain inbox (config/voice-*, config/inbox-*)
+## Spoken interface and captain inbox (config/voice-_, config/inbox-_)
 
 The spoken interface in [`docs/voice-relay.md`](voice-relay.md) and the model-backed subcommands of `bin/fm-inbox.sh` reach a paid API in a named account, so no region, model id or AWS profile is shipped as a tracked default.
 Each is one line in a local, gitignored `config/` file, with an environment variable that overrides it for a single run, and a missing required value refuses with the path to write rather than falling back to a value that belongs to another home.
 That configuration is the whole opt-in: an unconfigured home cannot start the relay and cannot run `fm-inbox.sh say` or `ask`, while `note`, `status`, `list` and `drain` need no configuration at all because they make no model call.
 The voice handover depends on `note`, so it keeps working in a home that has configured nothing.
 
-| File | Environment | Holds |
-| --- | --- | --- |
-| `config/voice-region` | `FM_VOICE_REGION` | Bedrock region for the relay's bidirectional session, required by `bin/fm-voice-relay.py`. |
-| `config/voice-model` | `FM_VOICE_MODEL` | Speech-to-speech model id, required by `bin/fm-voice-relay.py`. |
-| `config/voice-profile` | `FM_VOICE_PROFILE` | AWS profile the relay exports credentials from; absent, or an explicitly empty variable, means it uses only credentials already in its environment. |
-| `config/voice-id` | `FM_VOICE_ID` | Output voice id, optional, `matthew` when unset. |
-| `config/voice-read-scope` | none | `counts` (the default, and what an absent file means) or `full`; see [`docs/voice-relay.md`](voice-relay.md) for what each scope may say. |
-| `config/voice-read-deny` | none | One plain case-insensitive substring per line; a matching open item is withheld from every list and reduced to a count. |
-| `config/inbox-region` | `FM_INBOX_REGION` | AWS region for `fm-inbox.sh say` and `ask`. |
-| `config/inbox-stt-model` | `FM_INBOX_STT_MODEL` | Speech-to-text model id, required by `fm-inbox.sh say`. |
-| `config/inbox-ask-model` | `FM_INBOX_ASK_MODEL` | Side-question model id, required by `fm-inbox.sh ask`. |
-| `config/inbox-profile` | `FM_INBOX_PROFILE` | AWS profile for those two calls; absent, or an explicitly empty variable, means whatever credentials are already in the environment. |
+| File                      | Environment          | Holds                                                                                                                                               |
+| ------------------------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `config/voice-region`     | `FM_VOICE_REGION`    | Bedrock region for the relay's bidirectional session, required by `bin/fm-voice-relay.py`.                                                          |
+| `config/voice-model`      | `FM_VOICE_MODEL`     | Speech-to-speech model id, required by `bin/fm-voice-relay.py`.                                                                                     |
+| `config/voice-profile`    | `FM_VOICE_PROFILE`   | AWS profile the relay exports credentials from; absent, or an explicitly empty variable, means it uses only credentials already in its environment. |
+| `config/voice-id`         | `FM_VOICE_ID`        | Output voice id, optional, `matthew` when unset.                                                                                                    |
+| `config/voice-read-scope` | none                 | `counts` (the default, and what an absent file means) or `full`; see [`docs/voice-relay.md`](voice-relay.md) for what each scope may say.           |
+| `config/voice-read-deny`  | none                 | One plain case-insensitive substring per line; a matching open item is withheld from every list and reduced to a count.                             |
+| `config/inbox-region`     | `FM_INBOX_REGION`    | AWS region for `fm-inbox.sh say` and `ask`.                                                                                                         |
+| `config/inbox-stt-model`  | `FM_INBOX_STT_MODEL` | Speech-to-text model id, required by `fm-inbox.sh say`.                                                                                             |
+| `config/inbox-ask-model`  | `FM_INBOX_ASK_MODEL` | Side-question model id, required by `fm-inbox.sh ask`.                                                                                              |
+| `config/inbox-profile`    | `FM_INBOX_PROFILE`   | AWS profile for those two calls; absent, or an explicitly empty variable, means whatever credentials are already in the environment.                |
 
 Each account, model and voice file above is read as its first line that is not blank and not a `#` comment, so a comment above the value is fine.
 The two read files are parsed differently: `config/voice-read-scope` must hold the bare word and nothing but blank space around it, so a comment header there refuses instead of being skipped, while every line of `config/voice-read-deny` that is not blank and not a `#` comment is one more substring.
