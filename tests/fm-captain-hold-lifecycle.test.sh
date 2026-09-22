@@ -1664,6 +1664,66 @@ SH
   pass "a bound channel's captured answers close their captain-held tasks at answer time"
 }
 
+# A second-mate `<secondmate>/<task>` key cannot yet be routed to its owning
+# home, so the keyed-answer and reconcile-request intakes both refuse it
+# instead of resolving a task. That refusal must reach an operator through the
+# real production capture path (fm-procevent.sh's feed_keyed_answers and
+# feed_reconcile_requests), not vanish into the pipe redirection those seams
+# use to stay silent about ordinary best-effort failures.
+test_feed_keyed_answers_surfaces_unroutable_second_mate_key() {
+  local home result err out
+  home=$(make_home secondmate-feed-visibility)
+  run_captain "$home" bind fixture-src >/dev/null \
+    || fail "could not bind the fixture channel"
+
+  mkdir -p "$home/adapter-root/bin" "$home/state/procevent-inbox"
+  cat > "$home/adapter-root/bin/fm-procevent-fixturechan.sh" <<SH
+#!/usr/bin/env bash
+case "\${1-}" in
+  answers) exec "$ROOT/bin/fm-procevent-lavish.sh" answers "\${2-}" ;;
+  reconciles) exec "$ROOT/bin/fm-procevent-lavish.sh" reconciles "\${2-}" ;;
+esac
+exit 2
+SH
+  chmod +x "$home/adapter-root/bin/fm-procevent-fixturechan.sh"
+
+  result="$home/secondmate-result.txt"
+  cat > "$result" <<'EOF'
+session:
+  file: /board.html
+  status: feedback
+  session_ended: true
+  ended_by: user
+prompts[2]{uid,prompt,selector,tag,text}:
+  "1","Second-mate answer\n\nContext data:\n{\n  \"schema\": \"fm-bearings-answer.v1\",\n  \"question\": \"domain-alpha/phase8-decision-release\",\n  \"selection\": \"release\",\n  \"note\": \"\"\n}","section#call > form:nth-of-type(1)",choice,"Second-mate: release"
+  "2","Second-mate reconcile\n\nContext data:\n{\n  \"schema\": \"fm-bearings-answer.v1\",\n  \"question\": \"domain-alpha/phase8-other-task\",\n  \"selection\": \"reconcile\",\n  \"note\": \"\"\n}","section#call > form:nth-of-type(2)",choice,"Reconcile"
+next_step: This was the last feedback before the user ended the session.
+EOF
+
+  err="$home/start.err"
+  out=$(PATH="$home/fakebin:$PATH" FM_ROOT_OVERRIDE="$home/adapter-root" FM_HOME="$home" \
+    FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
+    FM_PROCEVENT_CLAIM_ROOT="$home/procevent-claims" \
+    "$ROOT/bin/fm-procevent.sh" register fixturechan fixture-src -- cat "$result") \
+    || fail "could not register the fixture channel source: $out"
+  out=$(PATH="$home/fakebin:$PATH" FM_ROOT_OVERRIDE="$home/adapter-root" FM_HOME="$home" \
+    FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
+    FM_PROCEVENT_CLAIM_ROOT="$home/procevent-claims" \
+    "$ROOT/bin/fm-procevent.sh" start fixture-src 2>"$err")
+
+  assert_contains "$(cat "$err")" "domain-alpha/phase8-decision-release" \
+    "an unroutable second-mate answer vanished instead of naming its key on stderr: $(cat "$err")"
+  assert_contains "$(cat "$err")" "second-mate answer routing is not implemented yet" \
+    "an unroutable second-mate answer did not surface the intake's refusal reason: $(cat "$err")"
+  assert_contains "$(cat "$err")" "domain-alpha/phase8-other-task" \
+    "an unroutable second-mate reconcile pick vanished instead of naming its key on stderr: $(cat "$err")"
+  assert_not_contains "$out" "answers-fed: fixture-src" \
+    "a refused second-mate answer was still reported as fed"
+  assert_not_contains "$out" "reconciles-fed: fixture-src" \
+    "a refused second-mate reconcile pick was still reported as fed"
+  pass "an unroutable second-mate answer and reconcile pick surface their refusal on stderr instead of vanishing"
+}
+
 # Answer-time closure is opt-in per source. A channel with no binding must behave
 # exactly as it always did: capture, announce, close nothing.
 # A reconcile is "go re-check reality", never the captain's answer. The value is
@@ -3883,6 +3943,7 @@ test_secondmate_hold_stays_in_authoritative_home
 test_secondmate_home_publishes_holds_and_answers
 test_secondmate_reconcile_publishes_before_request_retirement
 test_bound_channel_answers_close_at_answer_time
+test_feed_keyed_answers_surfaces_unroutable_second_mate_key
 test_reconcile_never_closes_through_the_keyed_answer_intake
 test_normal_answers_retire_pending_reconcile_requests
 test_reconcile_closes_with_evidence_or_keeps_the_call_open
