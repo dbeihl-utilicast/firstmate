@@ -647,11 +647,12 @@ EOF
 # Marks the current oldest escalated with the highest eligible seq at that
 # moment, after its stale wake is durably queued (wake-before-marker: a crash
 # can cause a rare duplicate; stuck-crewmate-recovery owns it from here).
-fm_task_inbox_record_escalated() {  # <state-dir> <task-id> <record-path>
+fm_task_inbox_record_escalated() {  # <state-dir> <task-id> <record-path> [highest-seq]
   local dir seq
   dir=$(fm_task_inbox_dir "$1" "$2")
   [ -d "$dir" ] || return 0
-  seq=$(fm_task_inbox_highest_unhandled_seq "$1" "$2")
+  seq=${4-}
+  [ -n "$seq" ] || seq=$(fm_task_inbox_highest_unhandled_seq "$1" "$2")
   if ! { printf '%s\t%s\n' "${3##*/}" "$seq" > "$dir/.escalated"; } 2>/dev/null; then
     [ -d "$dir" ] || return 0
     return 1

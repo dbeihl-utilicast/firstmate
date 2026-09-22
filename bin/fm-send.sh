@@ -290,12 +290,11 @@ fm_send_refuse_if_stopped() {  # <task-id>
   return 1
 }
 
-# --key and typed-text hold no lock of their own: recheck under the exact
-# lock fm-secondmate-lane.sh stop writes the marker under, closing the race.
 fm_send_refuse_if_stopped_locked() {  # <task-id>
   local id=$1 lock
+  FM_SEND_STOP_LOCK=
   [ -n "$id" ] && [ -n "$TARGET_META" ] || return 0
-  lock=$(fm_meta_lock_path "$TARGET_META") || return 0
+  lock=$(fm_meta_lock_path "$TARGET_META") || return 1
   fm_task_inbox_lock_acquire "$lock" \
     || { echo "error: steer not sent to $id: its metadata could not be locked for a final stopped-lane check" >&2; return 1; }
   if [ -e "$STATE/$id.stopped" ]; then
@@ -303,7 +302,7 @@ fm_send_refuse_if_stopped_locked() {  # <task-id>
     echo "error: steer not sent to $id: this lane became stopped (state/$id.stopped) while the steer was being validated for delivery. Reopen it first with 'bin/fm-secondmate-lane.sh reopen $id', then resend. Nothing was sent." >&2
     return 1
   fi
-  fm_lock_release "$lock"
+  FM_SEND_STOP_LOCK=$lock
 }
 
 fm_send_pr_poll_matches() {
@@ -889,7 +888,6 @@ if [ "${1:-}" = "--key" ]; then
   esac
   key=$2
   semantic_key=$(fm_send_normalize_key "$key")
-  fm_send_refuse_if_stopped_locked "$(fm_send_id_from_meta "$TARGET_META")" || exit 1
   if [ "$TARGET_BACKEND" = remote ]; then
     FM_SEND_REMOTE_BUDGET=${FM_SEND_REMOTE_BUDGET:-30}
     case "$FM_SEND_REMOTE_BUDGET" in
@@ -898,15 +896,21 @@ if [ "${1:-}" = "--key" ]; then
         exit 1
         ;;
     esac
+  fi
+  fm_send_refuse_if_stopped_locked "$(fm_send_id_from_meta "$TARGET_META")" || exit 1
+  if [ "$TARGET_BACKEND" = remote ]; then
     if ! fm_run_timed "$FM_SEND_REMOTE_BUDGET" "$SCRIPT_DIR/fm-on.sh" "$TARGET_REMOTE_ID" \
       fm-remote-secondmate-control.sh key "$TARGET_REMOTE_ID" "$key" < /dev/null; then
+      [ -z "$FM_SEND_STOP_LOCK" ] || fm_lock_release "$FM_SEND_STOP_LOCK"
       echo "error: key '$key' not sent to remote secondmate $TARGET_REMOTE_ID; completion may be unknown" >&2
       exit 1
     fi
   elif ! fm_backend_send_key "$TARGET_BACKEND" "$T" "$key" "$EXPECTED_LABEL"; then
+    [ -z "$FM_SEND_STOP_LOCK" ] || fm_lock_release "$FM_SEND_STOP_LOCK"
     echo "error: key '$key' not sent to $T ($TARGET_BACKEND send failed; tried $RESOLUTION_TRIED)" >&2
     exit 1
   fi
+  [ -z "$FM_SEND_STOP_LOCK" ] || fm_lock_release "$FM_SEND_STOP_LOCK"
   fm_send_clear_after_interrupt "$semantic_key" || exit 1
   fm_send_record_interrupt "$semantic_key" || exit 1
 else
@@ -1263,13 +1267,18 @@ else
   # verdict preserves the loud refusal boundary. Only LOCAL targets reach this
   # block: remote text rides the inbox leg above, and remote --key exits
   # earlier.
-  fm_send_refuse_if_stopped_locked "$(fm_send_id_from_meta "$TARGET_META")" || exit 1
+  if ! fm_send_refuse_if_stopped_locked "$(fm_send_id_from_meta "$TARGET_META")"; then
+    fm_send_known_undelivered_cleanup || \
+      echo "error: known-undelivered pending-reply state could not be reset for $TARGET_TASK_ID" >&2
+    exit 1
+  fi
   send_rc=0
   if verdict=$(fm_backend_send_text_submit "$TARGET_BACKEND" "$T" "$MESSAGE" "$retries" "$sleep_s" "$settle" "$EXPECTED_LABEL"); then
     :
   else
     send_rc=$?
   fi
+  [ -z "$FM_SEND_STOP_LOCK" ] || fm_lock_release "$FM_SEND_STOP_LOCK"
   if [ "$send_rc" -ne 0 ]; then
     fm_send_known_undelivered_cleanup || \
       echo "error: known-undelivered pending-reply state could not be reset for $TARGET_TASK_ID" >&2
