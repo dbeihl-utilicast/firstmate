@@ -112,9 +112,13 @@ case "${1:-}" in
       esac
     done
     printf 'fakepane\n'; exit 0 ;;
-  # Empty composer plus Codex's verified ready prompt so a `codex --secondmate`
-  # relaunch against this stub clears fm-spawn.sh's startup gate.
-  capture-pane) printf '╭────╮\n│    │\n╰────╯\n› Ask Codex to do anything\n'; exit 0 ;;
+  capture-pane)
+    if [ "$(cat "$D/command" 2>/dev/null)" = codex ]; then
+      printf '╭────╮\n│    │\n╰────╯\n› Ask Codex to do anything\n'
+    else
+      printf '╭────╮\n│    │\n╰────╯\n'
+    fi
+    exit 0 ;;
   list-windows) [ -f "$D/windows" ] && cat "$D/windows"; exit 0 ;;
   new-window)
     name=
@@ -133,6 +137,11 @@ esac
 exit 0
 SH
   chmod +x "$fb/tmux"
+  cat > "$fb/uname" <<'SH'
+#!/usr/bin/env bash
+printf 'Linux\n'
+SH
+  chmod +x "$fb/uname"
   cat > "$fb/sleep" <<'SH'
 #!/usr/bin/env bash
 [ -z "${FM_FAKE_LOCK_WAITING:-}" ] || : > "$FM_FAKE_LOCK_WAITING"
@@ -1932,7 +1941,10 @@ fresh_spawn_past_record() {  # <label> <remote|gone>
     remote)
       printf 'remote_host=build-box\nwindow=remote:%s\n' "$holder" >> "$meta"
       ;;
-    gone) sed -i 's|^worktree=.*|worktree=/nonexistent/copy|' "$meta" ;;
+    gone)
+      sed -i.bak 's|^worktree=.*|worktree=/nonexistent/copy|' "$meta"
+      rm -f "$meta.bak"
+      ;;
   esac
   out=$(run_spawn "$dir" "$fresh" "$dir/proj" --backend tmux --mode no-mistakes --yolo off --harness claude) || rc=$?
   assert_not_contains "$out" "may hold this copy" "a $kind record must not be treated as holding this copy"
