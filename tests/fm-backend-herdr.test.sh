@@ -185,7 +185,19 @@ case "$cmd $sub" in
     jq_state --arg w "$ws" --arg wlabel "$label" --arg tabid "$tabid" --arg paneid "$paneid" \
       '.tabs += [{tab_id:$tabid, label:$wlabel, workspace_id:$w, pane_id:$paneid}]
        | .next = (.next + 1)' | save
+    if [ "${FM_FAKE_HERDR_BAD_CREATE:-0}" = 1 ]; then
+      printf '{"result":{}}\n'
+      exit 0
+    fi
     printf '{"result":{"tab":{"tab_id":"%s"},"root_pane":{"pane_id":"%s"}}}\n' "$tabid" "$paneid"
+    ;;
+  "pane get")
+    pane=${3:-}
+    if jq_state -e --arg p "$pane" 'any(.tabs[]; .pane_id == $p)' >/dev/null; then
+      printf '{"result":{"pane":{"pane_id":"%s"}}}\n' "$pane"
+    else
+      printf '{"error":{"code":"pane_not_found"}}\n'
+    fi
     ;;
   "pane list")
     jq_state --arg w "$ws" '{result:{panes:[.tabs[]|select(.workspace_id==$w)|{pane_id:.pane_id, tab_id:.tab_id}]}}'
@@ -4884,6 +4896,57 @@ test_wait_transition_clean_timeout_returns_1() {
 # shellcheck source=bin/fm-backend.sh
 . "$ROOT/bin/fm-backend.sh"
 
+test_relaunch_partial_tab_creation_keeps_recovery_ownership() {
+  local dir fb sm home meta out status tabs
+  dir="$TMP_ROOT/relaunch-partial-tab"
+  sm="$dir/sm"
+  home="$dir/home"
+  mkdir -p "$home/state" "$home/data" "$home/config"
+  fm_git_worktree "$dir/repo" "$sm" secondmate-partial
+  mkdir -p "$sm/bin" "$sm/data"
+  printf '# Firstmate\n' > "$sm/AGENTS.md"
+  printf 'sm\n' > "$sm/.fm-secondmate-home"
+  printf 'charter\n' > "$sm/data/charter.md"
+  meta="$home/state/sm.meta"
+  fm_write_secondmate_meta "$meta" "$sm" testsesh:gone '' codex
+  printf 'backend=herdr\nherdr_session=testsesh\nherdr_workspace_id=w1\nherdr_tab_id=gone-tab\nherdr_pane_id=gone\n' >> "$meta"
+  fb=$(make_herdr_statefake "$dir")
+  jq '.workspaces = [{workspace_id:"w1",label:"2ndmate-sm"}]' "$dir/state.json" > "$dir/seed.json"
+  mv "$dir/seed.json" "$dir/state.json"
+  : > "$dir/log"
+
+  out=$(PATH="$fb:$PATH" FM_FAKE_HERDR_STATE="$dir/state.json" FM_HERDR_LOG="$dir/log" \
+    FM_BACKEND_HERDR_BIN="$fb/herdr" FM_BACKEND_HERDR_CLIENT_SESSION=testsesh \
+    FM_HOME_SUMMARY_TIMEOUT=5 \
+    FM_FAKE_HERDR_BAD_CREATE=1 HERDR_SESSION=testsesh FM_BACKEND=herdr CLAUDECODE=1 \
+    FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" FM_SPAWN_NO_GUARD=1 \
+    FM_SKIP_SECONDMATE_INHERIT=1 "$ROOT/bin/fm-spawn.sh" sm --relaunch --harness codex 2>&1); status=$?
+  [ "$status" -ne 0 ] || fail "a malformed Herdr creation response succeeded"
+  tabs=$(jq '[.tabs[] | select(.label == "fm-sm")] | length' "$dir/state.json")
+  [ "$tabs" -gt 0 ] || grep -q 'tab.*create' "$dir/log" \
+    || fail "the fixture never reached Herdr tab creation: $out"
+  if [ "$tabs" -gt 0 ]; then
+    [ -f "$home/state/sm.relaunch-endpoint" ] && [ -f "$meta" ] \
+      || fail "a partially created Herdr tab has no durable recovery owner"
+    PATH="$fb:$PATH" FM_FAKE_HERDR_STATE="$dir/state.json" FM_HERDR_LOG="$dir/log" \
+      FM_BACKEND_HERDR_BIN="$fb/herdr" FM_BACKEND_HERDR_CLIENT_SESSION=testsesh \
+      HERDR_SESSION=testsesh FM_HOME_SUMMARY_TIMEOUT=5 \
+      FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" "$ROOT/bin/fm-home-summary-refresh.sh" \
+      || fail "the retained Herdr recovery owner could not refresh its summary"
+    jq -e 'any(.endpoints[]; .id == "sm")' "$home/state/home-summary.json" >/dev/null \
+      || fail "the retained Herdr replacement is absent from the summary"
+  else
+    [ ! -e "$meta" ] || fail "verified Herdr retirement left its old owner record"
+  fi
+  pass "partial Herdr relaunch is retired or durably recoverable"
+}
+
+if [ "${FM_HERDR_TEST_ONLY:-0}" = 1 ]; then
+  test_relaunch_partial_tab_creation_keeps_recovery_ownership
+  exit 0
+fi
+
+test_relaunch_partial_tab_creation_keeps_recovery_ownership
 test_version_check_accepts_current_protocol
 test_version_check_refuses_old_protocol
 test_version_check_refuses_missing_herdr

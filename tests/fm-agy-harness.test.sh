@@ -16,7 +16,7 @@ TMP_ROOT=$(fm_test_tmproot fm-agy-harness)
 BASE_PATH=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
 
 make_fakebin() {  # <case-dir>
-  local case_dir=$1 fakebin
+  local case_dir=$1 fakebin real_mv
   fakebin=$(fm_fakebin "$case_dir")
   cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
@@ -110,8 +110,10 @@ case "${1:-}" in
     screen
     exit 0 ;;
   list-panes) printf 'fakepane\n'; exit 0 ;;
-  has-session|new-session|new-window|list-windows) exit 0 ;;
-  kill-window) printf 'kill-window\n' >> "$FM_FAKE_TMUX_LOG"; exit 0 ;;
+  list-windows) [ ! -e "$FM_FAKE_TMUX_ENDPOINT" ] || printf 'fm-%s\n' "$FM_FAKE_TASK_ID"; exit 0 ;;
+  new-window) : > "$FM_FAKE_TMUX_ENDPOINT"; exit 0 ;;
+  has-session|new-session) exit 0 ;;
+  kill-window) printf 'kill-window\n' >> "$FM_FAKE_TMUX_LOG"; rm -f "$FM_FAKE_TMUX_ENDPOINT"; exit 0 ;;
   send-keys)
     literal=
     prev=
@@ -148,6 +150,20 @@ esac
 exit 0
 SH
   chmod +x "$fakebin/tmux"
+  real_mv=$(command -v mv)
+  cat > "$fakebin/mv" <<SH
+#!/usr/bin/env bash
+set -u
+"$real_mv" "\$@" || exit \$?
+target=
+for arg in "\$@"; do target=\$arg; done
+if [ -n "\${FM_FAKE_SIGNAL_AFTER_META_TARGET:-}" ] \
+   && [ "\$target" = "\$FM_FAKE_SIGNAL_AFTER_META_TARGET" ]; then
+  kill -TERM "\$PPID"
+  /bin/sleep 0.1
+fi
+SH
+  chmod +x "$fakebin/mv"
   fm_fake_exit0 "$fakebin" treehouse gh-axi gh agy
   printf '%s\n' "$fakebin"
 }
@@ -196,11 +212,27 @@ run_spawn() {  # <id> [fm-spawn args]
     FM_PROJECTS_OVERRIDE="$HOME_DIR/projects" FM_CONFIG_OVERRIDE="$HOME_DIR/config" \
     FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$WT_DIR" TMUX="fake,1,0" \
     FM_FAKE_AGY_STATE="$CASE_DIR/agy.state" FM_FAKE_TMUX_LOG="$CASE_DIR/tmux.log" \
+    FM_FAKE_TMUX_ENDPOINT="$CASE_DIR/tmux.endpoint" FM_FAKE_TASK_ID="$id" \
     FM_FAKE_AGY_BRIEF="$HOME_DIR/data/$id/launch-brief.md" \
     FM_FAKE_AGY_BOUNDARY="export FM_TASK_ID=$id" \
     FM_FAKE_AGY_COUNT="$CASE_DIR/agy.captures" \
     FM_AGY_READY_POLLS=3 FM_AGY_POLL_INTERVAL=0 PATH="$FAKEBIN_DIR:$BASE_PATH" \
     "$SPAWN" "$id" "$PROJECT_DIR" --harness agy --mode no-mistakes --yolo off "$@" 2>&1
+}
+
+run_relaunch() {  # <id>
+  local id=$1
+  HOME="$HOME_DIR" FM_ROOT_OVERRIDE='' FM_HOME="$HOME_DIR" \
+    FM_STATE_OVERRIDE="$HOME_DIR/state" FM_DATA_OVERRIDE="$HOME_DIR/data" \
+    FM_PROJECTS_OVERRIDE="$HOME_DIR/projects" FM_CONFIG_OVERRIDE="$HOME_DIR/config" \
+    FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$WT_DIR" TMUX="fake,1,0" \
+    FM_FAKE_AGY_STATE="$CASE_DIR/agy.state" FM_FAKE_TMUX_LOG="$CASE_DIR/tmux.log" \
+    FM_FAKE_TMUX_ENDPOINT="$CASE_DIR/tmux.endpoint" FM_FAKE_TASK_ID="$id" \
+    FM_FAKE_AGY_BRIEF="$HOME_DIR/data/$id/launch-brief.md" \
+    FM_FAKE_AGY_BOUNDARY="export FM_TASK_ID=$id" \
+    FM_FAKE_AGY_COUNT="$CASE_DIR/agy.captures" \
+    FM_AGY_READY_POLLS=3 FM_AGY_POLL_INTERVAL=0 PATH="$FAKEBIN_DIR:$BASE_PATH" \
+    "$SPAWN" "$id" --relaunch --harness agy 2>&1
 }
 
 test_ancestry_is_exact() {
@@ -458,6 +490,56 @@ test_delivery_refuses_a_settled_pane_without_the_brief() {
   pass "fm-spawn.sh: unrelated settled scrollback is not accepted as agy delivery"
 }
 
+test_missing_endpoint_relaunch_failure_retires_agy_replacement() {
+  local id="agy-missing-relaunch-$$" rec meta out rc
+  rec=$(make_case missing-relaunch "$id")
+  read_case "$rec"
+  meta="$HOME_DIR/state/$id.meta"
+  fm_write_meta "$meta" \
+    "window=firstmate:fm-$id" \
+    "endpoint_task_id=$id" \
+    "worktree=$WT_DIR" \
+    "project=$PROJECT_DIR" \
+    "harness=agy" \
+    "kind=ship" \
+    "mode=no-mistakes" \
+    "yolo=off" \
+    "model=default" \
+    "effort=default"
+
+  out=$(FM_FAKE_AGY_NO_BOUNDARY=1 run_relaunch "$id"); rc=$?
+  expect_code 1 "$rc" "an Agy relaunch without an observable launch boundary must fail"$'\n'"$out"
+  assert_contains "$(cat "$CASE_DIR/tmux.log")" 'kill-window' \
+    "a failed Agy relaunch must retire its recreated endpoint"
+  [ ! -e "$meta" ] || fail "a failed Agy relaunch retained its recreated endpoint record"
+  pass "fm-spawn.sh: failed Agy relaunch retires its recreated endpoint and record"
+}
+
+test_missing_endpoint_relaunch_signal_retires_agy_replacement() {
+  local id="agy-signal-relaunch-$$" rec meta out rc
+  rec=$(make_case signal-relaunch "$id")
+  read_case "$rec"
+  meta="$HOME_DIR/state/$id.meta"
+  fm_write_meta "$meta" \
+    "window=firstmate:fm-$id" \
+    "endpoint_task_id=$id" \
+    "worktree=$WT_DIR" \
+    "project=$PROJECT_DIR" \
+    "harness=agy" \
+    "kind=ship" \
+    "mode=no-mistakes" \
+    "yolo=off" \
+    "model=default" \
+    "effort=default"
+
+  out=$(FM_FAKE_SIGNAL_AFTER_META_TARGET="$meta" run_relaunch "$id"); rc=$?
+  [ "$rc" -ne 0 ] || fail "a signal after Agy replacement publication reported success"
+  assert_contains "$(cat "$CASE_DIR/tmux.log")" 'kill-window' \
+    "a signaled Agy replacement did not retire its recreated endpoint"
+  [ ! -e "$meta" ] || fail "a signaled Agy replacement retained its published record"
+  pass "fm-spawn.sh: publication signal retires recreated Agy endpoint and record"
+}
+
 test_ancestry_is_exact
 test_marker_precedence_beats_an_inherited_claudecode
 test_busy_signature_has_a_negative_direction
@@ -467,6 +549,8 @@ test_spawn_rejects_an_unverified_trust_screen
 test_spawn_refuses_a_host_without_agy_installed
 test_delivery_is_confirmed_without_a_transient_footer
 test_delivery_refuses_a_settled_pane_without_the_brief
+test_missing_endpoint_relaunch_failure_retires_agy_replacement
+test_missing_endpoint_relaunch_signal_retires_agy_replacement
 test_delivery_ignores_a_prior_incarnation_left_in_the_endpoint
 test_delivery_refuses_a_wedged_worker_under_stale_scrollback
 test_relaunch_ignores_an_answered_trust_dialog_left_on_the_endpoint

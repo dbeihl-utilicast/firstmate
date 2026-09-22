@@ -902,8 +902,17 @@ SPAWN_META_LOCK=
 SPAWN_META_LOCK_HELD=0
 SPAWN_META_PUBLISH_STARTED=0
 SPAWN_FRESH_COMMIT_PENDING=0
+SPAWN_FRESH_ENDPOINT_PENDING=0
+SPAWN_FRESH_ENDPOINT_IDENTIFIED=0
+SPAWN_FRESH_ENDPOINT_RETIREMENT_FAILED=0
+SPAWN_FRESH_SUMMARY_PROVISIONAL=0
+SPAWN_FRESH_VISIBILITY_TMP=
 SPAWN_FRESH_QWEN_WIRING_PENDING=0
 SPAWN_FRESH_QWEN_SETTINGS_TMP=
+SPAWN_OWNER_PID=
+SPAWN_OWNER_IDENTITY=
+SPAWN_GEN=
+TASK_TMP=
 SPAWN_TASK_SET_LOCK=
 SPAWN_TASK_SET_LOCK_HELD=0
 SPAWN_TREEHOUSE_PROJECT_LOCK=
@@ -917,20 +926,222 @@ RELAUNCH_ENDPOINT_JOURNAL=
 RELAUNCH_ENDPOINT_TARGET=
 RELAUNCH_ENDPOINT_BACKEND=
 RELAUNCH_ENDPOINT_ADOPTED=0
+RELAUNCH_ENDPOINT_RECREATED=0
+RELAUNCH_ENDPOINT_CREATION_PHASE=
+RELAUNCH_HERDR_PRIOR_TAB_IDS=
+CODEX_LAUNCH_BOUNDARY=
 RELAUNCH_REPLACEMENT_HARNESS=
 RELAUNCH_REPLACEMENT_STATE=
 RELAUNCH_REPLACEMENT_WT=
 CONFIG_INHERIT_LOCK=
 CONFIG_INHERIT_LOCK_HELD=0
 
+preserve_relaunch_meta() {
+  awk -F= '
+    BEGIN {
+      split("window endpoint_task_id worktree project harness kind mode yolo tasktmp model effort busy_gen spawn_gen summary_visibility cleanup_recovery spawn_owner_pid spawn_owner_identity traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx", keys, " ")
+      for (i in keys) owned[keys[i]] = 1
+    }
+    !($1 in owned)
+  ' "$RELAUNCH_META"
+}
+
+spawn_task_record_write() {  # <path> <early|final> <provisional|recovery|ready>
+  local path=$1 phase=$2 visibility=$3 meta_window meta_worktree
+  meta_window=$T
+  [ "$BACKEND" = orca ] && meta_window=$W
+  meta_worktree=${WT:-$PROJ_ABS}
+  {
+    echo "window=$meta_window"
+    echo "endpoint_task_id=$ID"
+    echo "worktree=$meta_worktree"
+    echo "project=$PROJ_ABS"
+    echo "harness=$HARNESS"
+    echo "kind=$KIND"
+    [ -z "${MODE:-}" ] || echo "mode=$MODE"
+    [ -z "${YOLO:-}" ] || echo "yolo=$YOLO"
+    echo "tasktmp=$TASK_TMP"
+    echo "model=${MODEL:-default}"
+    echo "effort=${EFFORT:-default}"
+    [ -z "${BUSY_GEN:-}" ] || echo "busy_gen=$BUSY_GEN"
+    echo "spawn_gen=$SPAWN_GEN"
+    case "$visibility" in
+      provisional)
+        echo "summary_visibility=provisional"
+        echo "spawn_owner_pid=$SPAWN_OWNER_PID"
+        echo "spawn_owner_identity=$SPAWN_OWNER_IDENTITY"
+        ;;
+      recovery) echo "summary_visibility=recovery" ;;
+    esac
+    [ "$BACKEND" = tmux ] || echo "backend=$BACKEND"
+    if [ "$BACKEND" = herdr ]; then
+      echo "herdr_session=$HERDR_SES"
+      echo "herdr_workspace_id=${HERDR_WORKSPACE_ID:-}"
+      echo "herdr_tab_id=${HERDR_TAB_ID:-}"
+      echo "herdr_pane_id=${HERDR_PANE_ID:-}"
+      [ -z "${HERDR_PRIOR_TAB_IDS:-}" ] || echo "herdr_prior_tab_ids=$HERDR_PRIOR_TAB_IDS"
+    fi
+    if [ "$BACKEND" = zellij ]; then
+      echo "zellij_session=$ZELLIJ_SES"
+      echo "zellij_tab_id=${ZELLIJ_TAB_ID:-}"
+      echo "zellij_pane_id=${ZELLIJ_PANE_ID:-}"
+    fi
+    if [ "$BACKEND" = orca ]; then
+      echo "orca_worktree_id=$ORCA_WORKTREE_ID"
+      echo "terminal=$ORCA_TERMINAL"
+    fi
+    if [ "$BACKEND" = cmux ]; then
+      echo "cmux_workspace_id=${CMUX_WORKSPACE_ID:-}"
+      echo "cmux_surface_id=${CMUX_SURFACE_ID:-}"
+    fi
+    if [ "$KIND" = secondmate ]; then
+      echo "home=$PROJ_ABS"
+      echo "projects=${SECONDMATE_PROJECTS:-}"
+    fi
+    if [ "$phase" = final ] && [ "$RELAUNCH" -eq 1 ]; then
+      preserve_relaunch_meta
+    fi
+    if [ "$phase" = final ] \
+       && [ "$SPAWN_CONTROL_PARENT" = 1 ] \
+       && [ -n "${FM_CONTROL_RELAUNCH_TX:-}" ]; then
+      echo "control_relaunch_tx=$FM_CONTROL_RELAUNCH_TX"
+    fi
+  } > "$path"
+}
+
+spawn_fresh_endpoint_own() {
+  SPAWN_FRESH_COMMIT_PENDING=1
+  SPAWN_FRESH_SUMMARY_PROVISIONAL=1
+  SPAWN_META_TMP="$STATE/.$ID.meta.endpoint.${BASHPID:-$$}"
+  if ! spawn_task_record_write "$SPAWN_META_TMP" early provisional \
+     || ! fm_backlog_atomic_transition publish "$SPAWN_META_TMP" "$STATE/$ID.meta" "task record" "$STATE"; then
+    echo "error: task record for $ID could not be published (${FM_BACKLOG_TRANSITION_ERROR:-early ownership write failed})" >&2
+    return 1
+  fi
+  SPAWN_META_TMP=
+}
+
+spawn_fresh_summary_publish() {  # <recovery|ready>
+  [ "$SPAWN_FRESH_SUMMARY_PROVISIONAL" = 1 ] || return 0
+  local visibility=$1 meta="$STATE/$ID.meta"
+  SPAWN_FRESH_VISIBILITY_TMP="$STATE/.$ID.meta.visibility.${BASHPID:-$$}"
+  if [ -f "$meta" ] && [ ! -L "$meta" ]; then
+    if ! awk -F= -v visibility="$visibility" '
+      $1 == "summary_visibility" {
+        if (visibility != "ready" && !wrote) print "summary_visibility=" visibility
+        wrote = 1
+        next
+      }
+      $1 == "spawn_owner_pid" || $1 == "spawn_owner_identity" { next }
+      { print }
+      END {
+        if (visibility != "ready" && !wrote) print "summary_visibility=" visibility
+      }
+    ' "$meta" > "$SPAWN_FRESH_VISIBILITY_TMP"; then
+      rm -f -- "$SPAWN_FRESH_VISIBILITY_TMP" 2>/dev/null || true
+      SPAWN_FRESH_VISIBILITY_TMP=
+      return 1
+    fi
+  elif ! spawn_task_record_write "$SPAWN_FRESH_VISIBILITY_TMP" early "$visibility"; then
+    rm -f -- "$SPAWN_FRESH_VISIBILITY_TMP" 2>/dev/null || true
+    SPAWN_FRESH_VISIBILITY_TMP=
+    return 1
+  fi
+  if ! fm_backlog_atomic_transition publish "$SPAWN_FRESH_VISIBILITY_TMP" "$meta" "task record" "$STATE"; then
+    rm -f -- "$SPAWN_FRESH_VISIBILITY_TMP" 2>/dev/null || true
+    SPAWN_FRESH_VISIBILITY_TMP=
+    return 1
+  fi
+  SPAWN_FRESH_VISIBILITY_TMP=
+  SPAWN_FRESH_SUMMARY_PROVISIONAL=0
+}
+
+relaunch_replacement_meta_published() {
+  [ -n "${SPAWN_GEN:-}" ] \
+    && [ "$(fm_meta_get "$STATE/$ID.meta" spawn_gen)" = "$SPAWN_GEN" ]
+}
+
+spawn_herdr_created_endpoint() {
+  local session=$1 workspace=$2 label=$3 prior=$4 tabs candidates tab candidate='' pane
+  tabs=$(fm_backend_herdr_cli "$session" tab list --workspace "$workspace" 2>/dev/null) || return 2
+  printf '%s' "$tabs" | jq -e '(.result.tabs | type) == "array"' >/dev/null 2>&1 || return 2
+  candidates=$(printf '%s' "$tabs" | jq -r --arg label "$label" '.result.tabs[] | select(.label == $label) | .tab_id') || return 2
+  while IFS= read -r tab; do
+    [ -n "$tab" ] || continue
+    case " $prior " in *" $tab "*) continue ;; esac
+    [ -z "$candidate" ] || return 2
+    candidate=$tab
+  done <<EOF
+$candidates
+EOF
+  [ -n "$candidate" ] || return 1
+  pane=$(fm_backend_herdr_pane_for_tab "$session" "$workspace" "$candidate") || return 2
+  [ -n "$pane" ] || return 2
+  printf '%s %s\n' "$candidate" "$pane"
+}
+
+unpublished_endpoint_cleanup() {
+  [ "$RELAUNCH" -eq 0 ] || return 0
+  [ "$BACKEND" = orca ] && return 0
+  local tab_id endpoint_state
+  if [ "$SPAWN_FRESH_ENDPOINT_IDENTIFIED" != 1 ]; then
+    if [ "$BACKEND" = herdr ] && [ -n "${HERDR_WORKSPACE_ID:-}" ]; then
+      local created rc
+      created=$(spawn_herdr_created_endpoint "$HERDR_SES" "$HERDR_WORKSPACE_ID" "$W" "${HERDR_PRIOR_TAB_IDS:-}") && rc=0 || rc=$?
+      case "$rc" in
+        0)
+          read -r HERDR_TAB_ID HERDR_PANE_ID <<< "$created"
+          T="$HERDR_SES:$HERDR_PANE_ID"
+          SPAWN_FRESH_ENDPOINT_IDENTIFIED=1
+          spawn_fresh_endpoint_own || true
+          ;;
+        1) SPAWN_FRESH_ENDPOINT_PENDING=0; return 0 ;;
+      esac
+    elif [ "$BACKEND" = tmux ] && [ "$(fm_backend_agent_state "$BACKEND" "$T")" = missing ]; then
+      SPAWN_FRESH_ENDPOINT_PENDING=0
+      return 0
+    fi
+    if [ "$SPAWN_FRESH_ENDPOINT_IDENTIFIED" != 1 ]; then
+      SPAWN_FRESH_ENDPOINT_RETIREMENT_FAILED=1
+      return 1
+    fi
+  fi
+  tab_id=
+  [ "$BACKEND" = zellij ] && tab_id=${ZELLIJ_TAB_ID:-}
+  endpoint_state=$(fm_backend_agent_state "$BACKEND" "$T")
+  if [ "$endpoint_state" != missing ]; then
+    fm_backend_kill "$BACKEND" "$T" "$tab_id" "fm-$ID" 2>/dev/null || true
+    endpoint_state=$(fm_backend_agent_state "$BACKEND" "$T")
+  fi
+  if [ "$endpoint_state" = missing ]; then
+    SPAWN_FRESH_ENDPOINT_PENDING=0
+    return 0
+  fi
+  SPAWN_FRESH_ENDPOINT_RETIREMENT_FAILED=1
+  echo "warning: endpoint $T remains '$endpoint_state' after failed launch cleanup" >&2
+  return 1
+}
+
 spawn_fresh_commit_rollback() {
   if fm_backlog_atomic_transition rollback "$STATE/$ID.meta" \
       "$FM_ROOT/bin/fm-busy-event.sh" "$STATE" "$ID" "${BUSY_GEN:-}"; then
     SPAWN_FRESH_COMMIT_PENDING=0
+    "$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort || true
     return 0
   fi
-  echo "error: $FM_BACKLOG_TRANSITION_ERROR" >&2
+  echo "error: failed-dispatch cleanup is incomplete ($FM_BACKLOG_TRANSITION_ERROR)" >&2
   return 1
+}
+
+relaunch_herdr_recovery_record() {
+  local meta="$STATE/$ID.meta" tmp="$STATE/.$ID.meta.herdr-recovery.${BASHPID:-$$}"
+  [ -f "$meta" ] && [ ! -L "$meta" ] || return 1
+  if ! awk -F= '$1 != "summary_visibility" && $1 != "cleanup_recovery" { print }' "$meta" > "$tmp" \
+     || ! printf 'summary_visibility=recovery\ncleanup_recovery=herdr-relaunch\n' >> "$tmp" \
+     || ! fm_backlog_atomic_transition publish "$tmp" "$meta" "task record" "$STATE"; then
+    rm -f -- "$tmp" 2>/dev/null || true
+    return 1
+  fi
 }
 
 parse_orca_worktree_result() {
@@ -951,15 +1162,78 @@ parse_orca_worktree_result() {
 }
 
 spawn_abort_cleanup() {
-  local status=$? endpoint_state
+  local status=$? endpoint_state created creation_rc
+  if [ "$RELAUNCH_ENDPOINT_PENDING" = 1 ] \
+     && [ "$RELAUNCH_ENDPOINT_BACKEND" = herdr ] \
+     && [ "$RELAUNCH_ENDPOINT_CREATION_PHASE" = creating ]; then
+    created=$(spawn_herdr_created_endpoint "$HERDR_SES" "$HERDR_WORKSPACE_ID" "fm-$ID" "$RELAUNCH_HERDR_PRIOR_TAB_IDS") \
+      && creation_rc=0 || creation_rc=$?
+    case "$creation_rc" in
+      0)
+        read -r HERDR_TAB_ID HERDR_PANE_ID <<< "$created"
+        T="$HERDR_SES:$HERDR_PANE_ID"
+        RELAUNCH_ENDPOINT_TARGET=$T
+        RELAUNCH_ENDPOINT_CREATION_PHASE=ready
+        relaunch_endpoint_journal_publish || status=1
+        ;;
+      1)
+        RELAUNCH_ENDPOINT_PENDING=0
+        rm -f -- "$RELAUNCH_ENDPOINT_JOURNAL" || status=1
+        case "$KIND:$HARNESS" in
+          secondmate:codex|ship:agy|scout:agy)
+            rm -f -- "$STATE/$ID.meta" || status=1
+            ;;
+        esac
+        "$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort || true
+        ;;
+      *)
+        RELAUNCH_ENDPOINT_PENDING=0
+        relaunch_herdr_recovery_record || status=1
+        "$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort || true
+        ;;
+    esac
+  fi
   if [ "$RELAUNCH_ENDPOINT_PENDING" = 1 ]; then
     RELAUNCH_ENDPOINT_PENDING=0
     fm_backend_kill "$RELAUNCH_ENDPOINT_BACKEND" "$RELAUNCH_ENDPOINT_TARGET" >/dev/null 2>&1 || true
     endpoint_state=$(fm_backend_agent_state "$RELAUNCH_ENDPOINT_BACKEND" "$RELAUNCH_ENDPOINT_TARGET")
     if [ "$endpoint_state" = missing ]; then
       rm -f -- "$RELAUNCH_ENDPOINT_JOURNAL" 2>/dev/null || true
+      case "$KIND:$HARNESS" in
+        secondmate:codex|ship:agy|scout:agy)
+          rm -f -- "$STATE/$ID.meta" || status=1
+          "$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort || true
+          ;;
+      esac
     else
+      [ "$RELAUNCH_ENDPOINT_BACKEND" != herdr ] || relaunch_herdr_recovery_record || status=1
+      "$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort || true
       echo "warning: replacement endpoint $RELAUNCH_ENDPOINT_TARGET remains '$endpoint_state'; retaining $RELAUNCH_ENDPOINT_JOURNAL for retry reconciliation" >&2
+    fi
+  fi
+  if [ "$RELAUNCH_ENDPOINT_RECREATED" = 1 ]; then
+    fm_backend_kill "$RELAUNCH_ENDPOINT_BACKEND" "$RELAUNCH_ENDPOINT_TARGET" >/dev/null 2>&1 || true
+    endpoint_state=$(fm_backend_agent_state "$RELAUNCH_ENDPOINT_BACKEND" "$RELAUNCH_ENDPOINT_TARGET")
+    if [ "$endpoint_state" = missing ]; then
+      rm -f -- "$RELAUNCH_ENDPOINT_JOURNAL" 2>/dev/null || true
+      if relaunch_replacement_meta_published || [ "$KIND:$HARNESS" = secondmate:codex ]; then
+        if ! rm -f -- "$STATE/$ID.meta"; then
+          status=1
+        fi
+      fi
+      RELAUNCH_ENDPOINT_RECREATED=0
+      "$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort || true
+    else
+      if [ "$KIND:$HARNESS" = secondmate:codex ] && ! relaunch_replacement_meta_published \
+         && [ -f "$SPAWN_META_TMP" ]; then
+        SPAWN_FRESH_VISIBILITY_TMP="$STATE/.$ID.meta.recovery.${BASHPID:-$$}"
+        awk '{ print } END { print "summary_visibility=recovery" }' "$SPAWN_META_TMP" > "$SPAWN_FRESH_VISIBILITY_TMP" \
+          && fm_backlog_atomic_transition publish "$SPAWN_FRESH_VISIBILITY_TMP" "$STATE/$ID.meta" "task record" "$STATE" \
+          || status=1
+        SPAWN_FRESH_VISIBILITY_TMP=
+      fi
+      "$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort || true
+      echo "warning: replacement endpoint $RELAUNCH_ENDPOINT_TARGET remains '$endpoint_state'; retaining $STATE/$ID.meta for recovery" >&2
     fi
   fi
   if [ "$RELAUNCH_REPLACEMENT_PENDING" = 1 ] \
@@ -999,6 +1273,7 @@ spawn_abort_cleanup() {
     if ! spawn_herdr_presentation_order_lock_acquire "${HERDR_PROJECTION_ABORT_SESSION:-}"; then
       echo "warning: herdr presentation focus lock unavailable; retaining the projection journal and refusing concurrent abort cleanup" >&2
       HERDR_PROJECTION_ABORT_CLEANUP=0
+      SPAWN_FRESH_ENDPOINT_RETIREMENT_FAILED=1
     fi
   fi
   if [ "$HERDR_PROJECTION_ABORT_CLEANUP" = 1 ]; then
@@ -1007,6 +1282,10 @@ spawn_abort_cleanup() {
       "$HERDR_PROJECTION_ABORT_SESSION" \
       "$HERDR_PROJECTION_ABORT_TASK_PANE" \
       "$HERDR_PROJECTION_ABORT_SEEDED_PANE" || true
+  fi
+  if [ "$BACKEND" = herdr ] && [ "$HERDR_PRESENTATION_ORDER_LOCK_HELD" = 1 ] \
+     && [ "$SPAWN_FRESH_ENDPOINT_PENDING" = 1 ]; then
+    unpublished_endpoint_cleanup || true
   fi
   if [ "$HERDR_PRESENTATION_ORDER_LOCK_HELD" = 1 ]; then
     HERDR_PRESENTATION_ORDER_LOCK_HELD=0
@@ -1051,14 +1330,23 @@ spawn_abort_cleanup() {
       fi
     fi
   fi
+  if [ "$SPAWN_FRESH_ENDPOINT_PENDING" = 1 ] \
+     && [ "$SPAWN_FRESH_COMMIT_PENDING" = 1 ] \
+     && [ "$SPAWN_FRESH_ENDPOINT_RETIREMENT_FAILED" != 1 ]; then
+    unpublished_endpoint_cleanup || true
+  fi
+  if [ "$SPAWN_FRESH_COMMIT_PENDING" = 1 ]; then
+    if [ "$SPAWN_FRESH_ENDPOINT_RETIREMENT_FAILED" = 1 ]; then
+      spawn_fresh_summary_publish recovery || true
+      "$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort || true
+      echo "warning: endpoint $T could not be verified absent; retaining $STATE/$ID.meta for recovery" >&2
+    elif ! spawn_fresh_commit_rollback; then
+      status=1
+    fi
+  fi
   if [ "$SPAWN_TASK_LOCK_HELD" = 1 ]; then
     SPAWN_TASK_LOCK_HELD=0
     fm_lock_release "$SPAWN_TASK_LOCK" || true
-  fi
-  if [ "$SPAWN_FRESH_COMMIT_PENDING" = 1 ]; then
-    if ! spawn_fresh_commit_rollback; then
-      status=1
-    fi
   fi
   if [ "$SPAWN_META_LOCK_HELD" = 1 ]; then
     SPAWN_META_LOCK_HELD=0
@@ -1081,6 +1369,7 @@ spawn_abort_cleanup() {
     fm_lock_release "$SPAWN_CONTROL_LOCK" || true
   fi
   [ -z "$SPAWN_META_TMP" ] || rm -f "$SPAWN_META_TMP" 2>/dev/null || true
+  [ -z "$SPAWN_FRESH_VISIBILITY_TMP" ] || rm -f "$SPAWN_FRESH_VISIBILITY_TMP" 2>/dev/null || true
   [ -z "$GROK_PROBE_DIR" ] || rm -rf -- "$GROK_PROBE_DIR" || true
   if [ "$CONFIG_INHERIT_LOCK_HELD" = 1 ]; then
     CONFIG_INHERIT_LOCK_HELD=0
@@ -1340,6 +1629,7 @@ relaunch_endpoint_journal_publish() {
     echo "task=$ID"
     echo "backend=$BACKEND"
     echo "endpoint=$T"
+    echo "creation_phase=${RELAUNCH_ENDPOINT_CREATION_PHASE:-ready}"
     echo "worktree=$RELAUNCH_WT"
     echo "branch=$CUSTODY_BRANCH"
     echo "head=$CUSTODY_HEAD"
@@ -1347,8 +1637,9 @@ relaunch_endpoint_journal_publish() {
     if [ "$BACKEND" = herdr ]; then
       echo "herdr_session=$HERDR_SES"
       echo "herdr_workspace_id=$HERDR_WORKSPACE_ID"
-      echo "herdr_tab_id=$HERDR_TAB_ID"
-      echo "herdr_pane_id=$HERDR_PANE_ID"
+      echo "herdr_tab_id=${HERDR_TAB_ID:-}"
+      echo "herdr_pane_id=${HERDR_PANE_ID:-}"
+      echo "herdr_prior_tab_ids=${RELAUNCH_HERDR_PRIOR_TAB_IDS:-}"
     fi
   } > "$tmp" && mv -f "$tmp" "$RELAUNCH_ENDPOINT_JOURNAL"
 }
@@ -1356,7 +1647,7 @@ relaunch_endpoint_journal_publish() {
 # Returns 0 when a prior replacement endpoint was adopted and 1 when no
 # endpoint remains, so the caller may create exactly one replacement.
 relaunch_endpoint_journal_reconcile() {
-  local task backend endpoint worktree branch head state target_handle
+  local task backend endpoint worktree branch head state target_handle phase created creation_rc
   if [ ! -e "$RELAUNCH_ENDPOINT_JOURNAL" ] && [ ! -L "$RELAUNCH_ENDPOINT_JOURNAL" ]; then
     return 1
   fi
@@ -1370,6 +1661,25 @@ relaunch_endpoint_journal_reconcile() {
   [ "$task" = "$ID" ] && [ "$backend" = "$BACKEND" ] \
     && [ "$worktree" = "$RELAUNCH_WT" ] \
     && [ "$branch" = "$CUSTODY_BRANCH" ] && [ "$head" = "$CUSTODY_HEAD" ] || return 2
+  phase=$(relaunch_endpoint_journal_field creation_phase) || phase=ready
+  if [ "$backend" = herdr ] && [ "$phase" = creating ]; then
+    HERDR_SES=$(relaunch_endpoint_journal_field herdr_session) || return 2
+    HERDR_WORKSPACE_ID=$(relaunch_endpoint_journal_field herdr_workspace_id) || return 2
+    RELAUNCH_HERDR_PRIOR_TAB_IDS=$(relaunch_endpoint_journal_field herdr_prior_tab_ids) || return 2
+    created=$(spawn_herdr_created_endpoint "$HERDR_SES" "$HERDR_WORKSPACE_ID" "fm-$ID" "$RELAUNCH_HERDR_PRIOR_TAB_IDS") \
+      && creation_rc=0 || creation_rc=$?
+    case "$creation_rc" in
+      0)
+        read -r HERDR_TAB_ID HERDR_PANE_ID <<< "$created"
+        endpoint="$HERDR_SES:$HERDR_PANE_ID"
+        T=$endpoint
+        RELAUNCH_ENDPOINT_CREATION_PHASE=ready
+        relaunch_endpoint_journal_publish || return 2
+        ;;
+      1) rm -f -- "$RELAUNCH_ENDPOINT_JOURNAL" || return 2; return 1 ;;
+      *) return 2 ;;
+    esac
+  fi
   state=$(fm_backend_agent_state "$backend" "$endpoint")
   case "$state" in
     dead)
@@ -2720,6 +3030,28 @@ if [ -e "$STATE/$ID.backlog-close" ] || [ -L "$STATE/$ID.backlog-close" ]; then
   exit 1
 fi
 
+if [ "$KIND" = secondmate ]; then
+  MODE=secondmate
+  YOLO=off
+  : "${SECONDMATE_PROJECTS:=}"
+elif [ "$KIND" = scout ]; then
+  MODE=
+  YOLO=
+fi
+TASK_TMP="/tmp/fm-$ID"
+SPAWN_GEN="s$(date +%s).${BASHPID:-$$}.$RANDOM"
+SPAWN_PRIOR_TRACEPARENT=$(fm_trace_context_recorded "$STATE/$ID.meta")
+if [ "$RELAUNCH" -eq 0 ]; then
+  fm_current_pid SPAWN_OWNER_PID || {
+    echo "error: could not identify the fresh spawn owner before endpoint creation" >&2
+    exit 1
+  }
+  SPAWN_OWNER_IDENTITY=$(fm_lock_pid_identity "$SPAWN_OWNER_PID" 2>/dev/null) || {
+    echo "error: could not identify the fresh spawn owner process before endpoint creation" >&2
+    exit 1
+  }
+fi
+
 W="fm-$ID"
 if [ "$RELAUNCH" -eq 1 ]; then
   # A positively agent-free endpoint is adopted in place. A positively missing
@@ -2756,6 +3088,16 @@ if [ "$RELAUNCH" -eq 1 ]; then
         CONTAINER=${HERDR_CONTAINER_RAW%%$'\t'*}
         HERDR_SES=${CONTAINER%%:*}
         HERDR_WORKSPACE_ID=${CONTAINER#*:}
+        RELAUNCH_HERDR_PRIOR_TAB_IDS=$(fm_backend_herdr_cli "$HERDR_SES" tab list --workspace "$HERDR_WORKSPACE_ID" 2>/dev/null \
+          | jq -r 'if (.result.tabs | type) == "array" then [.result.tabs[].tab_id] | join(" ") else error("tabs") end') || exit 1
+        HERDR_TAB_ID=
+        HERDR_PANE_ID=
+        T=
+        RELAUNCH_ENDPOINT_TARGET=
+        RELAUNCH_ENDPOINT_BACKEND=$BACKEND
+        RELAUNCH_ENDPOINT_CREATION_PHASE=creating
+        relaunch_endpoint_journal_publish || exit 1
+        RELAUNCH_ENDPOINT_PENDING=1
         HERDR_TASK_IDS=$(FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_create_task "$CONTAINER" "$W" "$WT" "${HERDR_CONTAINER_RAW#*$'\t'}") || exit 1
         read -r HERDR_TAB_ID HERDR_PANE_ID <<EOF
 $HERDR_TASK_IDS
@@ -2769,6 +3111,7 @@ EOF
         RELAUNCH_ENDPOINT_TARGET=$T
         RELAUNCH_ENDPOINT_BACKEND=$BACKEND
         RELAUNCH_ENDPOINT_PENDING=1
+        RELAUNCH_ENDPOINT_CREATION_PHASE=ready
         relaunch_endpoint_journal_publish || exit 1
         ;;
       *)
@@ -2788,6 +3131,8 @@ case "$BACKEND" in
   tmux)
     SES=$(fm_backend_tmux_container_ensure)
     T="$SES:$W"
+    SPAWN_FRESH_ENDPOINT_PENDING=1
+    spawn_fresh_endpoint_own || exit 1
     # #134 robustness (tmux): fm_backend_tmux_create_task captures a stable window
     # id and pins the window name (automatic-rename/allow-rename off) so a captain's
     # non-default tmux config cannot rename the window away from fm-<id> once
@@ -2796,6 +3141,7 @@ case "$BACKEND" in
     # stays $T (the name form), which is safe now that rename is disabled.
     WID=$(fm_backend_tmux_create_task "$SES" "$W" "$PROJ_ABS") || exit 1
     WT_TARGET="$WID"
+    SPAWN_FRESH_ENDPOINT_IDENTIFIED=1
     ;;
   herdr)
     # fm_backend_herdr_workspace_label resolves the target workspace from
@@ -2899,6 +3245,9 @@ case "$BACKEND" in
           else
             HERDR_PROJECTION_ID=$(fm_backend_herdr_projection_journal_create "$STATE" "$ID") || exit 1
             HERDR_PROJECTION_LABEL=$(fm_backend_herdr_projection_workspace_label "$ID" "$HERDR_PROJECTION_ID")
+            T="$HERDR_SES:"
+            SPAWN_FRESH_ENDPOINT_PENDING=1
+            spawn_fresh_endpoint_own || exit 1
             if ! FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_projection_create_task \
               "$PROJ_ABS" "$HERDR_PROJECTION_LABEL" "$W"; then
               if [ "${FM_BACKEND_HERDR_PROJECTION_CLEANUP_SAFE:-0}" = 1 ]; then
@@ -2953,6 +3302,11 @@ case "$BACKEND" in
       HERDR_SEEDED_DEFAULT_TAB_ID=${HERDR_CONTAINER_RAW#*$'\t'}
       HERDR_SES=${CONTAINER%%:*}
       HERDR_WORKSPACE_ID=${CONTAINER#*:}
+      HERDR_PRIOR_TAB_IDS=$(fm_backend_herdr_cli "$HERDR_SES" tab list --workspace "$HERDR_WORKSPACE_ID" 2>/dev/null \
+        | jq -r 'if (.result.tabs | type) == "array" then [.result.tabs[].tab_id] | join(" ") else error("tabs") end') || exit 1
+      T="$HERDR_SES:"
+      SPAWN_FRESH_ENDPOINT_PENDING=1
+      spawn_fresh_endpoint_own || exit 1
       HERDR_TASK_IDS=$(FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_create_task "$CONTAINER" "$W" "$PROJ_ABS" "$HERDR_SEEDED_DEFAULT_TAB_ID") || exit 1
       read -r HERDR_TAB_ID HERDR_PANE_ID <<EOF
 $HERDR_TASK_IDS
@@ -2963,9 +3317,18 @@ EOF
       exit 1
     fi
     T="$HERDR_SES:$HERDR_PANE_ID"
+    SPAWN_FRESH_ENDPOINT_IDENTIFIED=1
+    HERDR_PRIOR_TAB_IDS=
+    spawn_fresh_endpoint_own || {
+      echo "error: early task ownership for $ID could not be published ($FM_BACKLOG_TRANSITION_ERROR)" >&2
+      exit 1
+    }
     ;;
   zellij)
     ZELLIJ_SES=$(fm_backend_zellij_container_ensure) || exit 1
+    T="$ZELLIJ_SES:"
+    SPAWN_FRESH_ENDPOINT_PENDING=1
+    spawn_fresh_endpoint_own || exit 1
     ZELLIJ_TASK_IDS=$(fm_backend_zellij_create_task "$ZELLIJ_SES" "$W" "$PROJ_ABS") || exit 1
     read -r ZELLIJ_TAB_ID ZELLIJ_PANE_ID <<EOF
 $ZELLIJ_TASK_IDS
@@ -2975,9 +3338,17 @@ EOF
       exit 1
     fi
     T="$ZELLIJ_SES:$ZELLIJ_PANE_ID"
+    SPAWN_FRESH_ENDPOINT_IDENTIFIED=1
+    spawn_fresh_endpoint_own || {
+      echo "error: early task ownership for $ID could not be published ($FM_BACKLOG_TRANSITION_ERROR)" >&2
+      exit 1
+    }
     ;;
   cmux)
     fm_backend_cmux_container_ensure || exit 1
+    T=unknown:
+    SPAWN_FRESH_ENDPOINT_PENDING=1
+    spawn_fresh_endpoint_own || exit 1
     CMUX_TASK_IDS=$(fm_backend_cmux_create_task "$W" "$PROJ_ABS") || exit 1
     read -r CMUX_WORKSPACE_ID CMUX_SURFACE_ID <<EOF
 $CMUX_TASK_IDS
@@ -2987,6 +3358,11 @@ EOF
       exit 1
     fi
     T="$CMUX_WORKSPACE_ID:$CMUX_SURFACE_ID"
+    SPAWN_FRESH_ENDPOINT_IDENTIFIED=1
+    spawn_fresh_endpoint_own || {
+      echo "error: early task ownership for $ID could not be published ($FM_BACKLOG_TRANSITION_ERROR)" >&2
+      exit 1
+    }
     ;;
   orca)
     set +e
@@ -3012,6 +3388,11 @@ EOF
       ORCA_TERMINAL=$(fm_backend_orca_terminal_create "$ORCA_WORKTREE_ID" "$W") || exit 1
     fi
     T="$ORCA_TERMINAL"
+    SPAWN_FRESH_ENDPOINT_PENDING=1
+    spawn_fresh_endpoint_own || {
+      echo "error: early task ownership for $ID could not be published ($FM_BACKLOG_TRANSITION_ERROR)" >&2
+      exit 1
+    }
     ;;
 esac
 fi
@@ -3106,8 +3487,9 @@ agy_brief_marker() {  # <brief-file>
   ' "$1" 2>/dev/null
 }
 
-agy_post_launch_pane() {  # <plain-pane-capture>
-  printf '%s\n' "$1" | LC_ALL=C awk -v marker="$AGY_LAUNCH_BOUNDARY" '
+spawn_post_launch_pane() {  # <plain-pane-capture> <launch-boundary>
+  [ -n "$2" ] || return 1
+  printf '%s\n' "$1" | LC_ALL=C awk -v marker="$2" '
     index($0, marker) { buf = ""; found = 1; next }
     { buf = buf $0 "\n" }
     END { printf "%s", buf; if (!found) exit 1 }
@@ -3134,30 +3516,34 @@ spawn_capture_pane() {
 }
 
 codex_wait_for_startup_dialogs() {
-  local pane action i=0
+  local raw pane action i=0 seen=0 require_boundary=0
   local max=${FM_CODEX_READY_POLLS:-40} interval=${FM_CODEX_POLL_INTERVAL:-0.5}
+  [ -z "$CODEX_LAUNCH_BOUNDARY" ] || require_boundary=1
   while [ "$i" -lt "$max" ]; do
-    if ! pane=$(spawn_capture_pane); then
+    if ! raw=$(spawn_capture_pane); then
       echo "error: unable to capture Codex startup state in $T; refusing to publish a worker that cannot begin its turn" >&2
-      unpublished_endpoint_cleanup
       return 1
+    fi
+    if pane=$(spawn_post_launch_pane "$raw" "$CODEX_LAUNCH_BOUNDARY"); then
+      seen=1
+    elif [ "$seen" = 1 ] || [ "$require_boundary" = 0 ]; then
+      pane=$raw
+    else
+      pane=
     fi
     action=$(fm_codex_startup_dialog_action "$pane")
     case "$action" in
       hooks-down-enter)
         spawn_send_key "$T" Down || {
-          unpublished_endpoint_cleanup
           return 1
         }
         sleep 0.3
         spawn_send_key "$T" Enter || {
-          unpublished_endpoint_cleanup
           return 1
         }
         ;;
       trust-enter)
         spawn_send_key "$T" Enter || {
-          unpublished_endpoint_cleanup
           return 1
         }
         ;;
@@ -3166,8 +3552,19 @@ codex_wait_for_startup_dialogs() {
     i=$((i + 1))
     [ "$i" -ge "$max" ] || sleep "$interval"
   done
-  if ! pane=$(spawn_capture_pane); then
+  if ! raw=$(spawn_capture_pane); then
     echo "error: unable to capture Codex startup state in $T; refusing to publish a worker that cannot begin its turn" >&2
+    return 1
+  fi
+  if pane=$(spawn_post_launch_pane "$raw" "$CODEX_LAUNCH_BOUNDARY"); then
+    seen=1
+  elif [ "$seen" = 1 ] || [ "$require_boundary" = 0 ]; then
+    pane=$raw
+  else
+    pane=
+  fi
+  if [ "$require_boundary" = 1 ] && [ "$seen" != 1 ]; then
+    echo "error: Codex startup state in $T never showed this launch's boundary; refusing to publish a worker that cannot begin its turn" >&2
   elif [ -z "$pane" ]; then
     echo "error: Codex startup state in $T remained empty; refusing to publish a worker that cannot begin its turn" >&2
   else
@@ -3177,7 +3574,6 @@ codex_wait_for_startup_dialogs() {
     fi
     echo "error: Codex startup in $T never reached its ready prompt; refusing to publish a worker that cannot begin its turn" >&2
   fi
-  unpublished_endpoint_cleanup
   return 1
 }
 
@@ -3185,7 +3581,7 @@ agy_wait_for_delivery() {
   local pane raw i=0 accepted=0 seen=0 max=${FM_AGY_READY_POLLS:-60} interval=${FM_AGY_POLL_INTERVAL:-0.5}
   while [ "$i" -lt "$max" ]; do
     raw=$(agy_capture)
-    if pane=$(agy_post_launch_pane "$raw"); then
+    if pane=$(spawn_post_launch_pane "$raw" "$AGY_LAUNCH_BOUNDARY"); then
       seen=1
     elif [ "$seen" = 1 ]; then
       pane=$raw
@@ -3208,23 +3604,9 @@ agy_wait_for_delivery() {
   return 1
 }
 
-# No task record is published on this failure path, so nothing else will close
-# the already-launched pane. Kill it here rather than leaving an autonomous
-# orphan outside task control.
-unpublished_endpoint_cleanup() {
-  if [ "$RELAUNCH" -eq 1 ] && [ "$RELAUNCH_ENDPOINT_PENDING" != 1 ]; then
-    return 0
-  fi
-  [ "$BACKEND" = orca ] && return 0
-  local tab_id=
-  [ "$BACKEND" = zellij ] && tab_id=$ZELLIJ_TAB_ID
-  fm_backend_kill "$BACKEND" "$T" "$tab_id" "fm-$ID" 2>/dev/null || true
-}
-
 agy_spawn_fail() {  # <detail>
   printf 'failed: %s\n' "$1" >> "$STATE/$ID.status"
   echo "error: $1; inspect window $T" >&2
-  unpublished_endpoint_cleanup
 }
 
 if [ "$RELAUNCH" -eq 1 ]; then
@@ -3429,7 +3811,6 @@ esac
 # Nested (not a bare /tmp/fm-<id>/gotmp) so other per-task temp can live alongside
 # later, and teardown cleans one deterministic path. GOTMPDIR (not TMPDIR) is the
 # targeted knob: TMPDIR is too broad (affects every program's temp, not just Go's).
-TASK_TMP="/tmp/fm-$ID"
 mkdir -p "$TASK_TMP/gotmp"
 
 # Per-harness turn-end hook where enabled: records state/<id>.turn-ended when
@@ -3713,15 +4094,6 @@ fi
 # records none at all, because its deliverable is a report rather than a merge
 # (fm-teardown.sh defaults an absent mode to no-mistakes, and fm-promote.sh
 # requires an explicit mode when a scout is promoted to a ship task).
-if [ "$KIND" = secondmate ]; then
-  MODE=secondmate
-  YOLO=off
-  : "${SECONDMATE_PROJECTS:=}"
-elif [ "$KIND" = scout ]; then
-  MODE=
-  YOLO=
-fi
-
 # Resolve the optional default-off W3C trace context (bin/fm-trace-context-lib.sh,
 # docs/configuration.md): the one carrier both recorded in meta and injected into
 # the pane, so an observer reads exactly what the child receives. Empty only when
@@ -3745,7 +4117,11 @@ if [ "$TRACEPARENT_SET" -eq 1 ]; then
 else
   SPAWN_TRACE_EFFECTIVE=$(fm_trace_context_session_effective "$STATE/.trace-context-effective")
   if [ "$SPAWN_TRACE_EFFECTIVE" = on ]; then
-    SPAWN_TRACEPARENT=$(FM_TRACE_CONTEXT=on fm_trace_context_resolve "$CONFIG" "$STATE/$ID.meta" || true)
+    if fm_trace_context_valid "$SPAWN_PRIOR_TRACEPARENT"; then
+      SPAWN_TRACEPARENT=$SPAWN_PRIOR_TRACEPARENT
+    else
+      SPAWN_TRACEPARENT=$(FM_TRACE_CONTEXT=on fm_trace_context_resolve "$CONFIG" "$STATE/$ID.meta" || true)
+    fi
   else
     SPAWN_TRACEPARENT=
   fi
@@ -3753,7 +4129,6 @@ fi
 
 META_WINDOW=$T
 [ "$BACKEND" = orca ] && META_WINDOW=$W
-SPAWN_GEN="s$(date +%s).${BASHPID:-$$}.$RANDOM"
 SPAWN_META_PATH="$STATE/$ID.meta"
 if [ "$SPAWN_META_LOCK_HELD" != 1 ]; then
   SPAWN_META_LOCK=$(fm_meta_lock_path "$STATE/$ID.meta") || exit 1
@@ -3764,70 +4139,14 @@ if [ "$RELAUNCH" -eq 1 ]; then
   SPAWN_META_TMP="$STATE/.$ID.meta.relaunch.${BASHPID:-$$}"
 else
   SPAWN_META_TMP="$STATE/.$ID.meta.spawn.${BASHPID:-$$}"
-  SPAWN_FRESH_COMMIT_PENDING=1
 fi
 SPAWN_META_PATH=$SPAWN_META_TMP
-preserve_relaunch_meta() {
-  awk -F= '
-    BEGIN {
-      split("window endpoint_task_id worktree project harness kind mode yolo tasktmp model effort busy_gen spawn_gen traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx", keys, " ")
-      for (i in keys) owned[keys[i]] = 1
-    }
-    !($1 in owned)
-  ' "$RELAUNCH_META"
-}
-{
-  echo "window=$META_WINDOW"
-  echo "endpoint_task_id=$ID"
-  echo "worktree=$WT"
-  echo "project=$PROJ_ABS"
-  echo "harness=$HARNESS"
-  echo "kind=$KIND"
-  [ -z "$MODE" ] || echo "mode=$MODE"
-  [ -z "$YOLO" ] || echo "yolo=$YOLO"
-  echo "tasktmp=$TASK_TMP"
-  echo "model=${MODEL:-default}"
-  echo "effort=${EFFORT:-default}"
-  [ -z "${BUSY_GEN:-}" ] || echo "busy_gen=$BUSY_GEN"
-  echo "spawn_gen=$SPAWN_GEN"
-  # Default-off writes no traceparent= line.
-  # backend= is written only for a non-default (non-tmux) backend, so the
-  # default path's meta stays byte-identical (absent backend= means tmux;
-  # data/fm-backend-design-d7's P1 compatibility contract).
-  [ "$BACKEND" = tmux ] || echo "backend=$BACKEND"
-  if [ "$BACKEND" = herdr ]; then
-    echo "herdr_session=$HERDR_SES"
-    echo "herdr_workspace_id=$HERDR_WORKSPACE_ID"
-    echo "herdr_tab_id=$HERDR_TAB_ID"
-    echo "herdr_pane_id=$HERDR_PANE_ID"
-  fi
-  if [ "$BACKEND" = zellij ]; then
-    echo "zellij_session=$ZELLIJ_SES"
-    echo "zellij_tab_id=$ZELLIJ_TAB_ID"
-    echo "zellij_pane_id=$ZELLIJ_PANE_ID"
-  fi
-  if [ "$BACKEND" = orca ]; then
-    echo "orca_worktree_id=$ORCA_WORKTREE_ID"
-    echo "terminal=$ORCA_TERMINAL"
-  fi
-  if [ "$BACKEND" = cmux ]; then
-    echo "cmux_workspace_id=$CMUX_WORKSPACE_ID"
-    echo "cmux_surface_id=$CMUX_SURFACE_ID"
-  fi
-  if [ "$KIND" = secondmate ]; then
-    echo "home=$PROJ_ABS"
-    echo "projects=$SECONDMATE_PROJECTS"
-  fi
-  if [ "$RELAUNCH" -eq 1 ]; then
-    preserve_relaunch_meta
-  fi
-  if [ "$SPAWN_CONTROL_PARENT" = 1 ] && [ -n "${FM_CONTROL_RELAUNCH_TX:-}" ]; then
-    echo "control_relaunch_tx=$FM_CONTROL_RELAUNCH_TX"
-  fi
-} > "$SPAWN_META_PATH" || {
+SPAWN_META_VISIBILITY=ready
+[ "$RELAUNCH" -eq 1 ] || SPAWN_META_VISIBILITY=provisional
+if ! spawn_task_record_write "$SPAWN_META_PATH" final "$SPAWN_META_VISIBILITY"; then
   echo "error: task record for $ID could not be prepared at $SPAWN_META_PATH" >&2
   exit 1
-}
+fi
 if [ "$RELAUNCH" -eq 0 ]; then
   if ! fm_backlog_atomic_transition publish "$SPAWN_META_TMP" "$STATE/$ID.meta" "task record" "$STATE"; then
     echo "error: task record for $ID could not be published ($FM_BACKLOG_TRANSITION_ERROR)" >&2
@@ -3884,7 +4203,15 @@ spawn_report_preserved_state() {
   return 1
 }
 
-if [ "$RELAUNCH" -eq 1 ]; then
+spawn_relaunch_publish() {
+  if [ "$RELAUNCH_ENDPOINT_PENDING" = 1 ]; then
+    case "$KIND:$HARNESS" in
+      secondmate:codex|ship:agy|scout:agy)
+        RELAUNCH_ENDPOINT_RECREATED=1
+        RELAUNCH_ENDPOINT_PENDING=0
+        ;;
+    esac
+  fi
   SPAWN_META_PUBLISH_STARTED=1
   if ! fm_backlog_atomic_transition publish "$SPAWN_META_TMP" "$STATE/$ID.meta" "task record" "$STATE"; then
     echo "error: replacement task record for $ID could not be published ($FM_BACKLOG_TRANSITION_ERROR)" >&2
@@ -3897,7 +4224,17 @@ if [ "$RELAUNCH" -eq 1 ]; then
   SPAWN_META_TMP=
   if [ "$SPAWN_CUSTODY_LOCK_HELD" = 1 ]; then
     SPAWN_CUSTODY_LOCK_HELD=0
-    fm_lock_release "$SPAWN_CUSTODY_LOCK" || exit 1
+    fm_lock_release "$SPAWN_CUSTODY_LOCK" || return 1
+  fi
+}
+if [ "$RELAUNCH" -eq 1 ]; then
+  if [ "$KIND:$HARNESS" = secondmate:codex ]; then
+    if [ "$RELAUNCH_ENDPOINT_PENDING" = 1 ]; then
+      RELAUNCH_ENDPOINT_RECREATED=1
+      RELAUNCH_ENDPOINT_PENDING=0
+    fi
+  else
+    spawn_relaunch_publish || exit 1
   fi
 fi
 # A dispatch or relaunch keeps the per-task meta lock through launch delivery.
@@ -3917,7 +4254,6 @@ if [ "$SPAWN_TASK_SET_LOCK_HELD" = 1 ]; then
   SPAWN_TASK_SET_LOCK_HELD=0
   fm_lock_release "$SPAWN_TASK_SET_LOCK"
 fi
-"$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort || true
 [ "$BACKEND" = orca ] && ORCA_ABORT_CLEANUP=0
 
 sq_brief=$(shell_quote "$BRIEF")
@@ -4052,6 +4388,11 @@ if [ -n "$SPAWN_TRACEPARENT" ]; then
   fi
 fi
 LAUNCH=$(spawn_launch_environment "$LAUNCH") || exit 1
+if [ "$KIND" = secondmate ] && [ "$HARNESS" = codex ] \
+   && [ "$RELAUNCH" -eq 1 ] && [ "$RELAUNCH_ENDPOINT_RECREATED" != 1 ]; then
+  CODEX_LAUNCH_BOUNDARY="fm-codex-launch-$ID-${BASHPID:-$$}-$RANDOM"
+  LAUNCH="printf '%s\\n' $(shell_quote "$CODEX_LAUNCH_BOUNDARY"); $LAUNCH"
+fi
 if [ "$HARNESS" = agy ]; then
   AGY_LAUNCH_BOUNDARY="export FM_TASK_ID=$ID"
   AGY_BRIEF_MARKER=$(agy_brief_marker "$BRIEF")
@@ -4060,7 +4401,6 @@ sleep 0.3
 if ! spawn_send_literal "$T" "$LAUNCH"; then
   if [ "$KIND" = secondmate ] && [ "$HARNESS" = codex ]; then
     echo "error: unable to deliver Codex launch in $T; refusing to publish a worker that cannot begin its turn" >&2
-    unpublished_endpoint_cleanup
   fi
   exit 1
 fi
@@ -4072,12 +4412,14 @@ fi
 if ! spawn_send_key "$T" Enter; then
   if [ "$KIND" = secondmate ] && [ "$HARNESS" = codex ]; then
     echo "error: unable to start Codex in $T; refusing to publish a worker that cannot begin its turn" >&2
-    unpublished_endpoint_cleanup
   fi
   exit 1
 fi
 if [ "$KIND" = secondmate ] && [ "$HARNESS" = codex ]; then
   codex_wait_for_startup_dialogs || exit 1
+  if [ "$RELAUNCH" -eq 1 ]; then
+    spawn_relaunch_publish || exit 1
+  fi
 fi
 if [ "$HARNESS" = agy ]; then
   AGY_DELIVERY_RC=0
@@ -4091,6 +4433,12 @@ if [ "$HARNESS" = agy ]; then
     exit 1
   fi
 fi
+if ! spawn_fresh_summary_publish ready; then
+  echo "error: task record for $ID could not be published to the durable home summary" >&2
+  exit 1
+fi
+RELAUNCH_ENDPOINT_RECREATED=0
+"$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort || true
 if [ "$RELAUNCH" -eq 0 ] && [ "$SPAWN_CUSTODY_LOCK_HELD" = 1 ]; then
   SPAWN_CUSTODY_LOCK_HELD=0
   fm_lock_release "$SPAWN_CUSTODY_LOCK" || exit 1
@@ -4130,22 +4478,20 @@ SPAWN_BACKLOG_COMMIT_STATUS=0
 FM_TASKS_AXI_TIMEOUT=${FM_TASKS_AXI_TIMEOUT:-30}
 if spawn_commit_backlog_transition; then
   SPAWN_FRESH_COMMIT_PENDING=0
+  SPAWN_FRESH_ENDPOINT_PENDING=0
   SPAWN_FRESH_QWEN_WIRING_PENDING=0
 else
   SPAWN_BACKLOG_COMMIT_STATUS=$?
   if spawn_commit_backlog_transition; then
     SPAWN_BACKLOG_COMMIT_STATUS=0
     SPAWN_FRESH_COMMIT_PENDING=0
+    SPAWN_FRESH_ENDPOINT_PENDING=0
     SPAWN_FRESH_QWEN_WIRING_PENDING=0
   fi
 fi
 if [ "$SPAWN_BACKLOG_COMMIT_STATUS" -ne 0 ]; then
   if [ "$RELAUNCH" -eq 0 ]; then
-    if spawn_fresh_commit_rollback; then
-      echo "error: task $ID's backlog item could not be moved to In flight ($FM_BACKLOG_TRANSITION_ERROR); its record was removed so no worker is left that the backlog does not own - close out endpoint $T and local copy $WT by hand, then re-run the spawn" >&2
-    else
-      echo "error: task $ID's backlog item could not be moved to In flight ($FM_BACKLOG_TRANSITION_ERROR), and failed-dispatch cleanup is incomplete; the provisional record may remain at $STATE/$ID.meta - close out endpoint $T and local copy $WT by hand, then remove the record and busy state before retrying" >&2
-    fi
+    echo "error: task $ID's backlog item could not be moved to In flight ($FM_BACKLOG_TRANSITION_ERROR); aborting the launch before ownership rollback" >&2
   else
     echo "error: task $ID was republished but its backlog item could not be moved to In flight ($FM_BACKLOG_TRANSITION_ERROR); fix the backlog and re-run the relaunch" >&2
   fi

@@ -614,6 +614,12 @@ relaunch_rollback() {
         # worse inaccuracy.
         journal_write "failed:$RELAUNCH_PHASE" "${CHECKPOINT_LINES[@]}" "rollback=none-new-record-kept" || true
         echo "error: $ID was relaunched on $TARGET_HARNESS but no running agent could be confirmed; its work is preserved at $WT" >&2
+      elif [ ! -e "$META" ] \
+         && [ ! -L "$META" ] \
+         && state=$(agent_state 2>/dev/null) \
+         && [ "$state" = missing ]; then
+        journal_write "failed:$RELAUNCH_PHASE" "${CHECKPOINT_LINES[@]}" "rollback=recreated-endpoint-and-record-retired" || true
+        echo "error: $ID's recreated replacement did not become ready, so its endpoint and published task record were retired; no agent is running, and its work is preserved at $WT" >&2
       else
         journal_write "failed:$RELAUNCH_PHASE" "${CHECKPOINT_LINES[@]}" "rollback=prior-record-kept" || true
         echo "error: $ID's agent was stopped but the replacement did not launch; no agent is running, and its work plus the recorded progress note are preserved at $WT" >&2

@@ -83,10 +83,11 @@ Switching harness is therefore one ordinary relaunch rather than a separate mech
 ### Failure and rollback
 
 - A refusal **before** the agent is stopped leaves the durable record and the instructions byte-identical.
-- A launch failure **after** the agent is stopped restores the prior durable record, keeps the progress note so a later recovery still has it, marks the control journal `failed:launching`, and reports plainly that no agent is running and where the work is preserved.
-  If a missing-endpoint replacement was already created, its separate endpoint journal lets cleanup remove that exact endpoint or lets the next retry adopt or remove it before creating another.
-- If the launch owner already published the new record but no running agent can be confirmed, the new record is kept: the task is recorded on the new harness with no agent confirmed, which is exactly what recovery reconciles.
-  Rewriting it back to the old harness would be a second, worse inaccuracy.
+- A launch failure **after** the agent is stopped keeps the progress note so a later recovery still has it, marks the control journal `failed:launching`, and reports plainly whether an endpoint and record remain.
+  Before replacement publication, the prior record remains authoritative and a missing-endpoint replacement's endpoint journal lets cleanup remove or retry that exact endpoint without creating another.
+- After replacement publication, a reused endpoint keeps the new record because removing it would leave an existing endpoint unowned.
+- A recreated Codex secondmate or Agy worker endpoint stays marked as such until its post-launch delivery gate succeeds.
+  On delivery failure, rollback retires it, verifies it is absent, then removes its replacement record and refreshes the durable home summary; if absence cannot be verified, rollback retains the record and summary for recovery.
 
 ## Fail-closed boundaries
 

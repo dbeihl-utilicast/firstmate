@@ -505,6 +505,7 @@ When it is absent or contains `default`, crewmates mirror the firstmate's own ha
 `config/secondmate-harness` is a separate local, gitignored file containing the adapter the primary uses to launch secondmate agents, optionally followed by model and effort tokens on the same line.
 The first non-empty, non-comment line is parsed as `<harness> [<model>] [<effort>]`.
 A Codex sol secondmate pin is `codex gpt-5.6-sol` on that line: the existing Codex launch path with only the model name changed, never a Foundry adapter.
+The ordinary crewmate and scout path is separate: `gpt-5.6-sol` is intentionally an ordinary model in [crew dispatch profiles](#crew-dispatch-profiles-configcrew-dispatchjson), so enabling it there does not configure or move a secondmate.
 A bare `<harness>` preserves the previous behavior: harness only, with no model or effort launch flag.
 When the harness token is absent or `default`, secondmate launch falls back through `config/crew-harness` and then the primary's own harness, and no model or effort is read from that file.
 `fm-harness.sh secondmate-model` and `fm-harness.sh secondmate-effort` expose only the optional tokens from `config/secondmate-harness`; `config/crew-harness` remains a bare adapter-name file.
