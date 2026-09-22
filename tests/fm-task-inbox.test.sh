@@ -857,7 +857,8 @@ test_watcher_escalation_does_not_cover_later_arrival() {
     fi
     cat > "$dir/fakebin/tr" <<'SH'
 #!/usr/bin/env bash
-if [ "${FM_INSERT_AT_WAKE:-0}" = 1 ] && [ ! -e "$FM_INSERT_MARKER" ]; then
+if [ "${FM_INSERT_AT_WAKE:-0}" = 1 ] && [ "${1:-}" = '\t\r\n' ] \
+    && [ "${2:-}" = '   ' ] && [ ! -e "$FM_INSERT_MARKER" ]; then
   touch "$FM_INSERT_MARKER"
   FM_STATE_OVERRIDE="$FM_INSERT_STATE" bash -c '. "$1"; fm_task_inbox_write "$2" t1 "arrived during wake" >/dev/null' \
     _ "$FM_INSERT_LIB" "$FM_INSERT_STATE"
