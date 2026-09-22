@@ -1015,6 +1015,7 @@ spawn_fresh_endpoint_own() {
   SPAWN_META_TMP="$STATE/.$ID.meta.endpoint.${BASHPID:-$$}"
   if ! spawn_task_record_write "$SPAWN_META_TMP" early provisional \
      || ! fm_backlog_atomic_transition publish "$SPAWN_META_TMP" "$STATE/$ID.meta" "task record" "$STATE"; then
+    echo "error: task record for $ID could not be published (${FM_BACKLOG_TRANSITION_ERROR:-early ownership write failed})" >&2
     return 1
   fi
   SPAWN_META_TMP=
@@ -1107,8 +1108,11 @@ unpublished_endpoint_cleanup() {
   fi
   tab_id=
   [ "$BACKEND" = zellij ] && tab_id=${ZELLIJ_TAB_ID:-}
-  fm_backend_kill "$BACKEND" "$T" "$tab_id" "fm-$ID" 2>/dev/null || true
   endpoint_state=$(fm_backend_agent_state "$BACKEND" "$T")
+  if [ "$endpoint_state" != missing ]; then
+    fm_backend_kill "$BACKEND" "$T" "$tab_id" "fm-$ID" 2>/dev/null || true
+    endpoint_state=$(fm_backend_agent_state "$BACKEND" "$T")
+  fi
   if [ "$endpoint_state" = missing ]; then
     SPAWN_FRESH_ENDPOINT_PENDING=0
     return 0
@@ -1269,6 +1273,7 @@ spawn_abort_cleanup() {
     if ! spawn_herdr_presentation_order_lock_acquire "${HERDR_PROJECTION_ABORT_SESSION:-}"; then
       echo "warning: herdr presentation focus lock unavailable; retaining the projection journal and refusing concurrent abort cleanup" >&2
       HERDR_PROJECTION_ABORT_CLEANUP=0
+      SPAWN_FRESH_ENDPOINT_RETIREMENT_FAILED=1
     fi
   fi
   if [ "$HERDR_PROJECTION_ABORT_CLEANUP" = 1 ]; then
@@ -1277,6 +1282,10 @@ spawn_abort_cleanup() {
       "$HERDR_PROJECTION_ABORT_SESSION" \
       "$HERDR_PROJECTION_ABORT_TASK_PANE" \
       "$HERDR_PROJECTION_ABORT_SEEDED_PANE" || true
+  fi
+  if [ "$BACKEND" = herdr ] && [ "$HERDR_PRESENTATION_ORDER_LOCK_HELD" = 1 ] \
+     && [ "$SPAWN_FRESH_ENDPOINT_PENDING" = 1 ]; then
+    unpublished_endpoint_cleanup || true
   fi
   if [ "$HERDR_PRESENTATION_ORDER_LOCK_HELD" = 1 ]; then
     HERDR_PRESENTATION_ORDER_LOCK_HELD=0
@@ -3031,6 +3040,7 @@ elif [ "$KIND" = scout ]; then
 fi
 TASK_TMP="/tmp/fm-$ID"
 SPAWN_GEN="s$(date +%s).${BASHPID:-$$}.$RANDOM"
+SPAWN_PRIOR_TRACEPARENT=$(fm_trace_context_recorded "$STATE/$ID.meta")
 if [ "$RELAUNCH" -eq 0 ]; then
   fm_current_pid SPAWN_OWNER_PID || {
     echo "error: could not identify the fresh spawn owner before endpoint creation" >&2
@@ -4107,7 +4117,11 @@ if [ "$TRACEPARENT_SET" -eq 1 ]; then
 else
   SPAWN_TRACE_EFFECTIVE=$(fm_trace_context_session_effective "$STATE/.trace-context-effective")
   if [ "$SPAWN_TRACE_EFFECTIVE" = on ]; then
-    SPAWN_TRACEPARENT=$(FM_TRACE_CONTEXT=on fm_trace_context_resolve "$CONFIG" "$STATE/$ID.meta" || true)
+    if fm_trace_context_valid "$SPAWN_PRIOR_TRACEPARENT"; then
+      SPAWN_TRACEPARENT=$SPAWN_PRIOR_TRACEPARENT
+    else
+      SPAWN_TRACEPARENT=$(FM_TRACE_CONTEXT=on fm_trace_context_resolve "$CONFIG" "$STATE/$ID.meta" || true)
+    fi
   else
     SPAWN_TRACEPARENT=
   fi
