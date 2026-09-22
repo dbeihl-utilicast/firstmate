@@ -134,8 +134,9 @@
 #   spawns require an explicit harness so firstmate cannot silently skip dispatch
 #   profile consultation. A --secondmate spawn is exempt and resolves the SECONDMATE
 #   harness (config/secondmate-harness -> config/crew-harness -> own), so the
-#   secondmate-vs-crewmate split is DURABLE across every respawn (recovery,
-#   /updatefirstmate, restart). A bare adapter name (claude|codex|pi|pi-signed|grok|cursor|qwen|agy|codex-foundry-luna)
+#   secondmate-vs-crewmate split is DURABLE across new and recovery spawns.
+#   In-place relaunches and instruction restarts preserve the recorded profile.
+#   A bare adapter name (claude|codex|pi|pi-signed|grok|cursor|qwen|agy|codex-foundry-luna)
 #   overrides it for this spawn (either kind). codex-foundry-luna is codex itself,
 #   repointed at the Azure AI Foundry `gpt-5.6-luna` deployment, named by this
 #   home's local config/foundry-luna.json (docs/configuration.md "Foundry Luna
@@ -159,8 +160,8 @@
 #   harness from config/secondmate-harness. An explicit per-spawn --harness,
 #   positional harness arg, or raw launch command starts with clean model/effort
 #   defaults unless the caller also passes explicit --model/--effort flags. When
-#   the file governs the spawn, its model/effort tokens are re-resolved on every
-#   respawn exactly like the harness axis, and explicit --model/--effort flags
+#   the file governs a new or recovery spawn, its model/effort tokens are resolved
+#   with the harness axis, and explicit --model/--effort flags
 #   still win over the file's tokens.
 #   A --secondmate spawn also propagates the primary's declared inherited local
 #   material, so the secondmate's OWN crewmates inherit primary config and the
@@ -584,9 +585,16 @@ else
   fi
 fi
 
+remote_repair_arg() {
+  printf "'"
+  printf '%s' "$1" | sed "s/'/'\\\\''/g"
+  printf "'"
+}
+
 spawn_remote_secondmate() {
   local id=$1 remote host root home harness positional model effort backend out rc meta tmp
-  local remote_backend remote_target remote_harness remote_herdr_session registry_lock remote_lock remote_generation
+  local remote_backend remote_target remote_harness remote_model remote_effort remote_herdr_session registry_lock remote_lock remote_generation
+  local requested_model requested_effort returned_model returned_effort
   local remote_traceparent remote_recorded_traceparent sm_primary_head sync_out sync_rc
   local -a launch_args
   id=${POS[0]:-}
@@ -802,6 +810,8 @@ spawn_remote_secondmate() {
   remote_backend=$(printf '%s\n' "$out" | sed -n 's/^backend=//p' | tail -1)
   remote_target=$(printf '%s\n' "$out" | sed -n 's/^target=//p' | tail -1)
   remote_harness=$(printf '%s\n' "$out" | sed -n 's/^harness=//p' | tail -1)
+  remote_model=$(printf '%s\n' "$out" | sed -n 's/^model=//p' | tail -1)
+  remote_effort=$(printf '%s\n' "$out" | sed -n 's/^effort=//p' | tail -1)
   remote_herdr_session=$(printf '%s\n' "$out" | sed -n 's/^herdr_session=//p' | tail -1)
   if [ "$remote_backend" != herdr ]; then
     fm_lock_release "$remote_lock" || true
@@ -810,11 +820,11 @@ spawn_remote_secondmate() {
     echo "error: remote launch returned backend '${remote_backend:-missing}', expected herdr; preserving the remote route for reconciliation" >&2
     return 1
   fi
-  [ -n "$remote_target" ] && [ "$remote_harness" = "$harness" ] || {
+  [ -n "$remote_target" ] || {
     fm_lock_release "$remote_lock" || true
     fm_lock_release "$registry_lock" || true
     fm_lock_release "$SPAWN_TASK_LOCK" || true
-    echo "error: remote launch returned malformed route metadata; preserving the remote route for reconciliation" >&2
+    echo "error: remote launch returned no target; preserving the remote route for reconciliation" >&2
     return 1
   }
   if [ "$remote_herdr_session" != fm-remote ] || [ "${remote_target%%:*}" != "$remote_herdr_session" ]; then
@@ -822,6 +832,22 @@ spawn_remote_secondmate() {
     fm_lock_release "$registry_lock" || true
     fm_lock_release "$SPAWN_TASK_LOCK" || true
     echo "error: remote launch returned Herdr session '${remote_herdr_session:-missing}', expected 'fm-remote'; preserving the remote route for reconciliation" >&2
+    return 1
+  fi
+  requested_model=${model#-}
+  requested_effort=${effort#-}
+  [ -n "$requested_model" ] || requested_model=default
+  [ -n "$requested_effort" ] || requested_effort=default
+  returned_model=${remote_model:-default}
+  returned_effort=${remote_effort:-default}
+  if [ "$remote_harness" != "$harness" ] \
+    || [ "$returned_model" != "$requested_model" ] \
+    || [ "$returned_effort" != "$requested_effort" ]; then
+    fm_lock_release "$remote_lock" || true
+    fm_lock_release "$registry_lock" || true
+    fm_lock_release "$SPAWN_TASK_LOCK" || true
+    echo "error: remote launch returned harness '${remote_harness:-missing}', model '$returned_model', effort '$returned_effort'; requested harness '$harness', model '$requested_model', effort '$requested_effort'; preserving the remote route for reconciliation" >&2
+    echo "action: from the primary home, run bin/fm-secondmate-restart.sh --harness $(remote_repair_arg "$harness") --model $(remote_repair_arg "$requested_model") --effort $(remote_repair_arg "$requested_effort") $(remote_repair_arg "$id")" >&2
     return 1
   fi
   # Record what the remote endpoint ACTUALLY carries, read back from its own
@@ -2116,8 +2142,8 @@ case "$ARG3" in
     # secondmate harness (config/secondmate-harness -> config/crew-harness -> own);
     # every other kind uses the crew harness only when no dispatch profile file is
     # active. Resolving here on every spawn is what makes the split DURABLE - a
-    # respawn (recovery, /updatefirstmate, restart) re-resolves, so
-    # config/secondmate-harness keeps governing secondmate launches across restarts.
+    # new or recovery spawn re-resolves, while an in-place relaunch supplies its
+    # recorded profile explicitly.
     # The launch_template lookup below is the unverified-adapter guard for both
     # kinds: a harness with no template aborts the spawn.
     if [ "$KIND" = secondmate ]; then
@@ -2237,8 +2263,9 @@ esac
 # harness ("<harness> [<model>] [<effort>]"). They apply only when this is a
 # --secondmate spawn and no explicit per-spawn harness/raw launch was supplied, so
 # the harness itself came from the secondmate config fallback chain. Resolving
-# here on every spawn makes the pin durable across respawns. Precedence: explicit
-# --model/--effort flags still win over the file's tokens.
+# here for new and recovery spawns makes the chosen profile durable in task
+# metadata. In-place relaunches supply that recorded profile explicitly.
+# Precedence: explicit --model/--effort flags still win over the file's tokens.
 if [ "$KIND" = secondmate ] && [ -z "$ARG3" ]; then
   if [ "$MODEL_SET" -eq 0 ]; then
     SM_MODEL=$("$SCRIPT_DIR/fm-harness.sh" secondmate-model)

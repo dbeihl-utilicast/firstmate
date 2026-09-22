@@ -95,7 +95,8 @@ For a `--secondmate` spawn, `bin/fm-spawn.sh` populates `MODEL`/`EFFORT` from th
 For a local route, an explicit per-spawn `--harness` flag, positional harness arg, or raw launch command starts clean on model and effort too, unless the caller also passes explicit `--model` or `--effort`.
 A remote route accepts only a verified harness adapter and refuses a raw launch command at the host boundary.
 When the file's tokens do apply, an explicit per-spawn `--model` or `--effort` flag always wins over the file's token for that axis.
-Because this resolves from the file on every spawn, the pin is durable across every respawn (recovery, `/updatefirstmate`, restart) exactly like the harness axis itself - e.g. `config/secondmate-harness` containing `claude opus` keeps a secondmate pinned to Opus even if the primary's own default model later changes.
+Because a new or recovery spawn resolves from this file, its selected profile becomes the mate's durable recorded runtime.
+An in-place relaunch or `/updatefirstmate` restart preserves that recorded profile unless its caller explicitly names a replacement axis.
 For the Codex sol pin, use the [configuration reference](../../../docs/configuration.md#harness-support).
 The configuration reference owns why this file cannot be `config/crew-dispatch.json` and why a dispatch edit never moves live secondmates.
 This is secondmate-only: crewmate/scout model resolution is untouched by this file.
@@ -228,9 +229,9 @@ An SSH transport failure or unreadable remote endpoint remains unknown and must 
 `stuck-crewmate-recovery`'s remote-secondmate note owns why the endpoint-dead and send-failed verdicts that seem to justify this are themselves unreliable.
 Respawn re-resolves the secondmate harness from current config, uses the same guarded pre-launch sync, and re-propagates inherited local material, so recovered secondmates converge inherited config items and shared captain preferences whenever their home validates; tracked-file sync remains guarded separately.
 If the secondmate is already running and only inherited local material changed, prefer `bin/fm-config-push.sh` over respawning.
-To move a live LOCAL secondmate onto a newly pinned harness, model, or effort without a full recovery, set `config/secondmate-harness` and then relaunch it with `bin/fm-control.sh <id> relaunch`, which re-resolves that pin, stops the agent, and launches the replacement in the same home ([`docs/agent-control.md`](../../../docs/agent-control.md)).
+To move a live LOCAL secondmate onto another harness, model, or effort, use `FM_HOME=<this-firstmate-home> bin/fm-secondmate-restart.sh --harness <harness> --model <model|default> --effort <effort|default> <id>` so its open records are persisted before the guarded replacement ([`docs/agent-control.md`](../../../docs/agent-control.md)).
 That plane refuses a remotely placed secondmate by name, because its agent runs on another host where none of the plane's postconditions can be read.
-Move a REMOTE one through the primary-owned gated path with `FM_HOME=<this-firstmate-home> bin/fm-secondmate-restart.sh <id>`, which persists its open records, re-inherits current configuration, verifies host readiness, resolves the current profile, and relaunches on its configured host ([`docs/remote-secondmates.md`](../../../docs/remote-secondmates.md)).
+Move a REMOTE one through the same primary-owned gated path with explicit profile flags; without those flags the command persists its open records, re-inherits current configuration, verifies host readiness, preserves its recorded profile, and relaunches on its configured host ([`docs/remote-secondmates.md`](../../../docs/remote-secondmates.md)).
 A successful update restarts every live mate of both placements on its own, including one already on the target commit; the `/updatefirstmate` skill owns that pass, and `bin/fm-secondmate-restart.sh` owns its persist gate and failure vocabulary.
 
 Do not reconstruct a secondmate's whole tree from the main home.

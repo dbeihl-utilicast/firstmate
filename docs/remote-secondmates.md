@@ -238,8 +238,9 @@ The primary records that remote nudge before delivery and retries it during lock
 Local secondmates retain their generation-specific local pointer contract; remote transfers do not copy those primary-local instruction paths.
 
 Restart a live remote second mate from the primary with `FM_HOME=<primary-home> bin/fm-secondmate-restart.sh <secondmate-id>` so inherited configuration lands and readiness passes before the host-local [control plane](agent-control.md) relaunches it.
+That path preserves the mate's recorded harness, model, and effort by default; pass `--harness`, `--model`, or `--effort` there to change the named mate deliberately without changing the fleet-wide default.
 The raw `bin/fm-on.sh <secondmate-id> fm-remote-secondmate-control.sh relaunch ...` verb skips primary-owned inheritance and readiness; it is the restart owner's final implementation step, not an operator recovery command.
-The primary passes `<harness> <model|default|-> <effort|default|->` explicitly, using `default` when an axis has no parent pin, because `config/secondmate-harness` is not inherited into a second mate's home and the file on that host belongs to a different home; letting the far side re-resolve it would silently move the mate onto another runtime.
+The primary passes `<harness> <model|default|-> <effort|default|->` explicitly from the mate's recorded profile, using `default` when an axis is absent, because `config/secondmate-harness` is not inherited into a second mate's home and the file on that host belongs to a different home; letting the far side re-resolve it would silently move the mate onto another runtime.
 SSH exit 255 leaves completion unknown and the route preserved, exactly as every other verb here.
 
 Session start and every remote launch converge the persistent remote home on the primary's own default-branch commit rather than on the Firstmate copy that host keeps.

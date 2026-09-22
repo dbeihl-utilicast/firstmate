@@ -57,8 +57,8 @@ It is not deterministic across the verified adapters: codex and grok resume only
 
 1. **Resolve the profile.**
    An explicit `--harness`, `--model`, or `--effort` wins.
-   Otherwise a `kind=secondmate` task re-resolves its durable `config/secondmate-harness` pin, including that file's optional model and effort tokens, exactly as every other respawn does - so setting the pin and relaunching is the ordinary way to move a secondmate's runtime.
-   A ship or scout keeps the harness already recorded for it, because that harness comes from firstmate's dispatch-profile judgment at intake and must not be silently re-read from configuration.
+   Otherwise every task kind preserves its recorded harness, model, and effort, so a fleet-wide default change cannot silently move a deliberately selected runtime during restart.
+   Move one second mate deliberately with explicit profile flags on `fm-secondmate-restart.sh`, which keeps the persist, inheritance, readiness, and placement checks around the relaunch.
    A recorded raw-command basename that differs from its resolved adapter cannot reproduce the command actually running, so relaunch refuses before the checkpoint unless the caller passes an explicit `--harness` to choose the replacement runtime deliberately.
    A harness change resets model and effort unless they are named too, because a model chosen for one adapter does not transfer to another.
 2. **Safe checkpoint.**
