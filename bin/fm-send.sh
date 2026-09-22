@@ -11,9 +11,9 @@
 # Key support is backend-specific: tmux/herdr support Escape, Enter, and C-c;
 # Orca currently supports Enter and C-c only, and rejects Escape.
 #
-# Stopped lane: a target carrying state/<id>.stopped (bin/fm-secondmate-lane.sh's
-# pause marker) is refused before any mutation, with no carve-out for --key,
-# --resolve-key, or --fire-and-forget; reopen the lane first, then resend.
+# Stopped lane: state/<id>.stopped (bin/fm-secondmate-lane.sh's pause marker)
+# is checked before every send and again before inbox delivery. A refusal names
+# the lane and reopen command; reopen the lane first, then resend.
 #
 # Two data planes:
 #
@@ -179,7 +179,7 @@
 # (fm_pending_reply_close_note_for_key / fm_pending_reply_resolved_note), so
 # the fold actually drops it; a bare answered: note is not a reserved-key
 # transition and is never written for those keys. --resolve-key is refused
-# against a stopped target like every other send (see "Stopped lane" below).
+# against a stopped target like every other send (see "Stopped lane" above).
 # If this send cannot produce
 # a note the guard will accept, or the structural key would be lost to the
 # status-line cap, it refuses before sending and names the cause rather than

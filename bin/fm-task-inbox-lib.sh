@@ -63,9 +63,9 @@
 # If attempt bookkeeping cannot be persisted while the record remains unhandled,
 # the caller surfaces that failure instead of retrying silently; a concurrently
 # removed inbox is a quiet no-op. Escalation deliberately queues the wake before
-# writing the deduplication marker: normal polls surface a message once, while a
-# crash or marker failure may produce a rare duplicate rather than silently lose
-# a wake.
+# writing the deduplication marker: normal polls surface an unchanged oldest
+# and unhandled count once, while a new unhandled record can surface it again.
+# A crash or marker failure may produce a rare duplicate rather than lose a wake.
 #
 # Inbox paths containing bytes outside printable ASCII are unsupported. The
 # doorbell refuses them rather than sending terminal control bytes to a pane.
@@ -554,7 +554,7 @@ fm_task_inbox_unhandled_count() {  # <state-dir> <task-id>
 
 # The re-ring ladder decision for one task. Prints exactly one of:
 #   quiet                     nothing due (healthy, within grace or spacing,
-#                             or already escalated for the current oldest)
+#                             or already escalated at the current count)
 #   ring <record-path>        one doorbell re-ring is due
 #   escalate <record-path> <count>   attempt budget spent; surface as stale
 # An empty inbox also resets the ladder bookkeeping so the next message starts
