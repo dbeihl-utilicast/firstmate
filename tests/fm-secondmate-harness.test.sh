@@ -681,6 +681,7 @@ case "${1:-}" in
   kill-window)
     [ -z "${FM_FAKE_BACKEND_LOG:-}" ] || printf 'kill-window\n' >> "$FM_FAKE_BACKEND_LOG"
     [ "${FM_FAKE_KILL_LEAVES_ENDPOINT:-0}" != 1 ] || exit 1
+    [ -z "${FM_FAKE_CREATE_ENDPOINT_MARKER:-}" ] || rm -f "$FM_FAKE_CREATE_ENDPOINT_MARKER"
     exit 0
     ;;
   capture-pane)
@@ -806,6 +807,7 @@ spawn_secondmate_capture() {
     FM_STATE_OVERRIDE="$world/home/state" FM_DATA_OVERRIDE="$world/home/data" \
     FM_PROJECTS_OVERRIDE="$world/home/projects" FM_CONFIG_OVERRIDE="$world/home/config" \
     FM_SPAWN_NO_GUARD=1 FM_FAKE_LAUNCH_LOG="$launchlog" \
+    FM_FAKE_CREATE_ENDPOINT_MARKER="${FM_FAKE_CREATE_ENDPOINT_MARKER:-$world/created-endpoint}" \
     "$ROOT/bin/fm-spawn.sh" "$id" "$home" "$@" --secondmate
 }
 

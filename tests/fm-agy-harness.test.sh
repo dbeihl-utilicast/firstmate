@@ -110,8 +110,10 @@ case "${1:-}" in
     screen
     exit 0 ;;
   list-panes) printf 'fakepane\n'; exit 0 ;;
-  has-session|new-session|new-window|list-windows) exit 0 ;;
-  kill-window) printf 'kill-window\n' >> "$FM_FAKE_TMUX_LOG"; exit 0 ;;
+  list-windows) [ ! -e "$FM_FAKE_TMUX_ENDPOINT" ] || printf 'fm-%s\n' "$FM_FAKE_TASK_ID"; exit 0 ;;
+  new-window) : > "$FM_FAKE_TMUX_ENDPOINT"; exit 0 ;;
+  has-session|new-session) exit 0 ;;
+  kill-window) printf 'kill-window\n' >> "$FM_FAKE_TMUX_LOG"; rm -f "$FM_FAKE_TMUX_ENDPOINT"; exit 0 ;;
   send-keys)
     literal=
     prev=
@@ -210,6 +212,7 @@ run_spawn() {  # <id> [fm-spawn args]
     FM_PROJECTS_OVERRIDE="$HOME_DIR/projects" FM_CONFIG_OVERRIDE="$HOME_DIR/config" \
     FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$WT_DIR" TMUX="fake,1,0" \
     FM_FAKE_AGY_STATE="$CASE_DIR/agy.state" FM_FAKE_TMUX_LOG="$CASE_DIR/tmux.log" \
+    FM_FAKE_TMUX_ENDPOINT="$CASE_DIR/tmux.endpoint" FM_FAKE_TASK_ID="$id" \
     FM_FAKE_AGY_BRIEF="$HOME_DIR/data/$id/launch-brief.md" \
     FM_FAKE_AGY_BOUNDARY="export FM_TASK_ID=$id" \
     FM_FAKE_AGY_COUNT="$CASE_DIR/agy.captures" \
@@ -224,6 +227,7 @@ run_relaunch() {  # <id>
     FM_PROJECTS_OVERRIDE="$HOME_DIR/projects" FM_CONFIG_OVERRIDE="$HOME_DIR/config" \
     FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$WT_DIR" TMUX="fake,1,0" \
     FM_FAKE_AGY_STATE="$CASE_DIR/agy.state" FM_FAKE_TMUX_LOG="$CASE_DIR/tmux.log" \
+    FM_FAKE_TMUX_ENDPOINT="$CASE_DIR/tmux.endpoint" FM_FAKE_TASK_ID="$id" \
     FM_FAKE_AGY_BRIEF="$HOME_DIR/data/$id/launch-brief.md" \
     FM_FAKE_AGY_BOUNDARY="export FM_TASK_ID=$id" \
     FM_FAKE_AGY_COUNT="$CASE_DIR/agy.captures" \
