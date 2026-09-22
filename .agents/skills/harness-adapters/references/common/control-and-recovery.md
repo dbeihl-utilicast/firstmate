@@ -21,7 +21,7 @@ Claude gates a fresh worktree and cannot be answered by key, so the spawn pre-re
 Cursor suppresses its dialog with launch-time `--trust`.
 Grok pre-registers repository trust before launch; `references/harness/grok.md` owns its store and inheritance contract.
 Pi gates the fresh-worktree case too, but unlike Claude its dialog is answered with Enter, and `references/harness/pi.md` owns that recipe and where the decision persists.
-Codex shows a directory-trust dialog on the first run for a repository root.
+Codex first-run dialogs are owned by `references/harness/codex.md`.
 A Claude secondmate is deliberately not pre-registered, because `../../../bin/fm-spawn.sh` runs the Claude registration only for non-secondmate kinds, so it is never invoked for one.
 That kind guard is the whole exclusion, because a treehouse-leased secondmate home is itself a linked worktree that the scope test would accept, and only a plain-clone home would be refused as a primary checkout.
 The consequence is that a claude secondmate whose home Claude has never trusted meets the workspace-trust dialog itself, and firstmate cannot answer it any more than it can for a crewmate.

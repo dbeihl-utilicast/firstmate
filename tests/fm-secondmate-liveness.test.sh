@@ -345,7 +345,8 @@ case "${1:-}" in
     fi
     exit 0
     ;;
-  has-session) exit 0 ;;
+  has-session|send-keys) exit 0 ;;
+  capture-pane) printf '%s\n' '› Ask Codex to do anything'; exit 0 ;;
 esac
 exit 0
 SH

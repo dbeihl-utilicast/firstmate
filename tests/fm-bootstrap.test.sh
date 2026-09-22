@@ -1088,7 +1088,7 @@ test_crew_dispatch_active_rules_are_verbose_bootstrap_info() {
   out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
     FM_BOOTSTRAP_VERBOSE_FACTS=1 FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh")
 
-  expect=$'BOOTSTRAP_INFO: crew dispatch active config/crew-dispatch.json\nBOOTSTRAP_INFO: crew dispatch rule: Review, verification, or second reading of work another runtime produced. -> quota-balanced[codex/gpt-5.6-terra, claude/sonnet]\nBOOTSTRAP_INFO: crew dispatch rule: Large, architecturally hard, multi-subsystem, open-ended design, or gnarly diagnostic work. -> quota-balanced[codex/gpt-5.6-terra/xhigh]\nBOOTSTRAP_INFO: crew dispatch default: quota-balanced[codex/gpt-5.6-terra, claude/sonnet]'
+  expect=$'BOOTSTRAP_INFO: crew dispatch active config/crew-dispatch.json\nBOOTSTRAP_INFO: crew dispatch rule: Review, verification, or second reading of work another runtime produced. -> quota-balanced[codex/gpt-5.6-terra, codex/gpt-5.6-sol, claude/sonnet]\nBOOTSTRAP_INFO: crew dispatch rule: Large, architecturally hard, multi-subsystem, open-ended design, or gnarly diagnostic work. -> quota-balanced[codex/gpt-5.6-terra/xhigh, codex/gpt-5.6-sol/xhigh]\nBOOTSTRAP_INFO: crew dispatch default: quota-balanced[codex/gpt-5.6-terra, codex/gpt-5.6-sol, claude/sonnet]'
   [ "$out" = "$expect" ] || fail "active dispatch verbose info block mismatch"$'\n'"expected: $expect"$'\n'"actual:   $out"
   pass "bootstrap surfaces active crew-dispatch rules only as verbose BOOTSTRAP_INFO"
 }
@@ -1145,6 +1145,7 @@ array v2 profile classification is refused^.rules[0].use[0].model_class = ["ordi
 unknown v2 model is refused^.rules[0].use[0].model = "unclassified-model"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 unclassified model: unclassified-model
 automatic default model is refused^.default[0].model = "auto"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 unclassified model: auto
 gpt-5.6-luna is accepted as ordinary^.rules[0].use[0].model = "gpt-5.6-luna"^empty^
+gpt-5.6-sol is accepted as ordinary^.rules[0].use[0].model = "gpt-5.6-sol"^empty^
 claude-opus-5 is accepted as ordinary^.rules[0].use[0].harness = "claude" | .rules[0].use[0].model = "claude-opus-5"^empty^
 luna and opus together are accepted^.rules[0].use = [{"id":"codex-luna","harness":"codex","model":"gpt-5.6-luna","model_class":"ordinary"},{"id":"claude-opus","harness":"claude","model":"claude-opus-5","model_class":"ordinary"}]^empty^
 explicit ordinary_models accepts a listed name^.ordinary_models = ["gpt-5.6-terra", "gpt-5.6-paper"] | .rules[0].use[0].model = "gpt-5.6-paper"^empty^

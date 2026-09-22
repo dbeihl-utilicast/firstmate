@@ -440,16 +440,17 @@ fm_backend_zellij_send_literal() {  # <target> <text> [expected-label]
 }
 
 # fm_backend_zellij_normalize_key: map firstmate's key vocabulary (Enter,
-# Escape, C-c, as used by fm-send.sh --key and stuck-crewmate-recovery) onto
-# zellij's verified `action send-keys` names. Verified empirically: "Enter"
-# and "Esc" work; "Escape" and "escape" are REJECTED ("Invalid key"); Ctrl-C
-# must be the single argument "Ctrl c" (a space-separated two-word key
-# expression passed as ONE shell arg) - "C-c", "Ctrl+c", and two separate argv
-# words all fail.
+# Escape, Down, C-c, as used by fm-send.sh --key, Codex secondmate startup,
+# and stuck-crewmate-recovery) onto zellij's verified `action send-keys` names.
+# Verified empirically: "Enter", "Esc", and "Down" work; "Escape" and "escape"
+# are REJECTED ("Invalid key"); Ctrl-C must be the single argument "Ctrl c"
+# (a space-separated two-word key expression passed as ONE shell arg) -
+# "C-c", "Ctrl+c", and two separate argv words all fail.
 fm_backend_zellij_normalize_key() {  # <key>
   case "$1" in
     Enter|enter) printf 'Enter' ;;
     Escape|escape|Esc|esc) printf 'Esc' ;;
+    Down|down) printf 'Down' ;;
     C-c|c-c|ctrl+c|Ctrl+c|Ctrl+C|'Ctrl c'|'ctrl c') printf 'Ctrl c' ;;
     # C-u clears a composer line. fm-send.sh's muse interrupt path needs it to
     # drop the prompt muse restores into the composer after Escape.

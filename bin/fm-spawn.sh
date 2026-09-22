@@ -428,6 +428,8 @@ fm_backlog_directory_present "$STATE" "state directory" || {
 . "$SCRIPT_DIR/fm-backend.sh"
 # shellcheck source=bin/fm-control-lib.sh
 . "$SCRIPT_DIR/fm-control-lib.sh"
+# shellcheck source=bin/fm-codex-startup-lib.sh
+. "$SCRIPT_DIR/fm-codex-startup-lib.sh"
 # shellcheck source=bin/fm-qwen-lib.sh
 . "$SCRIPT_DIR/fm-qwen-lib.sh"
 # shellcheck source=bin/fm-gate-refuse-lib.sh
@@ -3112,6 +3114,73 @@ agy_post_launch_pane() {  # <plain-pane-capture>
   '
 }
 
+# Codex can stop on a directory-trust dialog and, on a firstmate-shaped home
+# that ships .codex/hooks.json, a hooks-review dialog. Enter on the hooks
+# dialog confirms "Review hooks" and wedges the pane; Down then Enter selects
+# "Trust all and continue". bin/fm-codex-startup-lib.sh owns the classifier.
+# Publish a Codex secondmate only on ready; fail closed with endpoint cleanup
+# for empty, unreadable, or nonempty unready panes. The Codex harness reference
+# owns that startup contract.
+spawn_capture_pane() {
+  case "$BACKEND" in
+    tmux) tmux capture-pane -p -J -t "$T" -S -120 2>/dev/null ;;
+    herdr) fm_backend_herdr_capture "$T" 200 2>/dev/null ;;
+    zellij) fm_backend_zellij_capture "$T" 200 "$W" 2>/dev/null ;;
+    *)
+      echo "error: backend '$BACKEND' has no verified Codex startup-dialog capture" >&2
+      return 1
+      ;;
+  esac
+}
+
+codex_wait_for_startup_dialogs() {
+  local pane action i=0
+  local max=${FM_CODEX_READY_POLLS:-40} interval=${FM_CODEX_POLL_INTERVAL:-0.5}
+  while [ "$i" -lt "$max" ]; do
+    if ! pane=$(spawn_capture_pane); then
+      echo "error: unable to capture Codex startup state in $T; refusing to publish a worker that cannot begin its turn" >&2
+      unpublished_endpoint_cleanup
+      return 1
+    fi
+    action=$(fm_codex_startup_dialog_action "$pane")
+    case "$action" in
+      hooks-down-enter)
+        spawn_send_key "$T" Down || {
+          unpublished_endpoint_cleanup
+          return 1
+        }
+        sleep 0.3
+        spawn_send_key "$T" Enter || {
+          unpublished_endpoint_cleanup
+          return 1
+        }
+        ;;
+      trust-enter)
+        spawn_send_key "$T" Enter || {
+          unpublished_endpoint_cleanup
+          return 1
+        }
+        ;;
+      ready) return 0 ;;
+    esac
+    i=$((i + 1))
+    [ "$i" -ge "$max" ] || sleep "$interval"
+  done
+  if ! pane=$(spawn_capture_pane); then
+    echo "error: unable to capture Codex startup state in $T; refusing to publish a worker that cannot begin its turn" >&2
+  elif [ -z "$pane" ]; then
+    echo "error: Codex startup state in $T remained empty; refusing to publish a worker that cannot begin its turn" >&2
+  else
+    action=$(fm_codex_startup_dialog_action "$pane")
+    if [ "$action" = ready ]; then
+      return 0
+    fi
+    echo "error: Codex startup in $T never reached its ready prompt; refusing to publish a worker that cannot begin its turn" >&2
+  fi
+  unpublished_endpoint_cleanup
+  return 1
+}
+
 agy_wait_for_delivery() {
   local pane raw i=0 accepted=0 seen=0 max=${FM_AGY_READY_POLLS:-60} interval=${FM_AGY_POLL_INTERVAL:-0.5}
   while [ "$i" -lt "$max" ]; do
@@ -3143,6 +3212,9 @@ agy_wait_for_delivery() {
 # the already-launched pane. Kill it here rather than leaving an autonomous
 # orphan outside task control.
 unpublished_endpoint_cleanup() {
+  if [ "$RELAUNCH" -eq 1 ] && [ "$RELAUNCH_ENDPOINT_PENDING" != 1 ]; then
+    return 0
+  fi
   [ "$BACKEND" = orca ] && return 0
   local tab_id=
   [ "$BACKEND" = zellij ] && tab_id=$ZELLIJ_TAB_ID
@@ -3985,13 +4057,28 @@ if [ "$HARNESS" = agy ]; then
   AGY_BRIEF_MARKER=$(agy_brief_marker "$BRIEF")
 fi
 sleep 0.3
-spawn_send_literal "$T" "$LAUNCH"
+if ! spawn_send_literal "$T" "$LAUNCH"; then
+  if [ "$KIND" = secondmate ] && [ "$HARNESS" = codex ]; then
+    echo "error: unable to deliver Codex launch in $T; refusing to publish a worker that cannot begin its turn" >&2
+    unpublished_endpoint_cleanup
+  fi
+  exit 1
+fi
 sleep 0.3
 if [ "${HERDR_PROJECTED:-0}" -eq 1 ]; then
   HERDR_PROJECTION_ABORT_CLEANUP=0
   spawn_herdr_presentation_order_lock_release
 fi
-spawn_send_key "$T" Enter
+if ! spawn_send_key "$T" Enter; then
+  if [ "$KIND" = secondmate ] && [ "$HARNESS" = codex ]; then
+    echo "error: unable to start Codex in $T; refusing to publish a worker that cannot begin its turn" >&2
+    unpublished_endpoint_cleanup
+  fi
+  exit 1
+fi
+if [ "$KIND" = secondmate ] && [ "$HARNESS" = codex ]; then
+  codex_wait_for_startup_dialogs || exit 1
+fi
 if [ "$HARNESS" = agy ]; then
   AGY_DELIVERY_RC=0
   agy_wait_for_delivery || AGY_DELIVERY_RC=$?

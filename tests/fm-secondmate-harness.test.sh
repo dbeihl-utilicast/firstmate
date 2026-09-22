@@ -155,6 +155,7 @@ test_secondmate_model_effort_tokens() {
 absent file -> own harness, empty model/effort^ABSENT^claude^^
 bare harness only -> empty model/effort (backward-compat)^claude^claude^^
 harness + model -> model only^claude opus^claude^opus^
+harness + Codex sol model -> model only^codex gpt-5.6-sol^codex^gpt-5.6-sol^
 harness + model + effort -> both^claude opus high^claude^opus^high
 signed Pi wrapper + model + effort preserves every token^pi-signed openai-codex/gpt-5.6-sol max^pi-signed^openai-codex/gpt-5.6-sol^max
 default harness token -> falls back to crew, empty model/effort^default^claude^^
@@ -433,6 +434,7 @@ make_noop_tmux() {
 #!/usr/bin/env bash
 case "$1" in
   list-panes) printf '%%1\n' ;;
+  capture-pane) printf '› Ask Codex to do anything\n' ;;
 esac
 exit 0
 SH
@@ -655,16 +657,31 @@ case "${1:-}" in
   display-message) printf 'firstmate\n'; exit 0 ;;
   list-panes) printf '%%1\n'; exit 0 ;;
   list-windows) exit 0 ;;
-  has-session|new-session|new-window|kill-window) exit 0 ;;
+  has-session|new-session|new-window) exit 0 ;;
+  kill-window)
+    [ -z "${FM_FAKE_BACKEND_LOG:-}" ] || printf 'kill-window\n' >> "$FM_FAKE_BACKEND_LOG"
+    exit 0
+    ;;
+  capture-pane) printf '%s\n' "${FM_FAKE_PANE_CAPTURE-› Ask Codex to do anything}"; exit 0 ;;
   send-keys)
-    if [ -n "${FM_FAKE_LAUNCH_LOG:-}" ]; then
-      prev=
-      for a in "$@"; do
-        if [ "$prev" = "-l" ]; then
-          printf '%s\n' "$a" >> "$FM_FAKE_LAUNCH_LOG"
-        fi
-        prev=$a
-      done
+    prev=
+    last=
+    literal=0
+    for a in "$@"; do
+      if [ "$prev" = "-l" ]; then
+        literal=1
+        [ -z "${FM_FAKE_LAUNCH_LOG:-}" ] || printf '%s\n' "$a" >> "$FM_FAKE_LAUNCH_LOG"
+      fi
+      last=$a
+      prev=$a
+    done
+    [ "$literal" != 1 ] || [ "${FM_FAKE_FAIL_LITERAL:-0}" != 1 ] || exit 1
+    if [ "$last" = "${FM_FAKE_FAIL_KEY:-}" ]; then
+      if [ -n "${FM_FAKE_KEY_LOG:-}" ]; then
+        printf '%s\n' "$last" >> "$FM_FAKE_KEY_LOG"
+        [ "$(wc -l < "$FM_FAKE_KEY_LOG")" -ge "${FM_FAKE_FAIL_KEY_AFTER:-1}" ] || exit 0
+      fi
+      exit 1
     fi
     exit 0
     ;;
@@ -763,6 +780,114 @@ test_spawn_bare_harness_no_model_effort_flag() {
   pass "C2 spawn: a bare harness-only secondmate-harness file launches with no model/effort flag (backward-compat)"
 }
 
+test_spawn_codex_dialog_key_failure_cleans_endpoint() {
+  local w sm launchlog backendlog hooks out status
+  w="$TMP_ROOT/spawn-codex-dialog-key-failure"
+  sm="$w/sm"
+  launchlog="$w/launch.log"
+  backendlog="$w/backend.log"
+  hooks='Hooks need review
+2. Trust all and continue'
+  mkdir -p "$w/home/config"
+  printf 'codex gpt-5.6-sol\n' > "$w/home/config/secondmate-harness"
+  make_seeded_home "$sm" sm
+  : > "$backendlog"
+
+  out=$(FM_FAKE_PANE_CAPTURE="$hooks" FM_FAKE_FAIL_KEY=Down \
+    FM_FAKE_BACKEND_LOG="$backendlog" spawn_secondmate_capture "$w" sm "$sm" "$launchlog" 2>&1); status=$?
+  expect_code 1 "$status" "Codex secondmate spawn must fail when a dialog key cannot be delivered"$'\n'"$out"
+  assert_contains "$(cat "$backendlog")" "kill-window" \
+    "a failed Codex dialog key must close the unpublished endpoint"
+  [ ! -e "$w/home/state/sm.meta" ] \
+    || fail "a failed Codex dialog key must not publish secondmate metadata"
+  pass "C3a spawn: Codex dialog key failure cleans the unpublished endpoint"
+}
+
+test_spawn_codex_launch_key_failure_cleans_endpoint() {
+  local w sm launchlog backendlog keylog out status
+  w="$TMP_ROOT/spawn-codex-launch-key-failure"
+  sm="$w/sm"
+  launchlog="$w/launch.log"
+  backendlog="$w/backend.log"
+  keylog="$w/key.log"
+  mkdir -p "$w/home/config"
+  printf 'codex gpt-5.6-sol\n' > "$w/home/config/secondmate-harness"
+  make_seeded_home "$sm" sm
+  : > "$backendlog"
+  : > "$keylog"
+
+  out=$(FM_FAKE_FAIL_KEY=Enter FM_FAKE_FAIL_KEY_AFTER=2 FM_FAKE_KEY_LOG="$keylog" \
+    FM_FAKE_BACKEND_LOG="$backendlog" spawn_secondmate_capture "$w" sm "$sm" "$launchlog" 2>&1); status=$?
+  expect_code 1 "$status" "Codex secondmate spawn must fail when the launch key cannot be delivered"$'\n'"$out"
+  assert_contains "$(cat "$backendlog")" "kill-window" \
+    "a failed Codex launch key must close the unpublished endpoint"
+  [ ! -e "$w/home/state/sm.meta" ] \
+    || fail "a failed Codex launch key must not publish secondmate metadata"
+  pass "C3b spawn: Codex launch-key failure cleans the unpublished endpoint"
+}
+
+test_spawn_codex_launch_literal_failure_cleans_endpoint() {
+  local w sm launchlog backendlog out status
+  w="$TMP_ROOT/spawn-codex-launch-literal-failure"
+  sm="$w/sm"
+  launchlog="$w/launch.log"
+  backendlog="$w/backend.log"
+  mkdir -p "$w/home/config"
+  printf 'codex gpt-5.6-sol\n' > "$w/home/config/secondmate-harness"
+  make_seeded_home "$sm" sm
+  : > "$backendlog"
+
+  out=$(FM_FAKE_FAIL_LITERAL=1 FM_FAKE_BACKEND_LOG="$backendlog" \
+    spawn_secondmate_capture "$w" sm "$sm" "$launchlog" 2>&1); status=$?
+  expect_code 1 "$status" "Codex secondmate spawn must fail when the launch command cannot be delivered"$'\n'"$out"
+  assert_contains "$(cat "$backendlog")" "kill-window" \
+    "a failed Codex launch command must close the unpublished endpoint"
+  [ ! -e "$w/home/state/sm.meta" ] \
+    || fail "a failed Codex launch command must not publish secondmate metadata"
+  pass "C3c spawn: Codex launch-command failure cleans the unpublished endpoint"
+}
+
+test_spawn_codex_empty_startup_capture_refused() {
+  local w sm launchlog out status
+  w="$TMP_ROOT/spawn-codex-empty-startup-capture"
+  sm="$w/sm"
+  launchlog="$w/launch.log"
+  mkdir -p "$w/home/config"
+  printf 'codex gpt-5.6-sol\n' > "$w/home/config/secondmate-harness"
+  make_seeded_home "$sm" sm
+
+  out=$(FM_FAKE_PANE_CAPTURE='' FM_CODEX_READY_POLLS=2 FM_CODEX_POLL_INTERVAL=0 \
+    spawn_secondmate_capture "$w" sm "$sm" "$launchlog" 2>&1); status=$?
+  expect_code 1 "$status" "Codex secondmate spawn must refuse an empty startup capture"$'\n'"$out"
+  assert_contains "$out" "startup state in" \
+    "the refusal must identify the unobservable Codex startup state"
+  [ ! -e "$w/home/state/sm.meta" ] \
+    || fail "an empty Codex startup capture must not publish secondmate metadata"
+  pass "C3a spawn: Codex secondmate refuses an empty startup capture"
+}
+
+test_spawn_codex_unready_startup_capture_refused() {
+  local w sm launchlog backendlog out status
+  w="$TMP_ROOT/spawn-codex-unready-startup-capture"
+  sm="$w/sm"
+  launchlog="$w/launch.log"
+  backendlog="$w/backend.log"
+  mkdir -p "$w/home/config"
+  printf 'codex gpt-5.6-sol\n' > "$w/home/config/secondmate-harness"
+  make_seeded_home "$sm" sm
+  : > "$backendlog"
+
+  out=$(FM_FAKE_PANE_CAPTURE='codex: command not found' FM_FAKE_BACKEND_LOG="$backendlog" \
+    FM_CODEX_READY_POLLS=2 FM_CODEX_POLL_INTERVAL=0 \
+    spawn_secondmate_capture "$w" sm "$sm" "$launchlog" 2>&1); status=$?
+  expect_code 1 "$status" "Codex secondmate spawn must refuse a non-ready startup capture"$'\n'"$out"
+  assert_contains "$(cat "$backendlog")" "kill-window" \
+    "an unready Codex startup capture must close the unpublished endpoint"
+  [ ! -e "$w/home/state/sm.meta" ] \
+    || fail "an unready Codex startup capture must not publish secondmate metadata"
+  pass "C3d spawn: Codex secondmate refuses a non-ready startup capture"
+}
+
 # "<harness> <model>" durably threads --model into the secondmate launch and
 # records it in meta, with no --effort flag (no effort token supplied).
 test_spawn_secondmate_harness_model_token() {
@@ -785,6 +910,36 @@ test_spawn_secondmate_harness_model_token() {
     "model-token: launch did not carry --model opus"
   assert_not_contains "$launch" "--effort" "model-token: launch must not carry an --effort flag"
   pass "C3 spawn: config/secondmate-harness's model token threads --model into the launch and meta"
+}
+
+# A Codex sol pin is the existing Codex secondmate launch with only the model
+# name changed: config/secondmate-harness "codex gpt-5.6-sol" must thread
+# --model gpt-5.6-sol and keep the secondmate template (no parent turn-end
+# notify hook).
+test_spawn_secondmate_harness_codex_sol_pin() {
+  local w sm meta launchlog launch out status
+  w="$TMP_ROOT/spawn-codex-sol-pin"
+  sm="$w/sm"
+  launchlog="$w/launch.log"
+  mkdir -p "$w/home/config"
+  printf 'codex gpt-5.6-sol\n' > "$w/home/config/secondmate-harness"
+  make_seeded_home "$sm" sm
+
+  out=$(spawn_secondmate_capture "$w" sm "$sm" "$launchlog" 2>&1); status=$?
+  expect_code 0 "$status" "codex-sol pin secondmate spawn should succeed"$'\n'"$out"
+
+  meta="$w/home/state/sm.meta"
+  [ "$(meta_field "$meta" harness)" = codex ] || fail "codex-sol pin: meta harness not codex"
+  [ "$(meta_field "$meta" model)" = gpt-5.6-sol ] \
+    || fail "codex-sol pin: meta model not gpt-5.6-sol (got '$(meta_field "$meta" model)')"
+  launch=$(cat "$launchlog")
+  assert_contains "$launch" "codex --model 'gpt-5.6-sol' --dangerously-bypass-approvals-and-sandbox" \
+    "codex-sol pin: launch did not use the existing Codex path with --model gpt-5.6-sol"
+  assert_not_contains "$launch" "notify=" \
+    "codex-sol pin: secondmate Codex launch included the parent turn-end notify hook"
+  assert_not_contains "$launch" "fm-foundry-luna-proxy" \
+    "codex-sol pin: Codex sol must not take the Foundry luna gateway path"
+  pass "C3b spawn: config/secondmate-harness 'codex gpt-5.6-sol' uses the existing Codex secondmate launch"
 }
 
 # "<harness> <model> <effort>" threads both flags into the launch and meta.
@@ -2616,7 +2771,13 @@ test_spawn_cursor_secondmate_launches_with_its_primary_contract
 test_spawn_backend_precedence_over_inherited_config
 test_spawn_explicit_backend_precedence_over_env_and_inherited_config
 test_spawn_bare_harness_no_model_effort_flag
+test_spawn_codex_dialog_key_failure_cleans_endpoint
+test_spawn_codex_launch_key_failure_cleans_endpoint
+test_spawn_codex_launch_literal_failure_cleans_endpoint
+test_spawn_codex_empty_startup_capture_refused
+test_spawn_codex_unready_startup_capture_refused
 test_spawn_secondmate_harness_model_token
+test_spawn_secondmate_harness_codex_sol_pin
 test_spawn_secondmate_harness_model_and_effort_tokens
 test_spawn_explicit_model_overrides_secondmate_harness_token
 test_spawn_explicit_effort_overrides_secondmate_harness_token

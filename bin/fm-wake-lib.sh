@@ -1271,9 +1271,16 @@ fm_firstmate_root_home() {
 # remote-seeded home is its own local root. An origin-less local-only project
 # falls back to its own worktree top instead of failing to resolve.
 fm_treehouse_project_lock_path() {  # <project-dir>
-  local project=$1 root origin identity hash top
+  local project=$1 root lock_state origin identity hash top
   [ -d "$project" ] || return 1
-  root=$(fm_firstmate_root_home "$FM_HOME") || return 1
+  # An explicit state override is a self-contained runtime root (notably for
+  # controlled dispatches). Do not require the checkout's ignored state/ dir.
+  if [ -n "${FM_STATE_OVERRIDE:-}" ]; then
+    lock_state=$STATE
+  else
+    root=$(fm_firstmate_root_home "$FM_HOME") || return 1
+    lock_state=$root/state
+  fi
   origin=$(git -C "$project" remote get-url origin 2>/dev/null || true)
   if [ -n "$origin" ]; then
     case "$origin" in
@@ -1288,8 +1295,8 @@ fm_treehouse_project_lock_path() {  # <project-dir>
     identity=$top
   fi
   hash=$(printf '%s' "$identity" | git hash-object --stdin 2>/dev/null) || return 1
-  [ -d "$root/state" ] || return 1
-  printf '%s/.treehouse-project-%s.lock\n' "$root/state" "$hash"
+  [ -d "$lock_state" ] || return 1
+  printf '%s/.treehouse-project-%s.lock\n' "$lock_state" "$hash"
 }
 
 fm_failure_episode_reset() {

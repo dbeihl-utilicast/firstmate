@@ -111,7 +111,10 @@ case "${1:-}" in
       prev=$a
     done
     printf 'fakepane\n'; exit 0 ;;
-  capture-pane) printf '> \n'; exit 0 ;;
+  # One capture line so cursor_y=1 stays past the content (empty composer
+  # for persist send) while still containing Codex's verified ready prompt
+  # for a pinned `codex` secondmate restart.
+  capture-pane) printf '> Ask Codex to do anything\n'; exit 0 ;;
   list-windows) [ -f "$D/windows" ] && cat "$D/windows"; exit 0 ;;
 esac
 exit 0
