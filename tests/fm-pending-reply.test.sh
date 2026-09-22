@@ -1117,6 +1117,8 @@ fm_lock_release() {
 SH
     export FM_PENDING_TEST_OBSERVE_LOG=$observe_log
     export FM_PENDING_TEST_LOCK_LOG=$lock_log
+    # This fixture clock is intentionally scoped to the isolated subshell.
+    # shellcheck disable=SC2030,SC2031
     export FM_PENDING_REPLY_NOW=10200
     running=$(fm_pending_reply_create "$home" "$state" running "running request")
     stopped=$(fm_pending_reply_create "$home" "$state" stopped "stopped request")

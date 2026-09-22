@@ -1454,6 +1454,9 @@ fm_pending_reply_tick() {  # <state-dir>
     corr=$(fm_pending_reply_get "$rec" corr_id)
     [ -n "$corr" ] || corr=$(basename "$rec")
     task_id=$(fm_pending_reply_get "$rec" task_id)
+    # Stopped lanes keep their delivery state for a later reopen. Skip before
+    # reconciliation takes the record lock or observes the remote endpoint.
+    [ ! -e "$state/${task_id}.stopped" ] || continue
     phase=$(fm_pending_reply_get "$rec" phase)
     if [ "$phase" = resolved ]; then
       # Cheap no-op unless an escalation for this record is still open; this is
