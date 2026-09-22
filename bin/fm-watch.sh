@@ -401,14 +401,15 @@ window_key() {  # <window>
 }
 
 inbox_steer_escalate_unavailable() {  # <window> <task> <record>
-  local w=$1 task=$2 rec=$3 reason
+  local w=$1 task=$2 rec=$3 reason seq
   reason="stale: $w (unread firstmate instruction: $rec is unhandled and the worker's agent has exited or its endpoint is missing, so the doorbell was not typed; recover the worker)"
   if [ ! -d "${rec%/*}" ] || [ ! -f "$rec" ]; then
     fm_task_inbox_due_action "$STATE" "$task" >/dev/null || true
     return 0
   fi
+  seq=$(fm_task_inbox_highest_unhandled_seq "$STATE" "$task")
   fm_wake_append stale "$w" "$reason" || exit 1
-  if ! fm_task_inbox_record_escalated "$STATE" "$task" "$rec"; then
+  if ! fm_task_inbox_record_escalated "$STATE" "$task" "$rec" "$seq"; then
     echo "error: stale wake was queued for $task but its inbox escalation marker could not be written" >&2
     exit 1
   fi
@@ -436,7 +437,7 @@ inbox_steer_escalate_unavailable() {  # <window> <task> <record>
 # too: their pane-staleness exemption is about quiet panes being healthy,
 # while an unacknowledged instruction past the ladder is a stuck steer.
 inbox_steer_check() {  # <window> <task>
-  local w=$1 task=$2 action verb rec count tail40 reason ring_rc backend agent_state
+  local w=$1 task=$2 action verb rec count tail40 reason ring_rc backend agent_state seq
   [ ! -e "$STATE/$task.stopped" ] || return 0
   action=$(fm_task_inbox_due_action "$STATE" "$task") || return 0
   verb=${action%% *}
@@ -488,8 +489,9 @@ inbox_steer_check() {  # <window> <task>
         fm_task_inbox_due_action "$STATE" "$task" >/dev/null || true
         return 0
       fi
+      seq=$(fm_task_inbox_highest_unhandled_seq "$STATE" "$task")
       fm_wake_append stale "$w" "$reason" || exit 1
-      if ! fm_task_inbox_record_escalated "$STATE" "$task" "$rec"; then
+      if ! fm_task_inbox_record_escalated "$STATE" "$task" "$rec" "$seq"; then
         echo "error: stale wake was queued for $task but its inbox escalation marker could not be written" >&2
         exit 1
       fi

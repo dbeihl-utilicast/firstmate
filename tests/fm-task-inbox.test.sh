@@ -808,8 +808,86 @@ test_escalation_rekeys_to_unhandled_count_not_just_oldest() {
   pass "inbox: escalation re-fires when the unhandled queue grows behind the same stuck oldest"
 }
 
-# The pre-fix marker format was just the base name, no count: it must still
-# parse (as count=0), so an already-escalated lane re-escalates once on its
+# A raw unhandled count is not enough: escalate at 2 (A+B), ack B, enqueue C.
+# Count returns to 2, unchanged; only the highest-seq marker still catches
+# that C is genuinely new (seq numbers never repeat).
+test_escalation_rekeys_on_new_record_even_when_count_is_unchanged() {
+  local state rec1 rec2 rec3 action
+  state="$TMP_ROOT/queue-depth-swap/state"; mkdir -p "$state"
+  rec1=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "stuck head")
+  age_path "$rec1"
+  rec2=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "will be acked")
+  printf '001.msg\t3\t100\n' > "$state/t1.inbox/.ring-state"
+  action=$(FM_TASK_INBOX_GRACE_SECS=60 FM_TASK_INBOX_RING_MAX=3 inbox_lib "$state" fm_task_inbox_due_action "$state" t1)
+  [ "$action" = "escalate $rec1 3" ] || fail "a spent ring budget should escalate, got: $action"
+  inbox_lib "$state" fm_task_inbox_record_escalated "$state" t1 "$rec1"
+  mv "$rec2" "$state/t1.inbox/handled/"
+  rec3=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "swapped in, same count")
+  action=$(FM_TASK_INBOX_GRACE_SECS=60 FM_TASK_INBOX_RING_MAX=3 inbox_lib "$state" fm_task_inbox_due_action "$state" t1)
+  [ "$action" = "escalate $rec1 3" ] \
+    || fail "swapping an acked record for a new one at the same count should still re-escalate, got: $action"
+  [ -f "$rec3" ] || fail "the swapped-in record must stay durable while the head is still stuck"
+  pass "inbox: escalation re-fires on a genuinely new record even when the unhandled count is unchanged"
+}
+
+test_escalation_marker_uses_pre_wake_snapshot() {
+  local state rec1 rec2 seq action
+  state="$TMP_ROOT/escalation-snapshot/state"; mkdir -p "$state"
+  rec1=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "stuck head")
+  age_path "$rec1"
+  seq=$(inbox_lib "$state" fm_task_inbox_highest_unhandled_seq "$state" t1)
+  rec2=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "arrived during wake")
+  inbox_lib "$state" fm_task_inbox_record_escalated "$state" t1 "$rec1" "$seq"
+  action=$(FM_TASK_INBOX_GRACE_SECS=60 FM_TASK_INBOX_RING_MAX=3 inbox_lib "$state" fm_task_inbox_due_action "$state" t1)
+  [ "$action" = "escalate $rec1 0" ] \
+    || fail "a record arriving after the wake decision must stay eligible, got: $action"
+  [ -f "$rec2" ] || fail "the new record should remain unhandled"
+  pass "inbox: escalation marker covers only the pre-wake sequence snapshot"
+}
+
+test_watcher_escalation_does_not_cover_later_arrival() {
+  local mode dir state out rec action pid
+  for mode in dead idle; do
+    dir=$(setup_watch_case "wake-arrival-$mode")
+    state="$dir/state"; out="$dir/watch.out"
+    rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "stuck head")
+    age_path "$rec"
+    if [ "$mode" = idle ]; then
+      printf '001.msg\t3\t100\n' > "$state/t1.inbox/.ring-state"
+    fi
+    cat > "$dir/fakebin/tr" <<'SH'
+#!/usr/bin/env bash
+if [ "${FM_INSERT_AT_WAKE:-0}" = 1 ] && [ "${1:-}" = '\t\r\n' ] \
+    && [ "${2:-}" = '   ' ] && [ ! -e "$FM_INSERT_MARKER" ]; then
+  touch "$FM_INSERT_MARKER"
+  FM_STATE_OVERRIDE="$FM_INSERT_STATE" bash -c '. "$1"; fm_task_inbox_write "$2" t1 "arrived during wake" >/dev/null' \
+    _ "$FM_INSERT_LIB" "$FM_INSERT_STATE"
+fi
+exec /usr/bin/tr "$@"
+SH
+    chmod +x "$dir/fakebin/tr"
+    if [ "$mode" = dead ]; then
+      watch_bg "$state" "$dir/fakebin" "$out" \
+        FM_FAKE_TMUX_AGENT=zsh FM_TASK_INBOX_RING_MAX=99 \
+        FM_INSERT_AT_WAKE=1 FM_INSERT_MARKER="$dir/inserted" \
+        FM_INSERT_STATE="$state" FM_INSERT_LIB="$ROOT/bin/fm-task-inbox-lib.sh"
+    else
+      watch_bg "$state" "$dir/fakebin" "$out" \
+        FM_FAKE_TMUX_CAPTURE="$(idle_capture "$dir")" FM_TASK_INBOX_RING_MAX=3 \
+        FM_INSERT_AT_WAKE=1 FM_INSERT_MARKER="$dir/inserted" \
+        FM_INSERT_STATE="$state" FM_INSERT_LIB="$ROOT/bin/fm-task-inbox-lib.sh"
+    fi
+    pid=$!
+    wait_watcher_gone "$pid" || { kill "$pid" 2>/dev/null; fail "$mode watcher did not escalate"; }
+    [ -f "$state/t1.inbox/002.msg" ] || fail "$mode wake did not overlap a new record"
+    action=$(FM_TASK_INBOX_GRACE_SECS=1 FM_TASK_INBOX_RING_MAX=3 inbox_lib "$state" fm_task_inbox_due_action "$state" t1)
+    [ "${action%% *}" = escalate ] || fail "$mode escalation swallowed a later arrival: $action"
+  done
+  pass "watcher: dead and idle escalation leave records arriving during wake eligible"
+}
+
+# The pre-fix marker format was just the base name, no seq: it must still
+# parse (as seq=0), so an already-escalated lane re-escalates once on its
 # first poll under the fix rather than staying silently quiet forever.
 test_legacy_escalated_marker_format_migrates_forward() {
   local state rec action
@@ -819,8 +897,8 @@ test_legacy_escalated_marker_format_migrates_forward() {
   printf '001.msg\n' > "$state/t1.inbox/.escalated"
   action=$(FM_TASK_INBOX_GRACE_SECS=60 FM_TASK_INBOX_RING_MAX=3 inbox_lib "$state" fm_task_inbox_due_action "$state" t1)
   [ "$action" = "escalate $rec 0" ] \
-    || fail "a legacy no-count escalated marker should re-escalate once under the fix, got: $action"
-  pass "inbox: a legacy single-field .escalated marker parses as count=0 and re-escalates once"
+    || fail "a legacy no-seq escalated marker should re-escalate once under the fix, got: $action"
+  pass "inbox: a legacy single-field .escalated marker parses as seq=0 and re-escalates once"
 }
 
 setup_watch_case() {  # <name> -> echoes case dir; state in <dir>/state
@@ -1112,6 +1190,9 @@ test_ladder_writes_ignore_vanished_inbox
 test_fire_and_forget_records_never_enter_the_ladder
 test_ring_ladder_policy
 test_escalation_rekeys_to_unhandled_count_not_just_oldest
+test_escalation_rekeys_on_new_record_even_when_count_is_unchanged
+test_escalation_marker_uses_pre_wake_snapshot
+test_watcher_escalation_does_not_cover_later_arrival
 test_legacy_escalated_marker_format_migrates_forward
 test_watcher_rerings_idle_pane_quietly
 test_watcher_waits_on_busy_pane

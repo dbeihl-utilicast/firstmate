@@ -52,6 +52,10 @@ set -u
 case "${1:-}" in
   send-keys)
     [ "${FM_FAKE_TMUX_SEND_FAIL:-0}" = 1 ] && exit 1
+    if [ -n "${FM_BLOCK_SEND:-}" ]; then
+      touch "$FM_BLOCK_SEND.started"
+      while [ ! -e "$FM_BLOCK_SEND.release" ]; do /bin/sleep 0.02; done
+    fi
     shift
     literal=0
     while [ $# -gt 0 ]; do
@@ -264,6 +268,98 @@ test_key_path_never_touches_inbox() {
   run_send "$dir" "$err" -- t1 --key Enter || fail "a --key send should succeed"
   [ ! -d "$dir/home/state/t1.inbox" ] || fail "the --key path must never write an inbox record"
   pass "fm-send planes: the --key lifecycle path never touches the inbox"
+}
+
+test_key_path_refuses_a_stopped_lane() {
+  local dir err rc
+  dir=$(setup_case keypath-stopped); err="$dir/send.err"
+  printf 'stopped\n' > "$dir/home/state/t1.stopped"
+  run_send "$dir" "$err" -- t1 --key Enter; rc=$?
+  [ "$rc" -ne 0 ] || fail "a --key send to a stopped lane should be refused"
+  [ ! -s "$dir/send.log" ] || fail "a refused --key send still typed a key:"$'\n'"$(cat "$dir/send.log")"
+  assert_contains "$(cat "$err")" "reopen" "the --key refusal should say how to reopen the lane"
+  pass "fm-send planes: --key against a stopped lane is refused too, no carve-out"
+}
+
+# The stopped marker can appear after the top-of-script check and before
+# dispatch: --key holds no lock of its own, so the final recheck under the
+# exact lock fm-secondmate-lane.sh stop uses is what closes that window.
+test_key_path_race_stopped_marker_still_refuses() {
+  local dir err lock marker holder sender rc=0
+  dir=$(setup_case keypath-race); err="$dir/send.err"
+  lock="$dir/home/state/.meta-t1.lock"
+  marker="$dir/lock-held"
+  bash -c '
+    . "$1"
+    fm_lock_acquire_wait "$2"
+    touch "$3"
+    while [ ! -e "$4" ]; do sleep 0.05; done
+    fm_lock_release "$2"
+  ' _ "$ROOT/bin/fm-wake-lib.sh" "$lock" "$marker" "$dir/release" &
+  holder=$!
+  while [ ! -e "$marker" ]; do sleep 0.05; done
+  run_send "$dir" "$err" -- t1 --key Enter &
+  sender=$!
+  sleep 0.5
+  printf 'stopped\n' > "$dir/home/state/t1.stopped"
+  touch "$dir/release"
+  wait "$holder"
+  wait "$sender" || rc=$?
+  [ "$rc" -ne 0 ] || fail "a marker published mid-send should still refuse a --key send"
+  [ ! -s "$dir/send.log" ] || fail "a race-refused --key send still typed a key:"$'\n'"$(cat "$dir/send.log")"
+  assert_contains "$(cat "$err")" "reopen" "the race refusal should say how to reopen the lane"
+  pass "fm-send planes: a stopped marker published mid-send still refuses --key under the locked recheck"
+}
+
+test_dispatch_holds_stop_lock() {
+  local mode dir err sender stopper lock block i
+  for mode in key text; do
+    dir=$(setup_case "dispatch-lock-$mode"); err="$dir/send.err"
+    lock="$dir/home/state/.meta-t1.lock"; block="$dir/dispatch"
+    if [ "$mode" = key ]; then
+      run_send "$dir" "$err" "FM_BLOCK_SEND=$block" -- t1 --key Enter &
+    else
+      run_send "$dir" "$err" "FM_BLOCK_SEND=$block" -- t1 /status &
+    fi
+    sender=$!
+    i=0
+    while [ ! -e "$block.started" ] && [ "$i" -lt 100 ]; do /bin/sleep 0.05; i=$((i + 1)); done
+    [ -e "$block.started" ] || fail "$mode dispatch did not reach the backend"
+    bash -c '. "$1"; fm_lock_acquire_wait "$2"; touch "$3"; fm_lock_release "$2"' \
+      _ "$ROOT/bin/fm-wake-lib.sh" "$lock" "$dir/home/state/t1.stopped" &
+    stopper=$!
+    /bin/sleep 0.2
+    [ ! -e "$dir/home/state/t1.stopped" ] || fail "$mode dispatch released the stop lock before backend completion"
+    touch "$block.release"
+    wait "$sender" || fail "$mode backend send failed"
+    wait "$stopper" || fail "$mode stop could not acquire its lock"
+    [ -e "$dir/home/state/t1.stopped" ] || fail "$mode stop never recorded its marker"
+  done
+  pass "fm-send: key and typed text hold the stop lock through backend dispatch"
+}
+
+test_typed_refusal_discards_pending_reply() {
+  local dir err holder sender rc=0 i
+  dir=$(setup_case typed-stopped); err="$dir/send.err"
+  fm_write_secondmate_meta "$dir/home/state/domain.meta" "$dir/home" "sess:fm-domain"
+  bash -c '. "$1"; fm_lock_acquire_wait "$2"; touch "$3"; while [ ! -e "$4" ]; do /bin/sleep 0.05; done; fm_lock_release "$2"' \
+    _ "$ROOT/bin/fm-wake-lib.sh" "$dir/home/state/.meta-domain.lock" "$dir/held" "$dir/release" &
+  holder=$!
+  while [ ! -e "$dir/held" ]; do /bin/sleep 0.05; done
+  run_send "$dir" "$err" -- fm-domain /status &
+  sender=$!
+  i=0
+  while [ ! -d "$dir/home/state/pending-replies" ] && [ "$i" -lt 100 ]; do /bin/sleep 0.05; i=$((i + 1)); done
+  [ -d "$dir/home/state/pending-replies" ] || fail "typed send did not prepare its pending reply"
+  printf 'stopped\n' > "$dir/home/state/domain.stopped"
+  touch "$dir/release"
+  wait "$holder"
+  wait "$sender" || rc=$?
+  [ "$rc" -ne 0 ] || fail "typed send to a newly stopped lane should refuse"
+  [ -z "$(find "$dir/home/state/pending-replies" -type f -not -name '.*' 2>/dev/null)" ] \
+    || fail "typed refusal retained an unsent pending reply"
+  [ ! -s "$dir/send.log" ] || fail "typed refusal reached the backend"
+  pass "fm-send: typed stopped-lane refusal discards its pending reply"
 }
 
 test_secondmate_marker_and_enqueue_delivery() {
@@ -514,6 +610,10 @@ test_failed_ring_is_still_sent
 test_harness_invocations_stay_typed
 test_explicit_target_stays_typed
 test_key_path_never_touches_inbox
+test_key_path_refuses_a_stopped_lane
+test_key_path_race_stopped_marker_still_refuses
+test_dispatch_holds_stop_lock
+test_typed_refusal_discards_pending_reply
 test_secondmate_marker_and_enqueue_delivery
 test_post_enqueue_bookkeeping_failure_is_not_retryable
 test_meta_lock_contention_fails_bounded
