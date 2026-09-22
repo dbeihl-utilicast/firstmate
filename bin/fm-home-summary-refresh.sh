@@ -120,6 +120,8 @@ home_summary_promote_stale_provisionals() {
     if current=$(fm_lock_pid_identity "$pid" 2>/dev/null); then
       [ -z "$identity" ] && continue
       [ "$current" = "$identity" ] && continue
+    elif fm_pid_alive "$pid"; then
+      continue
     fi
     lock=$(fm_meta_lock_path "$meta") || return 1
     fm_lock_try_acquire "$lock" || continue
@@ -134,6 +136,9 @@ home_summary_promote_stale_provisionals() {
         fm_lock_release "$lock"
         continue
       fi
+    elif fm_pid_alive "$pid"; then
+      fm_lock_release "$lock"
+      continue
     fi
     id=${meta##*/}
     id=${id%.meta}

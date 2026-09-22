@@ -123,6 +123,40 @@ wait_for_ledger_generation() {  # <generated> [tenths]
   return 1
 }
 
+test_unreadable_live_owner_stays_provisional() {
+  local meta="$HOME_DIR/state/uncertain.meta" identity
+  identity=$(bash -c '. "$1"; fm_lock_pid_identity "$2"' _ "$ROOT/bin/fm-wake-lib.sh" "$$") \
+    || fail "could not identify the live fixture owner"
+  fm_write_meta "$meta" \
+    "window=fmtest:fm-uncertain" \
+    "endpoint_task_id=uncertain" \
+    "worktree=$HOME_DIR/projects/task" \
+    "project=$HOME_DIR/projects/task" \
+    "harness=codex" \
+    "kind=secondmate" \
+    "summary_visibility=provisional" \
+    "spawn_owner_pid=$$" \
+    "spawn_owner_identity=$identity"
+  cat > "$FAKEBIN/ps" <<'SH'
+#!/usr/bin/env bash
+exit 1
+SH
+  chmod +x "$FAKEBIN/ps"
+  FM_PROC_ROOT_OVERRIDE="$TMP_ROOT/unreadable-proc" run_writer "$NOW_ONE" "$EPOCH_ONE" \
+    || fail "summary refresh failed when a live owner identity was unreadable"
+  [ "$(sed -n 's/^summary_visibility=//p' "$meta")" = provisional ] \
+    || fail "an unreadable live owner was exposed as recovery"
+  jq -e 'all(.endpoints[]; .id != "uncertain")' "$HOME_DIR/state/home-summary.json" >/dev/null \
+    || fail "the unready owner entered the durable summary"
+  rm -f "$FAKEBIN/ps"
+  pass "unreadable live owner remains hidden"
+}
+
+if [ "${FM_SUMMARY_TEST_ONLY:-0}" = 1 ]; then
+  test_unreadable_live_owner_stays_provisional
+  exit 0
+fi
+
 run_writer "$NOW_ONE" "$EPOCH_ONE" || fail "initial home-summary publication failed"
 jq -e --arg home "$HOME_DIR" --arg now "$NOW_ONE" --argjson epoch "$EPOCH_ONE" '
   .schema == "fm-secondmate-home-summary.v1"
@@ -1077,3 +1111,4 @@ case "$report_out" in
     ;;
 esac
 pass "repeated publication failure is reported at session start until it clears"
+test_unreadable_live_owner_stays_provisional

@@ -927,6 +927,8 @@ RELAUNCH_ENDPOINT_TARGET=
 RELAUNCH_ENDPOINT_BACKEND=
 RELAUNCH_ENDPOINT_ADOPTED=0
 RELAUNCH_ENDPOINT_RECREATED=0
+RELAUNCH_ENDPOINT_CREATION_PHASE=
+RELAUNCH_HERDR_PRIOR_TAB_IDS=
 CODEX_LAUNCH_BOUNDARY=
 RELAUNCH_REPLACEMENT_HARNESS=
 RELAUNCH_REPLACEMENT_STATE=
@@ -937,7 +939,7 @@ CONFIG_INHERIT_LOCK_HELD=0
 preserve_relaunch_meta() {
   awk -F= '
     BEGIN {
-      split("window endpoint_task_id worktree project harness kind mode yolo tasktmp model effort busy_gen spawn_gen summary_visibility spawn_owner_pid spawn_owner_identity traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx", keys, " ")
+      split("window endpoint_task_id worktree project harness kind mode yolo tasktmp model effort busy_gen spawn_gen summary_visibility cleanup_recovery spawn_owner_pid spawn_owner_identity traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx", keys, " ")
       for (i in keys) owned[keys[i]] = 1
     }
     !($1 in owned)
@@ -1058,40 +1060,42 @@ relaunch_replacement_meta_published() {
     && [ "$(fm_meta_get "$STATE/$ID.meta" spawn_gen)" = "$SPAWN_GEN" ]
 }
 
+spawn_herdr_created_endpoint() {
+  local session=$1 workspace=$2 label=$3 prior=$4 tabs candidates tab candidate= pane
+  tabs=$(fm_backend_herdr_cli "$session" tab list --workspace "$workspace" 2>/dev/null) || return 2
+  printf '%s' "$tabs" | jq -e '(.result.tabs | type) == "array"' >/dev/null 2>&1 || return 2
+  candidates=$(printf '%s' "$tabs" | jq -r --arg label "$label" '.result.tabs[] | select(.label == $label) | .tab_id') || return 2
+  while IFS= read -r tab; do
+    [ -n "$tab" ] || continue
+    case " $prior " in *" $tab "*) continue ;; esac
+    [ -z "$candidate" ] || return 2
+    candidate=$tab
+  done <<EOF
+$candidates
+EOF
+  [ -n "$candidate" ] || return 1
+  pane=$(fm_backend_herdr_pane_for_tab "$session" "$workspace" "$candidate") || return 2
+  [ -n "$pane" ] || return 2
+  printf '%s %s\n' "$candidate" "$pane"
+}
+
 unpublished_endpoint_cleanup() {
   [ "$RELAUNCH" -eq 0 ] || return 0
   [ "$BACKEND" = orca ] && return 0
   local tab_id endpoint_state
   if [ "$SPAWN_FRESH_ENDPOINT_IDENTIFIED" != 1 ]; then
     if [ "$BACKEND" = herdr ] && [ -n "${HERDR_WORKSPACE_ID:-}" ]; then
-      local tabs candidates candidate pane prior
-      tabs=$(fm_backend_herdr_cli "$HERDR_SES" tab list --workspace "$HERDR_WORKSPACE_ID" 2>/dev/null) || tabs=
-      if [ -n "$tabs" ] && printf '%s' "$tabs" | jq -e '(.result.tabs | type) == "array"' >/dev/null 2>&1; then
-        candidates=$(printf '%s' "$tabs" | jq -r --arg label "$W" '.result.tabs[] | select(.label == $label) | .tab_id')
-        candidate=
-        while IFS= read -r tab_id; do
-          [ -n "$tab_id" ] || continue
-          case " ${HERDR_PRIOR_TAB_IDS:-} " in *" $tab_id "*) continue ;; esac
-          if [ -n "$candidate" ]; then candidate=ambiguous; break; fi
-          candidate=$tab_id
-        done <<EOF
-$candidates
-EOF
-        if [ -z "$candidate" ]; then
-          SPAWN_FRESH_ENDPOINT_PENDING=0
-          return 0
-        fi
-        if [ "$candidate" != ambiguous ]; then
-          pane=$(fm_backend_herdr_pane_for_tab "$HERDR_SES" "$HERDR_WORKSPACE_ID" "$candidate") || pane=
-          if [ -n "$pane" ]; then
-            HERDR_TAB_ID=$candidate
-            HERDR_PANE_ID=$pane
-            T="$HERDR_SES:$pane"
-            SPAWN_FRESH_ENDPOINT_IDENTIFIED=1
-            spawn_fresh_endpoint_own || true
-          fi
-        fi
-      fi
+      local created rc
+      created=$(spawn_herdr_created_endpoint "$HERDR_SES" "$HERDR_WORKSPACE_ID" "$W" "${HERDR_PRIOR_TAB_IDS:-}") && rc=0 || rc=$?
+      case "$rc" in
+        0)
+          read -r HERDR_TAB_ID HERDR_PANE_ID <<< "$created"
+          T="$HERDR_SES:$HERDR_PANE_ID"
+          SPAWN_FRESH_ENDPOINT_IDENTIFIED=1
+          spawn_fresh_endpoint_own || true
+          ;;
+        1) SPAWN_FRESH_ENDPOINT_PENDING=0; return 0 ;;
+      esac
     elif [ "$BACKEND" = tmux ] && [ "$(fm_backend_agent_state "$BACKEND" "$T")" = missing ]; then
       SPAWN_FRESH_ENDPOINT_PENDING=0
       return 0
@@ -1125,6 +1129,17 @@ spawn_fresh_commit_rollback() {
   return 1
 }
 
+relaunch_herdr_recovery_record() {
+  local meta="$STATE/$ID.meta" tmp="$STATE/.$ID.meta.herdr-recovery.${BASHPID:-$$}"
+  [ -f "$meta" ] && [ ! -L "$meta" ] || return 1
+  if ! awk -F= '$1 != "summary_visibility" && $1 != "cleanup_recovery" { print }' "$meta" > "$tmp" \
+     || ! printf 'summary_visibility=recovery\ncleanup_recovery=herdr-relaunch\n' >> "$tmp" \
+     || ! fm_backlog_atomic_transition publish "$tmp" "$meta" "task record" "$STATE"; then
+    rm -f -- "$tmp" 2>/dev/null || true
+    return 1
+  fi
+}
+
 parse_orca_worktree_result() {
   local raw=$1 rest
   ORCA_WORKTREE_ID=${raw%%$'\t'*}
@@ -1143,23 +1158,52 @@ parse_orca_worktree_result() {
 }
 
 spawn_abort_cleanup() {
-  local status=$? endpoint_state
+  local status=$? endpoint_state created creation_rc
+  if [ "$RELAUNCH_ENDPOINT_PENDING" = 1 ] \
+     && [ "$RELAUNCH_ENDPOINT_BACKEND" = herdr ] \
+     && [ "$RELAUNCH_ENDPOINT_CREATION_PHASE" = creating ]; then
+    created=$(spawn_herdr_created_endpoint "$HERDR_SES" "$HERDR_WORKSPACE_ID" "fm-$ID" "$RELAUNCH_HERDR_PRIOR_TAB_IDS") \
+      && creation_rc=0 || creation_rc=$?
+    case "$creation_rc" in
+      0)
+        read -r HERDR_TAB_ID HERDR_PANE_ID <<< "$created"
+        T="$HERDR_SES:$HERDR_PANE_ID"
+        RELAUNCH_ENDPOINT_TARGET=$T
+        RELAUNCH_ENDPOINT_CREATION_PHASE=ready
+        relaunch_endpoint_journal_publish || status=1
+        ;;
+      1)
+        RELAUNCH_ENDPOINT_PENDING=0
+        rm -f -- "$RELAUNCH_ENDPOINT_JOURNAL" || status=1
+        case "$KIND:$HARNESS" in
+          secondmate:codex|ship:agy|scout:agy)
+            rm -f -- "$STATE/$ID.meta" || status=1
+            ;;
+        esac
+        "$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort || true
+        ;;
+      *)
+        RELAUNCH_ENDPOINT_PENDING=0
+        relaunch_herdr_recovery_record || status=1
+        "$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort || true
+        ;;
+    esac
+  fi
   if [ "$RELAUNCH_ENDPOINT_PENDING" = 1 ]; then
     RELAUNCH_ENDPOINT_PENDING=0
     fm_backend_kill "$RELAUNCH_ENDPOINT_BACKEND" "$RELAUNCH_ENDPOINT_TARGET" >/dev/null 2>&1 || true
     endpoint_state=$(fm_backend_agent_state "$RELAUNCH_ENDPOINT_BACKEND" "$RELAUNCH_ENDPOINT_TARGET")
     if [ "$endpoint_state" = missing ]; then
       rm -f -- "$RELAUNCH_ENDPOINT_JOURNAL" 2>/dev/null || true
-      if [ "$RELAUNCH_STATE" = missing ] \
-         && [ "$RELAUNCH_ENDPOINT_ADOPTED" != 1 ]; then
-        case "$KIND:$HARNESS" in
-          secondmate:codex|ship:agy|scout:agy)
-            rm -f -- "$STATE/$ID.meta" || status=1
-            "$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort || true
-            ;;
-        esac
-      fi
+      case "$KIND:$HARNESS" in
+        secondmate:codex|ship:agy|scout:agy)
+          rm -f -- "$STATE/$ID.meta" || status=1
+          "$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort || true
+          ;;
+      esac
     else
+      [ "$RELAUNCH_ENDPOINT_BACKEND" != herdr ] || relaunch_herdr_recovery_record || status=1
+      "$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort || true
       echo "warning: replacement endpoint $RELAUNCH_ENDPOINT_TARGET remains '$endpoint_state'; retaining $RELAUNCH_ENDPOINT_JOURNAL for retry reconciliation" >&2
     fi
   fi
@@ -1576,6 +1620,7 @@ relaunch_endpoint_journal_publish() {
     echo "task=$ID"
     echo "backend=$BACKEND"
     echo "endpoint=$T"
+    echo "creation_phase=${RELAUNCH_ENDPOINT_CREATION_PHASE:-ready}"
     echo "worktree=$RELAUNCH_WT"
     echo "branch=$CUSTODY_BRANCH"
     echo "head=$CUSTODY_HEAD"
@@ -1583,8 +1628,9 @@ relaunch_endpoint_journal_publish() {
     if [ "$BACKEND" = herdr ]; then
       echo "herdr_session=$HERDR_SES"
       echo "herdr_workspace_id=$HERDR_WORKSPACE_ID"
-      echo "herdr_tab_id=$HERDR_TAB_ID"
-      echo "herdr_pane_id=$HERDR_PANE_ID"
+      echo "herdr_tab_id=${HERDR_TAB_ID:-}"
+      echo "herdr_pane_id=${HERDR_PANE_ID:-}"
+      echo "herdr_prior_tab_ids=${RELAUNCH_HERDR_PRIOR_TAB_IDS:-}"
     fi
   } > "$tmp" && mv -f "$tmp" "$RELAUNCH_ENDPOINT_JOURNAL"
 }
@@ -1592,7 +1638,7 @@ relaunch_endpoint_journal_publish() {
 # Returns 0 when a prior replacement endpoint was adopted and 1 when no
 # endpoint remains, so the caller may create exactly one replacement.
 relaunch_endpoint_journal_reconcile() {
-  local task backend endpoint worktree branch head state target_handle
+  local task backend endpoint worktree branch head state target_handle phase created creation_rc
   if [ ! -e "$RELAUNCH_ENDPOINT_JOURNAL" ] && [ ! -L "$RELAUNCH_ENDPOINT_JOURNAL" ]; then
     return 1
   fi
@@ -1606,6 +1652,25 @@ relaunch_endpoint_journal_reconcile() {
   [ "$task" = "$ID" ] && [ "$backend" = "$BACKEND" ] \
     && [ "$worktree" = "$RELAUNCH_WT" ] \
     && [ "$branch" = "$CUSTODY_BRANCH" ] && [ "$head" = "$CUSTODY_HEAD" ] || return 2
+  phase=$(relaunch_endpoint_journal_field creation_phase) || phase=ready
+  if [ "$backend" = herdr ] && [ "$phase" = creating ]; then
+    HERDR_SES=$(relaunch_endpoint_journal_field herdr_session) || return 2
+    HERDR_WORKSPACE_ID=$(relaunch_endpoint_journal_field herdr_workspace_id) || return 2
+    RELAUNCH_HERDR_PRIOR_TAB_IDS=$(relaunch_endpoint_journal_field herdr_prior_tab_ids) || return 2
+    created=$(spawn_herdr_created_endpoint "$HERDR_SES" "$HERDR_WORKSPACE_ID" "fm-$ID" "$RELAUNCH_HERDR_PRIOR_TAB_IDS") \
+      && creation_rc=0 || creation_rc=$?
+    case "$creation_rc" in
+      0)
+        read -r HERDR_TAB_ID HERDR_PANE_ID <<< "$created"
+        endpoint="$HERDR_SES:$HERDR_PANE_ID"
+        T=$endpoint
+        RELAUNCH_ENDPOINT_CREATION_PHASE=ready
+        relaunch_endpoint_journal_publish || return 2
+        ;;
+      1) rm -f -- "$RELAUNCH_ENDPOINT_JOURNAL" || return 2; return 1 ;;
+      *) return 2 ;;
+    esac
+  fi
   state=$(fm_backend_agent_state "$backend" "$endpoint")
   case "$state" in
     dead)
@@ -3013,6 +3078,16 @@ if [ "$RELAUNCH" -eq 1 ]; then
         CONTAINER=${HERDR_CONTAINER_RAW%%$'\t'*}
         HERDR_SES=${CONTAINER%%:*}
         HERDR_WORKSPACE_ID=${CONTAINER#*:}
+        RELAUNCH_HERDR_PRIOR_TAB_IDS=$(fm_backend_herdr_cli "$HERDR_SES" tab list --workspace "$HERDR_WORKSPACE_ID" 2>/dev/null \
+          | jq -r 'if (.result.tabs | type) == "array" then [.result.tabs[].tab_id] | join(" ") else error("tabs") end') || exit 1
+        HERDR_TAB_ID=
+        HERDR_PANE_ID=
+        T=
+        RELAUNCH_ENDPOINT_TARGET=
+        RELAUNCH_ENDPOINT_BACKEND=$BACKEND
+        RELAUNCH_ENDPOINT_CREATION_PHASE=creating
+        relaunch_endpoint_journal_publish || exit 1
+        RELAUNCH_ENDPOINT_PENDING=1
         HERDR_TASK_IDS=$(FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_create_task "$CONTAINER" "$W" "$WT" "${HERDR_CONTAINER_RAW#*$'\t'}") || exit 1
         read -r HERDR_TAB_ID HERDR_PANE_ID <<EOF
 $HERDR_TASK_IDS
@@ -3026,6 +3101,7 @@ EOF
         RELAUNCH_ENDPOINT_TARGET=$T
         RELAUNCH_ENDPOINT_BACKEND=$BACKEND
         RELAUNCH_ENDPOINT_PENDING=1
+        RELAUNCH_ENDPOINT_CREATION_PHASE=ready
         relaunch_endpoint_journal_publish || exit 1
         ;;
       *)
