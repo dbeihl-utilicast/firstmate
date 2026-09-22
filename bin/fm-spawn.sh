@@ -902,6 +902,7 @@ SPAWN_META_LOCK=
 SPAWN_META_LOCK_HELD=0
 SPAWN_META_PUBLISH_STARTED=0
 SPAWN_FRESH_COMMIT_PENDING=0
+SPAWN_FRESH_ENDPOINT_RETIREMENT_FAILED=0
 SPAWN_FRESH_QWEN_WIRING_PENDING=0
 SPAWN_FRESH_QWEN_SETTINGS_TMP=
 SPAWN_TASK_SET_LOCK=
@@ -917,6 +918,8 @@ RELAUNCH_ENDPOINT_JOURNAL=
 RELAUNCH_ENDPOINT_TARGET=
 RELAUNCH_ENDPOINT_BACKEND=
 RELAUNCH_ENDPOINT_ADOPTED=0
+RELAUNCH_ENDPOINT_RECREATED=0
+CODEX_LAUNCH_BOUNDARY=
 RELAUNCH_REPLACEMENT_HARNESS=
 RELAUNCH_REPLACEMENT_STATE=
 RELAUNCH_REPLACEMENT_WT=
@@ -927,6 +930,7 @@ spawn_fresh_commit_rollback() {
   if fm_backlog_atomic_transition rollback "$STATE/$ID.meta" \
       "$FM_ROOT/bin/fm-busy-event.sh" "$STATE" "$ID" "${BUSY_GEN:-}"; then
     SPAWN_FRESH_COMMIT_PENDING=0
+    "$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort || true
     return 0
   fi
   echo "error: $FM_BACKLOG_TRANSITION_ERROR" >&2
@@ -960,6 +964,21 @@ spawn_abort_cleanup() {
       rm -f -- "$RELAUNCH_ENDPOINT_JOURNAL" 2>/dev/null || true
     else
       echo "warning: replacement endpoint $RELAUNCH_ENDPOINT_TARGET remains '$endpoint_state'; retaining $RELAUNCH_ENDPOINT_JOURNAL for retry reconciliation" >&2
+    fi
+  fi
+  if [ "$RELAUNCH_ENDPOINT_RECREATED" = 1 ]; then
+    fm_backend_kill "$RELAUNCH_ENDPOINT_BACKEND" "$RELAUNCH_ENDPOINT_TARGET" >/dev/null 2>&1 || true
+    endpoint_state=$(fm_backend_agent_state "$RELAUNCH_ENDPOINT_BACKEND" "$RELAUNCH_ENDPOINT_TARGET")
+    if [ "$endpoint_state" = missing ]; then
+      if rm -f -- "$STATE/$ID.meta"; then
+        RELAUNCH_ENDPOINT_RECREATED=0
+        "$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort || true
+      else
+        status=1
+      fi
+    else
+      "$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort || true
+      echo "warning: replacement endpoint $RELAUNCH_ENDPOINT_TARGET remains '$endpoint_state'; retaining $STATE/$ID.meta for recovery" >&2
     fi
   fi
   if [ "$RELAUNCH_REPLACEMENT_PENDING" = 1 ] \
@@ -1056,7 +1075,10 @@ spawn_abort_cleanup() {
     fm_lock_release "$SPAWN_TASK_LOCK" || true
   fi
   if [ "$SPAWN_FRESH_COMMIT_PENDING" = 1 ]; then
-    if ! spawn_fresh_commit_rollback; then
+    if [ "$SPAWN_FRESH_ENDPOINT_RETIREMENT_FAILED" = 1 ]; then
+      "$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort || true
+      echo "warning: endpoint $T could not be verified absent; retaining $STATE/$ID.meta for recovery" >&2
+    elif ! spawn_fresh_commit_rollback; then
       status=1
     fi
   fi
@@ -3106,8 +3128,9 @@ agy_brief_marker() {  # <brief-file>
   ' "$1" 2>/dev/null
 }
 
-agy_post_launch_pane() {  # <plain-pane-capture>
-  printf '%s\n' "$1" | LC_ALL=C awk -v marker="$AGY_LAUNCH_BOUNDARY" '
+spawn_post_launch_pane() {  # <plain-pane-capture> <launch-boundary>
+  [ -n "$2" ] || return 1
+  printf '%s\n' "$1" | LC_ALL=C awk -v marker="$2" '
     index($0, marker) { buf = ""; found = 1; next }
     { buf = buf $0 "\n" }
     END { printf "%s", buf; if (!found) exit 1 }
@@ -3134,13 +3157,21 @@ spawn_capture_pane() {
 }
 
 codex_wait_for_startup_dialogs() {
-  local pane action i=0
+  local raw pane action i=0 seen=0 require_boundary=0
   local max=${FM_CODEX_READY_POLLS:-40} interval=${FM_CODEX_POLL_INTERVAL:-0.5}
+  [ -z "$CODEX_LAUNCH_BOUNDARY" ] || require_boundary=1
   while [ "$i" -lt "$max" ]; do
-    if ! pane=$(spawn_capture_pane); then
+    if ! raw=$(spawn_capture_pane); then
       echo "error: unable to capture Codex startup state in $T; refusing to publish a worker that cannot begin its turn" >&2
       unpublished_endpoint_cleanup
       return 1
+    fi
+    if pane=$(spawn_post_launch_pane "$raw" "$CODEX_LAUNCH_BOUNDARY"); then
+      seen=1
+    elif [ "$seen" = 1 ] || [ "$require_boundary" = 0 ]; then
+      pane=$raw
+    else
+      pane=
     fi
     action=$(fm_codex_startup_dialog_action "$pane")
     case "$action" in
@@ -3166,8 +3197,20 @@ codex_wait_for_startup_dialogs() {
     i=$((i + 1))
     [ "$i" -ge "$max" ] || sleep "$interval"
   done
-  if ! pane=$(spawn_capture_pane); then
+  if ! raw=$(spawn_capture_pane); then
     echo "error: unable to capture Codex startup state in $T; refusing to publish a worker that cannot begin its turn" >&2
+    unpublished_endpoint_cleanup
+    return 1
+  fi
+  if pane=$(spawn_post_launch_pane "$raw" "$CODEX_LAUNCH_BOUNDARY"); then
+    seen=1
+  elif [ "$seen" = 1 ] || [ "$require_boundary" = 0 ]; then
+    pane=$raw
+  else
+    pane=
+  fi
+  if [ "$require_boundary" = 1 ] && [ "$seen" != 1 ]; then
+    echo "error: Codex startup state in $T never showed this launch's boundary; refusing to publish a worker that cannot begin its turn" >&2
   elif [ -z "$pane" ]; then
     echo "error: Codex startup state in $T remained empty; refusing to publish a worker that cannot begin its turn" >&2
   else
@@ -3185,7 +3228,7 @@ agy_wait_for_delivery() {
   local pane raw i=0 accepted=0 seen=0 max=${FM_AGY_READY_POLLS:-60} interval=${FM_AGY_POLL_INTERVAL:-0.5}
   while [ "$i" -lt "$max" ]; do
     raw=$(agy_capture)
-    if pane=$(agy_post_launch_pane "$raw"); then
+    if pane=$(spawn_post_launch_pane "$raw" "$AGY_LAUNCH_BOUNDARY"); then
       seen=1
     elif [ "$seen" = 1 ]; then
       pane=$raw
@@ -3208,17 +3251,20 @@ agy_wait_for_delivery() {
   return 1
 }
 
-# No task record is published on this failure path, so nothing else will close
-# the already-launched pane. Kill it here rather than leaving an autonomous
-# orphan outside task control.
+# Fresh launch failures retire their endpoint before provisional record rollback.
+# Relaunch rollback stays armed separately through endpoint provenance.
 unpublished_endpoint_cleanup() {
-  if [ "$RELAUNCH" -eq 1 ] && [ "$RELAUNCH_ENDPOINT_PENDING" != 1 ]; then
-    return 0
-  fi
+  [ "$RELAUNCH" -eq 0 ] || return 0
   [ "$BACKEND" = orca ] && return 0
-  local tab_id=
+  local tab_id endpoint_state
+  tab_id=
   [ "$BACKEND" = zellij ] && tab_id=$ZELLIJ_TAB_ID
   fm_backend_kill "$BACKEND" "$T" "$tab_id" "fm-$ID" 2>/dev/null || true
+  endpoint_state=$(fm_backend_agent_state "$BACKEND" "$T")
+  [ "$endpoint_state" = missing ] && return 0
+  SPAWN_FRESH_ENDPOINT_RETIREMENT_FAILED=1
+  echo "warning: endpoint $T remains '$endpoint_state' after failed launch cleanup" >&2
+  return 1
 }
 
 agy_spawn_fail() {  # <detail>
@@ -3891,6 +3937,11 @@ if [ "$RELAUNCH" -eq 1 ]; then
     exit 1
   fi
   RELAUNCH_REPLACEMENT_PENDING=0
+  if [ "$RELAUNCH_ENDPOINT_PENDING" = 1 ]; then
+    case "$KIND:$HARNESS" in
+      secondmate:codex|ship:agy|scout:agy) RELAUNCH_ENDPOINT_RECREATED=1 ;;
+    esac
+  fi
   RELAUNCH_ENDPOINT_PENDING=0
   [ -z "$RELAUNCH_ENDPOINT_JOURNAL" ] || rm -f -- "$RELAUNCH_ENDPOINT_JOURNAL"
   SPAWN_META_PUBLISH_STARTED=0
@@ -3917,7 +3968,6 @@ if [ "$SPAWN_TASK_SET_LOCK_HELD" = 1 ]; then
   SPAWN_TASK_SET_LOCK_HELD=0
   fm_lock_release "$SPAWN_TASK_SET_LOCK"
 fi
-"$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort || true
 [ "$BACKEND" = orca ] && ORCA_ABORT_CLEANUP=0
 
 sq_brief=$(shell_quote "$BRIEF")
@@ -4052,6 +4102,11 @@ if [ -n "$SPAWN_TRACEPARENT" ]; then
   fi
 fi
 LAUNCH=$(spawn_launch_environment "$LAUNCH") || exit 1
+if [ "$KIND" = secondmate ] && [ "$HARNESS" = codex ] \
+   && [ "$RELAUNCH" -eq 1 ] && [ "$RELAUNCH_ENDPOINT_RECREATED" != 1 ]; then
+  CODEX_LAUNCH_BOUNDARY="fm-codex-launch-$ID-${BASHPID:-$$}-$RANDOM"
+  LAUNCH="printf '%s\\n' $(shell_quote "$CODEX_LAUNCH_BOUNDARY"); $LAUNCH"
+fi
 if [ "$HARNESS" = agy ]; then
   AGY_LAUNCH_BOUNDARY="export FM_TASK_ID=$ID"
   AGY_BRIEF_MARKER=$(agy_brief_marker "$BRIEF")
@@ -4091,6 +4146,8 @@ if [ "$HARNESS" = agy ]; then
     exit 1
   fi
 fi
+RELAUNCH_ENDPOINT_RECREATED=0
+"$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort || true
 if [ "$RELAUNCH" -eq 0 ] && [ "$SPAWN_CUSTODY_LOCK_HELD" = 1 ]; then
   SPAWN_CUSTODY_LOCK_HELD=0
   fm_lock_release "$SPAWN_CUSTODY_LOCK" || exit 1

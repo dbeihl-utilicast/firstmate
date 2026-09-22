@@ -114,12 +114,21 @@ case "${1:-}" in
     printf 'fakepane\n'; exit 0 ;;
   capture-pane)
     if [ "$(cat "$D/command" 2>/dev/null)" = codex ]; then
-      printf '╭────╮\n│    │\n╰────╯\n› Ask Codex to do anything\n'
+      [ ! -f "$D/pane-before" ] || cat "$D/pane-before"
+      [ ! -s "$D/literal" ] || cat "$D/literal"
+      if [ -f "$D/pane-after" ]; then
+        cat "$D/pane-after"
+      else
+        printf '╭────╮\n│    │\n╰────╯\n› Ask Codex to do anything\n'
+      fi
     else
       printf '╭────╮\n│    │\n╰────╯\n'
     fi
     exit 0 ;;
   list-windows) [ -f "$D/windows" ] && cat "$D/windows"; exit 0 ;;
+  kill-window)
+    [ "${FM_FAKE_KILL_REMOVES_ENDPOINT:-0}" != 1 ] || : > "$D/windows"
+    exit 0 ;;
   new-window)
     name=
     while [ $# -gt 0 ]; do
@@ -232,6 +241,9 @@ run_control() {  # <case-dir> <args...>
     FM_FAKE_TRACE_RELEASE="${FM_FAKE_TRACE_RELEASE:-}" \
     FM_FAKE_META_WRITER_READY="${FM_FAKE_META_WRITER_READY:-}" \
     FM_FAKE_TRACE_EXPORTED="${FM_FAKE_TRACE_EXPORTED:-}" \
+    FM_FAKE_KILL_REMOVES_ENDPOINT="${FM_FAKE_KILL_REMOVES_ENDPOINT:-}" \
+    FM_CODEX_READY_POLLS="${FM_CODEX_READY_POLLS:-}" \
+    FM_CODEX_POLL_INTERVAL="${FM_CODEX_POLL_INTERVAL:-}" \
     FM_TEST_RELAUNCH_ENDPOINT_READY="${FM_TEST_RELAUNCH_ENDPOINT_READY:-}" \
     FM_TEST_RELAUNCH_ENDPOINT_RELEASE="${FM_TEST_RELAUNCH_ENDPOINT_RELEASE:-}" \
     "$CONTROL" "$@" 2>&1
@@ -1247,6 +1259,69 @@ test_post_publication_launch_failure_keeps_the_new_record() {
   pass "fm-control relaunch: post-publication failure keeps the new durable record"
 }
 
+test_reused_codex_stale_ready_does_not_mask_current_failure() {
+  local id=sm-stale-ready dir smhome meta out rc
+  id=sm-stale-ready
+  dir=$(new_case codex-stale-ready "$id")
+  smhome="$dir/smhome"
+  meta="$dir/home/state/$id.meta"
+  fm_git_worktree "$dir/proj" "$smhome" sm-stale-ready-branch
+  mkdir -p "$smhome/state" "$smhome/data" "$smhome/bin"
+  printf '%s\n' "$id" > "$smhome/.fm-secondmate-home"
+  printf '# agents\n' > "$smhome/AGENTS.md"
+  printf '# charter\n' > "$smhome/data/charter.md"
+  fm_write_secondmate_meta "$meta" "$smhome" "fmses:fm-$id" '' codex
+  printf '%s' "$smhome" > "$dir/fake/cwd"
+  printf 'codex' > "$dir/fake/command"
+  printf 'codex' > "$dir/fake/becomes"
+  printf '› Ask Codex to do anything\n' > "$dir/fake/pane-before"
+  printf 'codex: command not found\n' > "$dir/fake/pane-after"
+
+  out=$(FM_CODEX_READY_POLLS=2 FM_CODEX_POLL_INTERVAL=0 \
+    run_control "$dir" "$id" relaunch --harness codex); rc=$?
+  expect_code 1 "$rc" "stale ready text must not confirm the current Codex relaunch"$'\n'"$out"
+  assert_contains "$out" "never reached its ready prompt" \
+    "the current command-not-found output was hidden by stale readiness"
+  assert_not_contains "$out" "relaunched $id" \
+    "a stale ready prompt published an unready replacement"
+  assert_present "$meta" "an unready reused endpoint lost its replacement record"
+  assert_grep "fm-$id" "$dir/fake/windows" "an unready reused endpoint was retired"
+  [ "$(journal_field "$dir" "$id" rollback)" = none-new-record-kept ] \
+    || fail "the reused endpoint failure was reported as the wrong rollback state"
+  pass "fm-control relaunch: stale readiness cannot confirm the current Codex launch"
+}
+
+test_control_reports_recreated_codex_retirement() {
+  local id=sm-retired dir smhome meta out rc
+  id=sm-retired
+  dir=$(new_case codex-retired "$id")
+  smhome="$dir/smhome"
+  meta="$dir/home/state/$id.meta"
+  fm_git_worktree "$dir/proj" "$smhome" sm-retired-branch
+  mkdir -p "$smhome/state" "$smhome/data" "$smhome/bin"
+  printf '%s\n' "$id" > "$smhome/.fm-secondmate-home"
+  printf '# agents\n' > "$smhome/AGENTS.md"
+  printf '# charter\n' > "$smhome/data/charter.md"
+  fm_write_secondmate_meta "$meta" "$smhome" "fmses:fm-$id" '' codex
+  : > "$dir/fake/windows"
+  printf '%s' "$smhome" > "$dir/fake/cwd"
+  printf 'codex' > "$dir/fake/becomes"
+  printf 'codex: command not found\n' > "$dir/fake/pane-after"
+
+  out=$(FM_FAKE_KILL_REMOVES_ENDPOINT=1 \
+    FM_CODEX_READY_POLLS=2 FM_CODEX_POLL_INTERVAL=0 \
+    run_control "$dir" "$id" relaunch --harness codex); rc=$?
+  expect_code 1 "$rc" "an unready recreated Codex endpoint should fail closed"$'\n'"$out"
+  assert_absent "$meta" "an unready recreated endpoint retained its published record"
+  assert_no_grep "fm-$id" "$dir/fake/windows" \
+    "an unready recreated endpoint was left running"
+  [ "$(journal_field "$dir" "$id" rollback)" = recreated-endpoint-and-record-retired ] \
+    || fail "control did not record the intentional replacement retirement"
+  assert_contains "$out" "endpoint and published task record were retired" \
+    "control reported that a removed replacement record was preserved"
+  pass "fm-control relaunch: recreated Codex retirement is reported accurately"
+}
+
 test_stop_transport_failure_reconciles_a_dead_agent() {
   local dir out rc
   dir=$(new_case stopfail rl25)
@@ -2067,6 +2142,8 @@ test_checkpoint_refuses_uninspectable_head_and_status
 test_launch_failure_keeps_the_prior_record_and_reports_it
 test_prepublication_failure_keeps_concurrent_durable_metadata
 test_post_publication_launch_failure_keeps_the_new_record
+test_reused_codex_stale_ready_does_not_mask_current_failure
+test_control_reports_recreated_codex_retirement
 test_stop_transport_failure_reconciles_a_dead_agent
 test_complete_journal_failure_rolls_back_from_durable_phase
 test_prepublication_abort_retires_replacement_wiring_and_busy_state

@@ -58,9 +58,12 @@ Hooks review, because the firstmate-shaped home ships `.codex/hooks.json`:
 
 Enter on option 1 opens the review UI and leaves the unattended pane idle with no turn.
 Down then Enter selects option 2.
-`bin/fm-spawn.sh` dismisses both after launch and publishes only after the verified ready prompt; the Codex harness reference owns that contract.
+`bin/fm-spawn.sh` dismisses both after launch and publishes the home summary only after the verified ready prompt; the Codex harness reference owns that contract.
+A reused endpoint receives a unique launch boundary before Codex starts, so a ready prompt left in earlier scrollback cannot satisfy the current relaunch.
+Failed fresh or recreated launches remove their record only after endpoint absence is verified; an endpoint that cannot be proven absent keeps its record and durable summary for recovery.
 `tests/fm-codex-harness.test.sh` pins the classifier.
-`tests/fm-secondmate-harness.test.sh` pins the fail-closed publish gate.
+`tests/fm-secondmate-harness.test.sh` pins the readiness, launch-boundary, endpoint, record, and summary outcomes.
+`tests/fm-control-relaunch.test.sh` pins the control-plane rollback report.
 
 ## Completed turn
 

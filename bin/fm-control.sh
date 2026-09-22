@@ -523,6 +523,7 @@ BRIEF_PRIOR="$JOURNAL.brief-prior"
 NOTE_FILE="$JOURNAL.note"
 RELAUNCH_META_PUBLISHED=0
 RELAUNCH_AGENT_CONFIRMED=0
+RELAUNCH_STARTED_MISSING=0
 RELAUNCH_TX=
 RELAUNCH_BRIEF=
 PRIOR_HARNESS=$HARNESS
@@ -614,6 +615,13 @@ relaunch_rollback() {
         # worse inaccuracy.
         journal_write "failed:$RELAUNCH_PHASE" "${CHECKPOINT_LINES[@]}" "rollback=none-new-record-kept" || true
         echo "error: $ID was relaunched on $TARGET_HARNESS but no running agent could be confirmed; its work is preserved at $WT" >&2
+      elif [ "$RELAUNCH_STARTED_MISSING" = 1 ] \
+         && [ ! -e "$META" ] \
+         && [ ! -L "$META" ] \
+         && state=$(agent_state 2>/dev/null) \
+         && [ "$state" = missing ]; then
+        journal_write "failed:$RELAUNCH_PHASE" "${CHECKPOINT_LINES[@]}" "rollback=recreated-endpoint-and-record-retired" || true
+        echo "error: $ID's recreated replacement did not become ready, so its endpoint and published task record were retired; no agent is running, and its work is preserved at $WT" >&2
       else
         journal_write "failed:$RELAUNCH_PHASE" "${CHECKPOINT_LINES[@]}" "rollback=prior-record-kept" || true
         echo "error: $ID's agent was stopped but the replacement did not launch; no agent is running, and its work plus the recorded progress note are preserved at $WT" >&2
@@ -855,6 +863,7 @@ do_relaunch() {
   journal_write checkpoint "${CHECKPOINT_LINES[@]}" "$note_line"
 
   state=$(agent_state)
+  [ "$state" != missing ] || RELAUNCH_STARTED_MISSING=1
   if [ "$state" = missing ] && refusal=$(fm_custody_refusal recover); then
     die "task $ID's endpoint is positively missing, but $refusal"
   fi

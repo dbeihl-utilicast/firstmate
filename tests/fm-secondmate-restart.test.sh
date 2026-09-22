@@ -119,6 +119,7 @@ case "${1:-}" in
       prev=$a
     done
     if [ "$(cat "$D/command.$target" 2>/dev/null)" = codex ]; then
+      [ ! -s "$D/literal" ] || cat "$D/literal"
       printf '> \n› Ask Codex to do anything\n'
     else
       printf '> \n'
