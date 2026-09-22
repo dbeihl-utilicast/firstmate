@@ -903,6 +903,7 @@ SPAWN_META_LOCK_HELD=0
 SPAWN_META_PUBLISH_STARTED=0
 SPAWN_FRESH_COMMIT_PENDING=0
 SPAWN_FRESH_ENDPOINT_PENDING=0
+SPAWN_FRESH_ENDPOINT_IDENTIFIED=0
 SPAWN_FRESH_ENDPOINT_RETIREMENT_FAILED=0
 SPAWN_FRESH_SUMMARY_PROVISIONAL=0
 SPAWN_FRESH_VISIBILITY_TMP=
@@ -973,22 +974,23 @@ spawn_task_record_write() {  # <path> <early|final> <provisional|recovery|ready>
     [ "$BACKEND" = tmux ] || echo "backend=$BACKEND"
     if [ "$BACKEND" = herdr ]; then
       echo "herdr_session=$HERDR_SES"
-      echo "herdr_workspace_id=$HERDR_WORKSPACE_ID"
-      echo "herdr_tab_id=$HERDR_TAB_ID"
-      echo "herdr_pane_id=$HERDR_PANE_ID"
+      echo "herdr_workspace_id=${HERDR_WORKSPACE_ID:-}"
+      echo "herdr_tab_id=${HERDR_TAB_ID:-}"
+      echo "herdr_pane_id=${HERDR_PANE_ID:-}"
+      [ -z "${HERDR_PRIOR_TAB_IDS:-}" ] || echo "herdr_prior_tab_ids=$HERDR_PRIOR_TAB_IDS"
     fi
     if [ "$BACKEND" = zellij ]; then
       echo "zellij_session=$ZELLIJ_SES"
-      echo "zellij_tab_id=$ZELLIJ_TAB_ID"
-      echo "zellij_pane_id=$ZELLIJ_PANE_ID"
+      echo "zellij_tab_id=${ZELLIJ_TAB_ID:-}"
+      echo "zellij_pane_id=${ZELLIJ_PANE_ID:-}"
     fi
     if [ "$BACKEND" = orca ]; then
       echo "orca_worktree_id=$ORCA_WORKTREE_ID"
       echo "terminal=$ORCA_TERMINAL"
     fi
     if [ "$BACKEND" = cmux ]; then
-      echo "cmux_workspace_id=$CMUX_WORKSPACE_ID"
-      echo "cmux_surface_id=$CMUX_SURFACE_ID"
+      echo "cmux_workspace_id=${CMUX_WORKSPACE_ID:-}"
+      echo "cmux_surface_id=${CMUX_SURFACE_ID:-}"
     fi
     if [ "$KIND" = secondmate ]; then
       echo "home=$PROJ_ABS"
@@ -1060,6 +1062,45 @@ unpublished_endpoint_cleanup() {
   [ "$RELAUNCH" -eq 0 ] || return 0
   [ "$BACKEND" = orca ] && return 0
   local tab_id endpoint_state
+  if [ "$SPAWN_FRESH_ENDPOINT_IDENTIFIED" != 1 ]; then
+    if [ "$BACKEND" = herdr ] && [ -n "${HERDR_WORKSPACE_ID:-}" ]; then
+      local tabs candidates candidate pane prior
+      tabs=$(fm_backend_herdr_cli "$HERDR_SES" tab list --workspace "$HERDR_WORKSPACE_ID" 2>/dev/null) || tabs=
+      if [ -n "$tabs" ] && printf '%s' "$tabs" | jq -e '(.result.tabs | type) == "array"' >/dev/null 2>&1; then
+        candidates=$(printf '%s' "$tabs" | jq -r --arg label "$W" '.result.tabs[] | select(.label == $label) | .tab_id')
+        candidate=
+        while IFS= read -r tab_id; do
+          [ -n "$tab_id" ] || continue
+          case " ${HERDR_PRIOR_TAB_IDS:-} " in *" $tab_id "*) continue ;; esac
+          if [ -n "$candidate" ]; then candidate=ambiguous; break; fi
+          candidate=$tab_id
+        done <<EOF
+$candidates
+EOF
+        if [ -z "$candidate" ]; then
+          SPAWN_FRESH_ENDPOINT_PENDING=0
+          return 0
+        fi
+        if [ "$candidate" != ambiguous ]; then
+          pane=$(fm_backend_herdr_pane_for_tab "$HERDR_SES" "$HERDR_WORKSPACE_ID" "$candidate") || pane=
+          if [ -n "$pane" ]; then
+            HERDR_TAB_ID=$candidate
+            HERDR_PANE_ID=$pane
+            T="$HERDR_SES:$pane"
+            SPAWN_FRESH_ENDPOINT_IDENTIFIED=1
+            spawn_fresh_endpoint_own || true
+          fi
+        fi
+      fi
+    elif [ "$BACKEND" = tmux ] && [ "$(fm_backend_agent_state "$BACKEND" "$T")" = missing ]; then
+      SPAWN_FRESH_ENDPOINT_PENDING=0
+      return 0
+    fi
+    if [ "$SPAWN_FRESH_ENDPOINT_IDENTIFIED" != 1 ]; then
+      SPAWN_FRESH_ENDPOINT_RETIREMENT_FAILED=1
+      return 1
+    fi
+  fi
   tab_id=
   [ "$BACKEND" = zellij ] && tab_id=${ZELLIJ_TAB_ID:-}
   fm_backend_kill "$BACKEND" "$T" "$tab_id" "fm-$ID" 2>/dev/null || true
@@ -1109,6 +1150,15 @@ spawn_abort_cleanup() {
     endpoint_state=$(fm_backend_agent_state "$RELAUNCH_ENDPOINT_BACKEND" "$RELAUNCH_ENDPOINT_TARGET")
     if [ "$endpoint_state" = missing ]; then
       rm -f -- "$RELAUNCH_ENDPOINT_JOURNAL" 2>/dev/null || true
+      if [ "$RELAUNCH_STATE" = missing ] \
+         && [ "$RELAUNCH_ENDPOINT_ADOPTED" != 1 ]; then
+        case "$KIND:$HARNESS" in
+          secondmate:codex|ship:agy|scout:agy)
+            rm -f -- "$STATE/$ID.meta" || status=1
+            "$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort || true
+            ;;
+        esac
+      fi
     else
       echo "warning: replacement endpoint $RELAUNCH_ENDPOINT_TARGET remains '$endpoint_state'; retaining $RELAUNCH_ENDPOINT_JOURNAL for retry reconciliation" >&2
     fi
@@ -1118,7 +1168,7 @@ spawn_abort_cleanup() {
     endpoint_state=$(fm_backend_agent_state "$RELAUNCH_ENDPOINT_BACKEND" "$RELAUNCH_ENDPOINT_TARGET")
     if [ "$endpoint_state" = missing ]; then
       rm -f -- "$RELAUNCH_ENDPOINT_JOURNAL" 2>/dev/null || true
-      if relaunch_replacement_meta_published; then
+      if relaunch_replacement_meta_published || [ "$KIND:$HARNESS" = secondmate:codex ]; then
         if ! rm -f -- "$STATE/$ID.meta"; then
           status=1
         fi
@@ -1126,6 +1176,14 @@ spawn_abort_cleanup() {
       RELAUNCH_ENDPOINT_RECREATED=0
       "$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort || true
     else
+      if [ "$KIND:$HARNESS" = secondmate:codex ] && ! relaunch_replacement_meta_published \
+         && [ -f "$SPAWN_META_TMP" ]; then
+        SPAWN_FRESH_VISIBILITY_TMP="$STATE/.$ID.meta.recovery.${BASHPID:-$$}"
+        awk '{ print } END { print "summary_visibility=recovery" }' "$SPAWN_META_TMP" > "$SPAWN_FRESH_VISIBILITY_TMP" \
+          && fm_backlog_atomic_transition publish "$SPAWN_FRESH_VISIBILITY_TMP" "$STATE/$ID.meta" "task record" "$STATE" \
+          || status=1
+        SPAWN_FRESH_VISIBILITY_TMP=
+      fi
       "$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort || true
       echo "warning: replacement endpoint $RELAUNCH_ENDPOINT_TARGET remains '$endpoint_state'; retaining $STATE/$ID.meta for recovery" >&2
     fi
@@ -2987,6 +3045,8 @@ case "$BACKEND" in
   tmux)
     SES=$(fm_backend_tmux_container_ensure)
     T="$SES:$W"
+    SPAWN_FRESH_ENDPOINT_PENDING=1
+    spawn_fresh_endpoint_own || exit 1
     # #134 robustness (tmux): fm_backend_tmux_create_task captures a stable window
     # id and pins the window name (automatic-rename/allow-rename off) so a captain's
     # non-default tmux config cannot rename the window away from fm-<id> once
@@ -2995,11 +3055,7 @@ case "$BACKEND" in
     # stays $T (the name form), which is safe now that rename is disabled.
     WID=$(fm_backend_tmux_create_task "$SES" "$W" "$PROJ_ABS") || exit 1
     WT_TARGET="$WID"
-    SPAWN_FRESH_ENDPOINT_PENDING=1
-    spawn_fresh_endpoint_own || {
-      echo "error: early task ownership for $ID could not be published ($FM_BACKLOG_TRANSITION_ERROR)" >&2
-      exit 1
-    }
+    SPAWN_FRESH_ENDPOINT_IDENTIFIED=1
     ;;
   herdr)
     # fm_backend_herdr_workspace_label resolves the target workspace from
@@ -3103,6 +3159,9 @@ case "$BACKEND" in
           else
             HERDR_PROJECTION_ID=$(fm_backend_herdr_projection_journal_create "$STATE" "$ID") || exit 1
             HERDR_PROJECTION_LABEL=$(fm_backend_herdr_projection_workspace_label "$ID" "$HERDR_PROJECTION_ID")
+            T="$HERDR_SES:"
+            SPAWN_FRESH_ENDPOINT_PENDING=1
+            spawn_fresh_endpoint_own || exit 1
             if ! FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_projection_create_task \
               "$PROJ_ABS" "$HERDR_PROJECTION_LABEL" "$W"; then
               if [ "${FM_BACKEND_HERDR_PROJECTION_CLEANUP_SAFE:-0}" = 1 ]; then
@@ -3157,6 +3216,11 @@ case "$BACKEND" in
       HERDR_SEEDED_DEFAULT_TAB_ID=${HERDR_CONTAINER_RAW#*$'\t'}
       HERDR_SES=${CONTAINER%%:*}
       HERDR_WORKSPACE_ID=${CONTAINER#*:}
+      HERDR_PRIOR_TAB_IDS=$(fm_backend_herdr_cli "$HERDR_SES" tab list --workspace "$HERDR_WORKSPACE_ID" 2>/dev/null \
+        | jq -r 'if (.result.tabs | type) == "array" then [.result.tabs[].tab_id] | join(" ") else error("tabs") end') || exit 1
+      T="$HERDR_SES:"
+      SPAWN_FRESH_ENDPOINT_PENDING=1
+      spawn_fresh_endpoint_own || exit 1
       HERDR_TASK_IDS=$(FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_create_task "$CONTAINER" "$W" "$PROJ_ABS" "$HERDR_SEEDED_DEFAULT_TAB_ID") || exit 1
       read -r HERDR_TAB_ID HERDR_PANE_ID <<EOF
 $HERDR_TASK_IDS
@@ -3167,7 +3231,8 @@ EOF
       exit 1
     fi
     T="$HERDR_SES:$HERDR_PANE_ID"
-    SPAWN_FRESH_ENDPOINT_PENDING=1
+    SPAWN_FRESH_ENDPOINT_IDENTIFIED=1
+    HERDR_PRIOR_TAB_IDS=
     spawn_fresh_endpoint_own || {
       echo "error: early task ownership for $ID could not be published ($FM_BACKLOG_TRANSITION_ERROR)" >&2
       exit 1
@@ -3175,6 +3240,9 @@ EOF
     ;;
   zellij)
     ZELLIJ_SES=$(fm_backend_zellij_container_ensure) || exit 1
+    T="$ZELLIJ_SES:"
+    SPAWN_FRESH_ENDPOINT_PENDING=1
+    spawn_fresh_endpoint_own || exit 1
     ZELLIJ_TASK_IDS=$(fm_backend_zellij_create_task "$ZELLIJ_SES" "$W" "$PROJ_ABS") || exit 1
     read -r ZELLIJ_TAB_ID ZELLIJ_PANE_ID <<EOF
 $ZELLIJ_TASK_IDS
@@ -3184,7 +3252,7 @@ EOF
       exit 1
     fi
     T="$ZELLIJ_SES:$ZELLIJ_PANE_ID"
-    SPAWN_FRESH_ENDPOINT_PENDING=1
+    SPAWN_FRESH_ENDPOINT_IDENTIFIED=1
     spawn_fresh_endpoint_own || {
       echo "error: early task ownership for $ID could not be published ($FM_BACKLOG_TRANSITION_ERROR)" >&2
       exit 1
@@ -3192,6 +3260,9 @@ EOF
     ;;
   cmux)
     fm_backend_cmux_container_ensure || exit 1
+    T=unknown:
+    SPAWN_FRESH_ENDPOINT_PENDING=1
+    spawn_fresh_endpoint_own || exit 1
     CMUX_TASK_IDS=$(fm_backend_cmux_create_task "$W" "$PROJ_ABS") || exit 1
     read -r CMUX_WORKSPACE_ID CMUX_SURFACE_ID <<EOF
 $CMUX_TASK_IDS
@@ -3201,7 +3272,7 @@ EOF
       exit 1
     fi
     T="$CMUX_WORKSPACE_ID:$CMUX_SURFACE_ID"
-    SPAWN_FRESH_ENDPOINT_PENDING=1
+    SPAWN_FRESH_ENDPOINT_IDENTIFIED=1
     spawn_fresh_endpoint_own || {
       echo "error: early task ownership for $ID could not be published ($FM_BACKLOG_TRANSITION_ERROR)" >&2
       exit 1
@@ -4042,7 +4113,7 @@ spawn_report_preserved_state() {
   return 1
 }
 
-if [ "$RELAUNCH" -eq 1 ]; then
+spawn_relaunch_publish() {
   if [ "$RELAUNCH_ENDPOINT_PENDING" = 1 ]; then
     case "$KIND:$HARNESS" in
       secondmate:codex|ship:agy|scout:agy)
@@ -4063,7 +4134,17 @@ if [ "$RELAUNCH" -eq 1 ]; then
   SPAWN_META_TMP=
   if [ "$SPAWN_CUSTODY_LOCK_HELD" = 1 ]; then
     SPAWN_CUSTODY_LOCK_HELD=0
-    fm_lock_release "$SPAWN_CUSTODY_LOCK" || exit 1
+    fm_lock_release "$SPAWN_CUSTODY_LOCK" || return 1
+  fi
+}
+if [ "$RELAUNCH" -eq 1 ]; then
+  if [ "$KIND:$HARNESS" = secondmate:codex ]; then
+    if [ "$RELAUNCH_ENDPOINT_PENDING" = 1 ]; then
+      RELAUNCH_ENDPOINT_RECREATED=1
+      RELAUNCH_ENDPOINT_PENDING=0
+    fi
+  else
+    spawn_relaunch_publish || exit 1
   fi
 fi
 # A dispatch or relaunch keeps the per-task meta lock through launch delivery.
@@ -4246,6 +4327,9 @@ if ! spawn_send_key "$T" Enter; then
 fi
 if [ "$KIND" = secondmate ] && [ "$HARNESS" = codex ]; then
   codex_wait_for_startup_dialogs || exit 1
+  if [ "$RELAUNCH" -eq 1 ]; then
+    spawn_relaunch_publish || exit 1
+  fi
 fi
 if [ "$HARNESS" = agy ]; then
   AGY_DELIVERY_RC=0
