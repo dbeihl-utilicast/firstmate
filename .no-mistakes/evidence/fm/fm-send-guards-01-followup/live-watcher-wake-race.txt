@@ -1,0 +1,5 @@
+Real watcher and tmux endpoint: gate-wake-race-48683:fm-t1
+New record added while wake queue append was held: 002.msg
+Watcher wake: stale: gate-wake-race-48683:fm-t1 (unread firstmate instruction: /Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M35JR76QW3MEG0Z4D0HMZFAT/.gate-live-wake-race-48683/home/state/t1.inbox/001.msg is unhandled and the worker's agent has exited or its endpoint is missing, so the doorbell was not typed; recover the worker)
+Escalation marker: 001.msg	2
+Next inbox action: quiet

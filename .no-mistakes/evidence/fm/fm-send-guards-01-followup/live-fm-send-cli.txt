@@ -1,0 +1,14 @@
+Real tmux session: gate-live-47042:fm-t1
+Available key send: ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the requested message WILL still be sent.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+exit=0
+Pane input bytes after available send:        1
+Stopped key send: WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+error: steer not sent to t1: this lane is stopped (/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M35JR76QW3MEG0Z4D0HMZFAT/.gate-live-fm-send-47042/home/state/t1.stopped). No worker is running to see it. Reopen it first with 'bin/fm-secondmate-lane.sh reopen t1', then resend. Nothing was sent.
+exit=nonzero
+Pane input bytes after refused send:        1
