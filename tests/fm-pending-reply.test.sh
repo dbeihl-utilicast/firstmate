@@ -29,6 +29,8 @@
 #  15. Remote parent-replies.status is not classified as wrong-home
 #  16. An escalated correlation stays retryable while undelivered, is never reset
 #      once delivered, and its delivery-unknown decision still closes on resolve
+#  17. A stopped lane's pending records are untouched and become eligible again
+#      when the stopped marker is removed
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -1088,6 +1090,74 @@ test_tick_skips_terminal_and_reuses_target_observation() {
   pass "tick skips terminal records and reuses target observations"
 }
 
+test_tick_skips_stopped_tasks_before_reconciliation() {
+  (
+    local home state fakebin observe_log lock_log running stopped stopped_rec snapshot
+    home=$(setup_parent stopped-task-skip)
+    state="$home/state"
+    fakebin="$home/bin"
+    observe_log="$home/observations.log"
+    lock_log="$home/locks.log"
+    mkdir -p "$fakebin"
+    : > "$observe_log"
+    : > "$lock_log"
+    cat > "$fakebin/fm-on.sh" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$1" >> "$FM_PENDING_TEST_OBSERVE_LOG"
+printf 'busy\n'
+SH
+    chmod +x "$fakebin/fm-on.sh"
+    cat > "$fakebin/fm-wake-lib.sh" <<'SH'
+fm_lock_acquire_wait() {
+  printf '%s\n' "$1" >> "$FM_PENDING_TEST_LOCK_LOG"
+}
+fm_lock_release() {
+  :
+}
+SH
+    export FM_PENDING_TEST_OBSERVE_LOG=$observe_log
+    export FM_PENDING_TEST_LOCK_LOG=$lock_log
+    export FM_PENDING_REPLY_NOW=10200
+    running=$(fm_pending_reply_create "$home" "$state" running "running request")
+    stopped=$(fm_pending_reply_create "$home" "$state" stopped "stopped request")
+    fm_pending_reply_mark_delivered "$state" "$running"
+    fm_pending_reply_mark_delivered "$state" "$stopped"
+    fm_write_meta "$state/running.meta" \
+      "window=fm-remote:w1:p1" "harness=claude" "kind=secondmate" "mode=secondmate" \
+      "remote_host=remote-mac" "remote_root=/remote/root" "remote_backend=herdr"
+    fm_write_meta "$state/stopped.meta" \
+      "window=fm-remote:w1:p2" "harness=claude" "kind=secondmate" "mode=secondmate" \
+      "remote_host=remote-mac" "remote_root=/remote/root" "remote_backend=herdr"
+    printf 'stopped\n' > "$state/stopped.stopped"
+    stopped_rec=$(fm_pending_reply_path "$state" "$stopped")
+    snapshot="$home/stopped-record.before"
+    cp "$stopped_rec" "$snapshot"
+
+    _FM_PENDING_REPLY_LIB_DIR=$fakebin
+    fm_pending_reply_tick "$state"
+
+    [ "$(cat "$observe_log")" = running ] \
+      || fail "one tick should observe only the running remote endpoint"
+    assert_no_grep "$stopped" "$lock_log" \
+      "a stopped task must skip before any pending-reply lock"
+    cmp -s "$snapshot" "$stopped_rec" \
+      || fail "a stopped task's pending-reply record must remain byte-for-byte unchanged"
+
+    rm "$state/stopped.stopped"
+    : > "$observe_log"
+    : > "$lock_log"
+    fm_pending_reply_tick "$state"
+
+    [ "$(sort "$observe_log" | tr '\n' ' ')" = "running stopped " ] \
+      || fail "removing the stopped marker should make both remote endpoints eligible"
+    assert_grep "$stopped" "$lock_log" \
+      "the resumed task should re-enter pending-reply reconciliation"
+    [ "$(fm_pending_reply_get "$stopped_rec" turn_seen_busy)" = 1 ] \
+      || fail "the resumed task should accept its backend observation"
+  ) || fail "stopped-task pending-reply skip regression failed"
+  pass "tick leaves stopped records untouched until their task is resumed"
+}
+
 test_correlations_reuse_only_for_matching_open_task() {
   local dir fb log home state got corr1 corr2 corr3 rec
   dir="$TMP_ROOT/corr-reuse"; mkdir -p "$dir"
@@ -1601,6 +1671,7 @@ test_busy_idle_observation_via_backend_abstraction
 test_unknown_backend_state_uses_capture_fallback
 test_kimi_capture_fallback_uses_recorded_harness
 test_tick_skips_terminal_and_reuses_target_observation
+test_tick_skips_stopped_tasks_before_reconciliation
 test_correlations_reuse_only_for_matching_open_task
 test_tick_end_to_end_missed_then_escalate
 test_failed_send_discards_undelivered_expectation
