@@ -1,0 +1,5 @@
+Real fm-home-summary-refresh.sh against an isolated home
+provisional_visibility=provisional
+{"schema":"fm-secondmate-home-summary.v1","endpoint_ids":[]}
+recovery_visibility=recovery
+{"schema":"fm-secondmate-home-summary.v1","endpoint_ids":["mate"]}
