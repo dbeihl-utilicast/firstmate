@@ -674,6 +674,11 @@ case "${1:-}" in
     exit 0
     ;;
   capture-pane)
+    if [ -n "${FM_FAKE_SUMMARY_REFRESH:-}" ] \
+       && [ ! -e "${FM_FAKE_SUMMARY_REFRESHED:?}" ]; then
+      : > "$FM_FAKE_SUMMARY_REFRESHED"
+      "$FM_FAKE_SUMMARY_REFRESH" >/dev/null 2>&1 || exit 1
+    fi
     if [ -n "${FM_FAKE_SUMMARY_PROBE:-}" ] \
        && grep -Eq '"id"[[:space:]]*:[[:space:]]*"'"${FM_FAKE_SUMMARY_ID:-sm}"'"' \
          "$FM_FAKE_SUMMARY_PROBE" 2>/dev/null; then
@@ -693,6 +698,9 @@ case "${1:-}" in
     last=
     literal=0
     for a in "$@"; do
+      case "$a" in
+        'export GOTMPDIR='*) [ "${FM_FAKE_FAIL_GOTMPDIR:-0}" != 1 ] || exit 1 ;;
+      esac
       if [ "$prev" = "-l" ]; then
         literal=1
         [ -z "${FM_FAKE_LAUNCH_LOG:-}" ] || printf '%s\n' "$a" >> "$FM_FAKE_LAUNCH_LOG"
@@ -927,19 +935,23 @@ test_spawn_codex_unready_startup_capture_refused() {
 }
 
 test_spawn_codex_summary_waits_for_readiness() {
-  local w sm launchlog summary observed out status
+  local w sm launchlog summary observed refreshed out status
   w="$TMP_ROOT/spawn-codex-summary-readiness"
   sm="$w/sm"
   launchlog="$w/launch.log"
   summary="$w/home/state/home-summary.json"
   observed="$w/summary-observed-before-ready"
+  refreshed="$w/summary-refreshed-before-ready"
   mkdir -p "$w/home/config"
   printf 'codex gpt-5.6-sol\n' > "$w/home/config/secondmate-harness"
   make_seeded_home "$sm" sm
 
-  out=$(FM_FAKE_SUMMARY_PROBE="$summary" FM_FAKE_SUMMARY_OBSERVED="$observed" \
+  out=$(FM_FAKE_SUMMARY_REFRESH="$ROOT/bin/fm-home-summary-refresh.sh" \
+    FM_FAKE_SUMMARY_REFRESHED="$refreshed" FM_FAKE_SUMMARY_PROBE="$summary" \
+    FM_FAKE_SUMMARY_OBSERVED="$observed" \
     spawn_secondmate_capture "$w" sm "$sm" "$launchlog" 2>&1); status=$?
   expect_code 0 "$status" "a ready Codex secondmate should publish successfully"$'\n'"$out"
+  [ -e "$refreshed" ] || fail "the readiness fixture never triggered an independent summary refresh"
   [ ! -e "$observed" ] \
     || fail "the Codex secondmate appeared in home-summary.json before readiness"
   jq -e --arg id sm 'any(.endpoints[]; .id == $id)' "$summary" >/dev/null \
@@ -989,6 +1001,31 @@ test_spawn_codex_unready_startup_retains_record_when_endpoint_survives() {
   jq -e --arg id sm 'any(.endpoints[]; .id == $id)' "$summary" >/dev/null \
     || fail "a live Codex endpoint disappeared from the durable home summary"
   pass "C3g spawn: failed Codex cleanup retains ownership of a surviving endpoint"
+}
+
+test_spawn_codex_predelivery_failure_retains_record_when_endpoint_survives() {
+  local w sm launchlog backendlog summary out status
+  w="$TMP_ROOT/spawn-codex-predelivery-live-endpoint"
+  sm="$w/sm"
+  launchlog="$w/launch.log"
+  backendlog="$w/backend.log"
+  summary="$w/home/state/home-summary.json"
+  mkdir -p "$w/home/config"
+  printf 'codex gpt-5.6-sol\n' > "$w/home/config/secondmate-harness"
+  make_seeded_home "$sm" sm
+  : > "$backendlog"
+
+  out=$(FM_FAKE_FAIL_GOTMPDIR=1 FM_FAKE_KILL_LEAVES_ENDPOINT=1 \
+    FM_FAKE_BACKEND_LOG="$backendlog" \
+    spawn_secondmate_capture "$w" sm "$sm" "$launchlog" 2>&1); status=$?
+  expect_code 1 "$status" "a Codex predelivery failure must fail when endpoint cleanup is incomplete"$'\n'"$out"
+  assert_contains "$(cat "$backendlog")" "kill-window" \
+    "a predelivery failure did not attempt endpoint retirement"
+  [ -f "$w/home/state/sm.meta" ] \
+    || fail "a surviving predelivery endpoint lost its recovery record"
+  jq -e --arg id sm 'any(.endpoints[]; .id == $id)' "$summary" >/dev/null \
+    || fail "a surviving predelivery endpoint disappeared from the durable summary"
+  pass "C3h spawn: predelivery failure retains ownership of a surviving endpoint"
 }
 
 test_recreated_codex_relaunch_cleanup() {
@@ -2975,6 +3012,7 @@ test_spawn_codex_launch_key_failure_cleans_endpoint
 test_spawn_codex_launch_literal_failure_cleans_endpoint
 test_spawn_codex_empty_startup_capture_refused
 test_spawn_codex_unready_startup_capture_refused
+test_spawn_codex_predelivery_failure_retains_record_when_endpoint_survives
 test_spawn_codex_summary_waits_for_readiness
 test_spawn_codex_unready_startup_removes_durable_summary
 test_spawn_codex_unready_startup_retains_record_when_endpoint_survives

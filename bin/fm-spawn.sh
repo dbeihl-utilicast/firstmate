@@ -903,6 +903,7 @@ SPAWN_META_LOCK_HELD=0
 SPAWN_META_PUBLISH_STARTED=0
 SPAWN_FRESH_COMMIT_PENDING=0
 SPAWN_FRESH_ENDPOINT_RETIREMENT_FAILED=0
+SPAWN_FRESH_SUMMARY_PROVISIONAL=0
 SPAWN_FRESH_QWEN_WIRING_PENDING=0
 SPAWN_FRESH_QWEN_SETTINGS_TMP=
 SPAWN_TASK_SET_LOCK=
@@ -933,7 +934,7 @@ spawn_fresh_commit_rollback() {
     "$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort || true
     return 0
   fi
-  echo "error: $FM_BACKLOG_TRANSITION_ERROR" >&2
+  echo "error: failed-dispatch cleanup is incomplete ($FM_BACKLOG_TRANSITION_ERROR)" >&2
   return 1
 }
 
@@ -1070,12 +1071,17 @@ spawn_abort_cleanup() {
       fi
     fi
   fi
+  if [ "$SPAWN_FRESH_COMMIT_PENDING" = 1 ] \
+     && [ "$SPAWN_FRESH_ENDPOINT_RETIREMENT_FAILED" != 1 ]; then
+    unpublished_endpoint_cleanup || true
+  fi
   if [ "$SPAWN_TASK_LOCK_HELD" = 1 ]; then
     SPAWN_TASK_LOCK_HELD=0
     fm_lock_release "$SPAWN_TASK_LOCK" || true
   fi
   if [ "$SPAWN_FRESH_COMMIT_PENDING" = 1 ]; then
     if [ "$SPAWN_FRESH_ENDPOINT_RETIREMENT_FAILED" = 1 ]; then
+      spawn_fresh_summary_reveal || true
       "$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort || true
       echo "warning: endpoint $T could not be verified absent; retaining $STATE/$ID.meta for recovery" >&2
     elif ! spawn_fresh_commit_rollback; then
@@ -3163,7 +3169,6 @@ codex_wait_for_startup_dialogs() {
   while [ "$i" -lt "$max" ]; do
     if ! raw=$(spawn_capture_pane); then
       echo "error: unable to capture Codex startup state in $T; refusing to publish a worker that cannot begin its turn" >&2
-      unpublished_endpoint_cleanup
       return 1
     fi
     if pane=$(spawn_post_launch_pane "$raw" "$CODEX_LAUNCH_BOUNDARY"); then
@@ -3177,18 +3182,15 @@ codex_wait_for_startup_dialogs() {
     case "$action" in
       hooks-down-enter)
         spawn_send_key "$T" Down || {
-          unpublished_endpoint_cleanup
           return 1
         }
         sleep 0.3
         spawn_send_key "$T" Enter || {
-          unpublished_endpoint_cleanup
           return 1
         }
         ;;
       trust-enter)
         spawn_send_key "$T" Enter || {
-          unpublished_endpoint_cleanup
           return 1
         }
         ;;
@@ -3199,7 +3201,6 @@ codex_wait_for_startup_dialogs() {
   done
   if ! raw=$(spawn_capture_pane); then
     echo "error: unable to capture Codex startup state in $T; refusing to publish a worker that cannot begin its turn" >&2
-    unpublished_endpoint_cleanup
     return 1
   fi
   if pane=$(spawn_post_launch_pane "$raw" "$CODEX_LAUNCH_BOUNDARY"); then
@@ -3220,7 +3221,6 @@ codex_wait_for_startup_dialogs() {
     fi
     echo "error: Codex startup in $T never reached its ready prompt; refusing to publish a worker that cannot begin its turn" >&2
   fi
-  unpublished_endpoint_cleanup
   return 1
 }
 
@@ -3270,7 +3270,6 @@ unpublished_endpoint_cleanup() {
 agy_spawn_fail() {  # <detail>
   printf 'failed: %s\n' "$1" >> "$STATE/$ID.status"
   echo "error: $1; inspect window $T" >&2
-  unpublished_endpoint_cleanup
 }
 
 if [ "$RELAUNCH" -eq 1 ]; then
@@ -3813,10 +3812,23 @@ else
   SPAWN_FRESH_COMMIT_PENDING=1
 fi
 SPAWN_META_PATH=$SPAWN_META_TMP
+spawn_fresh_summary_reveal() {
+  [ "$SPAWN_FRESH_SUMMARY_PROVISIONAL" = 1 ] || return 0
+  local meta="$STATE/$ID.meta"
+  SPAWN_META_TMP="$STATE/.$ID.meta.summary.${BASHPID:-$$}"
+  if ! awk -F= '$1 != "summary_visibility"' "$meta" > "$SPAWN_META_TMP" \
+     || ! fm_backlog_atomic_transition publish "$SPAWN_META_TMP" "$meta" "task record" "$STATE"; then
+    rm -f -- "$SPAWN_META_TMP" 2>/dev/null || true
+    SPAWN_META_TMP=
+    return 1
+  fi
+  SPAWN_META_TMP=
+  SPAWN_FRESH_SUMMARY_PROVISIONAL=0
+}
 preserve_relaunch_meta() {
   awk -F= '
     BEGIN {
-      split("window endpoint_task_id worktree project harness kind mode yolo tasktmp model effort busy_gen spawn_gen traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx", keys, " ")
+      split("window endpoint_task_id worktree project harness kind mode yolo tasktmp model effort busy_gen spawn_gen summary_visibility traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx", keys, " ")
       for (i in keys) owned[keys[i]] = 1
     }
     !($1 in owned)
@@ -3836,6 +3848,10 @@ preserve_relaunch_meta() {
   echo "effort=${EFFORT:-default}"
   [ -z "${BUSY_GEN:-}" ] || echo "busy_gen=$BUSY_GEN"
   echo "spawn_gen=$SPAWN_GEN"
+  if [ "$RELAUNCH" -eq 0 ] && [ "$KIND" = secondmate ] && [ "$HARNESS" = codex ]; then
+    echo "summary_visibility=provisional"
+    SPAWN_FRESH_SUMMARY_PROVISIONAL=1
+  fi
   # Default-off writes no traceparent= line.
   # backend= is written only for a non-default (non-tmux) backend, so the
   # default path's meta stays byte-identical (absent backend= means tmux;
@@ -4115,7 +4131,6 @@ sleep 0.3
 if ! spawn_send_literal "$T" "$LAUNCH"; then
   if [ "$KIND" = secondmate ] && [ "$HARNESS" = codex ]; then
     echo "error: unable to deliver Codex launch in $T; refusing to publish a worker that cannot begin its turn" >&2
-    unpublished_endpoint_cleanup
   fi
   exit 1
 fi
@@ -4127,7 +4142,6 @@ fi
 if ! spawn_send_key "$T" Enter; then
   if [ "$KIND" = secondmate ] && [ "$HARNESS" = codex ]; then
     echo "error: unable to start Codex in $T; refusing to publish a worker that cannot begin its turn" >&2
-    unpublished_endpoint_cleanup
   fi
   exit 1
 fi
@@ -4145,6 +4159,10 @@ if [ "$HARNESS" = agy ]; then
     agy_spawn_fail "agy did not accept the launch brief after its verified trust-and-busy check in window $T"
     exit 1
   fi
+fi
+if ! spawn_fresh_summary_reveal; then
+  echo "error: task record for $ID could not be published to the durable home summary" >&2
+  exit 1
 fi
 RELAUNCH_ENDPOINT_RECREATED=0
 "$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort || true
@@ -4198,11 +4216,7 @@ else
 fi
 if [ "$SPAWN_BACKLOG_COMMIT_STATUS" -ne 0 ]; then
   if [ "$RELAUNCH" -eq 0 ]; then
-    if spawn_fresh_commit_rollback; then
-      echo "error: task $ID's backlog item could not be moved to In flight ($FM_BACKLOG_TRANSITION_ERROR); its record was removed so no worker is left that the backlog does not own - close out endpoint $T and local copy $WT by hand, then re-run the spawn" >&2
-    else
-      echo "error: task $ID's backlog item could not be moved to In flight ($FM_BACKLOG_TRANSITION_ERROR), and failed-dispatch cleanup is incomplete; the provisional record may remain at $STATE/$ID.meta - close out endpoint $T and local copy $WT by hand, then remove the record and busy state before retrying" >&2
-    fi
+    echo "error: task $ID's backlog item could not be moved to In flight ($FM_BACKLOG_TRANSITION_ERROR); aborting the launch before ownership rollback" >&2
   else
     echo "error: task $ID was republished but its backlog item could not be moved to In flight ($FM_BACKLOG_TRANSITION_ERROR); fix the backlog and re-run the relaunch" >&2
   fi

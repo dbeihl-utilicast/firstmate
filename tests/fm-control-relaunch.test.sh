@@ -125,7 +125,18 @@ case "${1:-}" in
       printf '╭────╮\n│    │\n╰────╯\n'
     fi
     exit 0 ;;
-  list-windows) [ -f "$D/windows" ] && cat "$D/windows"; exit 0 ;;
+  list-windows)
+    if [ "${FM_FAKE_ENDPOINT_VANISH_AFTER_DEAD:-0}" = 1 ] \
+       && [ -e "$D/dead-state-observed" ] \
+       && [ ! -e "$D/endpoint-recreated" ]; then
+      exit 0
+    fi
+    [ -f "$D/windows" ] && cat "$D/windows"
+    if [ "${FM_FAKE_ENDPOINT_VANISH_AFTER_DEAD:-0}" = 1 ] \
+       && [ "$(cat "$D/command" 2>/dev/null)" = zsh ]; then
+      : > "$D/dead-state-observed"
+    fi
+    exit 0 ;;
   kill-window)
     [ "${FM_FAKE_KILL_REMOVES_ENDPOINT:-0}" != 1 ] || : > "$D/windows"
     exit 0 ;;
@@ -137,6 +148,7 @@ case "${1:-}" in
         *) shift ;;
       esac
     done
+    : > "$D/endpoint-recreated"
     printf '%s\n' "$name" >> "$D/windows"
     printf 'zsh' > "$D/command"
     printf '@%s\n' "$(wc -l < "$D/windows" | tr -d ' ')"
@@ -241,6 +253,7 @@ run_control() {  # <case-dir> <args...>
     FM_FAKE_TRACE_RELEASE="${FM_FAKE_TRACE_RELEASE:-}" \
     FM_FAKE_META_WRITER_READY="${FM_FAKE_META_WRITER_READY:-}" \
     FM_FAKE_TRACE_EXPORTED="${FM_FAKE_TRACE_EXPORTED:-}" \
+    FM_FAKE_ENDPOINT_VANISH_AFTER_DEAD="${FM_FAKE_ENDPOINT_VANISH_AFTER_DEAD:-}" \
     FM_FAKE_KILL_REMOVES_ENDPOINT="${FM_FAKE_KILL_REMOVES_ENDPOINT:-}" \
     FM_CODEX_READY_POLLS="${FM_CODEX_READY_POLLS:-}" \
     FM_CODEX_POLL_INTERVAL="${FM_CODEX_POLL_INTERVAL:-}" \
@@ -1322,6 +1335,36 @@ test_control_reports_recreated_codex_retirement() {
   pass "fm-control relaunch: recreated Codex retirement is reported accurately"
 }
 
+test_control_reports_endpoint_recreated_after_stop_race() {
+  local id=sm-stop-race dir smhome meta out rc
+  dir=$(new_case codex-stop-race "$id")
+  smhome="$dir/smhome"
+  meta="$dir/home/state/$id.meta"
+  fm_git_worktree "$dir/proj" "$smhome" sm-stop-race-branch
+  mkdir -p "$smhome/state" "$smhome/data" "$smhome/bin"
+  printf '%s\n' "$id" > "$smhome/.fm-secondmate-home"
+  printf '# agents\n' > "$smhome/AGENTS.md"
+  printf '# charter\n' > "$smhome/data/charter.md"
+  fm_write_secondmate_meta "$meta" "$smhome" "fmses:fm-$id" '' codex
+  printf '%s' "$smhome" > "$dir/fake/cwd"
+  printf 'codex' > "$dir/fake/command"
+  printf 'codex' > "$dir/fake/becomes"
+  printf 'codex: command not found\n' > "$dir/fake/pane-after"
+
+  out=$(FM_FAKE_ENDPOINT_VANISH_AFTER_DEAD=1 FM_FAKE_KILL_REMOVES_ENDPOINT=1 \
+    FM_CODEX_READY_POLLS=2 FM_CODEX_POLL_INTERVAL=0 \
+    run_control "$dir" "$id" relaunch --harness codex); rc=$?
+  expect_code 1 "$rc" "a replacement recreated after the stop race should fail readiness"$'\n'"$out"
+  [ "$(journal_field "$dir" "$id" rollback)" = recreated-endpoint-and-record-retired ] \
+    || fail "control reported the stop-race retirement from its stale pre-launch sample"$'\n'"$out"
+  assert_absent "$meta" "the retired stop-race replacement retained its published record"
+  assert_no_grep "fm-$id" "$dir/fake/windows" \
+    "the retired stop-race replacement endpoint remained"
+  assert_contains "$out" "endpoint and published task record were retired" \
+    "control reported that the retired stop-race replacement record remained"
+  pass "fm-control relaunch: stop-race recreation retirement is reported accurately"
+}
+
 test_stop_transport_failure_reconciles_a_dead_agent() {
   local dir out rc
   dir=$(new_case stopfail rl25)
@@ -2144,6 +2187,7 @@ test_prepublication_failure_keeps_concurrent_durable_metadata
 test_post_publication_launch_failure_keeps_the_new_record
 test_reused_codex_stale_ready_does_not_mask_current_failure
 test_control_reports_recreated_codex_retirement
+test_control_reports_endpoint_recreated_after_stop_race
 test_stop_transport_failure_reconciles_a_dead_agent
 test_complete_journal_failure_rolls_back_from_durable_phase
 test_prepublication_abort_retires_replacement_wiring_and_busy_state
