@@ -215,6 +215,18 @@ test_build_refuses_malformed_payloads_before_touching_the_board() {
   [ "$rc" -ne 0 ] || fail "a 129-char captains_call key was accepted"
 
   write_valid_payload "$data"
+  jq '.captains_call[0].key = "domain-alpha/phase8/extra"' "$data" > "$data.tmp" \
+    && mv "$data.tmp" "$data"
+  set +e; out=$(run_board "$home" build "$data" 2>&1); rc=$?; set -e
+  [ "$rc" -ne 0 ] || fail "a captains_call key with more than one slash was accepted"
+
+  write_valid_payload "$data"
+  jq '.captains_call[0].key = "domain-alpha/"' "$data" > "$data.tmp" \
+    && mv "$data.tmp" "$data"
+  set +e; out=$(run_board "$home" build "$data" 2>&1); rc=$?; set -e
+  [ "$rc" -ne 0 ] || fail "a captains_call key with an empty task segment was accepted"
+
+  write_valid_payload "$data"
   jq 'del(.charted[0].dispatchable)' "$data" > "$data.tmp" && mv "$data.tmp" "$data"
   set +e; out=$(run_board "$home" build "$data" 2>&1); rc=$?; set -e
   [ "$rc" -ne 0 ] || fail "a charted row without a dispatchable boolean was accepted"
@@ -683,6 +695,57 @@ EOF
   pass "build keeps remote decisions absent from the main backlog"
 }
 
+test_build_presents_a_secondmate_decision_key() {
+  local home data board out
+  home=$(make_home secondmate-key)
+  data="$home/payload.json"
+  board="$home/.lavish/bearings-board.html"
+  write_valid_payload "$data"
+  jq '.captains_call = [
+        {"key":"main-home-call","type":"decision","repo":"sample","title":"Main home decision",
+         "options":[{"value":"yes","label":"Yes"}]},
+        {"key":"domain-alpha/phase8-decision-release","type":"decision","repo":"sample",
+         "title":"Second mate release choice",
+         "options":[{"value":"a","label":"Release A"},{"value":"b","label":"Release B"}]}
+      ]
+      | .landed = []' "$data" > "$data.tmp" && mv "$data.tmp" "$data"
+
+  out=$(run_board "$home" build "$data" 2>&1) || fail "a second-mate decision key was not presentable: $out"
+  assert_not_contains "$out" "dropped-landed-card: domain-alpha/phase8-decision-release" \
+    "an open second-mate card was reported as dropped: $out"
+  extract_payload "$board" | jq -e '
+    ([.captains_call[].key] | index("domain-alpha/phase8-decision-release") != null)
+    and ([.captains_call[].key] | index("main-home-call") != null)
+  ' >/dev/null || fail "the built board did not carry the second-mate decision key"
+  pass "build presents a second-mate <secondmate>/<task> decision key"
+}
+
+test_build_names_a_dropped_secondmate_card() {
+  local home data board out
+  home=$(make_home secondmate-drop)
+  data="$home/payload.json"
+  board="$home/.lavish/bearings-board.html"
+  write_valid_payload "$data"
+  jq '.captains_call = [
+        {"key":"domain-alpha/phase8-decision-release","type":"decision","repo":"sample",
+         "title":"Already shipped second mate call",
+         "options":[{"value":"yes","label":"Yes"}]},
+        {"key":"still-open","type":"decision","repo":"sample","title":"Genuinely open",
+         "options":[{"value":"yes","label":"Yes"}]}
+      ]
+      | .landed = [
+        {"id":"domain-alpha/phase8-decision-release","repo":"sample",
+         "what":"shipped the second mate release","owner":"domain-alpha"}
+      ]' "$data" > "$data.tmp" && mv "$data.tmp" "$data"
+
+  out=$(run_board "$home" build "$data" 2>&1) || fail "the second-mate drop build failed: $out"
+  assert_contains "$out" "dropped-landed-card: domain-alpha/phase8-decision-release" \
+    "a dropped second-mate card vanished without being named: $out"
+  extract_payload "$board" | jq -e '[.captains_call[].key] == ["still-open"]' >/dev/null \
+    || fail "the board kept a landed second-mate card or dropped the open one"
+  pass "build names a dropped second-mate card instead of dropping it silently"
+}
+
 # --- part 3: every decision card offers reconcile ---------------------------
 
 test_build_fails_when_reconcile_cannot_establish_a_listener() {
@@ -777,6 +840,8 @@ test_build_refuses_to_arm_when_the_session_stays_ended
 test_build_starts_a_listener_for_an_already_armed_board
 test_build_drops_decision_cards_whose_subject_already_landed
 test_build_keeps_a_decision_absent_from_the_main_backlog
+test_build_presents_a_secondmate_decision_key
+test_build_names_a_dropped_secondmate_card
 test_build_fails_when_reconcile_cannot_establish_a_listener
 test_every_decision_card_carries_the_reconcile_choice
 test_build_refuses_a_payload_that_occupies_the_reconcile_value

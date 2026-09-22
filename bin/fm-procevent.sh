@@ -390,33 +390,43 @@ adapter_autohandle() {  # <adapter> <source-id> <result-file>
 
 # Pass a bound source's captured result to the one keyed-answer intake. The
 # adapter turns its own format into keyed lines; the intake owns everything those
-# lines mean. Silenced and best-effort exactly like the seams above: an unbound
-# source, an adapter with no `answers` command, and a failure on either side all
-# leave the capture untouched and still announced, because this never
-# acknowledges anything (see the keyed-answer note in the header).
+# lines mean. Best-effort exactly like the seams above: an unbound source, an
+# adapter with no `answers` command, and a failure on either side all leave the
+# capture untouched and still announced, because this never acknowledges
+# anything (see the keyed-answer note in the header). A refusal from the intake
+# itself is not silenced the same way: it is surfaced on stderr so a captain's
+# answer that could not be routed says so instead of vanishing.
 feed_keyed_answers() {  # <adapter> <source-id> <result-file>
-  local adapter=$1 id=$2 result=$3 script origin seq
+  local adapter=$1 id=$2 result=$3 script origin seq out
   script=$(adapter_script "$adapter")
   [ -f "$script" ] && [ ! -L "$script" ] || return 1
   origin=$("$SCRIPT_DIR/fm-captain-hold.sh" binding "$id" 2>/dev/null) || return 1
   [ -n "$origin" ] || return 1
   seq=$(fm_procevent_result_sequence "$result") || return 1
-  "$script" answers "$result" 2>/dev/null \
+  if out=$("$script" answers "$result" 2>/dev/null \
     | "$SCRIPT_DIR/fm-captain-hold.sh" answers "$origin" \
-        --source "the captured result $id sequence $seq" >/dev/null 2>&1
+        --source "the captured result $id sequence $seq" 2>&1); then
+    return 0
+  fi
+  [ -z "$out" ] || printf 'error: %s answers: %s\n' "$id" "$out" >&2
+  return 1
 }
 
 feed_reconcile_requests() {  # <adapter> <source-id> <result-file>
-  local adapter=$1 id=$2 result=$3 script origin seq rows
+  local adapter=$1 id=$2 result=$3 script origin seq rows out
   script=$(adapter_script "$adapter")
   [ -f "$script" ] && [ ! -L "$script" ] || return 1
   origin=$("$SCRIPT_DIR/fm-captain-hold.sh" binding "$id" 2>/dev/null) || return 1
   [ -n "$origin" ] || return 1
   seq=$(fm_procevent_result_sequence "$result") || return 1
   rows=$("$script" reconciles "$result" 2>/dev/null) || return 1
-  printf '%s\n' "$rows" \
+  if out=$(printf '%s\n' "$rows" \
     | "$SCRIPT_DIR/fm-captain-hold.sh" reconcile-requests \
-        --source-id "$id" --source "the captured result $id sequence $seq" >/dev/null 2>&1
+        --source-id "$id" --source "the captured result $id sequence $seq" 2>&1); then
+    return 0
+  fi
+  [ -z "$out" ] || printf 'error: %s reconcile-requests: %s\n' "$id" "$out" >&2
+  return 1
 }
 
 read_adapter() {  # <source-id>

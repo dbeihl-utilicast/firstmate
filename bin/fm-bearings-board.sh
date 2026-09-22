@@ -65,7 +65,12 @@
 #
 # Validation is fail-closed: the payload must be valid JSON with
 # schema=fm-bearings-board.v1 and every renderer-consumed field must satisfy
-# the fm-bearings-board.v1 types and item invariants below. Every fleet row and
+# the fm-bearings-board.v1 types and item invariants below. A Captain's Call
+# key is a privacy-safe slug or a second-mate identity `<secondmate>/<task>`
+# (exactly one slash, each side a slug, at most 128 characters in total);
+# option values, charted ids, and structured artifact names stay slug-only.
+# Owner-aware routing of those second-mate answers into the authoritative home
+# is tracked separately in docs/captain-hold-lifecycle.md. Every fleet row and
 # Captain's Call item explicitly carries `repo`; the composer fills it from the
 # snapshot and task records wherever known, and uses null or an empty string
 # only as the deliberate genuinely-no-repo marker. In that exceptional case
@@ -108,6 +113,11 @@ validate_payload() {  # <data.json>
   jq -e --arg schema "$BOARD_SCHEMA" '
     def nonempty_string: type == "string" and length > 0;
     def slug($max): type == "string" and test("^[A-Za-z0-9._-]{1," + ($max | tostring) + "}$");
+    def call_key($max):
+      type == "string"
+      and length > 0
+      and length <= $max
+      and test("^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)?$");
     def repo_marker: has("repo") and (.repo == null or (.repo | type == "string"));
     def optional_string($name): (has($name) | not) or (.[$name] | type == "string");
     def optional_https_url($name):
@@ -125,7 +135,7 @@ validate_payload() {  # <data.json>
           and (.version | version));
     def call_item:
       type == "object"
-      and (.key | slug(128))
+      and (.key | call_key(128))
       and (.type == "decision" or .type == "merge" or .type == "credential")
       and repo_marker
       and (.title | nonempty_string)

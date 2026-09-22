@@ -1191,7 +1191,14 @@ command_answers() {
     label=${rest%%"$tab"*}
     case "$rest" in *"$tab"*) mode=${rest#*"$tab"} ;; *) mode='' ;; esac
     [ -n "${key:-}" ] || continue
-    case "$key" in *[!A-Za-z0-9._-]*) continue ;; esac
+    case "$key" in
+      */*)
+        printf 'refused: %s (second-mate answer routing is not implemented yet; see docs/captain-hold-lifecycle.md)\n' "$key"
+        skipped=$((skipped + 1))
+        continue
+        ;;
+      *[!A-Za-z0-9._-]*) continue ;;
+    esac
     [ "${#key}" -le 128 ] || continue
     answer=$(sanitize_field "${answer:-}")
     [ -n "$answer" ] || continue

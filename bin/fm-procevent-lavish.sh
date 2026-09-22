@@ -423,8 +423,10 @@ cmd_silent() {
 # shape only for ordinary answers and rejects its bare or annotated reconcile
 # values because old rows do not separate the selected option from its note.
 # The question cap is 128 so any task id fits, including the long legacy
-# `<origin>-decision-<key>` identities pre-collapse decks still carry; the
-# security property is the slug SHAPE, which is unchanged.
+# `<origin>-decision-<key>` identities pre-collapse decks still carry, and the
+# second-mate `<secondmate>/<task>` identity fm-bearings-board.sh's call_key
+# now presents; the security property is the slug SHAPE (one optional slash),
+# which is unchanged.
 cmd_choice_rows() {
   local selection=$1 file=${2-}
   [ -n "$file" ] || usage
@@ -498,7 +500,7 @@ cmd_choice_rows() {
       } else {
         next;
       }
-      next unless $key =~ /\A[A-Za-z0-9._-]{1,128}\z/;
+      next unless $key =~ /\A[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)?\z/ && length($key) <= 128;
       my $mode = "";
       if (exists $data->{close}) {
         next if !defined($data->{close}) || ref($data->{close})
