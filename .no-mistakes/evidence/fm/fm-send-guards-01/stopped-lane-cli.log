@@ -1,0 +1,13 @@
+ordinary exit=1: ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the requested message WILL still be sent.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+error: steer not sent to domain: this lane is stopped (/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M35DSV1HTPY47YQT6C02JQMD/.stopped-live.nc3Zjf/state/domain.stopped). No worker is running to see it. Reopen it first with 'bin/fm-secondmate-lane.sh reopen domain', then resend. Nothing was sent.
+key exit=1: WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+error: steer not sent to domain: this lane is stopped (/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M35DSV1HTPY47YQT6C02JQMD/.stopped-live.nc3Zjf/state/domain.stopped). No worker is running to see it. Reopen it first with 'bin/fm-secondmate-lane.sh reopen domain', then resend. Nothing was sent.
+fire_and_forget exit=1: WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+error: steer not sent to domain: this lane is stopped (/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M35DSV1HTPY47YQT6C02JQMD/.stopped-live.nc3Zjf/state/domain.stopped). No worker is running to see it. Reopen it first with 'bin/fm-secondmate-lane.sh reopen domain', then resend. Nothing was sent.
+persistent effects: no inbox record or pending reply

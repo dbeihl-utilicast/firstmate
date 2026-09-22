@@ -1,0 +1,3 @@
+stopped exit=1: error: steer not sent to t1: this lane is stopped (/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M35DSV1HTPY47YQT6C02JQMD/.reopen-live.PTuAfu/state/t1.stopped). No worker is running to see it. Reopen it first with 'bin/fm-secondmate-lane.sh reopen t1', then resend. Nothing was sent.
+reopened exit=0: WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+durable record body: review the open-rate dashboard

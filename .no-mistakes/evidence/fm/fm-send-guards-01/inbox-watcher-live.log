@@ -1,0 +1,7 @@
+first output: stale: isolated:lane (unread firstmate instruction: /Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M35DSV1HTPY47YQT6C02JQMD/.watch-live.AIUlyo/state/t1.inbox/001.msg still unhandled after 3 doorbell delivery attempts with an idle pane; inspect the worker)
+first wake: 1790111329	1	stale	isolated:lane	stale: isolated:lane (unread firstmate instruction: /Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M35DSV1HTPY47YQT6C02JQMD/.watch-live.AIUlyo/state/t1.inbox/001.msg still unhandled after 3 doorbell delivery attempts with an idle pane; inspect the worker)
+marker after first: 001.msg	1
+second output: check: rearm-resurface
+second wake: 1790111329	1	stale	isolated:lane	stale: isolated:lane (unread firstmate instruction: /Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M35DSV1HTPY47YQT6C02JQMD/.watch-live.AIUlyo/state/t1.inbox/001.msg still unhandled after 3 doorbell delivery attempts with an idle pane; inspect the worker)
+marker after second: 001.msg	1
+unhandled records: 2

@@ -1,0 +1,5 @@
+already escalated marker: 001.msg	1
+new unread record: 002.msg
+watcher: stale: isolated:lane (unread firstmate instruction: /Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M35DSV1HTPY47YQT6C02JQMD/.watch-live.2SCnFx/state/t1.inbox/001.msg still unhandled after 3 doorbell delivery attempts with an idle pane; inspect the worker)
+wake: 1790111360	1	stale	isolated:lane	stale: isolated:lane (unread firstmate instruction: /Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M35DSV1HTPY47YQT6C02JQMD/.watch-live.2SCnFx/state/t1.inbox/001.msg still unhandled after 3 doorbell delivery attempts with an idle pane; inspect the worker)
+updated marker: 001.msg	2
