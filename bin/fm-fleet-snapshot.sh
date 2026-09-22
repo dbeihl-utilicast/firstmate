@@ -669,7 +669,7 @@ prefetch_task_observations() {  # <meta> <id>
 # window rather than five in series, while every command bound remains owned by
 # fm-timeout-lib.sh.
 prefetch_task_current_states() {
-  local meta captured_meta id spawn_lock active=0 index=0 rc=0
+  local meta captured_meta id active=0 index=0 rc=0
   local -a pids=()
   snapshot_task_cleanup
   SNAPSHOT_TASK_DIR=$(umask 077; mktemp -d "${TMPDIR:-/tmp}/fm-fleet-tasks.XXXXXX") || return 1
@@ -679,10 +679,8 @@ prefetch_task_current_states() {
   for meta in "$STATE"/*.meta; do
     [ -e "$meta" ] || continue
     id=$(basename "$meta" .meta)
-    spawn_lock="$STATE/.spawn-$id.lock"
     if [ "$OUTPUT_MODE" = secondmate-home-summary ] \
-       && [ "$(meta_value "$meta" summary_visibility)" = provisional ] \
-       && { [ -e "$spawn_lock" ] || [ -L "$spawn_lock" ]; }; then
+       && [ "$(meta_value "$meta" summary_visibility)" = provisional ]; then
       continue
     fi
     captured_meta="$SNAPSHOT_TASK_DIR/$id.meta"

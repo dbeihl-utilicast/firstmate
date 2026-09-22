@@ -46,6 +46,7 @@ HOME_SUMMARY_ERROR=
 HOME_SUMMARY_FAILURE_STAMP=
 HOME_SUMMARY_TMP=
 HOME_SUMMARY_ERR_TMP=
+HOME_SUMMARY_META_TMP=
 HOME_SUMMARY_LOCK_HELD=0
 
 # shellcheck source=bin/fm-timeout-lib.sh
@@ -88,6 +89,7 @@ fi
 home_summary_cleanup() {
   [ -z "$HOME_SUMMARY_TMP" ] || rm -f -- "$HOME_SUMMARY_TMP" 2>/dev/null || true
   [ -z "$HOME_SUMMARY_ERR_TMP" ] || rm -f -- "$HOME_SUMMARY_ERR_TMP" 2>/dev/null || true
+  [ -z "$HOME_SUMMARY_META_TMP" ] || rm -f -- "$HOME_SUMMARY_META_TMP" 2>/dev/null || true
   if [ "$HOME_SUMMARY_LOCK_HELD" -eq 1 ]; then
     fm_lock_release "$REFRESH_LOCK" || true
     HOME_SUMMARY_LOCK_HELD=0
@@ -97,6 +99,67 @@ home_summary_cleanup() {
 home_summary_fail() {
   HOME_SUMMARY_ERROR=$1
   return 1
+}
+
+home_summary_meta_value() {  # <meta> <key>
+  local meta=$1 key=$2 line value=
+  [ -f "$meta" ] && [ ! -L "$meta" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in "$key="*) value=${line#*=} ;; esac
+  done < "$meta" 2>/dev/null || true
+  printf '%s' "$value"
+}
+
+home_summary_promote_stale_provisionals() {
+  local meta pid identity current lock id
+  for meta in "$STATE"/*.meta; do
+    [ -e "$meta" ] || continue
+    [ "$(home_summary_meta_value "$meta" summary_visibility)" = provisional ] || continue
+    pid=$(home_summary_meta_value "$meta" spawn_owner_pid)
+    identity=$(home_summary_meta_value "$meta" spawn_owner_identity)
+    if current=$(fm_lock_pid_identity "$pid" 2>/dev/null); then
+      [ -z "$identity" ] && continue
+      [ "$current" = "$identity" ] && continue
+    fi
+    lock=$(fm_meta_lock_path "$meta") || return 1
+    fm_lock_try_acquire "$lock" || continue
+    pid=$(home_summary_meta_value "$meta" spawn_owner_pid)
+    identity=$(home_summary_meta_value "$meta" spawn_owner_identity)
+    if [ "$(home_summary_meta_value "$meta" summary_visibility)" != provisional ]; then
+      fm_lock_release "$lock"
+      continue
+    fi
+    if current=$(fm_lock_pid_identity "$pid" 2>/dev/null); then
+      if [ -z "$identity" ] || [ "$current" = "$identity" ]; then
+        fm_lock_release "$lock"
+        continue
+      fi
+    fi
+    id=${meta##*/}
+    id=${id%.meta}
+    HOME_SUMMARY_META_TMP=$(umask 077; mktemp "$STATE/.$id.meta.recovery.XXXXXX") || {
+      fm_lock_release "$lock"
+      return 1
+    }
+    if ! awk -F= '
+      $1 == "summary_visibility" {
+        if (!wrote) print "summary_visibility=recovery"
+        wrote = 1
+        next
+      }
+      $1 == "spawn_owner_pid" || $1 == "spawn_owner_identity" { next }
+      { print }
+      END { if (!wrote) print "summary_visibility=recovery" }
+    ' "$meta" > "$HOME_SUMMARY_META_TMP" \
+       || ! mv -f -- "$HOME_SUMMARY_META_TMP" "$meta"; then
+      rm -f -- "$HOME_SUMMARY_META_TMP" 2>/dev/null || true
+      HOME_SUMMARY_META_TMP=
+      fm_lock_release "$lock"
+      return 1
+    fi
+    HOME_SUMMARY_META_TMP=
+    fm_lock_release "$lock"
+  done
 }
 
 home_summary_refresh_once() {
@@ -115,6 +178,10 @@ home_summary_refresh_once() {
     fm_lock_acquire_wait "$REFRESH_LOCK"
   fi
   HOME_SUMMARY_LOCK_HELD=1
+  if ! home_summary_promote_stale_provisionals; then
+    home_summary_fail "could not publish stale provisional ownership for recovery"
+    return 1
+  fi
   HOME_SUMMARY_TMP=$(umask 077; mktemp "$STATE/.home-summary.json.XXXXXX") || {
     home_summary_fail "could not create an atomic publication file in $STATE"
     return 1

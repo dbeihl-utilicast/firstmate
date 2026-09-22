@@ -645,7 +645,7 @@ meta_field() { grep "^$2=" "$1" 2>/dev/null | tail -1 | cut -d= -f2-; }
 # `#{pane_current_path}` probe from FM_FAKE_PANE_PATH so this same stub works
 # for a crew/scout (non-secondmate) spawn's treehouse-worktree wait loop.
 make_launch_capturing_tmux() {
-  local dir=$1 fakebin="$1/fakebin"
+  local dir=$1 fakebin="$1/fakebin" real_mkdir real_mv real_rm
   mkdir -p "$fakebin"
   cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
@@ -722,6 +722,59 @@ esac
 exit 0
 SH
   chmod +x "$fakebin/tmux"
+  real_mkdir=$(command -v mkdir)
+  cat > "$fakebin/mkdir" <<SH
+#!/usr/bin/env bash
+set -u
+matched=0
+if [ -n "\${FM_FAKE_TASK_TMP_TARGET:-}" ]; then
+  for arg in "\$@"; do
+    [ "\$arg" != "\$FM_FAKE_TASK_TMP_TARGET" ] || matched=1
+  done
+fi
+if [ "\$matched" = 1 ]; then
+  if [ -n "\${FM_FAKE_TASK_TMP_READY:-}" ]; then
+    printf '%s\n' "\$PPID" > "\$FM_FAKE_TASK_TMP_READY"
+    while [ ! -e "\${FM_FAKE_TASK_TMP_RELEASE:?}" ]; do /bin/sleep 0.01; done
+  fi
+  [ "\${FM_FAKE_FAIL_TASK_TMP:-0}" != 1 ] || exit 1
+fi
+exec "$real_mkdir" "\$@"
+SH
+  real_rm=$(command -v rm)
+  cat > "$fakebin/rm" <<SH
+#!/usr/bin/env bash
+set -u
+matched=0
+if [ -n "\${FM_FAKE_REFRESH_BEFORE_REMOVE_TARGET:-}" ]; then
+  for arg in "\$@"; do
+    [ "\$arg" != "\$FM_FAKE_REFRESH_BEFORE_REMOVE_TARGET" ] || matched=1
+  done
+fi
+if [ "\$matched" = 1 ] && [ ! -e "\${FM_FAKE_REMOVE_SUMMARY_REFRESHED:?}" ]; then
+  : > "\$FM_FAKE_REMOVE_SUMMARY_REFRESHED"
+  "\${FM_FAKE_REMOVE_SUMMARY_REFRESH:?}" >/dev/null 2>&1 || exit 1
+  if jq -e --arg id "\${FM_FAKE_SUMMARY_ID:-sm}" \
+      'any(.endpoints[]; .id == \$id)' "\${FM_FAKE_SUMMARY_PROBE:?}" >/dev/null 2>&1; then
+    : > "\${FM_FAKE_SUMMARY_OBSERVED:?}"
+  fi
+fi
+exec "$real_rm" "\$@"
+SH
+  real_mv=$(command -v mv)
+  cat > "$fakebin/mv" <<SH
+#!/usr/bin/env bash
+set -u
+"$real_mv" "\$@" || exit \$?
+target=
+for arg in "\$@"; do target=\$arg; done
+if [ -n "\${FM_FAKE_SIGNAL_AFTER_META_TARGET:-}" ] \
+   && [ "\$target" = "\$FM_FAKE_SIGNAL_AFTER_META_TARGET" ]; then
+  kill -TERM "\$PPID"
+  /bin/sleep 0.1
+fi
+SH
+  chmod +x "$fakebin/mkdir" "$fakebin/rm" "$fakebin/mv"
   fm_fake_exit0 "$fakebin" pi
   printf '%s\n' "$fakebin"
 }
@@ -998,9 +1051,38 @@ test_spawn_codex_unready_startup_retains_record_when_endpoint_survives() {
   expect_code 1 "$status" "an unready Codex secondmate must fail when endpoint cleanup is incomplete"$'\n'"$out"
   [ -f "$w/home/state/sm.meta" ] \
     || fail "a live Codex endpoint lost the task record needed for recovery"
+  [ "$(meta_field "$w/home/state/sm.meta" summary_visibility)" = recovery ] \
+    || fail "a retained Codex endpoint was not marked recovery-visible"
   jq -e --arg id sm 'any(.endpoints[]; .id == $id)' "$summary" >/dev/null \
     || fail "a live Codex endpoint disappeared from the durable home summary"
   pass "C3g spawn: failed Codex cleanup retains ownership of a surviving endpoint"
+}
+
+test_spawn_codex_task_tmp_failure_retains_record_when_endpoint_survives() {
+  local w sm launchlog backendlog summary out status
+  w="$TMP_ROOT/spawn-codex-task-tmp-live-endpoint"
+  sm="$w/sm"
+  launchlog="$w/launch.log"
+  backendlog="$w/backend.log"
+  summary="$w/home/state/home-summary.json"
+  mkdir -p "$w/home/config"
+  printf 'codex gpt-5.6-sol\n' > "$w/home/config/secondmate-harness"
+  make_seeded_home "$sm" sm
+  : > "$backendlog"
+
+  out=$(FM_FAKE_TASK_TMP_TARGET=/tmp/fm-sm/gotmp FM_FAKE_FAIL_TASK_TMP=1 \
+    FM_FAKE_KILL_LEAVES_ENDPOINT=1 FM_FAKE_BACKEND_LOG="$backendlog" \
+    spawn_secondmate_capture "$w" sm "$sm" "$launchlog" 2>&1); status=$?
+  expect_code 1 "$status" "a post-endpoint temp-root failure must fail when cleanup is incomplete"$'\n'"$out"
+  assert_contains "$(cat "$backendlog")" "kill-window" \
+    "a post-endpoint temp-root failure did not attempt endpoint retirement"
+  [ -f "$w/home/state/sm.meta" ] \
+    || fail "a surviving endpoint lost its early recovery record"
+  [ "$(meta_field "$w/home/state/sm.meta" summary_visibility)" = recovery ] \
+    || fail "a surviving early endpoint was not marked recovery-visible"
+  jq -e --arg id sm 'any(.endpoints[]; .id == $id)' "$summary" >/dev/null \
+    || fail "a surviving early endpoint disappeared from the durable summary"
+  pass "C3h spawn: early failure retains ownership of a surviving endpoint"
 }
 
 test_spawn_codex_predelivery_failure_retains_record_when_endpoint_survives() {
@@ -1023,9 +1105,79 @@ test_spawn_codex_predelivery_failure_retains_record_when_endpoint_survives() {
     "a predelivery failure did not attempt endpoint retirement"
   [ -f "$w/home/state/sm.meta" ] \
     || fail "a surviving predelivery endpoint lost its recovery record"
+  [ "$(meta_field "$w/home/state/sm.meta" summary_visibility)" = recovery ] \
+    || fail "a surviving predelivery endpoint was not marked recovery-visible"
   jq -e --arg id sm 'any(.endpoints[]; .id == $id)' "$summary" >/dev/null \
     || fail "a surviving predelivery endpoint disappeared from the durable summary"
-  pass "C3h spawn: predelivery failure retains ownership of a surviving endpoint"
+  pass "C3i spawn: predelivery failure retains ownership of a surviving endpoint"
+}
+
+test_spawn_codex_rollback_never_publishes_provisional_summary() {
+  local w sm launchlog summary observed refreshed out status
+  w="$TMP_ROOT/spawn-codex-rollback-summary-race"
+  sm="$w/sm"
+  launchlog="$w/launch.log"
+  summary="$w/home/state/home-summary.json"
+  observed="$w/summary-observed-before-rollback"
+  refreshed="$w/summary-refreshed-before-rollback"
+  mkdir -p "$w/home/config"
+  printf 'codex gpt-5.6-sol\n' > "$w/home/config/secondmate-harness"
+  make_seeded_home "$sm" sm
+
+  out=$(FM_FAKE_PANE_CAPTURE='codex: command not found' \
+    FM_CODEX_READY_POLLS=2 FM_CODEX_POLL_INTERVAL=0 \
+    FM_FAKE_REFRESH_BEFORE_REMOVE_TARGET="$w/home/state/sm.meta" \
+    FM_FAKE_REMOVE_SUMMARY_REFRESHED="$refreshed" \
+    FM_FAKE_REMOVE_SUMMARY_REFRESH="$ROOT/bin/fm-home-summary-refresh.sh" \
+    FM_FAKE_SUMMARY_PROBE="$summary" FM_FAKE_SUMMARY_OBSERVED="$observed" \
+    spawn_secondmate_capture "$w" sm "$sm" "$launchlog" 2>&1); status=$?
+  expect_code 1 "$status" "an unready Codex secondmate must fail before rollback"$'\n'"$out"
+  [ -e "$refreshed" ] || fail "the rollback fixture never triggered its independent summary refresh"
+  [ ! -e "$observed" ] \
+    || fail "the provisional Codex record entered the summary during rollback"
+  [ ! -e "$w/home/state/sm.meta" ] \
+    || fail "verified endpoint retirement did not remove the provisional record"
+  pass "C3j spawn: provisional summary stays hidden through rollback"
+}
+
+test_spawn_codex_crash_exposes_recovery_summary() {
+  local w sm launchlog summary ready release runner spawn_pid status fakebin
+  w="$TMP_ROOT/spawn-codex-crash-recovery-summary"
+  sm="$w/sm"
+  launchlog="$w/launch.log"
+  summary="$w/home/state/home-summary.json"
+  ready="$w/task-tmp-ready"
+  release="$w/task-tmp-release"
+  mkdir -p "$w/home/config"
+  printf 'codex gpt-5.6-sol\n' > "$w/home/config/secondmate-harness"
+  make_seeded_home "$sm" sm
+
+  FM_FAKE_TASK_TMP_TARGET=/tmp/fm-sm/gotmp FM_FAKE_TASK_TMP_READY="$ready" \
+    FM_FAKE_TASK_TMP_RELEASE="$release" \
+    spawn_secondmate_capture "$w" sm "$sm" "$launchlog" > "$w/spawn.out" 2>&1 &
+  runner=$!
+  for _ in $(seq 1 200); do [ -s "$ready" ] && break; /bin/sleep 0.01; done
+  [ -s "$ready" ] || fail "fresh spawn did not reach its post-endpoint crash point"
+  spawn_pid=$(cat "$ready")
+  kill -KILL "$spawn_pid" 2>/dev/null || fail "could not kill the fresh spawn owner"
+  : > "$release"
+  status=0
+  wait "$runner" 2>/dev/null || status=$?
+  [ "$status" -ne 0 ] || fail "the killed fresh spawn reported success"
+  [ -f "$w/home/state/sm.meta" ] \
+    || fail "process death lost the endpoint's durable recovery owner"
+
+  fakebin="$w/tmux-sm/fakebin"
+  PATH="$fakebin:$BASE_PATH" FM_FAKE_TMUX_WINDOWS=fm-sm \
+    FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$w/home" \
+    FM_STATE_OVERRIDE="$w/home/state" FM_DATA_OVERRIDE="$w/home/data" \
+    FM_PROJECTS_OVERRIDE="$w/home/projects" FM_CONFIG_OVERRIDE="$w/home/config" \
+    "$ROOT/bin/fm-home-summary-refresh.sh" >/dev/null
+  [ "$(meta_field "$w/home/state/sm.meta" summary_visibility)" = recovery ] \
+    || fail "stale provisional ownership was not promoted to recovery visibility"
+  jq -e --arg id sm 'any(.endpoints[]; .id == $id)' "$summary" >/dev/null \
+    || fail "a stale-owner endpoint disappeared from the durable summary"
+  pass "C3k spawn: crashed ownership becomes recovery-visible"
 }
 
 test_recreated_codex_relaunch_cleanup() {
@@ -1049,6 +1201,30 @@ test_recreated_codex_relaunch_cleanup() {
     "an unready recreated relaunch endpoint must be closed"
   [ ! -e "$meta" ] || fail "an unready recreated relaunch endpoint retained its published record"
   pass "C3h relaunch: unready recreated Codex endpoint is retired"
+}
+
+test_recreated_codex_publication_signal_retires_record() {
+  local w sm meta launchlog backendlog out status
+  w="$TMP_ROOT/relaunch-codex-publication-signal"
+  sm="$w/sm"
+  meta="$w/home/state/sm.meta"
+  launchlog="$w/launch.log"
+  backendlog="$w/backend.log"
+  mkdir -p "$w/home/state"
+  fm_git_worktree "$w/repo" "$sm" secondmate-signal-sm
+  make_seeded_home "$sm" sm
+  fm_write_secondmate_meta "$meta" "$sm" firstmate:fm-sm '' codex
+  : > "$backendlog"
+
+  out=$(FM_FAKE_SIGNAL_AFTER_META_TARGET="$meta" \
+    FM_FAKE_PANE_PATH="$sm" FM_FAKE_BACKEND_LOG="$backendlog" \
+    relaunch_secondmate_capture "$w" sm "$launchlog" 2>&1); status=$?
+  [ "$status" -ne 0 ] || fail "a signal after replacement publication reported success"
+  assert_contains "$(cat "$backendlog")" "kill-window" \
+    "a signaled recreated replacement did not retire its endpoint"
+  [ ! -e "$meta" ] \
+    || fail "a signaled recreated replacement retained its published record"
+  pass "C3l relaunch: publication signal retires endpoint and record"
 }
 
 test_recreated_codex_relaunch_retains_record_when_endpoint_survives() {
@@ -3007,6 +3183,7 @@ test_spawn_cursor_secondmate_launches_with_its_primary_contract
 test_spawn_backend_precedence_over_inherited_config
 test_spawn_explicit_backend_precedence_over_env_and_inherited_config
 test_spawn_bare_harness_no_model_effort_flag
+test_spawn_codex_task_tmp_failure_retains_record_when_endpoint_survives
 test_spawn_codex_dialog_key_failure_cleans_endpoint
 test_spawn_codex_launch_key_failure_cleans_endpoint
 test_spawn_codex_launch_literal_failure_cleans_endpoint
@@ -3016,7 +3193,10 @@ test_spawn_codex_predelivery_failure_retains_record_when_endpoint_survives
 test_spawn_codex_summary_waits_for_readiness
 test_spawn_codex_unready_startup_removes_durable_summary
 test_spawn_codex_unready_startup_retains_record_when_endpoint_survives
+test_spawn_codex_rollback_never_publishes_provisional_summary
+test_spawn_codex_crash_exposes_recovery_summary
 test_recreated_codex_relaunch_cleanup
+test_recreated_codex_publication_signal_retires_record
 test_recreated_codex_relaunch_retains_record_when_endpoint_survives
 test_reused_codex_relaunch_preserved
 test_reused_codex_relaunch_ignores_stale_ready_scrollback
