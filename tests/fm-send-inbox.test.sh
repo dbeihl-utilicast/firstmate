@@ -266,6 +266,47 @@ test_key_path_never_touches_inbox() {
   pass "fm-send planes: the --key lifecycle path never touches the inbox"
 }
 
+test_key_path_refuses_a_stopped_lane() {
+  local dir err rc
+  dir=$(setup_case keypath-stopped); err="$dir/send.err"
+  printf 'stopped\n' > "$dir/home/state/t1.stopped"
+  run_send "$dir" "$err" -- t1 --key Enter; rc=$?
+  [ "$rc" -ne 0 ] || fail "a --key send to a stopped lane should be refused"
+  [ ! -s "$dir/send.log" ] || fail "a refused --key send still typed a key:"$'\n'"$(cat "$dir/send.log")"
+  assert_contains "$(cat "$err")" "reopen" "the --key refusal should say how to reopen the lane"
+  pass "fm-send planes: --key against a stopped lane is refused too, no carve-out"
+}
+
+# The stopped marker can appear after the top-of-script check and before
+# dispatch: --key holds no lock of its own, so the final recheck under the
+# exact lock fm-secondmate-lane.sh stop uses is what closes that window.
+test_key_path_race_stopped_marker_still_refuses() {
+  local dir err lock marker holder sender rc=0
+  dir=$(setup_case keypath-race); err="$dir/send.err"
+  lock="$dir/home/state/.meta-t1.lock"
+  marker="$dir/lock-held"
+  bash -c '
+    . "$1"
+    fm_lock_acquire_wait "$2"
+    touch "$3"
+    while [ ! -e "$4" ]; do sleep 0.05; done
+    fm_lock_release "$2"
+  ' _ "$ROOT/bin/fm-wake-lib.sh" "$lock" "$marker" "$dir/release" &
+  holder=$!
+  while [ ! -e "$marker" ]; do sleep 0.05; done
+  run_send "$dir" "$err" -- t1 --key Enter &
+  sender=$!
+  sleep 0.5
+  printf 'stopped\n' > "$dir/home/state/t1.stopped"
+  touch "$dir/release"
+  wait "$holder"
+  wait "$sender" || rc=$?
+  [ "$rc" -ne 0 ] || fail "a marker published mid-send should still refuse a --key send"
+  [ ! -s "$dir/send.log" ] || fail "a race-refused --key send still typed a key:"$'\n'"$(cat "$dir/send.log")"
+  assert_contains "$(cat "$err")" "reopen" "the race refusal should say how to reopen the lane"
+  pass "fm-send planes: a stopped marker published mid-send still refuses --key under the locked recheck"
+}
+
 test_secondmate_marker_and_enqueue_delivery() {
   local dir err body corr pr_rec delivered
   dir=$(setup_case secondmate); err="$dir/send.err"
@@ -514,6 +555,8 @@ test_failed_ring_is_still_sent
 test_harness_invocations_stay_typed
 test_explicit_target_stays_typed
 test_key_path_never_touches_inbox
+test_key_path_refuses_a_stopped_lane
+test_key_path_race_stopped_marker_still_refuses
 test_secondmate_marker_and_enqueue_delivery
 test_post_enqueue_bookkeeping_failure_is_not_retryable
 test_meta_lock_contention_fails_bounded

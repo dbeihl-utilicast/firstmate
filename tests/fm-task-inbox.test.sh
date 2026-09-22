@@ -808,8 +808,30 @@ test_escalation_rekeys_to_unhandled_count_not_just_oldest() {
   pass "inbox: escalation re-fires when the unhandled queue grows behind the same stuck oldest"
 }
 
-# The pre-fix marker format was just the base name, no count: it must still
-# parse (as count=0), so an already-escalated lane re-escalates once on its
+# A raw unhandled count is not enough: escalate at 2 (A+B), ack B, enqueue C.
+# Count returns to 2, unchanged; only the highest-seq marker still catches
+# that C is genuinely new (seq numbers never repeat).
+test_escalation_rekeys_on_new_record_even_when_count_is_unchanged() {
+  local state rec1 rec2 rec3 action
+  state="$TMP_ROOT/queue-depth-swap/state"; mkdir -p "$state"
+  rec1=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "stuck head")
+  age_path "$rec1"
+  rec2=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "will be acked")
+  printf '001.msg\t3\t100\n' > "$state/t1.inbox/.ring-state"
+  action=$(FM_TASK_INBOX_GRACE_SECS=60 FM_TASK_INBOX_RING_MAX=3 inbox_lib "$state" fm_task_inbox_due_action "$state" t1)
+  [ "$action" = "escalate $rec1 3" ] || fail "a spent ring budget should escalate, got: $action"
+  inbox_lib "$state" fm_task_inbox_record_escalated "$state" t1 "$rec1"
+  mv "$rec2" "$state/t1.inbox/handled/"
+  rec3=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "swapped in, same count")
+  action=$(FM_TASK_INBOX_GRACE_SECS=60 FM_TASK_INBOX_RING_MAX=3 inbox_lib "$state" fm_task_inbox_due_action "$state" t1)
+  [ "$action" = "escalate $rec1 3" ] \
+    || fail "swapping an acked record for a new one at the same count should still re-escalate, got: $action"
+  [ -f "$rec3" ] || fail "the swapped-in record must stay durable while the head is still stuck"
+  pass "inbox: escalation re-fires on a genuinely new record even when the unhandled count is unchanged"
+}
+
+# The pre-fix marker format was just the base name, no seq: it must still
+# parse (as seq=0), so an already-escalated lane re-escalates once on its
 # first poll under the fix rather than staying silently quiet forever.
 test_legacy_escalated_marker_format_migrates_forward() {
   local state rec action
@@ -819,8 +841,8 @@ test_legacy_escalated_marker_format_migrates_forward() {
   printf '001.msg\n' > "$state/t1.inbox/.escalated"
   action=$(FM_TASK_INBOX_GRACE_SECS=60 FM_TASK_INBOX_RING_MAX=3 inbox_lib "$state" fm_task_inbox_due_action "$state" t1)
   [ "$action" = "escalate $rec 0" ] \
-    || fail "a legacy no-count escalated marker should re-escalate once under the fix, got: $action"
-  pass "inbox: a legacy single-field .escalated marker parses as count=0 and re-escalates once"
+    || fail "a legacy no-seq escalated marker should re-escalate once under the fix, got: $action"
+  pass "inbox: a legacy single-field .escalated marker parses as seq=0 and re-escalates once"
 }
 
 setup_watch_case() {  # <name> -> echoes case dir; state in <dir>/state
@@ -1112,6 +1134,7 @@ test_ladder_writes_ignore_vanished_inbox
 test_fire_and_forget_records_never_enter_the_ladder
 test_ring_ladder_policy
 test_escalation_rekeys_to_unhandled_count_not_just_oldest
+test_escalation_rekeys_on_new_record_even_when_count_is_unchanged
 test_legacy_escalated_marker_format_migrates_forward
 test_watcher_rerings_idle_pane_quietly
 test_watcher_waits_on_busy_pane
