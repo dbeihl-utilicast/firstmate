@@ -912,8 +912,6 @@ run_spawn_symlink_case() {  # <label> <physical|logical>
   state="$TMP_ROOT/symlink-state-$label"; config="$TMP_ROOT/symlink-config-$label"
   mkdir -p "$state" "$config"
   log="$TMP_ROOT/symlink-spawn-$label.log"
-  # The Treehouse project-lock gate reads $FM_HOME/state, not FM_STATE_OVERRIDE;
-  # give it its own home so it does not depend on this checkout's own state/.
   home="$TMP_ROOT/symlink-home-$label"
   mkdir -p "$home/state"
 
