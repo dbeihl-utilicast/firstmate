@@ -35,7 +35,7 @@ screen() {
   # is fleet-constant boilerplate, so it is present before this launch types
   # anything and must not count as this launch's delivery proof.
   if [ "${FM_FAKE_AGY_STALE:-0}" = 1 ]; then
-    LC_ALL=C awk 'NF { line = $0 } END { print line }' "$FM_FAKE_AGY_BRIEF" 2>/dev/null
+    LC_ALL=C awk 'NF { l[++n] = $0 } END { for (i = (n > 4 ? n - 3 : 1); i <= n; i++) print l[i] }' "$FM_FAKE_AGY_BRIEF" 2>/dev/null
   fi
   # The answered trust dialog a prior incarnation left on this reused endpoint.
   # It is on the pane before this launch types anything and stays capturable
@@ -68,7 +68,7 @@ screen() {
       # A turn that finished inside one poll gap: the transient busy footer was
       # never observable, but the submitted brief is still echoed above the
       # composer, which is the durable evidence the gate must accept.
-      LC_ALL=C awk 'NF { line = $0 } END { print line }' "$FM_FAKE_AGY_BRIEF" 2>/dev/null
+      LC_ALL=C awk 'NF { l[++n] = $0 } END { for (i = (n > 4 ? n - 3 : 1); i <= n; i++) print l[i] }' "$FM_FAKE_AGY_BRIEF" 2>/dev/null
       printf '────────\n> \n────────\n? for shortcuts   Gemini 3.8 Flash · low\n'
       ;;
     settled-unrelated)
@@ -122,6 +122,15 @@ case "${1:-}" in
       prev=$arg
     done
     if [ -n "$literal" ]; then
+      # The spawn stages its launch command in a private file and types only
+      # `. '<file>'`; read the staged command so the fake sees the real launch.
+      case "$literal" in
+        ". '"*"'")
+          staged=${literal#". '"}
+          staged=${staged%"'"}
+          [ ! -f "$staged" ] || literal=$(cat "$staged")
+          ;;
+      esac
       printf '%s\n' "$literal" >> "$FM_FAKE_TMUX_LOG"
       case "$literal" in *' agy --dangerously-skip-permissions '*) printf 'launch\n' > "$FM_FAKE_AGY_STATE" ;; esac
       exit 0
@@ -382,7 +391,7 @@ test_launch_scrubs_every_higher_priority_runtime_marker() {
   # Run the emitted launch prefix, then set agy's own marker the way a live agy
   # sets it for its tool subprocesses, and ask what harness that child reports.
   verdict=$(ATLASSIAN_AGENT_TYPE=rovo ROVODEV_CLI=1 CURSOR_AGENT=1 CURSOR_INVOKED_AS=cursor-agent \
-    CLAUDECODE=1 PATH="$BASE_PATH" \
+    CLAUDECODE=1 PATH="$(blind_ancestry_path):$BASE_PATH" \
     sh -c "$prefix ANTIGRAVITY_AGENT=1 \"\$0\"" "$HARNESS")
   [ "$verdict" = agy ] \
     || fail "an agy worker under inherited cursor/rovo markers must still report agy, got '$verdict'"
@@ -428,11 +437,28 @@ test_unsupported_effort_is_recorded_but_omitted() {
   pass "fm-spawn.sh: agy records unsupported effort but does not pass it to the CLI"
 }
 
+# A fake ps that reports a bash ancestor ending at pid 1, so the marker layer
+# alone answers even when the suite itself runs under a live agent, whose real
+# ancestry now outranks a marker in bin/fm-harness.sh.
+blind_ancestry_path() {
+  local fakebin
+  fakebin=$(fm_fakebin "$TMP_ROOT/blind-ancestry")
+  cat > "$fakebin/ps" <<'SH'
+#!/usr/bin/env bash
+case "$*" in
+  *'ppid='*) printf '%s\n' 1 ;;
+  *) printf '%s\n' bash ;;
+esac
+SH
+  chmod +x "$fakebin/ps"
+  printf '%s\n' "$fakebin"
+}
+
 test_marker_precedence_beats_an_inherited_claudecode() {
   local out
   out=$(env -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT -u CURSOR_AGENT \
     -u CURSOR_INVOKED_AS -u GEMINI_CLI -u ATLASSIAN_AGENT_TYPE -u ROVODEV_CLI \
-    CLAUDECODE=1 ANTIGRAVITY_AGENT=1 PATH="$BASE_PATH" "$HARNESS")
+    CLAUDECODE=1 ANTIGRAVITY_AGENT=1 PATH="$(blind_ancestry_path):$BASE_PATH" "$HARNESS")
   [ "$out" = agy ] \
     || fail "agy's own marker must win over an inherited CLAUDECODE, got '$out'"
   out=$(env -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT -u CURSOR_AGENT \

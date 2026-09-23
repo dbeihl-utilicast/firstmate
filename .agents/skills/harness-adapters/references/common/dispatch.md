@@ -9,6 +9,7 @@ Use the router's detection and safety sections for static crew and secondmate ha
 Routing precedence is an explicit per-task captain override, then the best-fit configured rule, then the required configured default.
 Automatic static crewmate harness resolution applies only when the dispatch file is absent; invalid configuration or an unusable candidate set must be reported rather than bypassed.
 For a profile array, load `quota-array-dispatch` after establishing harness and provider facts here.
+When the opt-in `bin/fm-dispatch-resolve.sh` is on, its `clear` answer already names the concrete axes; `docs/configuration.md` "Typed dispatch resolution" owns that contract.
 
 `../secondmate-provisioning/SKILL.md` owns secondmate harness pins and inherited local material.
 Its harness consequence is that a secondmate's workers receive literal `config/crew-harness` and `config/crew-dispatch.json`, while the primary-only `config/secondmate-harness` is never inherited because secondmates do not spawn secondmates.

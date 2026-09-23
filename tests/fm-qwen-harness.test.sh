@@ -31,11 +31,28 @@ set -u
 HARNESS="$ROOT/bin/fm-harness.sh"
 TMP_ROOT=$(fm_test_tmproot fm-qwen-harness)
 
+# A fake ps that reports a bash ancestor ending at pid 1, so the marker layer
+# alone answers even when the suite itself runs under a live agent, whose real
+# ancestry now outranks a marker in bin/fm-harness.sh.
+blind_ancestry_path() {
+  local fakebin
+  fakebin=$(fm_fakebin "$TMP_ROOT/blind-ancestry")
+  cat > "$fakebin/ps" <<'SH'
+#!/usr/bin/env bash
+case "$*" in
+  *'ppid='*) printf '%s\n' 1 ;;
+  *) printf '%s\n' bash ;;
+esac
+SH
+  chmod +x "$fakebin/ps"
+  printf '%s\n' "$fakebin"
+}
+
 detect_harness() {
   env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI -u QWEN_CODE \
     -u QWEN_CODE_CLI -u ATLASSIAN_AGENT_TYPE -u ROVODEV_CLI -u AGENT \
     -u FM_OMP_HARNESS -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS \
-    -u GROK_AGENT "$@" "$HARNESS"
+    -u GROK_AGENT PATH="$(blind_ancestry_path):$PATH" "$@" "$HARNESS"
 }
 
 test_qwen_marker_outranks_inherited_grok_and_claudecode() {

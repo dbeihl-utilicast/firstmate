@@ -5,7 +5,7 @@
 # BOOTSTRAP_INFO fact, or completed bootstrap no-action fact and is silent when
 # all is well. firstmate consumes the exact 'MISSING: treehouse (install: ...)',
 # 'MISSING: tasks-axi (install: ...)', 'MISSING: quota-axi (install: ...)',
-# 'MISSING: gh-axi (install: ...)', 'MISSING: lavish-axi (install: ...)', and
+# 'MISSING: gh-axi (install: ...)', 'PRESENTATION_UNAVAILABLE: lavish-axi ...', and
 # 'BOOTSTRAP_INFO: ...' lines, so those contracts are pinned verbatim. The cases
 # are table-driven over the inputs that vary: whether `treehouse get --help`
 # advertises --lease, which (if any) tasks-axi version is on PATH, whether
@@ -135,6 +135,13 @@ add_real_jq() {
   real_jq=$(command -v jq 2>/dev/null) || fail "jq is required for dispatch profile validation tests"
   cat > "$fakebin/jq" <<SH
 #!/usr/bin/env bash
+if [ -n "\${FM_TEST_CHILD_ENV_LOG:-}" ]; then
+  if [ -n "\${TYPESAFE_API_KEY+x}" ] || [ -n "\${TYPESAFE_API_KEY_PRIVATE+x}" ]; then
+    printf 'secret-present\n' >> "\$FM_TEST_CHILD_ENV_LOG"
+  else
+    printf 'clean\n' >> "\$FM_TEST_CHILD_ENV_LOG"
+  fi
+fi
 exec '$real_jq' "\$@"
 SH
   chmod +x "$fakebin/jq"
@@ -373,8 +380,8 @@ ROWS
 }
 
 test_lavish_axi_min_version() {
-  local label version mode case_dir fakebin out missing n
-  missing='MISSING: lavish-axi (install: npm install -g lavish-axi && lavish-axi setup hooks)'
+  local label version mode case_dir fakebin out unavailable n
+  unavailable='PRESENTATION_UNAVAILABLE: lavish-axi (requires >=0.1.46; install: npm install -g lavish-axi && lavish-axi setup hooks) - nonvisual work may proceed with plain-text decisions and reports; install or upgrade before using Lavish'
   n=0
   while IFS='^' read -r label version mode; do
     [ -n "$label" ] || continue
@@ -383,24 +390,28 @@ test_lavish_axi_min_version() {
     mkdir -p "$case_dir/home/config"
     printf '%s\n' manual > "$case_dir/home/config/backlog-backend"
     fakebin=$(make_fake_toolchain "$case_dir")
+    [ "$version" != absent ] || rm -f "$fakebin/lavish-axi"
     out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
-      FM_FAKE_TREEHOUSE_LEASE_HELP=1 FM_FAKE_LAVISH_AXI_VERSION="$version" "$ROOT/bin/fm-bootstrap.sh")
+      FM_FAKE_TREEHOUSE_LEASE_HELP=1 FM_FAKE_LAVISH_AXI_VERSION="$version" "$ROOT/bin/fm-bootstrap.sh") \
+      || fail "$label: optional presentation must not fail bootstrap"
+    assert_not_contains "$out" 'MISSING:' "$label: optional presentation must not block nonvisual dispatch"
     case "$mode" in
       empty)
         [ -z "$out" ] || fail "$label: expected silence, got: $out" ;;
-      missing)
-        [ "$out" = "$missing" ] || fail "$label: expected '$missing', got: $out" ;;
+      unavailable)
+        [ "$out" = "$unavailable" ] || fail "$label: expected '$unavailable', got: $out" ;;
     esac
   done <<'ROWS'
+absent lavish-axi permits text fallback^absent^unavailable
 minimum lavish-axi version is accepted^0.1.46^empty
 newer lavish-axi patch is accepted^0.1.47^empty
 newer lavish-axi minor is accepted^0.2.0^empty
 newer lavish-axi major is accepted^1.0.0^empty
-the patch just below the floor reports an upgrade^0.1.45^missing
-much older lavish-axi minor reports an upgrade^0.0.9^missing
-unparseable lavish-axi version reports an upgrade^lavish-axi development build^missing
+the patch just below the floor permits text fallback^0.1.45^unavailable
+much older lavish-axi minor permits text fallback^0.0.9^unavailable
+unparseable lavish-axi version permits text fallback^lavish-axi development build^unavailable
 ROWS
-  pass "bootstrap enforces lavish-axi minimum version"
+  pass "bootstrap permits nonvisual work without compatible lavish-axi and retains its presentation floor"
 }
 
 test_tasks_axi_min_version() {
@@ -1158,6 +1169,8 @@ astra remains top-tier when ordinary_models is present^.ordinary_models = ["gpt-
 ordinary model cannot claim astra class^.rules[0].use[0].model_class = "astra"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 profile.model_class does not match model: gpt-5.6-terra
 unverified v2 harness is refused^.rules[0].use[0].harness = "spaceship"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 unverified harness: spaceship
 qwen is accepted as a verified harness^.rules[0].use[0].harness = "qwen"^empty^
+codex Luna max effort is accepted^.rules[0].use[0].model = "gpt-5.6-luna" | .rules[0].use[0].effort = "max"^empty^
+codex non-Luna max effort is refused^.rules[0].use[0].effort = "max"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 invalid effort: codex:max
 agy low effort is accepted^.rules[0].use[0].harness = "agy" | .rules[0].use[0].effort = "low"^empty^
 agy xhigh effort is refused^.rules[0].use[0].harness = "agy" | .rules[0].use[0].effort = "xhigh"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 invalid effort: agy:xhigh
 unsupported v2 effort is refused^.rules[0].use[0].effort = "max"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 invalid effort: codex:max
@@ -1197,7 +1210,25 @@ malformed exceptions are refused^.exceptions = {}^exact^CREW_DISPATCH: invalid c
 redundant precedence is refused^.precedence = {"placement":["main"],"runtime":["ordinary","default"]}^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 top-level has unknown field: precedence
 redundant default profile list is refused^.dispatch.ordinary_default_profiles = ["codex-terra"]^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 dispatch has unknown field: ordinary_default_profiles
 placement remains advisory^.placement.enforcement.current = "mechanical"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 placement enforcement.current must be advisory until intake and backlog handoff read it
+typed dispatch fields are accepted^.rules[0].approval = "captain" | .rules[0].floor = {"scope":"model:gpt-5.6-terra","min_percent":20,"provider":"codex"} | .rules[0].use[0].provider = "codex" | .rules[0].use[0].floor = {"scope":"all_models","min_percent":10} | .default[0].provider = "codex" | .default[0].floor = {"scope":"all_models","min_percent":0}^empty^
+typed approval other than captain is refused^.rules[0].approval = "firstmate"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 rule.approval must be captain when present
+typed rule floor without provider is refused^.rules[0].floor = {"scope":"all_models","min_percent":20}^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 rule.floor needs scope, min_percent 0..100, and provider matching ^[a-z0-9]+(-[a-z0-9]+)*\z
+typed rule floor out of range is refused^.rules[0].floor = {"scope":"all_models","min_percent":101,"provider":"codex"}^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 rule.floor needs scope, min_percent 0..100, and provider matching ^[a-z0-9]+(-[a-z0-9]+)*\z
+typed profile provider must be an anchored id^.rules[0].use[0].provider = "Codex"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 profile.provider must match ^[a-z0-9]+(-[a-z0-9]+)*\z
+typed profile provider with trailing newline is refused^.default[0].provider = "codex\n"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 profile.provider must match ^[a-z0-9]+(-[a-z0-9]+)*\z
+typed profile floor cannot name a provider^.rules[0].use[0].floor = {"scope":"all_models","min_percent":10,"provider":"codex"}^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 profile.floor needs scope and min_percent 0..100, and no provider
+typed profile floor needs a scope^.default[0].floor = {"min_percent":10}^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 profile.floor needs scope and min_percent 0..100, and no provider
+legacy v1 select stays refused^.rules[0].select = "quota-balanced"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 rule has unknown field: select
 ROWS
+  config=$(printf '%s\n' "$base" | "$fakebin/jq" '.') || fail "could not build v2 child-env fixture"
+  printf '%s\n' "$config" > "$case_dir/home/config/crew-dispatch.json"
+  : > "$case_dir/child-env.log"
+  out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
+    TYPESAFE_API_KEY=test-key FM_TEST_CHILD_ENV_LOG="$case_dir/child-env.log" \
+    FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh")
+  [ -z "$out" ] || fail "environment-key bootstrap should remain silent, got: $out"
+  [ -n "$(cat "$case_dir/child-env.log")" ] || fail "bootstrap child environment probe did not run"
+  assert_not_contains "$(cat "$case_dir/child-env.log")" 'secret-present' "bootstrap children never inherit the typesafe key"
   pass "bootstrap strictly validates $n V2 policy cases, including the declared top-tier task-shape ceiling"
 }
 

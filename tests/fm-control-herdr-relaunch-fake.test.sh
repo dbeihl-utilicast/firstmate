@@ -105,6 +105,7 @@ case "${1:-} ${2:-}" in
   'pane send-text') printf '%s\n' "${4:-}" > "$D/launch-text"; printf '{}\n' ;;
   'pane send-keys') : > "$D/live"; printf '{}\n' ;;
   'pane read') printf '╭────╮\n│    │\n╰────╯\n' ;;
+  'pane process-info') printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p3","shell_pid":%s,"foreground_process_group_id":%s,"foreground_processes":[{"pid":%s,"name":"codex","argv0":"codex","argv":["codex"],"cmdline":"codex"}]}}}\n' "$$" "$$" "$$" ;;
   *) printf '{}\n' ;;
 esac
 SH
