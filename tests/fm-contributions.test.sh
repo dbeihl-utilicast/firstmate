@@ -106,6 +106,8 @@ forge_home() {
   mkdir -p "$home/forge" "$home/root/bin" "$home/wt"
   printf '#!/bin/sh\nexit 0\n' > "$home/root/bin/fm-guard.sh"
   chmod +x "$home/root/bin/fm-guard.sh"
+  # The registered poll sources the per-owner gh auth helper from the root.
+  ln -s "$ROOT/bin/fm-gh-auth-lib.sh" "$home/root/bin/fm-gh-auth-lib.sh"
   printf 'worktree=%s/wt\nkind=ship\n' "$home" > "$home/state/delivery.meta"
   chmod 600 "$home/state/delivery.meta"
   record "$home" delivery 8 open mergeable
