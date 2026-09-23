@@ -30,10 +30,8 @@
 #      (the operator path the OPEN DECISIONS hint names), while an unrelated
 #      writer's answered: note still cannot hijack or clear that key. A reserved
 #      key this send cannot close refuses before anything is sent.
-#   9. Resolving a request against a lane carrying state/<id>.stopped records
-#      the resolution without minting a new pending-reply expectation: zero
-#      outstanding requests, not one. A live secondmate without that marker
-#      still mints one, so the skip is the stopped marker, not every resolve.
+#   9. --resolve-key against a lane carrying state/<id>.stopped refuses like
+#      any other send: the decision stays open, nothing closes.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -782,32 +780,34 @@ test_failed_close_recovery_command_is_shell_safe() {
   pass "fm-send --resolve-key: failed-close recovery commands safely quote operator text and paths"
 }
 
-# Closing a stale request against a stopped lane must not mint a replacement
-# pending-reply: the closing message is otherwise reply-bearing and the stopped
-# lane never acknowledges it. Acceptance: zero outstanding, not one.
-test_resolve_key_against_stopped_lane_mints_no_pending_reply() {
-  local dir fb log home rc out n
+# A stopped lane refuses --resolve-key like every other send: closing the
+# decision now would leave the ledger saying "answered" for a message no
+# worker will ever read. The decision stays open for a reopen + real answer.
+test_resolve_key_against_stopped_lane_is_refused() {
+  local dir fb log home err rc out
   dir="$TMP_ROOT/stopped-resolve"; mkdir -p "$dir"
-  fb=$(make_stubs "$dir"); log="$dir/send.log"
+  fb=$(make_stubs "$dir"); log="$dir/send.log"; err="$dir/send.err"
   home=$(setup_home stopped-resolve)
   fm_write_secondmate_meta "$home/state/domain.meta" "$home" "sess:fm-domain"
   printf 'stopped\n' > "$home/state/domain.stopped"
   printf 'blocked [key=pending-reply-abcdef0123456789]: pending-reply-missed: task=domain pending-reply-id=abcdef0123456789 request=config reread\n' \
     > "$home/state/domain.status"
 
-  run_send "$fb" "$home" "$log" domain --resolve-key pending-reply-abcdef0123456789 \
-    "ack, lane is down"; rc=$?
-  expect_code 0 "$rc" "resolving a request against a stopped lane should succeed"
-  grep -F "pending-reply-resolved: task=domain pending-reply-id=abcdef0123456789 via=operator-resolve-key" \
-    "$home/state/domain.status" >/dev/null \
-    || fail "the resolution was not recorded:"$'\n'"$(cat "$home/state/domain.status")"
-  out=$(drain_out "$home")
-  if printf '%s' "$out" | grep -F 'OPEN DECISIONS' >/dev/null; then
-    fail "the resolved request still lists as open: $out"
+  : > "$log"
+  env PATH="$fb:$PATH" \
+    FM_ROOT_OVERRIDE="$home" FM_HOME="$home" FM_SEND_LOG="$log" FM_SEND_SETTLE=0 \
+    "$SEND" domain --resolve-key pending-reply-abcdef0123456789 "ack, lane is down" \
+    >/dev/null 2>"$err"; rc=$?
+  [ "$rc" -ne 0 ] || fail "--resolve-key against a stopped lane should refuse, not close"
+  assert_contains "$(cat "$err")" "domain" "the refusal should name the lane"
+  assert_contains "$(cat "$err")" "reopen" "the refusal should say how to reopen it"
+  if grep -F 'resolved' "$home/state/domain.status" >/dev/null; then
+    fail "a refused resolve-key still closed the decision: $(cat "$home/state/domain.status")"
   fi
-  n=$(outstanding_pending_replies "$home/state")
-  [ "$n" = 0 ] || fail "resolving against a stopped lane left $n outstanding request(s); want zero"
-  pass "fm-send --resolve-key: a stopped lane records the resolution with zero outstanding requests"
+  out=$(drain_out "$home")
+  printf '%s' "$out" | grep -F 'pending-reply-abcdef0123456789' >/dev/null \
+    || fail "the decision disappeared after a refused resolve-key: $out"
+  pass "fm-send --resolve-key: a stopped lane is refused, leaving the decision open"
 }
 
 test_remote_reserved_pending_reply_key_closes_locally() {
@@ -815,7 +815,6 @@ test_remote_reserved_pending_reply_key_closes_locally() {
   dir="$TMP_ROOT/remote-reserved"; mkdir -p "$dir"
   fb=$(make_stubs "$dir"); log="$dir/send.log"; ssh_log="$dir/ssh.log"; : > "$ssh_log"
   home=$(setup_remote_home remote-reserved)
-  printf 'stopped\n' > "$home/state/rsm.stopped"
   corr=d448ea86afa4bf67
   key="pending-reply-$corr"
   printf 'blocked [key=%s]: pending-reply-missed: task=rsm pending-reply-id=%s request=ship it\n' \
@@ -920,6 +919,6 @@ test_unclosable_reserved_key_refuses_before_send
 test_long_decision_key_refuses_before_send
 test_stamped_close_line_stays_within_the_status_line_cap
 test_failed_close_recovery_command_is_shell_safe
-test_resolve_key_against_stopped_lane_mints_no_pending_reply
+test_resolve_key_against_stopped_lane_is_refused
 test_remote_reserved_pending_reply_key_closes_locally
 test_decision_answer_partition_relocates_under_the_record

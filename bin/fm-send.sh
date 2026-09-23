@@ -15,6 +15,11 @@
 # Key support is backend-specific: tmux/herdr support Escape, Enter, and C-c;
 # Orca currently supports Enter and C-c only, and rejects Escape.
 #
+# Stopped lane: state/<id>.stopped (bin/fm-secondmate-lane.sh's pause marker)
+# is checked before every send and again before inbox delivery. Key and local
+# typed dispatch hold the lane metadata lock from final check through send;
+# refused typed sends discard prepared pending replies. Reopen, then resend.
+#
 # Two data planes:
 #
 # INBOX - the default for text to a task recorded in this home, local and
@@ -179,10 +184,8 @@
 # closed with the owning library's vocabulary note
 # (fm_pending_reply_close_note_for_key / fm_pending_reply_resolved_note), so
 # the fold actually drops it; a bare answered: note is not a reserved-key
-# transition and is never written for those keys. When the target carries
-# state/<id>.stopped, the close is recorded without minting a new pending-reply
-# expectation: a stopped lane has no worker to acknowledge a reply-bearing
-# close, and minting one would recreate the outstanding request just closed.
+# transition and is never written for those keys. --resolve-key is refused
+# against a stopped target like every other send (see "Stopped lane" above).
 # If this send cannot produce
 # a note the guard will accept, or the structural key would be lost to the
 # status-line cap, it refuses before sending and names the cause rather than
@@ -289,6 +292,31 @@ fm_send_id_from_meta() { # <meta-file>
   local base
   base=${1##*/}
   printf '%s' "${base%.meta}"
+}
+
+# Stopped-lane refusal (no carve-out; see the header's "Stopped lane" note).
+fm_send_refuse_if_stopped() {  # <task-id>
+  local id=$1 marker
+  [ -n "$id" ] || return 0
+  marker="$STATE/$id.stopped"
+  [ -e "$marker" ] || return 0
+  echo "error: steer not sent to $id: this lane is stopped ($marker). No worker is running to see it. Reopen it first with 'bin/fm-secondmate-lane.sh reopen $id', then resend. Nothing was sent." >&2
+  return 1
+}
+
+fm_send_refuse_if_stopped_locked() {  # <task-id>
+  local id=$1 lock
+  FM_SEND_STOP_LOCK=
+  [ -n "$id" ] && [ -n "$TARGET_META" ] || return 0
+  lock=$(fm_meta_lock_path "$TARGET_META") || return 1
+  fm_task_inbox_lock_acquire "$lock" \
+    || { echo "error: steer not sent to $id: its metadata could not be locked for a final stopped-lane check" >&2; return 1; }
+  if [ -e "$STATE/$id.stopped" ]; then
+    fm_lock_release "$lock"
+    echo "error: steer not sent to $id: this lane became stopped (state/$id.stopped) while the steer was being validated for delivery. Reopen it first with 'bin/fm-secondmate-lane.sh reopen $id', then resend. Nothing was sent." >&2
+    return 1
+  fi
+  FM_SEND_STOP_LOCK=$lock
 }
 
 fm_send_pr_poll_matches() {
@@ -600,6 +628,10 @@ fm_send_resolve_target "$RAW_TARGET" || exit 1
 T=$RESOLVED_TARGET
 shift
 
+if [ -n "$TARGET_META" ]; then
+  fm_send_refuse_if_stopped "$(fm_send_id_from_meta "$TARGET_META")" || exit 1
+fi
+
 # Supervision lease guard: a steer is overlap territory between the two Pi
 # supervision actors, so refuse while the OTHER actor holds this task's live
 # lease. A home with no supervision branch has no lease files and passes
@@ -694,52 +726,9 @@ fm_send_known_undelivered_cleanup() {
     fm_pending_reply_reset_known_undelivered "$STATE" "$PENDING_REPLY_CORR"
   fi
 }
-# A just-created pending-reply for this send is discarded, and later
-# delivery-confirm is skipped, when the stopped marker is seen at the
-# locked enqueue. An already-open reused correlation is left in place.
-fm_send_mark_stopped_message() {
-  local body corr prefix=''
-  fm_message_mark_from_firstmate "$MESSAGE" MESSAGE
-  body=${MESSAGE#"$FM_FROMFIRST_MARK"}
-  if [ -n "$FIRE_AND_FORGET_ID" ] \
-    && [ "${body:0:26}" = "delivery=$FIRE_AND_FORGET_ID " ]; then
-    prefix=${body:0:26}
-    body=${body:26}
-  fi
-  corr=$(fm_pending_reply_extract_corr "${body:0:21}")
-  if [ "${body:0:5}" = corr= ] && [ -n "$corr" ]; then
-    body=${body:21}
-    while [ "${body# }" != "$body" ]; do body=${body# }; done
-    while [ "${body#$'\t'}" != "$body" ]; do body=${body#$'\t'}; done
-    MESSAGE="${FM_FROMFIRST_MARK}${prefix}${body}"
-  fi
-}
-fm_send_drop_created_pending_reply() {
-  if [ "$PENDING_REPLY_CREATED" = 1 ] && [ -n "$PENDING_REPLY_CORR" ]; then
-    if ! fm_pending_reply_discard_undelivered "$STATE" "$PENDING_REPLY_CORR"; then
-      echo "error: known-undelivered pending-reply state could not be discarded for $TARGET_TASK_ID" >&2
-      return 1
-    fi
-    fm_send_mark_stopped_message
-  elif [ -n "$FIRE_AND_FORGET_ID" ]; then
-    fm_send_mark_stopped_message
-  fi
-  PENDING_REPLY_CORR=
-  PENDING_REPLY_CREATED=0
-}
 if [ -n "$TARGET_SELECTOR" ] && [ -n "$TARGET_META" ] && [ "$(fm_meta_get "$TARGET_META" kind)" = secondmate ]; then
   MARK_FROM_FIRSTMATE=1
   TARGET_TASK_ID=$(fm_send_id_from_meta "$TARGET_META")
-fi
-# A lane carrying state/<id>.stopped has no worker to acknowledge a send.
-# The durable inbox record is still written so a later reopen can take it.
-# No pending-reply is minted, and the doorbell is not rung. A --resolve-key
-# close still records the resolution without minting one. Presence of the
-# marker is the only trigger; a quiet, unreachable, or merely dead lane
-# without it still mints.
-STOPPED_LANE_RESOLVE=0
-if [ -n "$TARGET_TASK_ID" ] && [ -e "$STATE/$TARGET_TASK_ID.stopped" ]; then
-  STOPPED_LANE_RESOLVE=1
 fi
 
 # Validate the answerer-closes request before any durable mutation or send: the
@@ -976,15 +965,21 @@ if [ "${1:-}" = "--key" ]; then
       exit 1
       ;;
     esac
+  fi
+  fm_send_refuse_if_stopped_locked "$(fm_send_id_from_meta "$TARGET_META")" || exit 1
+  if [ "$TARGET_BACKEND" = remote ]; then
     if ! fm_run_timed "$FM_SEND_REMOTE_BUDGET" "$SCRIPT_DIR/fm-on.sh" "$TARGET_REMOTE_ID" \
       fm-remote-secondmate-control.sh key "$TARGET_REMOTE_ID" "$key" </dev/null; then
+      [ -z "$FM_SEND_STOP_LOCK" ] || fm_lock_release "$FM_SEND_STOP_LOCK"
       echo "error: key '$key' not sent to remote secondmate $TARGET_REMOTE_ID; completion may be unknown" >&2
       exit 1
     fi
   elif ! fm_backend_send_key "$TARGET_BACKEND" "$T" "$key" "$EXPECTED_LABEL"; then
+    [ -z "$FM_SEND_STOP_LOCK" ] || fm_lock_release "$FM_SEND_STOP_LOCK"
     echo "error: key '$key' not sent to $T ($TARGET_BACKEND send failed; tried $RESOLUTION_TRIED)" >&2
     exit 1
   fi
+  [ -z "$FM_SEND_STOP_LOCK" ] || fm_lock_release "$FM_SEND_STOP_LOCK"
   fm_send_clear_after_interrupt "$semantic_key" || exit 1
   fm_send_record_interrupt "$semantic_key" || exit 1
 else
@@ -1012,10 +1007,7 @@ else
   if [ "$MARK_FROM_FIRSTMATE" = 1 ] && [ -n "$FIRE_AND_FORGET_ID" ]; then
     fm_message_mark_from_firstmate "$MESSAGE" MESSAGE
     MESSAGE="${FM_FROMFIRST_MARK}delivery=${FIRE_AND_FORGET_ID} ${MESSAGE#"$FM_FROMFIRST_MARK"}"
-    [ "$STOPPED_LANE_RESOLVE" != 1 ] || fm_send_mark_stopped_message
     FM_SEND_IDEMPOTENT=1
-  elif [ "$MARK_FROM_FIRSTMATE" = 1 ] && [ "$STOPPED_LANE_RESOLVE" = 1 ]; then
-    fm_send_mark_stopped_message
   elif [ "$MARK_FROM_FIRSTMATE" = 1 ]; then
     # Reuse an existing correlation id for recovery resends; otherwise create a
     # durable parent expectation before delivery. Transport success never
@@ -1082,7 +1074,7 @@ else
   # command: the pre-existing marker-first wire bytes are retained in stage 1.
   INBOX_PLANE=0
   if [ -n "$TARGET_SELECTOR" ]; then
-    if [ -n "$FIRE_AND_FORGET_ID" ] || [ "$STOPPED_LANE_RESOLVE" = 1 ] || [ "$TARGET_BACKEND" = remote ]; then
+    if [ -n "$FIRE_AND_FORGET_ID" ] || [ "$TARGET_BACKEND" = remote ]; then
       INBOX_PLANE=1
     else
       case "$RESOLVE_ANSWER_TEXT" in
@@ -1134,24 +1126,23 @@ else
       echo "error: steer not sent to remote secondmate $TARGET_REMOTE_ID: its parent task retired or changed route during target resolution" >&2
       exit 1
     fi
-    STOPPED_LANE_RESOLVE=0
-    if [ -n "$TARGET_TASK_ID" ] && [ -e "$STATE/$TARGET_TASK_ID.stopped" ]; then
-      STOPPED_LANE_RESOLVE=1
-      if ! fm_send_drop_created_pending_reply; then
-        fm_lock_release "$REMOTE_META_LOCK"
-        exit 1
+    if [ -e "$STATE/$TARGET_REMOTE_ID.stopped" ]; then
+      if [ "$PENDING_REPLY_CREATED" = 1 ] && [ -n "$PENDING_REPLY_CORR" ]; then
+        if ! fm_pending_reply_discard_undelivered "$STATE" "$PENDING_REPLY_CORR"; then
+          fm_lock_release "$REMOTE_META_LOCK"
+          echo "error: known-undelivered pending-reply state could not be discarded for $TARGET_REMOTE_ID" >&2
+          exit 1
+        fi
       fi
+      fm_lock_release "$REMOTE_META_LOCK"
+      echo "error: steer not sent to $TARGET_REMOTE_ID: this lane became stopped (state/$TARGET_REMOTE_ID.stopped) while the steer was being validated for delivery. Reopen it first with 'bin/fm-secondmate-lane.sh reopen $TARGET_REMOTE_ID', then resend. Nothing was sent." >&2
+      exit 1
     fi
     remote_rc=0
     remote_completion_unknown=0
     REMOTE_SEND_ARGS=("$TARGET_REMOTE_ID" "$MESSAGE")
     if [ -n "$FIRE_AND_FORGET_ID" ]; then
       REMOTE_SEND_ARGS+=(fire-and-forget)
-    elif [ "$STOPPED_LANE_RESOLVE" = 1 ]; then
-      REMOTE_SEND_ARGS+=(stopped)
-    fi
-    if [ "$STOPPED_LANE_RESOLVE" = 1 ] && [ -n "$FIRE_AND_FORGET_ID" ]; then
-      REMOTE_SEND_ARGS+=(stopped)
     fi
     # Each transport attempt is bounded by FM_SEND_REMOTE_BUDGET seconds.
     # fm_run_timed's 124 means the attempt was killed at the bound with remote
@@ -1255,19 +1246,21 @@ else
       echo "error: steer not sent to $INBOX_TASK_ID: the task retired or changed endpoint during target resolution" >&2
       exit 1
     fi
-    STOPPED_LANE_RESOLVE=0
-    if [ -n "$TARGET_TASK_ID" ] && [ -e "$STATE/$TARGET_TASK_ID.stopped" ]; then
-      STOPPED_LANE_RESOLVE=1
-      if ! fm_send_drop_created_pending_reply; then
-        fm_lock_release "$INBOX_META_LOCK"
-        exit 1
+    if [ -e "$STATE/$INBOX_TASK_ID.stopped" ]; then
+      if [ "$PENDING_REPLY_CREATED" = 1 ] && [ -n "$PENDING_REPLY_CORR" ]; then
+        if ! fm_pending_reply_discard_undelivered "$STATE" "$PENDING_REPLY_CORR"; then
+          fm_lock_release "$INBOX_META_LOCK"
+          echo "error: known-undelivered pending-reply state could not be discarded for $INBOX_TASK_ID" >&2
+          exit 1
+        fi
       fi
+      fm_lock_release "$INBOX_META_LOCK"
+      echo "error: steer not sent to $INBOX_TASK_ID: this lane became stopped (state/$INBOX_TASK_ID.stopped) while the steer was being validated for delivery. Reopen it first with 'bin/fm-secondmate-lane.sh reopen $INBOX_TASK_ID', then resend. Nothing was sent." >&2
+      exit 1
     fi
     inbox_delivery=
     if [ -n "$FIRE_AND_FORGET_ID" ]; then
       inbox_delivery=fire-and-forget
-    elif [ "$STOPPED_LANE_RESOLVE" = 1 ]; then
-      inbox_delivery=stopped
     fi
     INBOX_RECORD=$(fm_task_inbox_write_idempotent "$STATE" "$INBOX_TASK_ID" "$MESSAGE" \
       "$inbox_delivery" "${FM_SEND_IDEMPOTENT:-0}") || inbox_write_rc=$?
@@ -1318,12 +1311,9 @@ else
     esac
     # Ring the doorbell, best-effort: no ring outcome changes the exit status,
     # because the watcher owns loss detection from here, either through its
-    # bounded re-ring ladder or direct unavailable-endpoint recovery. A stopped
-    # lane has no worker to recover, so its close is recorded without typing.
+    # bounded re-ring ladder or direct unavailable-endpoint recovery.
     ring_rc=0
-    if [ "$STOPPED_LANE_RESOLVE" != 1 ]; then
-      fm_task_inbox_ring "$TARGET_BACKEND" "$T" "$INBOX_RECORD" "$EXPECTED_LABEL" || ring_rc=$?
-    fi
+    fm_task_inbox_ring "$TARGET_BACKEND" "$T" "$INBOX_RECORD" "$EXPECTED_LABEL" || ring_rc=$?
     case "$ring_rc" in
     1) echo "fm-send: doorbell skipped (composer visibly holds pending text); the steer is durably recorded at $INBOX_RECORD and the watcher will re-ring" >&2 ;;
     2) echo "fm-send: doorbell did not reach $T; the steer is durably recorded at $INBOX_RECORD and the watcher will re-ring" >&2 ;;
@@ -1353,12 +1343,18 @@ else
   # verdict preserves the loud refusal boundary. Only LOCAL targets reach this
   # block: remote text rides the inbox leg above, and remote --key exits
   # earlier.
+  if ! fm_send_refuse_if_stopped_locked "$(fm_send_id_from_meta "$TARGET_META")"; then
+    fm_send_known_undelivered_cleanup || \
+      echo "error: known-undelivered pending-reply state could not be reset for $TARGET_TASK_ID" >&2
+    exit 1
+  fi
   send_rc=0
   if verdict=$(fm_backend_send_text_submit "$TARGET_BACKEND" "$T" "$MESSAGE" "$retries" "$sleep_s" "$settle" "$EXPECTED_LABEL"); then
     :
   else
     send_rc=$?
   fi
+  [ -z "$FM_SEND_STOP_LOCK" ] || fm_lock_release "$FM_SEND_STOP_LOCK"
   if [ "$send_rc" -ne 0 ]; then
     fm_send_known_undelivered_cleanup ||
       echo "error: known-undelivered pending-reply state could not be reset for $TARGET_TASK_ID" >&2

@@ -42,11 +42,15 @@ FM_SECONDMATE_PERSIST_REQUEST='Firstmate was updated and I am about to restart y
 #   FM_SECONDMATE_RESTART_PLACEMENT  local|remote
 #   FM_SECONDMATE_RESTART_BACKEND    the backend whose classifier must prove the stop
 #   FM_SECONDMATE_RESTART_HARNESS    the verified control adapter it runs on
+#   FM_SECONDMATE_RESTART_MODEL      the model recorded for this mate
+#   FM_SECONDMATE_RESTART_EFFORT     the effort recorded for this mate
 #   FM_SECONDMATE_RESTART_HOST       the configured host (remote placement only)
 # and on failure sets FM_SECONDMATE_RESTART_REASON to one operator-readable line.
 FM_SECONDMATE_RESTART_PLACEMENT=""
 FM_SECONDMATE_RESTART_BACKEND=""
 FM_SECONDMATE_RESTART_HARNESS=""
+FM_SECONDMATE_RESTART_MODEL=""
+FM_SECONDMATE_RESTART_EFFORT=""
 FM_SECONDMATE_RESTART_HOST=""
 FM_SECONDMATE_RESTART_REASON=""
 fm_secondmate_restart_capable() {  # <meta-file>
@@ -54,6 +58,8 @@ fm_secondmate_restart_capable() {  # <meta-file>
   FM_SECONDMATE_RESTART_PLACEMENT=""
   FM_SECONDMATE_RESTART_BACKEND=""
   FM_SECONDMATE_RESTART_HARNESS=""
+  FM_SECONDMATE_RESTART_MODEL=""
+  FM_SECONDMATE_RESTART_EFFORT=""
   FM_SECONDMATE_RESTART_HOST=""
   FM_SECONDMATE_RESTART_REASON=""
 
@@ -97,5 +103,7 @@ fm_secondmate_restart_capable() {  # <meta-file>
     return 1
   fi
   FM_SECONDMATE_RESTART_HARNESS=$family
+  FM_SECONDMATE_RESTART_MODEL=$(fm_meta_get "$meta" model)
+  FM_SECONDMATE_RESTART_EFFORT=$(fm_meta_get "$meta" effort)
   return 0
 }

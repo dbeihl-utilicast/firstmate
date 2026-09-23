@@ -120,8 +120,18 @@ case "${1:-}" in
     [ -z "${FM_FAKE_COMPOSER_READ_FAIL:-}" ] || exit 1
     if [ -s "$D/composer" ]; then
       printf '╭────╮\n│ %s  │\n╰────╯\n' "$(cat "$D/composer")"
-    elif [ "$(cat "$D/command" 2>/dev/null)" = codex ]; then
+    elif [ "$(cat "$D/command" 2>/dev/null)" = codex ] && [ ! -s "$D/literal" ]; then
+      # Before anything is typed the pane is the old agent's idle composer, so
+      # the exit step's composer read proves it empty.
       printf '╭────╮\n│    │\n╰────╯\n› Ask Codex to do anything\n'
+    elif [ "$(cat "$D/command" 2>/dev/null)" = codex ]; then
+      [ ! -f "$D/pane-before" ] || cat "$D/pane-before"
+      cat "$D/literal"
+      if [ -f "$D/pane-after" ]; then
+        cat "$D/pane-after"
+      else
+        printf '╭────╮\n│    │\n╰────╯\n› Ask Codex to do anything\n'
+      fi
     else
       printf '╭────╮\n│    │\n╰────╯\n'
     fi
@@ -142,7 +152,17 @@ case "${1:-}" in
       echo 'lost server' >&2
       exit 1
     fi
-    [ -f "$D/windows" ] && cat "$D/windows"; exit 0 ;;
+    if [ "${FM_FAKE_ENDPOINT_VANISH_AFTER_DEAD:-0}" = 1 ] \
+       && [ -e "$D/dead-state-observed" ] \
+       && [ ! -e "$D/endpoint-recreated" ]; then
+      exit 0
+    fi
+    [ -f "$D/windows" ] && cat "$D/windows"
+    if [ "${FM_FAKE_ENDPOINT_VANISH_AFTER_DEAD:-0}" = 1 ] \
+       && [ "$(cat "$D/command" 2>/dev/null)" = zsh ]; then
+      : > "$D/dead-state-observed"
+    fi
+    exit 0 ;;
   new-session)
     # Nothing in the relaunch path may ever create a session; recording the
     # call is how a refusal test proves that.
@@ -155,6 +175,9 @@ case "${1:-}" in
       esac
     done
     printf '%s\n' "$ses" >> "$D/created-sessions"
+    exit 0 ;;
+  kill-window)
+    [ "${FM_FAKE_KILL_REMOVES_ENDPOINT:-0}" != 1 ] || : > "$D/windows"
     exit 0 ;;
   new-window)
     # Model the one thing an endpoint re-creation depends on: the window now
@@ -169,6 +192,7 @@ case "${1:-}" in
         *) shift ;;
       esac
     done
+    : > "$D/endpoint-recreated"
     printf '%s\n' "$name" >> "$D/windows"
     printf '%s\n' "$name" >> "$D/created-windows"
     printf 'zsh' > "$D/command"
@@ -278,6 +302,10 @@ run_control() {  # <case-dir> <args...>
     FM_FAKE_TRACE_RELEASE="${FM_FAKE_TRACE_RELEASE:-}" \
     FM_FAKE_META_WRITER_READY="${FM_FAKE_META_WRITER_READY:-}" \
     FM_FAKE_TRACE_EXPORTED="${FM_FAKE_TRACE_EXPORTED:-}" \
+    FM_FAKE_ENDPOINT_VANISH_AFTER_DEAD="${FM_FAKE_ENDPOINT_VANISH_AFTER_DEAD:-}" \
+    FM_FAKE_KILL_REMOVES_ENDPOINT="${FM_FAKE_KILL_REMOVES_ENDPOINT:-}" \
+    FM_CODEX_READY_POLLS="${FM_CODEX_READY_POLLS:-}" \
+    FM_CODEX_POLL_INTERVAL="${FM_CODEX_POLL_INTERVAL:-}" \
     FM_TEST_RELAUNCH_ENDPOINT_READY="${FM_TEST_RELAUNCH_ENDPOINT_READY:-}" \
     FM_TEST_RELAUNCH_ENDPOINT_RELEASE="${FM_TEST_RELAUNCH_ENDPOINT_RELEASE:-}" \
     "$CONTROL" "$@" 2>&1
@@ -902,7 +930,7 @@ test_turnend_auth_paths_are_owned_by_the_control_adapter() {
   pass "fm-control-lib: one owner resolves each harness's turn-end registry entry, and refuses a malformed token"
 }
 
-test_secondmate_relaunch_picks_up_the_configured_harness_pin() {
+test_secondmate_relaunch_preserves_the_recorded_profile() {
   local dir home out rc
   dir=$(new_case smpin sm3)
   home="$dir/home"
@@ -929,20 +957,19 @@ test_secondmate_relaunch_picks_up_the_configured_harness_pin() {
   } > "$home/state/sm3.meta"
   printf '%s\n' "fm-sm3" > "$dir/fake/windows"
   printf '%s' "$dir/smhome" > "$dir/fake/cwd"
-  printf 'codex' > "$dir/fake/becomes"
+  printf 'claude' > "$dir/fake/becomes"
   out=$(run_control "$dir" sm3 relaunch); rc=$?
-  expect_code 0 "$rc" "a configured secondmate harness should relaunch"$'\n'"$out"
-  [ "$(journal_field "$dir" sm3 to_harness)" = codex ] \
-    || fail "a secondmate relaunch should pick up the configured harness pin, got '$(journal_field "$dir" sm3 to_harness)'"
-  [ "$(journal_field "$dir" sm3 to_model)" = some-model ] \
-    || fail "the configured model token should come with the pin"
-  [ "$(journal_field "$dir" sm3 to_effort)" = high ] \
-    || fail "the configured effort token should come with the pin"
-  assert_not_contains "$out" "not a verified harness" "codex is a verified harness"
-  pass "fm-control relaunch: a secondmate relaunch re-resolves its durable configured harness pin"
+  expect_code 0 "$rc" "a secondmate should relaunch on its recorded profile"$'\n'"$out"
+  [ "$(journal_field "$dir" sm3 to_harness)" = claude ] \
+    || fail "a secondmate relaunch should preserve its recorded harness, got '$(journal_field "$dir" sm3 to_harness)'"
+  [ "$(journal_field "$dir" sm3 to_model)" = default ] \
+    || fail "the fleet-wide model default flattened the recorded profile"
+  [ "$(journal_field "$dir" sm3 to_effort)" = default ] \
+    || fail "the fleet-wide effort default flattened the recorded profile"
+  pass "fm-control relaunch: a secondmate preserves its recorded profile"
 }
 
-test_secondmate_relaunch_ignores_invalid_configured_effort_before_stop() {
+test_secondmate_relaunch_does_not_consult_invalid_fleet_effort() {
   local dir home out rc
   dir=$(new_case invalid-effort sm6)
   home="$dir/home"
@@ -968,14 +995,14 @@ test_secondmate_relaunch_ignores_invalid_configured_effort_before_stop() {
   } > "$home/state/sm6.meta"
   printf '%s\n' "fm-sm6" > "$dir/fake/windows"
   printf '%s' "$dir/smhome" > "$dir/fake/cwd"
-  printf 'codex' > "$dir/fake/becomes"
+  printf 'claude' > "$dir/fake/becomes"
   out=$(run_control "$dir" sm6 relaunch); rc=$?
-  expect_code 0 "$rc" "an invalid configured effort should be ignored before stop"$'\n'"$out"
-  assert_contains "$out" "effort token 'impossible'" \
-    "relaunch should surface the same warning as a normal secondmate spawn"
+  expect_code 0 "$rc" "an unrelated invalid fleet effort should not affect relaunch"$'\n'"$out"
+  assert_not_contains "$out" "effort token 'impossible'" \
+    "relaunch consulted the fleet-wide default instead of the task record"
   [ "$(journal_field "$dir" sm6 to_effort)" = default ] \
     || fail "invalid configured effort should normalize to default"
-  pass "fm-control relaunch: invalid configured effort is ignored before stop"
+  pass "fm-control relaunch: an invalid fleet effort does not affect the recorded profile"
 }
 
 # agy is a verified adapter, but only for crewmates and scouts: it has no
@@ -1408,6 +1435,99 @@ test_post_publication_launch_failure_keeps_the_new_record() {
   [ "$(journal_field "$dir" rl24 rollback)" = none-new-record-kept ] \
     || fail "the journal should record that the published replacement record was kept"
   pass "fm-control relaunch: post-publication failure keeps the new durable record"
+}
+
+test_reused_codex_stale_ready_does_not_mask_current_failure() {
+  local id=sm-stale-ready dir smhome meta out rc
+  id=sm-stale-ready
+  dir=$(new_case codex-stale-ready "$id")
+  smhome="$dir/smhome"
+  meta="$dir/home/state/$id.meta"
+  fm_git_worktree "$dir/proj" "$smhome" sm-stale-ready-branch
+  mkdir -p "$smhome/state" "$smhome/data" "$smhome/bin"
+  printf '%s\n' "$id" > "$smhome/.fm-secondmate-home"
+  printf '# agents\n' > "$smhome/AGENTS.md"
+  printf '# charter\n' > "$smhome/data/charter.md"
+  fm_write_secondmate_meta "$meta" "$smhome" "fmses:fm-$id" '' codex
+  printf '%s' "$smhome" > "$dir/fake/cwd"
+  printf 'codex' > "$dir/fake/command"
+  printf 'codex' > "$dir/fake/becomes"
+  printf '› Ask Codex to do anything\n' > "$dir/fake/pane-before"
+  printf 'codex: command not found\n' > "$dir/fake/pane-after"
+
+  out=$(FM_CODEX_READY_POLLS=2 FM_CODEX_POLL_INTERVAL=0 \
+    run_control "$dir" "$id" relaunch --harness codex); rc=$?
+  expect_code 1 "$rc" "stale ready text must not confirm the current Codex relaunch"$'\n'"$out"
+  assert_contains "$out" "never reached its ready prompt" \
+    "the current command-not-found output was hidden by stale readiness"
+  assert_not_contains "$out" "relaunched $id" \
+    "a stale ready prompt published an unready replacement"
+  assert_present "$meta" "an unready reused endpoint lost its prior record"
+  assert_grep "fm-$id" "$dir/fake/windows" "an unready reused endpoint was retired"
+  [ "$(journal_field "$dir" "$id" rollback)" = prior-record-kept ] \
+    || fail "the reused endpoint failure was reported as the wrong rollback state"
+  pass "fm-control relaunch: stale readiness cannot confirm the current Codex launch"
+}
+
+test_control_reports_recreated_codex_retirement() {
+  local id=sm-retired dir smhome meta out rc
+  id=sm-retired
+  dir=$(new_case codex-retired "$id")
+  smhome="$dir/smhome"
+  meta="$dir/home/state/$id.meta"
+  fm_git_worktree "$dir/proj" "$smhome" sm-retired-branch
+  mkdir -p "$smhome/state" "$smhome/data" "$smhome/bin"
+  printf '%s\n' "$id" > "$smhome/.fm-secondmate-home"
+  printf '# agents\n' > "$smhome/AGENTS.md"
+  printf '# charter\n' > "$smhome/data/charter.md"
+  fm_write_secondmate_meta "$meta" "$smhome" "fmses:fm-$id" '' codex
+  : > "$dir/fake/windows"
+  printf '%s' "$smhome" > "$dir/fake/cwd"
+  printf 'codex' > "$dir/fake/becomes"
+  printf 'codex: command not found\n' > "$dir/fake/pane-after"
+
+  out=$(FM_FAKE_KILL_REMOVES_ENDPOINT=1 \
+    FM_CODEX_READY_POLLS=2 FM_CODEX_POLL_INTERVAL=0 \
+    run_control "$dir" "$id" relaunch --harness codex); rc=$?
+  expect_code 1 "$rc" "an unready recreated Codex endpoint should fail closed"$'\n'"$out"
+  assert_absent "$meta" "an unready recreated endpoint retained its published record"
+  assert_no_grep "fm-$id" "$dir/fake/windows" \
+    "an unready recreated endpoint was left running"
+  [ "$(journal_field "$dir" "$id" rollback)" = recreated-endpoint-and-record-retired ] \
+    || fail "control did not record the intentional replacement retirement"
+  assert_contains "$out" "endpoint and published task record were retired" \
+    "control reported that a removed replacement record was preserved"
+  pass "fm-control relaunch: recreated Codex retirement is reported accurately"
+}
+
+test_control_reports_endpoint_recreated_after_stop_race() {
+  local id=sm-stop-race dir smhome meta out rc
+  dir=$(new_case codex-stop-race "$id")
+  smhome="$dir/smhome"
+  meta="$dir/home/state/$id.meta"
+  fm_git_worktree "$dir/proj" "$smhome" sm-stop-race-branch
+  mkdir -p "$smhome/state" "$smhome/data" "$smhome/bin"
+  printf '%s\n' "$id" > "$smhome/.fm-secondmate-home"
+  printf '# agents\n' > "$smhome/AGENTS.md"
+  printf '# charter\n' > "$smhome/data/charter.md"
+  fm_write_secondmate_meta "$meta" "$smhome" "fmses:fm-$id" '' codex
+  printf '%s' "$smhome" > "$dir/fake/cwd"
+  printf 'codex' > "$dir/fake/command"
+  printf 'codex' > "$dir/fake/becomes"
+  printf 'codex: command not found\n' > "$dir/fake/pane-after"
+
+  out=$(FM_FAKE_ENDPOINT_VANISH_AFTER_DEAD=1 FM_FAKE_KILL_REMOVES_ENDPOINT=1 \
+    FM_CODEX_READY_POLLS=2 FM_CODEX_POLL_INTERVAL=0 \
+    run_control "$dir" "$id" relaunch --harness codex); rc=$?
+  expect_code 1 "$rc" "a replacement recreated after the stop race should fail readiness"$'\n'"$out"
+  [ "$(journal_field "$dir" "$id" rollback)" = recreated-endpoint-and-record-retired ] \
+    || fail "control reported the stop-race retirement from its stale pre-launch sample"$'\n'"$out"
+  assert_absent "$meta" "the retired stop-race replacement retained its published record"
+  assert_no_grep "fm-$id" "$dir/fake/windows" \
+    "the retired stop-race replacement endpoint remained"
+  assert_contains "$out" "endpoint and published task record were retired" \
+    "control reported that the retired stop-race replacement record remained"
+  pass "fm-control relaunch: stop-race recreation retirement is reported accurately"
 }
 
 test_stop_transport_failure_reconciles_a_dead_agent() {
@@ -2605,8 +2725,8 @@ test_relaunch_onto_an_unverified_harness_is_refused
 test_prior_harness_turnend_registry_entry_is_cleared
 test_wiring_removal_failure_refuses_before_replacement_arm
 test_turnend_auth_paths_are_owned_by_the_control_adapter
-test_secondmate_relaunch_picks_up_the_configured_harness_pin
-test_secondmate_relaunch_ignores_invalid_configured_effort_before_stop
+test_secondmate_relaunch_preserves_the_recorded_profile
+test_secondmate_relaunch_does_not_consult_invalid_fleet_effort
 test_secondmate_relaunch_onto_a_crewmate_only_adapter_refuses_before_stop
 test_qwen_relaunch_without_auth_refuses_before_stop
 test_qwen_relaunch_without_executable_refuses_before_stop
@@ -2624,6 +2744,9 @@ test_checkpoint_refuses_uninspectable_head_and_status
 test_launch_failure_keeps_the_prior_record_and_reports_it
 test_prepublication_failure_keeps_concurrent_durable_metadata
 test_post_publication_launch_failure_keeps_the_new_record
+test_reused_codex_stale_ready_does_not_mask_current_failure
+test_control_reports_recreated_codex_retirement
+test_control_reports_endpoint_recreated_after_stop_race
 test_stop_transport_failure_reconciles_a_dead_agent
 test_complete_journal_failure_rolls_back_from_durable_phase
 test_prepublication_abort_retires_replacement_wiring_and_busy_state

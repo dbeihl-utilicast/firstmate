@@ -29,8 +29,9 @@
 #   <task>.inbox/.seq.lock     serializes sequence allocation across writers
 #                              (the session and the away daemon)
 #   <task>.inbox/.ring-state   watcher re-ring ladder: "<msg>\t<count>\t<epoch>"
-#   <task>.inbox/.escalated    oldest-message name already surfaced as stale,
-#                              so later polls suppress another escalation
+#   <task>.inbox/.escalated    "<msg>\t<highest-unhandled-seq>": oldest-message
+#                              surfaced as stale, plus the highest eligible seq
+#                              then; a newer record's seq re-escalates later
 #
 # Record format (fm_task_inbox_write / fm_task_inbox_body):
 #   schema=fm-task-inbox.v1
@@ -62,9 +63,11 @@
 # If attempt bookkeeping cannot be persisted while the record remains unhandled,
 # the caller surfaces that failure instead of retrying silently; a concurrently
 # removed inbox is a quiet no-op. Escalation deliberately queues the wake before
-# writing the deduplication marker: normal polls surface a message once, while a
-# crash or marker failure may produce a rare duplicate rather than silently lose
-# a wake.
+# writing the deduplication marker: normal polls surface an unchanged oldest
+# and highest eligible sequence once, while a newer record can surface it again.
+# The watcher captures that sequence before queuing the wake, so a record
+# arriving during wake publication remains eligible for a later escalation.
+# A crash or marker failure may produce a rare duplicate rather than lose a wake.
 #
 # Inbox paths containing bytes outside printable ASCII are unsupported. The
 # doorbell refuses them rather than sending terminal control bytes to a pane.
@@ -540,15 +543,30 @@ fm_task_inbox_oldest_unhandled() {  # <state-dir> <task-id>
   printf '%s' "$best"
 }
 
+# Highest sequence among escalation-eligible unhandled records (same filter
+# above). Sequence numbers never repeat, so a rise proves a new record exists
+# even when an older one was acknowledged in between (unlike a raw count).
+fm_task_inbox_highest_unhandled_seq() {  # <state-dir> <task-id>
+  local dir f n best=0
+  dir=$(fm_task_inbox_dir "$1" "$2")
+  for f in "$dir"/*.msg; do
+    [ -e "$f" ] || continue
+    fm_task_inbox_is_fire_and_forget "$f" && continue
+    n=$(fm_task_inbox_seq_of "${f##*/}") || continue
+    [ "$n" -le "$best" ] || best=$n
+  done
+  printf '%s' "$best"
+}
+
 # The re-ring ladder decision for one task. Prints exactly one of:
 #   quiet                     nothing due (healthy, within grace or spacing,
-#                             or already escalated for the current oldest)
+#                             or already escalated at the current count)
 #   ring <record-path>        one doorbell re-ring is due
 #   escalate <record-path> <count>   attempt budget spent; surface as stale
 # An empty inbox also resets the ladder bookkeeping so the next message starts
 # a fresh ladder.
 fm_task_inbox_due_action() {  # <state-dir> <task-id>
-  local dir oldest base now grace max ladder rec_base count last
+  local dir oldest base now grace max ladder rec_base count last esc_line esc_base esc_seq now_seq
   dir=$(fm_task_inbox_dir "$1" "$2")
   if ! oldest=$(fm_task_inbox_oldest_unhandled "$1" "$2"); then
     rm -f "$dir/.ring-state" "$dir/.escalated" 2>/dev/null || true
@@ -578,8 +596,17 @@ EOF
   fi
   case "$count" in ''|*[!0-9]*) count=0 ;; esac
   case "$last" in ''|*[!0-9]*) last=0 ;; esac
-  if [ "$(cat "$dir/.escalated" 2>/dev/null || true)" = "$base" ]; then
-    printf 'quiet'
+  esc_line=$(cat "$dir/.escalated" 2>/dev/null || true)
+  esc_base=${esc_line%%$'\t'*}
+  esc_seq=${esc_line#*$'\t'}
+  case "$esc_seq" in ''|*[!0-9]*) esc_seq=0 ;; esac
+  if [ "$esc_base" = "$base" ]; then
+    now_seq=$(fm_task_inbox_highest_unhandled_seq "$1" "$2")
+    if [ "$now_seq" -le "$esc_seq" ]; then
+      printf 'quiet'
+      return 0
+    fi
+    printf 'escalate %s %s' "$oldest" "$count"
     return 0
   fi
   max=$(fm_task_inbox_ring_max)
@@ -620,15 +647,16 @@ EOF
   fi
 }
 
-# Mark the current oldest as escalated after its stale wake is durably queued,
-# suppressing another wake on later polls. Wake-before-marker ordering favors
-# at-least-once recovery: a crash or marker failure can cause a rare duplicate;
-# stuck-crewmate-recovery owns the message from here.
-fm_task_inbox_record_escalated() {  # <state-dir> <task-id> <record-path>
-  local dir
+# Marks the current oldest escalated with the highest eligible seq at that
+# moment, after its stale wake is durably queued (wake-before-marker: a crash
+# can cause a rare duplicate; stuck-crewmate-recovery owns it from here).
+fm_task_inbox_record_escalated() {  # <state-dir> <task-id> <record-path> [highest-seq]
+  local dir seq
   dir=$(fm_task_inbox_dir "$1" "$2")
   [ -d "$dir" ] || return 0
-  if ! { printf '%s\n' "${3##*/}" > "$dir/.escalated"; } 2>/dev/null; then
+  seq=${4-}
+  [ -n "$seq" ] || seq=$(fm_task_inbox_highest_unhandled_seq "$1" "$2")
+  if ! { printf '%s\t%s\n' "${3##*/}" "$seq" > "$dir/.escalated"; } 2>/dev/null; then
     [ -d "$dir" ] || return 0
     return 1
   fi

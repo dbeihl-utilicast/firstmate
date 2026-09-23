@@ -185,7 +185,19 @@ case "$cmd $sub" in
     jq_state --arg w "$ws" --arg wlabel "$label" --arg tabid "$tabid" --arg paneid "$paneid" \
       '.tabs += [{tab_id:$tabid, label:$wlabel, workspace_id:$w, pane_id:$paneid}]
        | .next = (.next + 1)' | save
+    if [ "${FM_FAKE_HERDR_BAD_CREATE:-0}" = 1 ]; then
+      printf '{"result":{}}\n'
+      exit 0
+    fi
     printf '{"result":{"tab":{"tab_id":"%s"},"root_pane":{"pane_id":"%s"}}}\n' "$tabid" "$paneid"
+    ;;
+  "pane get")
+    pane=${3:-}
+    if jq_state -e --arg p "$pane" 'any(.tabs[]; .pane_id == $p)' >/dev/null; then
+      printf '{"result":{"pane":{"pane_id":"%s"}}}\n' "$pane"
+    else
+      printf '{"error":{"code":"pane_not_found"}}\n'
+    fi
     ;;
   "pane list")
     jq_state --arg w "$ws" '{result:{panes:[.tabs[]|select(.workspace_id==$w)|{pane_id:.pane_id, tab_id:.tab_id}]}}'
@@ -5204,6 +5216,63 @@ test_wait_transition_clean_timeout_returns_1() {
 # shellcheck source=bin/fm-backend.sh
 . "$ROOT/bin/fm-backend.sh"
 
+# A relaunch whose Herdr tab creation returns a malformed response must leave a
+# durable recovery owner for any tab it did create. A ship task exercises it:
+# a second mate whose pane is gone is refused by relaunch and recovered by its
+# own respawn owner instead (docs/agent-control.md).
+test_relaunch_partial_tab_creation_keeps_recovery_ownership() {
+  local dir fb wt home meta out status tabs id=rl80
+  dir="$TMP_ROOT/relaunch-partial-tab"
+  wt="$dir/wt"
+  home="$dir/home"
+  mkdir -p "$home/state" "$home/data" "$home/config"
+  fm_git_worktree "$dir/repo" "$wt" ship-partial
+  mkdir -p "$home/data/$id"
+  printf '# Task\n## Captain%ss intent\nbrief for %s\n\n## Firstmate spec\nExercise relaunch.\n\nDelivery contract: mode=no-mistakes\n' "'" "$id" > "$home/data/$id/brief.md"
+  meta="$home/state/$id.meta"
+  fm_write_meta "$meta" \
+    "window=testsesh:gone" \
+    "endpoint_task_id=$id" \
+    "worktree=$wt" \
+    "project=$dir/repo" \
+    "harness=codex" \
+    "kind=ship" \
+    "mode=no-mistakes" \
+    "yolo=off" \
+    "backend=herdr" \
+    "herdr_session=testsesh" \
+    "herdr_workspace_id=w1" \
+    "herdr_tab_id=gone-tab" \
+    "herdr_pane_id=gone"
+  fb=$(make_herdr_statefake "$dir")
+  jq '.workspaces = [{workspace_id:"w1",label:"firstmate"}]' "$dir/state.json" > "$dir/seed.json"
+  mv "$dir/seed.json" "$dir/state.json"
+  : > "$dir/log"
+
+  out=$(PATH="$fb:$PATH" FM_FAKE_HERDR_STATE="$dir/state.json" FM_HERDR_LOG="$dir/log" \
+    FM_BACKEND_HERDR_BIN="$fb/herdr" FM_BACKEND_HERDR_CLIENT_SESSION=testsesh \
+    FM_FAKE_HERDR_BAD_CREATE=1 HERDR_SESSION=testsesh FM_BACKEND=herdr CLAUDECODE=1 \
+    FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" FM_SPAWN_NO_GUARD=1 \
+    "$ROOT/bin/fm-spawn.sh" "$id" --relaunch --harness codex 2>&1); status=$?
+  [ "$status" -ne 0 ] || fail "a malformed Herdr creation response succeeded"
+  tabs=$(jq --arg label "fm-$id" '[.tabs[] | select(.label == $label)] | length' "$dir/state.json")
+  [ "$tabs" -gt 0 ] || grep -q 'tab.*create' "$dir/log" \
+    || fail "the fixture never reached Herdr tab creation: $out"
+  if [ "$tabs" -gt 0 ]; then
+    [ -f "$home/state/$id.relaunch-endpoint" ] && [ -f "$meta" ] \
+      || fail "a partially created Herdr tab has no durable recovery owner"
+  else
+    [ -f "$meta" ] || fail "a relaunch whose tab was never created lost the task record"
+  fi
+  pass "partial Herdr relaunch is retired or durably recoverable"
+}
+
+if [ "${FM_HERDR_TEST_ONLY:-0}" = 1 ]; then
+  test_relaunch_partial_tab_creation_keeps_recovery_ownership
+  exit 0
+fi
+
+test_relaunch_partial_tab_creation_keeps_recovery_ownership
 test_version_check_accepts_current_protocol
 test_version_check_refuses_old_protocol
 test_version_check_refuses_missing_herdr

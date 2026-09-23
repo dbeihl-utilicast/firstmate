@@ -22,9 +22,9 @@
 #      retryable send failure that could duplicate the durable instruction.
 #   9. An unwritable inbox is a real local failure: nonzero exit, nothing
 #      typed, and a just-created pending-reply expectation is discarded.
-#  10. An ordinary send to a lane carrying state/<id>.stopped is recorded and
-#      succeeds, mints no pending reply, and does not ring. Only that marker
-#      skips the reply expectation; a live secondmate still mints.
+#  10. A send to a lane carrying state/<id>.stopped is refused before any
+#      mutation (no inbox record, no pending reply), naming the lane,
+#      stopped, and the reopen command; a mid-race marker refuses the same.
 #  11. An empty or whitespace-only text steer is refused before anything is
 #      marked, recorded, or typed - on the marked secondmate path that means
 #      no marker-only record and no pending-reply expectation.
@@ -55,6 +55,10 @@ set -u
 case "${1:-}" in
   send-keys)
     [ "${FM_FAKE_TMUX_SEND_FAIL:-0}" = 1 ] && exit 1
+    if [ -n "${FM_BLOCK_SEND:-}" ]; then
+      touch "$FM_BLOCK_SEND.started"
+      while [ ! -e "$FM_BLOCK_SEND.release" ]; do /bin/sleep 0.02; done
+    fi
     shift
     literal=0
     while [ $# -gt 0 ]; do
@@ -283,6 +287,98 @@ test_key_path_never_touches_inbox() {
   pass "fm-send planes: the --key lifecycle path never touches the inbox"
 }
 
+test_key_path_refuses_a_stopped_lane() {
+  local dir err rc
+  dir=$(setup_case keypath-stopped); err="$dir/send.err"
+  printf 'stopped\n' > "$dir/home/state/t1.stopped"
+  run_send "$dir" "$err" -- t1 --key Enter; rc=$?
+  [ "$rc" -ne 0 ] || fail "a --key send to a stopped lane should be refused"
+  [ ! -s "$dir/send.log" ] || fail "a refused --key send still typed a key:"$'\n'"$(cat "$dir/send.log")"
+  assert_contains "$(cat "$err")" "reopen" "the --key refusal should say how to reopen the lane"
+  pass "fm-send planes: --key against a stopped lane is refused too, no carve-out"
+}
+
+# The stopped marker can appear after the top-of-script check and before
+# dispatch: --key holds no lock of its own, so the final recheck under the
+# exact lock fm-secondmate-lane.sh stop uses is what closes that window.
+test_key_path_race_stopped_marker_still_refuses() {
+  local dir err lock marker holder sender rc=0
+  dir=$(setup_case keypath-race); err="$dir/send.err"
+  lock="$dir/home/state/.meta-t1.lock"
+  marker="$dir/lock-held"
+  bash -c '
+    . "$1"
+    fm_lock_acquire_wait "$2"
+    touch "$3"
+    while [ ! -e "$4" ]; do sleep 0.05; done
+    fm_lock_release "$2"
+  ' _ "$ROOT/bin/fm-wake-lib.sh" "$lock" "$marker" "$dir/release" &
+  holder=$!
+  while [ ! -e "$marker" ]; do sleep 0.05; done
+  run_send "$dir" "$err" -- t1 --key Enter &
+  sender=$!
+  sleep 0.5
+  printf 'stopped\n' > "$dir/home/state/t1.stopped"
+  touch "$dir/release"
+  wait "$holder"
+  wait "$sender" || rc=$?
+  [ "$rc" -ne 0 ] || fail "a marker published mid-send should still refuse a --key send"
+  [ ! -s "$dir/send.log" ] || fail "a race-refused --key send still typed a key:"$'\n'"$(cat "$dir/send.log")"
+  assert_contains "$(cat "$err")" "reopen" "the race refusal should say how to reopen the lane"
+  pass "fm-send planes: a stopped marker published mid-send still refuses --key under the locked recheck"
+}
+
+test_dispatch_holds_stop_lock() {
+  local mode dir err sender stopper lock block i
+  for mode in key text; do
+    dir=$(setup_case "dispatch-lock-$mode"); err="$dir/send.err"
+    lock="$dir/home/state/.meta-t1.lock"; block="$dir/dispatch"
+    if [ "$mode" = key ]; then
+      run_send "$dir" "$err" "FM_BLOCK_SEND=$block" -- t1 --key Enter &
+    else
+      run_send "$dir" "$err" "FM_BLOCK_SEND=$block" -- t1 /status &
+    fi
+    sender=$!
+    i=0
+    while [ ! -e "$block.started" ] && [ "$i" -lt 100 ]; do /bin/sleep 0.05; i=$((i + 1)); done
+    [ -e "$block.started" ] || fail "$mode dispatch did not reach the backend"
+    bash -c '. "$1"; fm_lock_acquire_wait "$2"; touch "$3"; fm_lock_release "$2"' \
+      _ "$ROOT/bin/fm-wake-lib.sh" "$lock" "$dir/home/state/t1.stopped" &
+    stopper=$!
+    /bin/sleep 0.2
+    [ ! -e "$dir/home/state/t1.stopped" ] || fail "$mode dispatch released the stop lock before backend completion"
+    touch "$block.release"
+    wait "$sender" || fail "$mode backend send failed"
+    wait "$stopper" || fail "$mode stop could not acquire its lock"
+    [ -e "$dir/home/state/t1.stopped" ] || fail "$mode stop never recorded its marker"
+  done
+  pass "fm-send: key and typed text hold the stop lock through backend dispatch"
+}
+
+test_typed_refusal_discards_pending_reply() {
+  local dir err holder sender rc=0 i
+  dir=$(setup_case typed-stopped); err="$dir/send.err"
+  fm_write_secondmate_meta "$dir/home/state/domain.meta" "$dir/home" "sess:fm-domain"
+  bash -c '. "$1"; fm_lock_acquire_wait "$2"; touch "$3"; while [ ! -e "$4" ]; do /bin/sleep 0.05; done; fm_lock_release "$2"' \
+    _ "$ROOT/bin/fm-wake-lib.sh" "$dir/home/state/.meta-domain.lock" "$dir/held" "$dir/release" &
+  holder=$!
+  while [ ! -e "$dir/held" ]; do /bin/sleep 0.05; done
+  run_send "$dir" "$err" -- fm-domain /status &
+  sender=$!
+  i=0
+  while [ ! -d "$dir/home/state/pending-replies" ] && [ "$i" -lt 100 ]; do /bin/sleep 0.05; i=$((i + 1)); done
+  [ -d "$dir/home/state/pending-replies" ] || fail "typed send did not prepare its pending reply"
+  printf 'stopped\n' > "$dir/home/state/domain.stopped"
+  touch "$dir/release"
+  wait "$holder"
+  wait "$sender" || rc=$?
+  [ "$rc" -ne 0 ] || fail "typed send to a newly stopped lane should refuse"
+  [ -z "$(find "$dir/home/state/pending-replies" -type f -not -name '.*' 2>/dev/null)" ] \
+    || fail "typed refusal retained an unsent pending reply"
+  [ ! -s "$dir/send.log" ] || fail "typed refusal reached the backend"
+  pass "fm-send: typed stopped-lane refusal discards its pending reply"
+}
+
 test_secondmate_marker_and_enqueue_delivery() {
   local dir err body corr pr_rec delivered
   dir=$(setup_case secondmate)
@@ -403,29 +499,56 @@ test_unwritable_inbox_fails_loudly() {
   pass "fm-send inbox: an unwritable record is a loud local failure that leaves no false expectation"
 }
 
-test_ordinary_send_to_stopped_lane_records_without_pending_reply() {
-  local dir err rc n body
+test_ordinary_send_to_stopped_lane_is_refused() {
+  local dir err rc n
   dir=$(setup_case stopped-send)
   err="$dir/send.err"
   fm_write_secondmate_meta "$dir/home/state/domain.meta" "$dir/home" "sess:fm-domain"
   printf 'stopped\n' > "$dir/home/state/domain.stopped"
-  run_send "$dir" "$err" -- fm-domain "corr=0123456789abcdef please reread config"; rc=$?
-  [ "$rc" -eq 0 ] || fail "an ordinary send to a stopped lane must be recorded, not refused: $(cat "$err")"
-  [ -f "$dir/home/state/domain.inbox/001.msg" ] \
-    || fail "an ordinary send to a stopped lane must leave a durable inbox record"
-  body=$(record_body _ "$dir/home/state/domain.inbox/001.msg")
-  assert_contains "$body" "please reread config" "the recorded body should carry the send text"
-  case "$body" in
-    *'corr='*) fail "a stopped-lane record must not retain a reply correlation: $body" ;;
-  esac
+  run_send "$dir" "$err" -- fm-domain "please reread config"; rc=$?
+  [ "$rc" -ne 0 ] || fail "a send to a stopped lane must be refused, not recorded"
+  [ ! -e "$dir/home/state/domain.inbox/001.msg" ] \
+    || fail "a refused stopped-lane send must leave no inbox record"
   n=$(find "$dir/home/state/pending-replies" -type f -not -name '.*' 2>/dev/null | wc -l | tr -d ' ')
-  [ "$n" = 0 ] || fail "an ordinary send to a stopped lane minted $n pending-reply record(s); want zero"
+  [ "$n" = 0 ] || fail "a refused stopped-lane send minted $n pending-reply record(s); want zero"
   [ ! -s "$dir/send.log" ] || fail "a stopped lane was rung:"$'\n'"$(cat "$dir/send.log")"
-  pass "fm-send inbox: an ordinary send to a stopped lane is recorded with zero pending replies"
+  assert_contains "$(cat "$err")" "domain" "the refusal should name the lane"
+  assert_contains "$(cat "$err")" "stopped" "the refusal should say the lane is stopped"
+  assert_contains "$(cat "$err")" "reopen" "the refusal should say how to reopen it"
+  pass "fm-send inbox: a send to a stopped lane is refused, naming the lane and the reopen command"
 }
 
-test_marker_appearing_before_enqueue_discards_pending_reply() {
-  local dir err holder sender rc=0 i body
+# Live case from data/supervision-retro-01/report.md section 1a: a lane
+# stopped for days, inbox already holding unhandled backlog. Refuse the new
+# send and leave the existing backlog byte-untouched.
+test_send_to_backlogged_stopped_lane_is_refused_and_backlog_untouched() {
+  local dir err rc before after before_sum after_sum
+  dir=$(setup_case backlog-stopped)
+  err="$dir/send.err"
+  fm_write_secondmate_meta "$dir/home/state/domain.meta" "$dir/home" "sess:fm-domain"
+  bash -c '
+    . "$1"
+    fm_task_inbox_write_idempotent "$2" domain "routine broadcast one" "" 0 >/dev/null
+    fm_task_inbox_write_idempotent "$2" domain "routine broadcast two" "" 0 >/dev/null
+    fm_task_inbox_write_idempotent "$2" domain "Delivery mode change, effective now" stopped 0 >/dev/null
+  ' _ "$ROOT/bin/fm-task-inbox-lib.sh" "$dir/home/state"
+  printf 'stopped %s\n' '2026-09-19T07:16:00Z' > "$dir/home/state/domain.stopped"
+  before=$(find "$dir/home/state/domain.inbox" -name '*.msg' | sort)
+  before_sum=$(cat "$dir/home/state/domain.inbox"/*.msg)
+
+  run_send "$dir" "$err" -- fm-domain "another real instruction"; rc=$?
+  [ "$rc" -ne 0 ] || fail "a send into a backlogged stopped lane must still be refused"
+  assert_contains "$(cat "$err")" "domain" "the refusal should name the backlogged lane"
+  assert_contains "$(cat "$err")" "reopen" "the refusal should say how to reopen it"
+  after=$(find "$dir/home/state/domain.inbox" -name '*.msg' | sort)
+  [ "$before" = "$after" ] || fail "the refusal changed which records exist: was [$before] now [$after]"
+  after_sum=$(cat "$dir/home/state/domain.inbox"/*.msg)
+  [ "$before_sum" = "$after_sum" ] || fail "the refusal altered the bytes of the existing backlog"
+  pass "fm-send inbox: a real instruction into a backlogged stopped lane is refused, backlog untouched"
+}
+
+test_marker_appearing_before_enqueue_refuses_and_discards_pending_reply() {
+  local dir err holder sender rc=0 i
   dir=$(setup_case stopped-race)
   err="$dir/send.err"
   fm_write_secondmate_meta "$dir/home/state/domain.meta" "$dir/home" "sess:fm-domain"
@@ -450,16 +573,13 @@ test_marker_appearing_before_enqueue_discards_pending_reply() {
   touch "$dir/release"
   wait "$holder"
   wait "$sender" || rc=$?
-  [ "$rc" -eq 0 ] || fail "a marker published before enqueue must still record the send: $(cat "$err")"
-  [ -f "$dir/home/state/domain.inbox/001.msg" ] \
-    || fail "a send that saw the marker at final validation must still leave a durable record"
+  [ "$rc" -ne 0 ] || fail "a marker published before final validation must refuse the send"
+  [ ! -e "$dir/home/state/domain.inbox/001.msg" ] \
+    || fail "a send refused at final stopped validation must leave no durable record"
   [ -z "$(find "$dir/home/state/pending-replies" -type f -not -name '.*' 2>/dev/null)" ] \
-    || fail "a send that saw the marker at final validation retained a pending-reply expectation"
-  body=$(record_body _ "$dir/home/state/domain.inbox/001.msg")
-  case "$body" in
-    *'corr='*) fail "a stopped-lane record retained an orphan reply correlation: $body" ;;
-  esac
-  pass "fm-send inbox: final stopped validation records an uncorrelated send and discards its pending reply"
+    || fail "a send refused at final stopped validation retained its pending-reply expectation"
+  assert_contains "$(cat "$err")" "reopen" "the race refusal should say how to reopen the lane"
+  pass "fm-send inbox: final stopped validation refuses and discards its pending reply"
 }
 
 test_stopped_race_fails_if_pending_reply_cannot_be_discarded() {
@@ -563,11 +683,16 @@ test_failed_ring_is_still_sent
 test_harness_invocations_stay_typed
 test_explicit_target_stays_typed
 test_key_path_never_touches_inbox
+test_key_path_refuses_a_stopped_lane
+test_key_path_race_stopped_marker_still_refuses
+test_dispatch_holds_stop_lock
+test_typed_refusal_discards_pending_reply
 test_secondmate_marker_and_enqueue_delivery
 test_post_enqueue_bookkeeping_failure_is_not_retryable
 test_meta_lock_contention_fails_bounded
 test_unwritable_inbox_fails_loudly
-test_ordinary_send_to_stopped_lane_records_without_pending_reply
-test_marker_appearing_before_enqueue_discards_pending_reply
+test_ordinary_send_to_stopped_lane_is_refused
+test_send_to_backlogged_stopped_lane_is_refused_and_backlog_untouched
+test_marker_appearing_before_enqueue_refuses_and_discards_pending_reply
 test_stopped_race_fails_if_pending_reply_cannot_be_discarded
 test_empty_message_refused

@@ -792,6 +792,120 @@ test_ring_ladder_policy() {
   pass "inbox: the re-ring ladder paces by grace, escalates once, and resets on ack"
 }
 
+# report.md section 1b: escalation keyed only to the oldest record stays
+# quiet forever once that head is stuck, even as newer messages pile up.
+test_escalation_rekeys_to_unhandled_count_not_just_oldest() {
+  local state rec1 rec2 action
+  state="$TMP_ROOT/queue-depth/state"; mkdir -p "$state"
+  rec1=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "stuck head")
+  age_path "$rec1"
+  printf '001.msg\t3\t100\n' > "$state/t1.inbox/.ring-state"
+  action=$(FM_TASK_INBOX_GRACE_SECS=60 FM_TASK_INBOX_RING_MAX=3 inbox_lib "$state" fm_task_inbox_due_action "$state" t1)
+  [ "$action" = "escalate $rec1 3" ] || fail "a spent ring budget should escalate, got: $action"
+  inbox_lib "$state" fm_task_inbox_record_escalated "$state" t1 "$rec1"
+  action=$(FM_TASK_INBOX_GRACE_SECS=60 FM_TASK_INBOX_RING_MAX=3 inbox_lib "$state" fm_task_inbox_due_action "$state" t1)
+  [ "$action" = quiet ] || fail "an unchanged queue behind an escalated head should stay quiet, got: $action"
+  rec2=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "piled up behind it")
+  action=$(FM_TASK_INBOX_GRACE_SECS=60 FM_TASK_INBOX_RING_MAX=3 inbox_lib "$state" fm_task_inbox_due_action "$state" t1)
+  [ "$action" = "escalate $rec1 3" ] \
+    || fail "a newer message behind the same stuck head should re-escalate, got: $action"
+  [ -f "$rec2" ] || fail "the new message must stay durable while the head is still stuck"
+  pass "inbox: escalation re-fires when the unhandled queue grows behind the same stuck oldest"
+}
+
+# A raw unhandled count is not enough: escalate at 2 (A+B), ack B, enqueue C.
+# Count returns to 2, unchanged; only the highest-seq marker still catches
+# that C is genuinely new (seq numbers never repeat).
+test_escalation_rekeys_on_new_record_even_when_count_is_unchanged() {
+  local state rec1 rec2 rec3 action
+  state="$TMP_ROOT/queue-depth-swap/state"; mkdir -p "$state"
+  rec1=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "stuck head")
+  age_path "$rec1"
+  rec2=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "will be acked")
+  printf '001.msg\t3\t100\n' > "$state/t1.inbox/.ring-state"
+  action=$(FM_TASK_INBOX_GRACE_SECS=60 FM_TASK_INBOX_RING_MAX=3 inbox_lib "$state" fm_task_inbox_due_action "$state" t1)
+  [ "$action" = "escalate $rec1 3" ] || fail "a spent ring budget should escalate, got: $action"
+  inbox_lib "$state" fm_task_inbox_record_escalated "$state" t1 "$rec1"
+  mv "$rec2" "$state/t1.inbox/handled/"
+  rec3=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "swapped in, same count")
+  action=$(FM_TASK_INBOX_GRACE_SECS=60 FM_TASK_INBOX_RING_MAX=3 inbox_lib "$state" fm_task_inbox_due_action "$state" t1)
+  [ "$action" = "escalate $rec1 3" ] \
+    || fail "swapping an acked record for a new one at the same count should still re-escalate, got: $action"
+  [ -f "$rec3" ] || fail "the swapped-in record must stay durable while the head is still stuck"
+  pass "inbox: escalation re-fires on a genuinely new record even when the unhandled count is unchanged"
+}
+
+test_escalation_marker_uses_pre_wake_snapshot() {
+  local state rec1 rec2 seq action
+  state="$TMP_ROOT/escalation-snapshot/state"; mkdir -p "$state"
+  rec1=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "stuck head")
+  age_path "$rec1"
+  seq=$(inbox_lib "$state" fm_task_inbox_highest_unhandled_seq "$state" t1)
+  rec2=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "arrived during wake")
+  inbox_lib "$state" fm_task_inbox_record_escalated "$state" t1 "$rec1" "$seq"
+  action=$(FM_TASK_INBOX_GRACE_SECS=60 FM_TASK_INBOX_RING_MAX=3 inbox_lib "$state" fm_task_inbox_due_action "$state" t1)
+  [ "$action" = "escalate $rec1 0" ] \
+    || fail "a record arriving after the wake decision must stay eligible, got: $action"
+  [ -f "$rec2" ] || fail "the new record should remain unhandled"
+  pass "inbox: escalation marker covers only the pre-wake sequence snapshot"
+}
+
+test_watcher_escalation_does_not_cover_later_arrival() {
+  local mode dir state out rec action pid
+  for mode in dead idle; do
+    dir=$(setup_watch_case "wake-arrival-$mode")
+    state="$dir/state"; out="$dir/watch.out"
+    rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "stuck head")
+    age_path "$rec"
+    if [ "$mode" = idle ]; then
+      printf '001.msg\t3\t100\n' > "$state/t1.inbox/.ring-state"
+    fi
+    cat > "$dir/fakebin/tr" <<'SH'
+#!/usr/bin/env bash
+if [ "${FM_INSERT_AT_WAKE:-0}" = 1 ] && [ "${1:-}" = '\t\r\n' ] \
+    && [ "${2:-}" = '   ' ] && [ ! -e "$FM_INSERT_MARKER" ]; then
+  touch "$FM_INSERT_MARKER"
+  FM_STATE_OVERRIDE="$FM_INSERT_STATE" bash -c '. "$1"; fm_task_inbox_write "$2" t1 "arrived during wake" >/dev/null' \
+    _ "$FM_INSERT_LIB" "$FM_INSERT_STATE"
+fi
+exec /usr/bin/tr "$@"
+SH
+    chmod +x "$dir/fakebin/tr"
+    if [ "$mode" = dead ]; then
+      watch_bg "$state" "$dir/fakebin" "$out" \
+        FM_FAKE_TMUX_AGENT=zsh FM_TASK_INBOX_RING_MAX=99 \
+        FM_INSERT_AT_WAKE=1 FM_INSERT_MARKER="$dir/inserted" \
+        FM_INSERT_STATE="$state" FM_INSERT_LIB="$ROOT/bin/fm-task-inbox-lib.sh"
+    else
+      watch_bg "$state" "$dir/fakebin" "$out" \
+        FM_FAKE_TMUX_CAPTURE="$(idle_capture "$dir")" FM_TASK_INBOX_RING_MAX=3 \
+        FM_INSERT_AT_WAKE=1 FM_INSERT_MARKER="$dir/inserted" \
+        FM_INSERT_STATE="$state" FM_INSERT_LIB="$ROOT/bin/fm-task-inbox-lib.sh"
+    fi
+    pid=$!
+    wait_watcher_gone "$pid" || { kill "$pid" 2>/dev/null; fail "$mode watcher did not escalate"; }
+    [ -f "$state/t1.inbox/002.msg" ] || fail "$mode wake did not overlap a new record"
+    action=$(FM_TASK_INBOX_GRACE_SECS=1 FM_TASK_INBOX_RING_MAX=3 inbox_lib "$state" fm_task_inbox_due_action "$state" t1)
+    [ "${action%% *}" = escalate ] || fail "$mode escalation swallowed a later arrival: $action"
+  done
+  pass "watcher: dead and idle escalation leave records arriving during wake eligible"
+}
+
+# The pre-fix marker format was just the base name, no seq: it must still
+# parse (as seq=0), so an already-escalated lane re-escalates once on its
+# first poll under the fix rather than staying silently quiet forever.
+test_legacy_escalated_marker_format_migrates_forward() {
+  local state rec action
+  state="$TMP_ROOT/queue-depth-legacy/state"; mkdir -p "$state"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "stuck head")
+  age_path "$rec"
+  printf '001.msg\n' > "$state/t1.inbox/.escalated"
+  action=$(FM_TASK_INBOX_GRACE_SECS=60 FM_TASK_INBOX_RING_MAX=3 inbox_lib "$state" fm_task_inbox_due_action "$state" t1)
+  [ "$action" = "escalate $rec 0" ] \
+    || fail "a legacy no-seq escalated marker should re-escalate once under the fix, got: $action"
+  pass "inbox: a legacy single-field .escalated marker parses as seq=0 and re-escalates once"
+}
+
 setup_watch_case() {  # <name> -> echoes case dir; state in <dir>/state
   local name=$1 dir
   dir="$TMP_ROOT/$name"
@@ -973,7 +1087,7 @@ test_watcher_dead_pane_escalates_once_without_ringing() {
     || fail "the stale wake should say the agent has exited:"$'\n'"$(cat "$state/.wake-queue")"
   grep -qF "$rec" "$state/.wake-queue" || fail "the stale wake should name the record path"
   [ -f "$rec" ] || fail "the durable record must survive for recovery"
-  [ "$(cat "$state/t1.inbox/.escalated")" = "${rec##*/}" ] \
+  [ "$(cut -f1 "$state/t1.inbox/.escalated")" = "${rec##*/}" ] \
     || fail "the escalation marker should suppress further surfacing of this record"
   [ ! -e "$state/t1.inbox/.ring-state" ] || fail "a dead pane must not enter the re-ring ladder"
   # The ladder is capped: nothing further is due for this record, so no later
@@ -1000,7 +1114,7 @@ test_watcher_dead_pane_ignores_stale_busy_state() {
   [ "$(grep -cF 'unread firstmate instruction' "$state/.wake-queue" 2>/dev/null || true)" = 1 ] \
     || fail "a busy-marked dead pane should surface exactly once:"$'\n'"$(cat "$state/.wake-queue" 2>/dev/null)"
   [ -f "$rec" ] || fail "the durable record must survive stale busy-state recovery"
-  [ "$(cat "$state/t1.inbox/.escalated")" = "${rec##*/}" ] \
+  [ "$(cut -f1 "$state/t1.inbox/.escalated")" = "${rec##*/}" ] \
     || fail "stale busy-state recovery should suppress repeated surfacing"
   pass "watcher: dead-pane recovery overrides stale busy state"
 }
@@ -1080,6 +1194,11 @@ test_writer_retries_after_a_vanished_lock_collision
 test_ladder_writes_ignore_vanished_inbox
 test_fire_and_forget_records_never_enter_the_ladder
 test_ring_ladder_policy
+test_escalation_rekeys_to_unhandled_count_not_just_oldest
+test_escalation_rekeys_on_new_record_even_when_count_is_unchanged
+test_escalation_marker_uses_pre_wake_snapshot
+test_watcher_escalation_does_not_cover_later_arrival
+test_legacy_escalated_marker_format_migrates_forward
 test_watcher_rerings_idle_pane_quietly
 test_watcher_waits_on_busy_pane
 test_watcher_quiet_on_healthy_inbox

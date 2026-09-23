@@ -15,9 +15,9 @@
 #   4. Every unsafe case says what is known: pre-restart capability and persist
 #      failures use the nudge path, while a failed relaunch is reported as an
 #      unknown outcome; none is reported as a clean reload.
-#   5. A remote mate restarts by running the SAME local control-plane relaunch on
-#      its host, over the fm-on transport, with the profile resolved from the
-#      PARENT's own pin rather than the remote home's copy of it.
+#   5. A restart preserves the mate's recorded harness, model, and effort unless
+#      the caller explicitly supplies a replacement profile.
+#      A remote mate carries that same per-mate profile over the fm-on transport.
 #   6. End to end with bin/fm-update.sh: a live mate whose home needed no
 #      fast-forward is still named for restart and genuinely restarted, and one
 #      whose runtime cannot prove a restart keeps the honest re-read path with
@@ -126,6 +126,7 @@ case "${1:-}" in
       prev=$a
     done
     if [ "$(cat "$D/command.$target" 2>/dev/null)" = codex ]; then
+      [ ! -s "$D/literal" ] || cat "$D/literal"
       printf '> \n› Ask Codex to do anything\n'
     else
       printf '╭────╮\n│    │\n╰────╯\n'
@@ -442,31 +443,47 @@ test_stopped_mate_is_skipped() {
   pass "T4b a captain-stopped mate is skipped, not restarted or nudged"
 }
 
+test_duplicate_argument_is_explicitly_accounted_for() {
+  local dir out rc
+  dir=$(new_case duplicate)
+  add_local_mate "$dir" sm1
+  arm_answer "$dir" sm1
+
+  out=$(run_restart "$dir" sm1 fm-sm1); rc=$?
+
+  expect_code 0 "$rc" "a duplicate spelling should be an explicit skip, not a second restart"$'\n'"$out"
+  [ "$(printf '%s\n' "$out" | grep -c '^restarted: sm1')" -eq 1 ] \
+    || fail "a duplicate argument restarted the same mate more than once: $out"
+  assert_contains "$out" "skipped: sm1: duplicate argument" \
+    "a duplicate argument disappeared from the per-input accounting"
+  assert_contains "$out" "summary: 1 of 2 restarted, 0 nudged, 0 unreached, 1 skipped" \
+    "the summary denominator did not include every argument handed to the command"
+  pass "T4c duplicate arguments are named and counted without restarting twice"
+}
+
 # --- T5: a refused restart leaves the mate running and says so ---------------
 test_refused_restart_falls_back_without_claiming_a_reload() {
   local dir out rc before
   dir=$(new_case refused)
   add_local_mate "$dir" sm1
   arm_answer "$dir" sm1
-  # muse is a crewmate-only adapter, so the control plane refuses a secondmate
-  # relaunch onto it BEFORE stopping anything.
-  printf 'muse\n' > "$dir/home/config/secondmate-harness"
+  # muse is a crewmate-only adapter, so an explicit per-mate change refuses
+  # before stopping anything.
   before=$(cat "$dir/fake/command")
 
-  out=$(run_restart "$dir" sm1); rc=$?
+  out=$(run_restart "$dir" --harness muse sm1); rc=$?
 
   expect_code 3 "$rc" "a refused restart must not be reported as a reload"$'\n'"$out"
-  assert_contains "$out" "unreached: sm1:" "a failed restart must be reported as unknown"
-  assert_contains "$out" "restart outcome is unknown" "the report must not attribute an ambiguous failure"
-  assert_not_contains "$out" "nudged: sm1" "a failed restart must not claim the old agent was nudged"
+  assert_contains "$out" "nudged: sm1:" "a pre-stop profile refusal must preserve and nudge the old agent"
+  assert_contains "$out" "has no verified restart mechanics" "the refusal must name the unsupported profile"
   assert_not_contains "$out" "restarted: sm1" "a refused restart must not be reported as restarted"
   [ "$(cat "$dir/fake/command")" = "$before" ] \
     || fail "a refusal before the stop should leave the running agent exactly as it was"
   assert_no_grep '^/exit$' "$dir/fake/literal" "a pre-stop refusal must not have stopped the agent"
-  pass "T5 a refused restart leaves the mate running and reports an unknown outcome"
+  pass "T5 a refused explicit profile leaves the mate running and reports the nudge"
 }
 
-# --- T6: a remote mate restarts over the fm-on hop, on the parent's pin -------
+# --- T6: a remote mate restarts over the fm-on hop on its recorded profile ----
 # The seam decodes what fm-on.sh actually put on the wire, so this pins the
 # host-local command and the profile the PARENT resolved, not a local shortcut.
 # The far side also models the live mate: it answers the persist request that
@@ -577,20 +594,25 @@ test_remote_mate_restarts_over_the_transport_hop() {
   dir=$(new_case remote)
   setup_remote_case "$dir" sm2 ok
   export FM_FAKE_ANSWER_STATUS="$dir/home/state/sm2.status"
-  # The parent's own pin is what the replacement must run on; the remote home's
-  # copy of config/secondmate-harness is a different home's file.
-  printf 'codex big-model high\n' > "$dir/home/config/secondmate-harness"
+  sed -e 's/^harness=.*/harness=codex/' \
+      -e 's/^model=.*/model=gpt-5.6-sol/' \
+      -e 's/^effort=.*/effort=high/' \
+      "$dir/home/state/sm2.meta" > "$dir/home/state/sm2.meta.new"
+  mv "$dir/home/state/sm2.meta.new" "$dir/home/state/sm2.meta"
+  # A fleet-wide default for later mates must not flatten this mate's deliberate
+  # per-mate runtime during an instruction restart.
+  printf 'pi xai/grok-4.6 high\n' > "$dir/home/config/secondmate-harness"
 
   out=$(run_restart "$dir" fm-sm2); rc=$?
   unset FM_FAKE_ANSWER_STATUS
 
   expect_code 0 "$rc" "a remote mate should restart over its transport hop"$'\n'"$out"
   assert_contains "$out" "restarted: sm2 on remote-mac (codex)" \
-    "a remote restart should be reported with its host and the parent's pinned runtime"
+    "a remote restart should be reported with its host and recorded runtime"
   relaunch_line=$(grep '^fm-remote-secondmate-control.sh relaunch' "$dir/ssh.log" | head -1)
   [ -n "$relaunch_line" ] || fail "no relaunch crossed the transport hop"$'\n'"$(cat "$dir/ssh.log")"
-  [ "$relaunch_line" = "fm-remote-secondmate-control.sh relaunch sm2 codex big-model high" ] \
-    || fail "the host-local relaunch did not carry the parent's resolved profile: $relaunch_line"
+  [ "$relaunch_line" = "fm-remote-secondmate-control.sh relaunch sm2 codex gpt-5.6-sol high" ] \
+    || fail "the host-local relaunch did not preserve the mate's recorded profile: $relaunch_line"
   # The persist request crossed the SAME hop before the restart did.
   [ "$(grep -n '^fm-remote-secondmate-control.sh send' "$dir/ssh.log" | head -1 | cut -d: -f1)" \
      -lt "$(grep -n '^fm-remote-secondmate-control.sh relaunch' "$dir/ssh.log" | head -1 | cut -d: -f1)" ] \
@@ -693,23 +715,48 @@ test_unreachable_host_is_reported_unknown() {
   pass "T7 an unreachable host is reported honestly instead of claimed as reloaded"
 }
 
-# --- T8: a local restart lands on this home's durable pin, and says which -----
-test_local_restart_uses_the_home_pin_and_reports_what_ran() {
+# --- T8: a local restart preserves the mate's recorded runtime ----------------
+test_local_restart_preserves_the_recorded_profile_and_reports_what_ran() {
   local dir out rc
   dir=$(new_case pin)
-  add_local_mate "$dir" sm1
+  add_local_mate "$dir" sm1 codex
   arm_answer "$dir" sm1
-  printf 'codex\n' > "$dir/home/config/secondmate-harness"
+  sed -e 's/^model=.*/model=gpt-5.6-sol/' \
+      -e 's/^effort=.*/effort=high/' \
+      "$dir/home/state/sm1.meta" > "$dir/home/state/sm1.meta.new"
+  mv "$dir/home/state/sm1.meta.new" "$dir/home/state/sm1.meta"
+  printf 'codex fleet-default low\n' > "$dir/home/config/secondmate-harness"
   printf 'codex' > "$dir/fake/becomes"
 
   out=$(run_restart "$dir" sm1); rc=$?
 
-  expect_code 0 "$rc" "a pinned local restart should succeed"$'\n'"$out"
+  expect_code 0 "$rc" "a recorded local runtime should restart successfully"$'\n'"$out"
   assert_contains "$out" "restarted: sm1 (codex)" \
-    "the restart should land on this home's pin and report the runtime that actually came up"
+    "the restart should report the runtime that actually came up"
   [ "$(grep '^harness=' "$dir/home/state/sm1.meta" | tail -1)" = "harness=codex" ] \
-    || fail "the durable record did not follow the replacement onto the pinned runtime"
-  pass "T8 a local restart re-resolves this home's pin and reports the runtime that came up"
+    || fail "the restart changed the mate's recorded harness"
+  [ "$(grep '^model=' "$dir/home/state/sm1.meta" | tail -1)" = "model=gpt-5.6-sol" ] \
+    || fail "the fleet-wide default flattened the mate's recorded model"
+  [ "$(grep '^effort=' "$dir/home/state/sm1.meta" | tail -1)" = "effort=high" ] \
+    || fail "the fleet-wide default flattened the mate's recorded effort"
+  pass "T8 a local restart preserves and reports the mate's recorded runtime"
+}
+
+test_explicit_restart_profile_changes_one_mate() {
+  local dir out rc
+  dir=$(new_case explicit-profile)
+  add_local_mate "$dir" sm1 codex
+  arm_answer "$dir" sm1
+  printf 'codex fleet-default low\n' > "$dir/home/config/secondmate-harness"
+  printf 'codex' > "$dir/fake/becomes"
+
+  out=$(run_restart "$dir" --harness codex --model gpt-5.6-sol --effort high sm1); rc=$?
+
+  expect_code 0 "$rc" "an explicit per-mate repair profile should restart successfully"$'\n'"$out"
+  assert_grep 'harness=codex' "$dir/home/state/sm1.meta" "the explicit repair changed the harness incorrectly"
+  assert_grep 'model=gpt-5.6-sol' "$dir/home/state/sm1.meta" "the explicit repair model was ignored"
+  assert_grep 'effort=high' "$dir/home/state/sm1.meta" "the explicit repair effort was ignored"
+  pass "T8b an explicit restart profile changes one mate without changing the fleet default"
 }
 
 test_native_ultra_restart_keeps_local_and_remote_profiles() {
@@ -721,7 +768,7 @@ test_native_ultra_restart_keeps_local_and_remote_profiles() {
   printf 'pi' > "$dir/fake/becomes"
   printf '#!/usr/bin/env bash\nprintf "Options: --tui-mode\\n"\n' > "$dir/fakebin/pi"
   chmod +x "$dir/fakebin/pi"
-  out=$(run_restart "$dir" sm1); rc=$?
+  out=$(run_restart "$dir" --harness pi --model codex-native/gpt-6-astra --effort ultra sm1); rc=$?
   expect_code 0 "$rc" "native local restart failed: $out"
   assert_contains "$out" "restarted: sm1 (pi)" "native local restart did not complete"
   assert_contains "$(cat "$dir/home/state/sm1.meta")" "effort=ultra" "local restart dropped native effort"
@@ -731,7 +778,7 @@ test_native_ultra_restart_keeps_local_and_remote_profiles() {
   setup_remote_case "$dir" sm2 ok
   export FM_FAKE_ANSWER_STATUS="$dir/home/state/sm2.status"
   printf 'pi-signed codex-native/gpt-6-astra ultra\n' > "$dir/home/config/secondmate-harness"
-  out=$(run_restart "$dir" sm2); rc=$?
+  out=$(run_restart "$dir" --harness pi-signed --model codex-native/gpt-6-astra --effort ultra sm2); rc=$?
   unset FM_FAKE_ANSWER_STATUS
   expect_code 0 "$rc" "native remote restart failed: $out"
   relaunch_line=$(grep '^fm-remote-secondmate-control.sh relaunch' "$dir/ssh.log" | head -1)
@@ -1001,8 +1048,10 @@ test_answer_between_resolution_and_timeout_wins
 test_unprovable_runtime_falls_back
 test_unknown_mate_is_accounted_for
 test_stopped_mate_is_skipped
+test_duplicate_argument_is_explicitly_accounted_for
 test_refused_restart_falls_back_without_claiming_a_reload
-test_local_restart_uses_the_home_pin_and_reports_what_ran
+test_local_restart_preserves_the_recorded_profile_and_reports_what_ran
+test_explicit_restart_profile_changes_one_mate
 test_native_ultra_restart_keeps_local_and_remote_profiles
 test_remote_mate_restarts_over_the_transport_hop
 test_remote_restart_refuses_when_post_inherit_readiness_fails

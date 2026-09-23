@@ -19,7 +19,8 @@ This skill performs that pull for the running main firstmate and every secondmat
 Pulling the files is only half of it.
 A running agent holds `AGENTS.md` and every skill it has already loaded frozen from the moment it launched, and no verified harness offers a reload, so new bytes on disk change nothing for it until it starts a fresh conversation.
 A re-read cannot substitute: it appends a second copy of the mate's own job description with no defined precedence, and it cannot reach a skill that is already loaded.
-Replacing the agent is also the only thing that re-resolves the launch-time wiring - turn-end hooks, harness flags, per-harness feature switches - which the mate froze when it started and which nothing on disk describes.
+Replacing the agent is also the only thing that reconstructs launch-time wiring - turn-end hooks, harness flags, per-harness feature switches - which the mate froze when it started and which nothing on disk describes.
+The restart preserves each mate's recorded harness, model, and effort rather than flattening deliberate per-mate choices onto the fleet-wide default.
 
 That is why **every live second mate is restarted after a successful update, including one that was already on the target commit.**
 Launch-time wiring is not derivable from a file diff, so an unchanged tracked surface is not evidence the running agent is already on the current behavior.
@@ -64,7 +65,7 @@ This touches only the firstmate repo and its own worktrees, never anything under
    ```
    Include `FM_HOME=<this-firstmate-home>` unless `FM_HOME` is already set to the active firstmate home.
    This is automatic and needs no per-mate confirmation from the captain.
-   Local and remote mates go in the same list; the command owns the transport, the profile each replacement runs on, and the wait.
+   Local and remote mates go in the same list; the command owns the transport, preserves each recorded profile, and owns the wait.
 
    It asks every listed mate first to write down the open work it holds only in its conversation, and restarts one only after that mate's own answer comes back.
    A mate that is mid-turn queues the request behind that turn.

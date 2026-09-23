@@ -21,8 +21,9 @@ Accept it with Enter (option 1, "Yes, continue" is focused) and verify the instr
 The decision persists for the repository, so later worktrees of the same project skip it.
 A firstmate-shaped home that ships `.codex/hooks.json` then shows "Hooks need review" with option 1 "Review hooks" focused.
 Enter there opens the review UI and wedges an unattended worker; Down then Enter selects option 2, "Trust all and continue".
-`bin/fm-spawn.sh` dismisses both dialogs after a Codex secondmate launch and publishes the endpoint only after the pane shows the verified ready prompt `Ask Codex to do anything`.
-A nonempty unready pane such as command-not-found, an empty or unreadable capture, or a failed launch or dialog key, fails closed and cleans the unpublished endpoint.
+`bin/fm-spawn.sh` dismisses both dialogs after a Codex secondmate launch and makes its task visible in the durable home summary only after the pane shows this launch's verified ready prompt `Ask Codex to do anything`.
+A reused endpoint requires this launch's boundary in its pane capture, so an earlier ready prompt cannot pass the check.
+A nonempty unready pane such as command-not-found, an empty or unreadable capture, or a failed launch or dialog key fails closed; a failed fresh launch keeps recovery ownership and summary visibility when endpoint absence cannot be verified.
 `gpt-5.6-sol` is the Codex-plan model on this same `codex` path via `--model gpt-5.6-sol`; it is not a Foundry adapter.
 
 Codex is verified as a secondmate runtime on Herdr: see [`docs/verification/codex-secondmate.md`](../../../../../docs/verification/codex-secondmate.md).

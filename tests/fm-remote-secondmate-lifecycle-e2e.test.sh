@@ -234,6 +234,17 @@ case "${FM_FAKE_SSH_MODE:-normal}:$command_name:$command_rel" in
     printf 'harness=codex\n'
     exit 0
     ;;
+  launch-mismatched-profile:fm-remote-secondmate-control.sh:*)
+    [ "$_command_action" = launch ] || exit 93
+    printf 'schema=fm-remote-secondmate-control.v1\n'
+    printf 'backend=herdr\n'
+    printf 'target=fm-remote:existing-pane\n'
+    printf 'herdr_session=fm-remote\n'
+    printf 'harness=grok\n'
+    printf 'model=xai/grok-4.6\n'
+    printf 'effort=high\n'
+    exit 0
+    ;;
   provision-block-fail:fm-remote-home-provision.sh:*)
     touch "$FM_FAKE_SEED_ENTERED"
     while [ ! -f "$FM_FAKE_SEED_RELEASE" ]; do sleep 0.02; done
@@ -751,6 +762,9 @@ publish_healthy_watcher_identity "$PARENT/state" "$PARENT" "$ROOT/bin/fm-watch.s
 # without the rendered-output fallback a tmux endpoint needs.
 [ "$(remote_env "$ROOT/bin/fm-on.sh" ios fm-remote-secondmate-control.sh observe ios)" = idle ] \
   || fail "remote endpoint delivery observation did not execute on its own host"
+route_out=$(remote_env "$ROOT/bin/fm-on.sh" ios fm-remote-secondmate-control.sh route ios)
+assert_contains "$route_out" 'model=default' "the remote route omitted the runtime model"
+assert_contains "$route_out" 'effort=default' "the remote route omitted the runtime effort"
 pass "remote spawn launches on the remote-local backend and records a host-qualified route"
 
 remote_route_meta="$REMOTE_HOME/state/parent-route/ios.meta"
@@ -814,6 +828,20 @@ assert_grep "remote launch returned Herdr session 'default', expected 'fm-remote
   "parent refusal did not name the default session"
 cmp -s "$TMP_ROOT/parent-ios-before-nonherdr.meta" "$PARENT/state/ios.meta" \
   || fail "parent rewrote its endpoint metadata after a default-session route refusal"
+
+set +e
+FM_FAKE_SSH_MODE=launch-mismatched-profile remote_env "$ROOT/bin/fm-spawn.sh" ios --secondmate \
+  --harness codex --model gpt-5.6-sol --effort high \
+  > "$TMP_ROOT/spawn-mismatched-profile.out" 2>&1
+mismatched_profile_rc=$?
+set -e
+[ "$mismatched_profile_rc" -ne 0 ] || fail "parent accepted a remote route on the wrong explicit profile"
+assert_grep "returned harness 'grok', model 'xai/grok-4.6', effort 'high'; requested harness 'codex', model 'gpt-5.6-sol', effort 'high'" \
+  "$TMP_ROOT/spawn-mismatched-profile.out" \
+  "the profile mismatch hid what the remote launch actually returned"
+assert_grep "fm-secondmate-restart.sh --harness 'codex' --model 'gpt-5.6-sol' --effort 'high' 'ios'" \
+  "$TMP_ROOT/spawn-mismatched-profile.out" \
+  "the preserved route did not name the safe per-mate repair command"
 
 remote_route_meta="$REMOTE_HOME/state/parent-route/ios.meta"
 cp "$remote_route_meta" "$TMP_ROOT/remote-ios-before-legacy.meta"
