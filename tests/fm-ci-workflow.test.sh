@@ -235,6 +235,8 @@ expected = shards.map { |s| "portable-serial-#{s}of#{shards.length}" }
 raise "CI matrix and runner disagree" unless actual.sort == expected.sort
 lint = jobs.fetch("lint").fetch("strategy")
 raise "lint failures must not cancel another partition" unless lint.fetch("fail-fast") == false
+lint_run = jobs.fetch("lint").fetch("steps").find { |step| step["name"] == "Lint canonical partition" }.fetch("run")
+raise "CI lint must serialize source-aware ShellCheck workers" unless lint_run.include?("FM_LINT_JOBS=1")
 matrix = lint.fetch("matrix")
 raise "unexpected lint dimensions" unless matrix.keys == ["partition"]
 parts = matrix.fetch("partition")
