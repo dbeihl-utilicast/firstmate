@@ -25,6 +25,12 @@ OLD_HEAD_2=4dc2291e6969de1bf204fbdb53c9e57a8353d4e2
 cat > "$FAKEBIN/gh" <<'SH'
 #!/usr/bin/env bash
 set -o pipefail
+if [ "${1:-} ${2:-} ${3:-}" = "auth token --user" ]; then
+  [ "${4:-}" = work ] || exit 1
+  printf 'tok-work\n'
+  exit 0
+fi
+[ -z "${FM_TEST_TOKEN_LOG-}" ] || printf '%s\n' "${GH_TOKEN-}" >> "$FM_TEST_TOKEN_LOG"
 head=c2eac54c17a1ddc2633ad51b83e21e5fe888142e
 serve() {
   case "$*" in
@@ -250,6 +256,20 @@ test_unknown_mergeability_is_a_blocker() {
   pass "unknown and conflicting mergeability block readiness"
 }
 
+test_reads_use_the_login_mapped_to_the_url_owner() {
+  local home="$TMP_ROOT/owner-home" log="$TMP_ROOT/owner-tokens" tokens
+  mkdir -p "$home/config"
+  printf 'o work\n' > "$home/config/gh-accounts"
+  : > "$log"
+  env -u GH_TOKEN FM_HOME="$home" FM_TEST_TOKEN_LOG="$log" FM_TEST_VIEW_REVIEW_DECISION=CHANGES_REQUESTED \
+    PATH="$FAKEBIN:$PATH" "$SCRIPT" https://github.com/o/r/pull/7 >/dev/null \
+    || fail "owner-mapped read was refused"
+  tokens=$(sort -u "$log")
+  [ "$tokens" = tok-work ] && [ "$(wc -l < "$log")" -eq 3 ] \
+    || fail "every GitHub read must use the token of the login mapped to the URL owner: $(cat "$log")"
+  pass "every GitHub read uses the login mapped to the URL owner"
+}
+
 test_refusals_exit_nonzero() {
   local status=0
   PATH="$FAKEBIN:$PATH" "$SCRIPT" >/dev/null 2>&1 || status=$?
@@ -284,3 +304,4 @@ test_no_reported_checks_is_unverified
 test_help_states_what_silence_means_and_what_is_out_of_scope
 test_unknown_mergeability_is_a_blocker
 test_refusals_exit_nonzero
+test_reads_use_the_login_mapped_to_the_url_owner

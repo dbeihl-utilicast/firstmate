@@ -17,6 +17,12 @@ command -v jq >/dev/null 2>&1 \
 cat > "$FAKEBIN/gh" <<'SH'
 #!/usr/bin/env bash
 set -o pipefail
+if [ "${1:-} ${2:-} ${3:-}" = "auth token --user" ]; then
+  [ "${4:-}" = work ] || exit 1
+  printf 'tok-work\n'
+  exit 0
+fi
+[ -z "${FM_TEST_TOKEN_LOG-}" ] || printf '%s\n' "${GH_TOKEN-}" >> "$FM_TEST_TOKEN_LOG"
 serve() {
   case "$*" in
     "api /repos/o/r/pulls/7 --jq "*)
@@ -92,6 +98,20 @@ test_only_author_evidence_says_no_candidates() {
   pass "author-only evidence produces no candidate and says why"
 }
 
+test_reads_use_the_login_mapped_to_the_url_owner() {
+  local home="$TMP_ROOT/owner-home" log="$TMP_ROOT/owner-tokens" tokens
+  mkdir -p "$home/config"
+  printf 'o work\n' > "$home/config/gh-accounts"
+  : > "$log"
+  env -u GH_TOKEN FM_HOME="$home" FM_TEST_TOKEN_LOG="$log" \
+    PATH="$FAKEBIN:$PATH" "$SCRIPT" https://github.com/o/r/pull/7 >/dev/null \
+    || fail "owner-mapped read was refused"
+  tokens=$(sort -u "$log")
+  [ "$tokens" = tok-work ] && [ "$(wc -l < "$log")" -eq 4 ] \
+    || fail "every GitHub read must use the token of the login mapped to the URL owner: $(cat "$log")"
+  pass "every GitHub read uses the login mapped to the URL owner"
+}
+
 test_refusals_exit_nonzero() {
   local status=0
   PATH="$FAKEBIN:$PATH" "$SCRIPT" >/dev/null 2>&1 || status=$?
@@ -114,3 +134,4 @@ test_refusals_exit_nonzero() {
 test_candidates_use_api_logins_and_unique_commit_counts
 test_only_author_evidence_says_no_candidates
 test_refusals_exit_nonzero
+test_reads_use_the_login_mapped_to_the_url_owner

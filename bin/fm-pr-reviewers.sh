@@ -17,6 +17,8 @@
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
@@ -45,7 +47,7 @@ fi
 PATH_PART=$FM_PR_PATH
 NUMBER=$FM_PR_NUMBER
 ENDPOINT="/repos/$PATH_PART/pulls/$NUMBER"
-CORE=$(gh api "$ENDPOINT" --jq '"author=\(.user.login)", "base=\(.base.sha)"') \
+CORE=$(fm_gh_run "$FM_PR_OWNER" gh api "$ENDPOINT" --jq '"author=\(.user.login)", "base=\(.base.sha)"') \
   || die "could not read $URL"
 AUTHOR=
 BASE=
@@ -60,7 +62,7 @@ EOF
 [ -n "$AUTHOR" ] && [ -n "$BASE" ] \
   || die "GitHub returned incomplete pull-request state for $URL"
 
-FILES=$(gh api "$ENDPOINT/files?per_page=100" --paginate --jq '.[].filename') \
+FILES=$(fm_gh_run "$FM_PR_OWNER" gh api "$ENDPOINT/files?per_page=100" --paginate --jq '.[].filename') \
   || die "could not read changed files for $URL"
 [ -n "$FILES" ] || {
   printf 'NO CANDIDATES: pull request changes no files\n'
@@ -72,7 +74,7 @@ EVIDENCE=$(mktemp "${TMPDIR:-/tmp}/fm-pr-reviewers.XXXXXX") \
 trap 'rm -f "$EVIDENCE"' EXIT INT TERM
 
 while IFS= read -r file; do
-  ROWS=$(gh api --method GET "/repos/$PATH_PART/commits" \
+  ROWS=$(fm_gh_run "$FM_PR_OWNER" gh api --method GET "/repos/$PATH_PART/commits" \
     -f sha="$BASE" \
     -f path="$file" \
     -F per_page=100 \
