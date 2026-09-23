@@ -1,0 +1,35 @@
+sandbox: /private/tmp/fm-claudeimp.a68w
+== 1. pool root for home (CLAUDE.md = @AGENTS.md at /private/tmp/fm-claudeimp.a68w/home)
+/private/tmp/fm-claudeimp.a68w/user/.firstmate-pools/home-f85caa53d92d
+== 2. fm_treehouse get (real treehouse v2.3.0)
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/.firstmate-pools/home-f85caa53d92d/.treehouse/demo-03d458/1/demo. Run 'treehouse return ~/.firstmate-pools/home-f85caa53d92d/.treehouse/demo-03d458/1/demo' to release it.
+leased: /private/tmp/fm-claudeimp.a68w/user/.firstmate-pools/home-f85caa53d92d/.treehouse/demo-03d458/1/demo
+spawn-typed command: treehouse get --root '/private/tmp/fm-claudeimp.a68w/user/.firstmate-pools/home-f85caa53d92d'
+SLOT=/private/tmp/fm-claudeimp.a68w/user/.firstmate-pools/home-f85caa53d92d/.treehouse/demo-03d458/1/demo
+RESULT: PASS slot outside home
+ancestor CLAUDE.md of slot: none
+== 3. second home, same project name: distinct root
+/private/tmp/fm-claudeimp.a68w/user/.firstmate-pools/home2-80907b915388
+== 4. adversarial: HOME inside FM_HOME
+error: Treehouse pool root '/private/tmp/fm-claudeimp.a68w/home/user-home/.firstmate-pools/home-f85caa53d92d' would be inside Firstmate home '/private/tmp/fm-claudeimp.a68w/home', where the home's CLAUDE.md is a parent of every slot
+home_root exit=1
+error: Treehouse pool root '/private/tmp/fm-claudeimp.a68w/home/user-home/.firstmate-pools/home-f85caa53d92d' would be inside Firstmate home '/private/tmp/fm-claudeimp.a68w/home', where the home's CLAUDE.md is a parent of every slot
+get exit=1
+in-home .treehouse after refused get: ls: /private/tmp/fm-claudeimp.a68w/home/.treehouse: No such file or directory
+== 4b. adversarial: FM_HOME unset
+error: FM_HOME is unset; cannot scope the Treehouse pool to this home
+exit=1
+== 5. legacy in-home slot (old --root <home>) still returns via fm_treehouse
+🌳 Setting up worktree...
+🌳 Leased worktree at /private/tmp/fm-claudeimp.a68w/home/.treehouse/demo-03d458/1/demo. Run 'treehouse return /private/tmp/fm-claudeimp.a68w/home/.treehouse/demo-03d458/1/demo' to release it.
+/private/tmp/fm-claudeimp.a68w/home/.treehouse/demo-03d458/1/demo
+LEG=/private/tmp/fm-claudeimp.a68w/home/.treehouse/demo-03d458/1/demo
+🌳 Worktree returned to pool.
+legacy return exit=0
+== 6. return new slot
+🌳 Worktree returned to pool.
+return exit=0
+1     available    ~/.firstmate-pools/home-f85caa53d92d/.treehouse/demo-03d458/1/demo
+== cleanup
+removed
