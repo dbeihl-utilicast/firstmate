@@ -580,6 +580,29 @@ test_codex_foundry_luna_pins_the_deployment_and_threads_effort() {
   pass "codex-foundry-luna pins base_url/wire_api/model to gpt-5.6-luna and still threads effort"
 }
 
+# The Foundry lane keeps max in metadata but never sends it to the gateway,
+# which has not been verified to accept it, while still launching codex with
+# its hook layer disabled like a plain codex crewmate.
+test_codex_foundry_luna_omits_max_and_disables_hooks() {
+  local rec id out status launch
+  id=profile-foundry-luna-max-z9
+  rec=$(make_spawn_case profile-foundry-luna-max codex-foundry-luna "$id")
+  read_case_record "$rec"
+
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --effort max)
+  status=$?
+  expect_code 0 "$status" "codex-foundry-luna spawn with max effort should succeed"$'\n'"$out"
+  assert_meta_profile "$HOME_DIR/state/$id.meta" codex-foundry-luna default max
+  launch=$(cat "$LAUNCH_LOG")
+  assert_not_contains "$launch" 'model_reasoning_effort="max"' \
+    "codex-foundry-luna must not send max effort to the unverified gateway"
+  assert_contains "$launch" "--disable hooks" \
+    "codex-foundry-luna launch must disable codex's hook layer like a plain codex crewmate"
+  assert_contains "$launch" "notify=" \
+    "codex-foundry-luna launch lost the turn-end notify program"
+  pass "codex-foundry-luna records max but omits it at launch, and disables the hook layer"
+}
+
 test_codex_foundry_luna_leaves_the_gateway_port_for_the_gateway_to_resolve() {
   local rec id out status launch
   id=profile-foundry-luna-port-z8
@@ -1704,6 +1727,7 @@ test_codex_omits_max_effort_for_unsupported_model
 test_codex_crewmate_launch_disables_the_hook_layer
 test_codex_secondmate_launch_keeps_the_hook_layer
 test_codex_foundry_luna_pins_the_deployment_and_threads_effort
+test_codex_foundry_luna_omits_max_and_disables_hooks
 test_codex_foundry_luna_leaves_the_gateway_port_for_the_gateway_to_resolve
 test_codex_foundry_luna_keeps_the_gateway_secret_off_the_launch_command
 test_codex_foundry_luna_refuses_a_different_deployment_name
