@@ -357,11 +357,11 @@ RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg non
   (if $choice != "default" and $rule == null then {invalid: "rule \($choice) is not in the rules file"}
    elif $rule == null then {source: "default", use: profiles($cfg.default // null), note: "no rule matched"}
    elif ($rule.approval // "") == "captain" then {source: $choice, escalate: "rule requires the captain'"'"'s explicit approval before dispatch"}
+   elif ($rule.match.task_shape != null) or ($rule | has("independence")) or (($rule.reasoning.mode // "generic") != "generic")
+     then {source: $choice, escalate: "rule \($choice) declares task_shape, independence, or fixed reasoning policy this resolver does not evaluate"}
    elif $rule_floor_state == "unknown" then {source: $choice, escalate: "rule \($choice) floor \($rule.floor.provider)/\($rule.floor.scope) is unverifiable"}
    elif $rule_floor_state == "below"
      then {source: "default", use: profiles($cfg.default // null), note: "rule \($choice) floor \($rule.floor.scope) below \($rule.floor.min_percent)%: fall through to default"}
-   elif ($rule.match.task_shape != null) or ($rule | has("independence")) or (($rule.reasoning.mode // "generic") != "generic")
-     then {source: $choice, escalate: "rule \($choice) declares task_shape, independence, or fixed reasoning policy this resolver does not evaluate"}
    else {source: $choice, use: profiles($rule.use), note: "rule matched"} end) as $sel |
   {
     model: $r.model, latency_ms: $lat, tokens: ($r.usage // null),

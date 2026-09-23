@@ -414,13 +414,27 @@ cp "$BASE_RULES" "$RULES"
 pass "escalate: a rule with exclude_author_harness never yields a clear profile"
 
 # --- rule floor fails: fall through to default -------------------------------
+# Rule 1's own top-tier profile carries a task_shape, which escalates before
+# any floor is read, so the floor cases use an ordinary-model copy of it.
 reset_log
+FLOOR_RULES="$TMP_ROOT/floor-rules.json"
+jq '.rules[0] |= (del(.match) | .use = [{id: "p1", harness: "claude", model: "opus", model_class: "ordinary"}])' \
+  "$BASE_RULES" > "$FLOOR_RULES"
+cp "$FLOOR_RULES" "$RULES"
 write_response "$RESPONSE" rule_1 0.97
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
 assert_contains "$out" '  status: clear' "rule floor fall-through still resolves"
 assert_contains "$out" '  note: rule rule_1 floor model:fable below 20%: fall through to default' "rule floor fall-through is explained"
 assert_contains "$out" "  profile: --harness 'cursor' --model 'cursor-grok-4.6-high'" "fall-through resolves among the default profiles"
-assert_not_contains "$out" 'candidate: claude:fable' "the floored rule's own profile is not a candidate"
+assert_not_contains "$out" 'candidate: claude:opus  provider=claude  scope=model' "the floored rule's own profile is not a candidate"
+
+jq '.rules[0].independence = {"exclude_author_harness": true, "minimum_distinct_harnesses": 1, "explicit_task_instruction_may_raise_minimum": false}' \
+  "$FLOOR_RULES" > "$RULES"
+TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
+assert_contains "$out" '  status: escalate' "independence escalates even when the rule floor reads below"
+assert_contains "$out" 'declares task_shape, independence, or fixed reasoning policy this resolver does not evaluate' "a below-floor independence rule names the unevaluated policy"
+assert_not_contains "$out" '  profile:' "a below-floor independence rule never falls through to a default profile"
+cp "$FLOOR_RULES" "$RULES"
 
 MISSING_RULE_FLOOR="$TMP_ROOT/missing-rule-floor.json"
 jq '(.providers[] | select(.provider == "claude") | .quotaSemantics.effectiveAvailability) |= map(select(.scope != "model:fable"))' "$QUOTA" > "$MISSING_RULE_FLOOR"
@@ -428,6 +442,7 @@ TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$MISSING_RULE_FLOOR" run code out err "
 assert_contains "$out" '  status: escalate' "an unverifiable rule floor escalates"
 assert_contains "$out" '  reason: rule rule_1 floor claude/model:fable is unverifiable' "the unverifiable rule floor names its provider and scope"
 assert_not_contains "$out" '  profile:' "an unverifiable rule floor never authorizes default routing"
+cp "$BASE_RULES" "$RULES"
 pass "rule floor: known shortfall falls through while unavailable evidence escalates"
 
 # --- declared provider and profile floor --------------------------------------
