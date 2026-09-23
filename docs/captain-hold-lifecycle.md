@@ -117,7 +117,7 @@ A subject whose state cannot be established is kept, because a wrongly shown car
 The validator's reservation scope must equal the adapter's reconcile-classification scope, which is all card types because the captured payload carries no card type.
 The board payload contract in [`bin/fm-bearings-board.sh`](../bin/fm-bearings-board.sh) presents a second-mate captain-held task as `<secondmate>/<task>`.
 Owner-aware routing for remote-secondmate decision cards is tracked separately: that follow-up must query landedness and route the captain's answer and reconciliation in the authoritative secondmate home while honoring the remote and local consistency principle.
-Until then, an absent main-home task passes through this hygiene check unchanged, and the board renders that card with the same options, recommendation, and Queue-answer control as a local decision, labeled with the owning lane: `bin/fm-captain-hold.sh command_answers` still refuses any key containing `/`, so queuing an answer from that control is accepted by the board but refused when the answer is processed.
+Until then, an absent main-home task passes through this hygiene check unchanged, and the board itself solicits neither an answer nor a Reconcile selection for it: the card carries a visible note that its home is not yet routable instead of a Queue-answer control that could only vanish or be refused once submitted.
 For a main-home call, the reconcile option is the recovery path for whatever still slips through.
 
 ## Structured read surfaces
