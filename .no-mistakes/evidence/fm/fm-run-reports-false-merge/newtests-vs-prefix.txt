@@ -1,0 +1,1 @@
+not ok - passed run reports merged only after the forge supplies a merge commit (missing: 'run finished: PR merged at 0123456789abcdef0123456789abcdef01234567')

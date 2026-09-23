@@ -1,0 +1,6 @@
+OPEN PR #87 (real forge)                                   => state: done · source: run-step · run passed: PR open 
+MERGED PR #86 w/ merge commit (real forge)                 => state: done · source: run-step · run passed: PR merged 
+CLOSED-unmerged PR #75 (real forge)                        => state: done · source: run-step · run passed: PR closed 
+MERGED PR #86, FM_CREW_STATE_NO_FORGE=1                    => state: done · source: run-step · run passed: PR state unknown (forge read skipped) 
+nonexistent PR #999999 (unreadable forge)                  => state: done · source: run-step · run passed: PR state unknown (unreadable) 
+no PR identity                                             => state: done · source: run-step · run passed: PR state unknown (no PR identity) 
