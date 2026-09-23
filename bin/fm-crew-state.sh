@@ -14,11 +14,10 @@
 # The determinism lives entirely here - run-step / pane / log reads, fixed
 # mapping logic, and terminal passed-run PR detail from bounded evidence only,
 # with no heuristics and no LLM.
-# For a terminal passed no-mistakes run, a matching merge-poll retirement
-# receipt is local merged evidence; otherwise a 5s-bounded forge read is tried.
-# FM_CREW_STATE_NO_FORGE=1 keeps the receipt read but skips the forge fallback.
-# An absent or unreadable PR identity yields an honest unknown, never an
-# optimistic merged claim.
+# For a terminal passed no-mistakes run, a 5s-bounded forge read is tried.
+# Merge wording requires both merged forge state and an identifiable merge
+# commit. Every other result says only that the validation run finished.
+# FM_CREW_STATE_NO_FORGE=1 skips the forge read.
 # Output is one stable, parseable, token-tight line firstmate can read every
 # heartbeat:
 #
@@ -371,43 +370,49 @@ EOF
 }
 
 pr_read_record_bounded() {  # <owner> <repo> <number>
-  local record state merged
+  local record state merged merge_commit
   # shellcheck disable=SC2016  # The inner script expands after bash -c receives positional args.
   if ! record=$(FM_HOME="$FM_HOME" fm_run_timed 5 bash -c '
     . "$1"
     fm_pr_github_read_record "$2" "$3" "$4" || exit 1
-    printf "state=%s\nmerged=%s\n" "$FM_PR_RECORD_STATE" "$FM_PR_RECORD_MERGED"
+    printf "state=%s\nmerged=%s\nmerge_commit=%s\n" \
+      "$FM_PR_RECORD_STATE" "$FM_PR_RECORD_MERGED" "$FM_PR_RECORD_MERGE_COMMIT"
   ' _ "$SCRIPT_DIR/fm-pr-lib.sh" "$1" "$2" "$3" 2>/dev/null); then
     return 1
   fi
   state=$(printf '%s\n' "$record" | sed -n 's/^state=//p' | head -1)
   merged=$(printf '%s\n' "$record" | sed -n 's/^merged=//p' | head -1)
+  merge_commit=$(printf '%s\n' "$record" | sed -n 's/^merge_commit=//p' | head -1)
   [ -n "$state" ] || return 1
   [ "$merged" = true ] || [ "$merged" = false ] || return 1
   FM_PR_RECORD_STATE=$state
   FM_PR_RECORD_MERGED=$merged
+  FM_PR_RECORD_MERGE_COMMIT=$merge_commit
 }
 
 mr_read_record_bounded() {  # <host> <path> <number>
-  local record state merged
+  local record state merged merge_commit
   # shellcheck disable=SC2016  # The inner script expands after bash -c receives positional args.
   if ! record=$(fm_run_timed 5 bash -c '
     . "$1"
     fm_pr_gitlab_read_record "$2" "$3" "$4" || exit 1
-    printf "state=%s\nmerged=%s\n" "$FM_PR_RECORD_STATE" "$FM_PR_RECORD_MERGED"
+    printf "state=%s\nmerged=%s\nmerge_commit=%s\n" \
+      "$FM_PR_RECORD_STATE" "$FM_PR_RECORD_MERGED" "$FM_PR_RECORD_MERGE_COMMIT"
   ' _ "$SCRIPT_DIR/fm-pr-lib.sh" "$1" "$2" "$3" 2>/dev/null); then
     return 1
   fi
   state=$(printf '%s\n' "$record" | sed -n 's/^state=//p' | head -1)
   merged=$(printf '%s\n' "$record" | sed -n 's/^merged=//p' | head -1)
+  merge_commit=$(printf '%s\n' "$record" | sed -n 's/^merge_commit=//p' | head -1)
   [ -n "$state" ] || return 1
   [ "$merged" = true ] || [ "$merged" = false ] || return 1
   FM_PR_RECORD_STATE=$state
   FM_PR_RECORD_MERGED=$merged
+  FM_PR_RECORD_MERGE_COMMIT=$merge_commit
 }
 
 passed_pr_detail() {
-  local provider url host path number owner repo raw_pr state_lc
+  local provider url host path number owner repo raw_pr
   raw_pr=$(strip_quotes "$(nm_field pr)")
   if fm_pr_url_parse "$raw_pr"; then
     provider=$FM_PR_PROVIDER
@@ -422,20 +427,11 @@ passed_pr_detail() {
     path=$FM_PR_META_PATH
     number=$FM_PR_META_NUMBER
   else
-    printf 'run passed: PR state unknown (no PR identity)'
-    return
-  fi
-  if fm_pr_poll_retirement_receipt_valid "$STATE" "$ID" \
-    && [ "$FM_PR_RETIRE_PROVIDER" = "$provider" ] \
-    && [ "$FM_PR_RETIRE_URL" = "$url" ] \
-    && [ "$FM_PR_RETIRE_HOST" = "$host" ] \
-    && [ "$FM_PR_RETIRE_PATH" = "$path" ] \
-    && [ "$FM_PR_RETIRE_NUMBER" = "$number" ]; then
-    printf 'run passed: PR merged'
+    printf 'run finished'
     return
   fi
   if [ "${FM_CREW_STATE_NO_FORGE:-0}" = 1 ]; then
-    printf 'run passed: PR state unknown (forge read skipped)'
+    printf 'run finished'
     return
   fi
 
@@ -444,38 +440,30 @@ passed_pr_detail() {
       owner=${path%%/*}
       repo=${path#*/}
       if ! pr_read_record_bounded "$owner" "$repo" "$number"; then
-        printf 'run passed: PR state unknown (unreadable)'
+        printf 'run finished'
         return
       fi
-      if [ "$FM_PR_RECORD_MERGED" = true ]; then
-        printf 'run passed: PR merged'
+      if [ "$FM_PR_RECORD_MERGED" = true ] \
+        && fm_pr_head_valid "$FM_PR_RECORD_MERGE_COMMIT"; then
+        printf 'run finished: PR merged at %s' "$FM_PR_RECORD_MERGE_COMMIT"
         return
       fi
-      state_lc=$(printf '%s' "$FM_PR_RECORD_STATE" | tr '[:upper:]' '[:lower:]')
-      case "$state_lc" in
-        open)   printf 'run passed: PR open' ;;
-        closed) printf 'run passed: PR closed' ;;
-        *)      printf 'run passed: PR state %s' "$state_lc" ;;
-      esac
+      printf 'run finished'
       ;;
     gitlab)
       if ! mr_read_record_bounded "$host" "$path" "$number"; then
-        printf 'run passed: PR state unknown (unreadable)'
+        printf 'run finished'
         return
       fi
-      if [ "$FM_PR_RECORD_MERGED" = true ]; then
-        printf 'run passed: PR merged'
+      if [ "$FM_PR_RECORD_MERGED" = true ] \
+        && fm_pr_head_valid "$FM_PR_RECORD_MERGE_COMMIT"; then
+        printf 'run finished: PR merged at %s' "$FM_PR_RECORD_MERGE_COMMIT"
         return
       fi
-      state_lc=$(printf '%s' "$FM_PR_RECORD_STATE" | tr '[:upper:]' '[:lower:]')
-      case "$state_lc" in
-        open|opened) printf 'run passed: PR open' ;;
-        closed)      printf 'run passed: PR closed' ;;
-        *)           printf 'run passed: PR state %s' "$state_lc" ;;
-      esac
+      printf 'run finished'
       ;;
     *)
-      printf 'run passed: PR state unknown (unreadable: %s)' "$url"
+      printf 'run finished'
       ;;
   esac
 }

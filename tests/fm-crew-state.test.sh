@@ -153,10 +153,12 @@ case "${1:-} ${2:-}" in
     case "$number" in *[!0-9]*|'') number=1 ;; esac
     state=${FM_FAKE_PR_STATE:-MERGED}
     merged=${FM_FAKE_PR_MERGED:-true}
+    merge_commit=${FM_FAKE_PR_MERGE_COMMIT-0123456789abcdef0123456789abcdef01234567}
     eval "state=\${FM_FAKE_PR_${number}_STATE:-\$state}"
     eval "merged=\${FM_FAKE_PR_${number}_MERGED:-\$merged}"
-    [ "${FM_FAKE_PR_READ_FAIL:-0}" = 1 ] && exit 1
-    printf 'state=%s\nmerged=%s\n' "$state" "$merged"
+    eval "merge_commit=\${FM_FAKE_PR_${number}_MERGE_COMMIT-\$merge_commit}"
+    [ "${FM_FAKE_GH_READ_FAIL:-${FM_FAKE_PR_READ_FAIL:-0}}" = 1 ] && exit 1
+    printf 'state=%s\nmerged=%s\nmerge_commit=%s\n' "$state" "$merged" "$merge_commit"
     exit 0 ;;
 esac
 exit 1
@@ -168,7 +170,8 @@ case "${1:-} ${2:-}" in
   "pr view")
     [ -z "${FM_FAKE_PR_READ_LOG:-}" ] || printf 'gh-axi\n' >> "$FM_FAKE_PR_READ_LOG"
     [ "${FM_FAKE_PR_READ_FAIL:-0}" = 1 ] && exit 1
-    printf 'pull_request:\n  number: %s\n  state: %s\n' "${3:-1}" "${FM_FAKE_PR_STATE_AXI:-merged}"
+    printf 'pull_request:\n  number: %s\n  state: %s\n  mergeable: %s\n' \
+      "${3:-1}" "${FM_FAKE_PR_STATE_AXI:-merged}" "${FM_FAKE_PR_MERGEABLE_AXI:-unknown}"
     exit 0 ;;
 esac
 exit 1
@@ -180,7 +183,9 @@ case "${1:-} ${2:-}" in
   "mr view")
     [ -z "${FM_FAKE_GLAB_READ_LOG:-}" ] || printf '%s|%s\n' "${GITLAB_HOST:-}" "$*" >> "$FM_FAKE_GLAB_READ_LOG"
     [ "${FM_FAKE_GLAB_READ_FAIL:-0}" = 1 ] && exit 1
-    printf '{"state":"%s"}\n' "${FM_FAKE_GLAB_STATE:-merged}"
+    printf '{"state":"%s","merge_commit_sha":"%s"}\n' \
+      "${FM_FAKE_GLAB_STATE:-merged}" \
+      "${FM_FAKE_GLAB_MERGE_COMMIT-0123456789abcdef0123456789abcdef01234567}"
     exit 0 ;;
 esac
 exit 1
@@ -331,20 +336,26 @@ reset_fakes() {
   FM_FAKE_DAEMON_PROBE_LOG=
   FM_FAKE_PR_STATE=MERGED
   FM_FAKE_PR_MERGED=true
+  FM_FAKE_PR_MERGE_COMMIT=0123456789abcdef0123456789abcdef01234567
+  FM_FAKE_GH_READ_FAIL=0
   FM_FAKE_PR_READ_FAIL=0
   FM_FAKE_PR_READ_LOG=
   FM_FAKE_PR_STATE_AXI=merged
+  FM_FAKE_PR_MERGEABLE_AXI=unknown
   FM_FAKE_GLAB_STATE=merged
+  FM_FAKE_GLAB_MERGE_COMMIT=0123456789abcdef0123456789abcdef01234567
   FM_FAKE_GLAB_READ_FAIL=0
   FM_FAKE_GLAB_READ_LOG=
-  unset FM_FAKE_PR_47_STATE FM_FAKE_PR_47_MERGED FM_FAKE_PR_48_STATE FM_FAKE_PR_48_MERGED
+  unset FM_FAKE_PR_47_STATE FM_FAKE_PR_47_MERGED FM_FAKE_PR_47_MERGE_COMMIT
+  unset FM_FAKE_PR_48_STATE FM_FAKE_PR_48_MERGED FM_FAKE_PR_48_MERGE_COMMIT
   export FM_FAKE_AXI_STATUS FM_FAKE_AXI_STATUS_RUN FM_FAKE_RUNS_LIST FM_FAKE_BUSY FM_FAKE_BUSY_TEXT FM_FAKE_TMUX_MISSING FM_FAKE_TMUX_UNREADABLE
   export FM_FAKE_HERDR_BUSY FM_FAKE_HERDR_MISSING FM_FAKE_HERDR_READ_FAIL FM_FAKE_HERDR_HUSK FM_FAKE_HERDR_AGENT_STATUS FM_FAKE_HERDR_PROCESS FM_FAKE_HERDR_SHELL_PID FM_FAKE_CI_LOGS
   export FM_FAKE_DAEMON_DOWN FM_FAKE_DAEMON_TIMEOUT FM_FAKE_DAEMON_PROBE_LOG FM_FAKE_AXI_HOME
   export FM_FAKE_AXI_HOME_ERROR FM_FAKE_AXI_STATUS_RUN_ERROR FM_FAKE_AXI_STATUS_ERROR
-  export FM_FAKE_PR_STATE FM_FAKE_PR_MERGED FM_FAKE_PR_READ_FAIL FM_FAKE_PR_READ_LOG FM_FAKE_PR_STATE_AXI
-  export FM_FAKE_GLAB_STATE FM_FAKE_GLAB_READ_FAIL FM_FAKE_GLAB_READ_LOG
-  export FM_FAKE_PR_47_STATE FM_FAKE_PR_47_MERGED FM_FAKE_PR_48_STATE FM_FAKE_PR_48_MERGED
+  export FM_FAKE_PR_STATE FM_FAKE_PR_MERGED FM_FAKE_PR_MERGE_COMMIT FM_FAKE_GH_READ_FAIL FM_FAKE_PR_READ_FAIL FM_FAKE_PR_READ_LOG FM_FAKE_PR_STATE_AXI FM_FAKE_PR_MERGEABLE_AXI
+  export FM_FAKE_GLAB_STATE FM_FAKE_GLAB_MERGE_COMMIT FM_FAKE_GLAB_READ_FAIL FM_FAKE_GLAB_READ_LOG
+  export FM_FAKE_PR_47_STATE FM_FAKE_PR_47_MERGED FM_FAKE_PR_47_MERGE_COMMIT
+  export FM_FAKE_PR_48_STATE FM_FAKE_PR_48_MERGED FM_FAKE_PR_48_MERGE_COMMIT
 }
 
 seed_retired_pr_receipt() {  # <state> <id> <url>
@@ -1484,7 +1495,8 @@ test_terminal_passed() {
   local out; out=$(run_crew_state "$d" feat-d)
   assert_contains "$out" "state: done" "passed run -> done"
   assert_contains "$out" "source: run-step" "passed -> run-step source"
-  assert_contains "$out" "run passed: PR merged" "passed run reports merged only after the PR record says merged"
+  assert_contains "$out" "run finished: PR merged at 0123456789abcdef0123456789abcdef01234567" \
+    "passed run reports merged only after the forge supplies a merge commit"
   assert_not_contains "$out" "merged/closed" "passed merged PR must not keep the old ambiguous label"
   pass "terminal passed run is authoritative"
 }
@@ -1501,7 +1513,8 @@ test_passed_pr_read_uses_owner_login_from_resolved_home() {
   local out; out=$(env -u FM_HOME -u GH_TOKEN FM_ROOT_OVERRIDE="$d" \
     FM_FAKE_GH_TOKEN_LOG="$d/tokens" PATH="$d/fakebin:$PATH" \
     FM_STATE_OVERRIDE="$d/state" "$CREW_STATE" feat-owner)
-  assert_contains "$out" "run passed: PR merged" "the owner-scoped PR read still reports merged"
+  assert_contains "$out" "run finished: PR merged at 0123456789abcdef0123456789abcdef01234567" \
+    "the owner-scoped PR read still reports the proved merge"
   [ "$(cat "$d/tokens" 2>/dev/null)" = tok-work ] \
     || fail "the bounded PR read did not use the login mapped in the resolved FM_HOME: $(cat "$d/tokens" 2>/dev/null)"
   pass "bounded PR read keeps the resolved FM_HOME and uses the owner's mapped login"
@@ -1517,13 +1530,14 @@ test_terminal_passed_with_override() {
   local out; out=$(run_crew_state "$d" feat-override)
   assert_contains "$out" "state: done" "passed-with-override run -> done, not unknown"
   assert_contains "$out" "source: run-step" "passed-with-override -> run-step source"
-  assert_contains "$out" "run passed: PR merged" "passed-with-override run reports merged only after the PR record says merged"
+  assert_contains "$out" "run finished: PR merged at 0123456789abcdef0123456789abcdef01234567" \
+    "passed-with-override reports merged only after the forge supplies a merge commit"
   assert_not_contains "$out" "state: unknown" "passed-with-override must not fall through to unknown"
   assert_not_contains "$out" "outcome: passed-with-override" "passed-with-override must not surface as a raw unmapped outcome detail"
   pass "terminal passed-with-override run reads done like a clean pass"
 }
 
-test_terminal_passed_uses_matching_retirement_receipt_without_forge() {
+test_terminal_passed_receipt_without_forge_only_reports_finished() {
   reset_fakes
   local d url read_log out
   d=$(new_case passed-receipt)
@@ -1536,16 +1550,18 @@ test_terminal_passed_uses_matching_retirement_receipt_without_forge() {
   read_log="$d/pr-read.log"
   : > "$read_log"
   FM_FAKE_PR_READ_LOG=$read_log
+  FM_FAKE_GH_READ_FAIL=1
   FM_FAKE_PR_READ_FAIL=1
   FM_FAKE_AXI_STATUS="$(run_passed_no_pr fm/feat-dreceipt)"
   out=$(run_crew_state "$d" feat-dreceipt)
   assert_contains "$out" "state: done" "passed run with retired PR receipt -> done"
-  assert_contains "$out" "run passed: PR merged" "matching retirement receipt is local merged evidence"
-  [ ! -s "$read_log" ] || fail "matching retirement receipt still attempted a forge read"
-  pass "terminal passed run uses matching retirement receipt without forge"
+  assert_contains "$out" "run finished" "a retirement receipt alone reports only that the run finished"
+  assert_not_contains "$out" "PR merged" "a retirement receipt without forge proof must not report merged"
+  [ -s "$read_log" ] || fail "matching retirement receipt incorrectly skipped the forge read"
+  pass "terminal passed run does not turn a retirement receipt into a merge claim"
 }
 
-test_terminal_passed_no_forge_switch_skips_read_but_keeps_receipt() {
+test_terminal_passed_no_forge_reports_finished_with_or_without_receipt() {
   reset_fakes
   local d url read_log out
   d=$(new_case passed-no-forge-switch)
@@ -1560,15 +1576,16 @@ test_terminal_passed_no_forge_switch_skips_read_but_keeps_receipt() {
   FM_FAKE_AXI_STATUS="$(run_passed_with_pr fm/feat-dnoforge "$url")"
 
   out=$(FM_CREW_STATE_NO_FORGE=1 run_crew_state "$d" feat-dnoforge)
-  assert_contains "$out" "run passed: PR state unknown (forge read skipped)" "no-forge mode reports skipped read"
+  assert_contains "$out" "run finished" "no-forge mode reports only that the run finished"
   assert_not_contains "$out" "PR merged" "no-forge mode without a receipt must not report merged"
   [ ! -s "$read_log" ] || fail "no-forge mode invoked a forge read"
 
   seed_retired_pr_receipt "$d/state" feat-dnoforge "$url"
   out=$(FM_CREW_STATE_NO_FORGE=1 run_crew_state "$d" feat-dnoforge)
-  assert_contains "$out" "run passed: PR merged" "no-forge mode still trusts a matching retirement receipt"
+  assert_contains "$out" "run finished" "no-forge mode still reports only that the run finished with a receipt"
+  assert_not_contains "$out" "PR merged" "no-forge mode must not turn a receipt into a merge claim"
   [ ! -s "$read_log" ] || fail "no-forge mode with a receipt invoked a forge read"
-  pass "terminal passed no-forge mode preserves local receipt evidence"
+  pass "terminal passed no-forge mode never makes an unverified merge claim"
 }
 
 test_terminal_passed_with_open_pr_does_not_claim_merged() {
@@ -1583,10 +1600,50 @@ test_terminal_passed_with_open_pr_does_not_claim_merged() {
   FM_FAKE_AXI_STATUS="$(run_passed fm/feat-dopen)"
   local out; out=$(run_crew_state "$d" feat-dopen)
   assert_contains "$out" "state: done" "passed run with open PR -> done"
-  assert_contains "$out" "run passed: PR open" "open PR state is named"
+  assert_contains "$out" "run finished" "open PR reports only that the run finished"
   assert_not_contains "$out" "merged/closed" "open PR must not get the old merged/closed label"
   assert_not_contains "$out" "PR merged" "open PR must not be reported merged"
   pass "terminal passed run with open PR does not claim merged"
+}
+
+test_terminal_passed_with_open_mergeable_pr_reports_run_finished_only() {
+  reset_fakes
+  local d; d=$(new_case passed-open-mergeable-pr)
+  make_repo_on_branch "$d/wt" fm/feat-dopenmergeable
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-dopenmergeable.meta" "window=fm:fm-feat-dopenmergeable" \
+    "worktree=$d/wt" "kind=ship" "pr=https://github.com/o/r/pull/1"
+  FM_FAKE_GH_READ_FAIL=1
+  FM_FAKE_PR_STATE_AXI=open
+  FM_FAKE_PR_MERGEABLE_AXI=mergeable
+  FM_FAKE_AXI_STATUS="$(run_passed fm/feat-dopenmergeable)"
+  local out; out=$(run_crew_state "$d" feat-dopenmergeable)
+  assert_contains "$out" "state: done" "finished validation run with open mergeable PR -> done"
+  assert_contains "$out" "source: run-step" "finished validation run -> run-step source"
+  assert_contains "$out" "run finished" "open mergeable PR reports only that the run finished"
+  assert_not_contains "$out" "run passed" "open mergeable PR must not be described as passed"
+  assert_not_contains "$out" "PR merged" "open mergeable PR must not be reported merged"
+  assert_not_contains "$out" "PR closed" "open mergeable PR must not be reported closed"
+  pass "terminal run with open mergeable PR reports only that the run finished"
+}
+
+test_terminal_passed_with_merged_pr_without_commit_reports_run_finished_only() {
+  reset_fakes
+  local d; d=$(new_case passed-merged-pr-no-commit)
+  make_repo_on_branch "$d/wt" fm/feat-dmergednocommit
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-dmergednocommit.meta" \
+    "window=fm:fm-feat-dmergednocommit" "worktree=$d/wt" "kind=ship" \
+    "pr=https://github.com/o/r/pull/1"
+  FM_FAKE_PR_STATE=MERGED
+  FM_FAKE_PR_MERGED=true
+  FM_FAKE_PR_MERGE_COMMIT=
+  FM_FAKE_AXI_STATUS="$(run_passed fm/feat-dmergednocommit)"
+  local out; out=$(run_crew_state "$d" feat-dmergednocommit)
+  assert_contains "$out" "state: done" "finished validation run without a merge commit -> done"
+  assert_contains "$out" "run finished" "missing merge commit reports only that the run finished"
+  assert_not_contains "$out" "PR merged" "merged state without a merge commit must not report merged"
+  pass "terminal run requires a merge commit before reporting a merge"
 }
 
 test_terminal_passed_run_pr_overrides_stale_metadata() {
@@ -1603,12 +1660,12 @@ test_terminal_passed_run_pr_overrides_stale_metadata() {
   FM_FAKE_AXI_STATUS="$(run_passed_with_pr fm/feat-dstale https://github.com/o/r/pull/48)"
   local out; out=$(run_crew_state "$d" feat-dstale)
   assert_contains "$out" "state: done" "passed run with stale task metadata -> done"
-  assert_contains "$out" "run passed: PR open" "run PR identity outranks stale task metadata"
+  assert_contains "$out" "run finished" "the open run PR reports only that the run finished"
   assert_not_contains "$out" "PR merged" "stale merged metadata must not report merged"
   pass "terminal passed run PR overrides stale task metadata"
 }
 
-test_terminal_passed_without_readable_pr_identity_reports_unknown() {
+test_terminal_passed_without_pr_identity_reports_run_finished_only() {
   reset_fakes
   local d; d=$(new_case passed-no-pr)
   make_repo_on_branch "$d/wt" fm/feat-dnopr
@@ -1617,10 +1674,10 @@ test_terminal_passed_without_readable_pr_identity_reports_unknown() {
   FM_FAKE_AXI_STATUS="$(run_passed_no_pr fm/feat-dnopr)"
   local out; out=$(run_crew_state "$d" feat-dnopr)
   assert_contains "$out" "state: done" "passed run without PR identity -> done"
-  assert_contains "$out" "run passed: PR state unknown (no PR identity)" "missing PR identity is honest unknown"
+  assert_contains "$out" "run finished" "missing PR identity reports only that the run finished"
   assert_not_contains "$out" "merged/closed" "unknown PR state must not get the old merged/closed label"
   assert_not_contains "$out" "PR merged" "unknown PR state must not be reported merged"
-  pass "terminal passed run without readable PR identity reports unknown"
+  pass "terminal passed run without a PR identity reports only that the run finished"
 }
 
 test_terminal_passed_with_open_gitlab_mr_does_not_claim_merged() {
@@ -1637,11 +1694,11 @@ test_terminal_passed_with_open_gitlab_mr_does_not_claim_merged() {
   FM_FAKE_GLAB_STATE=opened
   FM_FAKE_AXI_STATUS="$(run_passed_with_pr fm/feat-dgitlabopen https://git.example.com/group/subgroup/repo/-/merge_requests/9)"
   out=$(run_crew_state "$d" feat-dgitlabopen)
-  assert_contains "$out" "run passed: PR open" "open GitLab MR state is named"
+  assert_contains "$out" "run finished" "open GitLab MR reports only that the run finished"
   assert_not_contains "$out" "PR merged" "open GitLab MR must not be reported merged"
   assert_grep 'git.example.com|mr view 9 -R https://git.example.com/group/subgroup/repo -F json' "$read_log" \
     "GitLab MR read uses the parsed host and project URL"
-  pass "terminal passed run reads open GitLab MR state"
+  pass "terminal passed run with an open GitLab MR reports only that the run finished"
 }
 
 test_terminal_passed_with_merged_gitlab_mr_reports_merged() {
@@ -1655,11 +1712,12 @@ test_terminal_passed_with_merged_gitlab_mr_reports_merged() {
   FM_FAKE_GLAB_STATE=merged
   FM_FAKE_AXI_STATUS="$(run_passed_with_pr fm/feat-dgitlabmerged https://gitlab.com/group/repo/-/merge_requests/10)"
   out=$(run_crew_state "$d" feat-dgitlabmerged)
-  assert_contains "$out" "run passed: PR merged" "merged GitLab MR is reported merged"
+  assert_contains "$out" "run finished: PR merged at 0123456789abcdef0123456789abcdef01234567" \
+    "merged GitLab MR is reported with its merge commit"
   pass "terminal passed run reads merged GitLab MR state"
 }
 
-test_terminal_passed_with_failed_gitlab_read_reports_unknown() {
+test_terminal_passed_with_failed_gitlab_read_reports_run_finished_only() {
   reset_fakes
   local d out
   d=$(new_case passed-unreadable-gitlab-mr)
@@ -1670,9 +1728,9 @@ test_terminal_passed_with_failed_gitlab_read_reports_unknown() {
   FM_FAKE_GLAB_READ_FAIL=1
   FM_FAKE_AXI_STATUS="$(run_passed_with_pr fm/feat-dgitlabunknown https://gitlab.com/group/repo/-/merge_requests/11)"
   out=$(run_crew_state "$d" feat-dgitlabunknown)
-  assert_contains "$out" "run passed: PR state unknown (unreadable)" "failed GitLab read is honest unknown"
+  assert_contains "$out" "run finished" "failed GitLab read reports only that the run finished"
   assert_not_contains "$out" "PR merged" "failed GitLab read must not be reported merged"
-  pass "terminal passed run handles failed GitLab read"
+  pass "terminal passed run with an unreadable GitLab MR reports only that the run finished"
 }
 
 test_terminal_failed() {
@@ -5319,14 +5377,16 @@ test_top_level_fixing_done_log_stays_working
 test_terminal_passed
 test_passed_pr_read_uses_owner_login_from_resolved_home
 test_terminal_passed_with_override
-test_terminal_passed_uses_matching_retirement_receipt_without_forge
-test_terminal_passed_no_forge_switch_skips_read_but_keeps_receipt
+test_terminal_passed_receipt_without_forge_only_reports_finished
+test_terminal_passed_no_forge_reports_finished_with_or_without_receipt
 test_terminal_passed_with_open_pr_does_not_claim_merged
+test_terminal_passed_with_open_mergeable_pr_reports_run_finished_only
+test_terminal_passed_with_merged_pr_without_commit_reports_run_finished_only
 test_terminal_passed_run_pr_overrides_stale_metadata
-test_terminal_passed_without_readable_pr_identity_reports_unknown
+test_terminal_passed_without_pr_identity_reports_run_finished_only
 test_terminal_passed_with_open_gitlab_mr_does_not_claim_merged
 test_terminal_passed_with_merged_gitlab_mr_reports_merged
-test_terminal_passed_with_failed_gitlab_read_reports_unknown
+test_terminal_passed_with_failed_gitlab_read_reports_run_finished_only
 test_terminal_failed
 test_terminal_failed_ci_orphan_after_green_reads_done
 test_terminal_failed_ci_orphan_draft_pr_says_draft
