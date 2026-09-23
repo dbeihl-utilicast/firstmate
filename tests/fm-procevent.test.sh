@@ -3406,8 +3406,8 @@ FM_PROCEVENT_LAUNCH_FLOOR_SECONDS=3 pe "$HPACE_RACE" start pace-race-src >/dev/n
 FM_PROCEVENT_LAUNCH_FLOOR_SECONDS=3 \
   pe "$HPACE_RACE" start pace-race-src > "$TMP_ROOT/registration-pacing-race.out" 2>&1 &
 PACE_RACE_PID=$!
-wait_for "$FM_PROCEVENT_CLAIM_ROOT/pace-race-src.claim" \
-  || fail "the superseded pacing fixture did not claim its registration"
+wait_for "$HPACE_RACE/state/procevent/pace-race-src.runner" \
+  || fail "the superseded pacing fixture did not reach its launch floor"
 [ "$(wc -l < "$PACE_RACE_LOG" | tr -d ' ')" = 1 ] \
   || fail "the superseded pacing fixture was not waiting on its launch floor"
 pe_register "$HPACE_RACE" lavish pace-race-src -- "$FAST_SOURCE" "$PACE_RACE_LOG" >/dev/null
