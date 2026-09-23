@@ -193,6 +193,10 @@
       "audience": "agent-runtime"
     },
     {
+      "path": ".agents/skills/harness-adapters/references/harness/agy.md",
+      "audience": "agent-runtime"
+    },
+    {
       "path": ".agents/skills/harness-adapters/references/harness/claude.md",
       "audience": "agent-runtime"
     },
@@ -206,10 +210,6 @@
     },
     {
       "path": ".agents/skills/harness-adapters/references/harness/grok.md",
-      "audience": "agent-runtime"
-    },
-    {
-      "path": ".agents/skills/harness-adapters/references/harness/agy.md",
       "audience": "agent-runtime"
     },
     {
@@ -234,6 +234,10 @@
     },
     {
       "path": ".agents/skills/project-management/SKILL.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": ".agents/skills/quiet/SKILL.md",
       "audience": "agent-runtime"
     },
     {
@@ -461,6 +465,10 @@
       "audience": "operator-current"
     },
     {
+      "path": "docs/verification/agy.md",
+      "audience": "maintainer-verification"
+    },
+    {
       "path": "docs/verification/codex-foundry-luna.md",
       "audience": "maintainer-verification"
     },
@@ -473,7 +481,7 @@
       "audience": "maintainer-verification"
     },
     {
-      "path": "docs/verification/agy.md",
+      "path": "docs/verification/dispatch-resolve.md",
       "audience": "maintainer-verification"
     },
     {
@@ -531,6 +539,10 @@
     {
       "path": "skills/stow/SKILL.md",
       "audience": "public-product"
+    },
+    {
+      "path": "tests/captures/no-mistakes-v1.70.1/README.md",
+      "audience": "maintainer-verification"
     }
   ]
 }

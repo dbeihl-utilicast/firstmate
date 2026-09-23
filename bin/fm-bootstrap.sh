@@ -6,6 +6,7 @@
 #          exits 0.
 #          Silent = all good.
 #          Lines: "MISSING: <tool> (install: <command>)",
+#                 "PRESENTATION_UNAVAILABLE: lavish-axi (requires >=<floor>; install: <command>) - nonvisual work may proceed with plain-text decisions and reports; install or upgrade before using Lavish",
 #                 "MISSING_MANUAL: <tool> (instructions: <url>)", "NEEDS_GH_AUTH",
 #                 "BACKEND_INVALID: <name> (known: <names>)",
 #                 "STARTUP_MEMORY_BUDGET: invalid config/startup-memory-budget - <reason>",
@@ -15,6 +16,7 @@
 #                 <stamp>>; <n> failed attempt(s) ... last: <recorded failure>",
 #                 "BACKLOG_RECONCILE: <id>: <what this home could not reconcile>",
 #                 "ORIGIN_PUSH_GUARD: <hook installation skip or failure>",
+#                 "BACKLOG_RECONCILE: code-root <file> is not this home's <file>; ...",
 #                 "TANGLE: <remediation>",
 #                 "SECONDMATE_SYNC: secondmate <id>: skipped: <reason>",
 #                 "NUDGE_SECONDMATES: secondmate <id>: send failed: <reason>",
@@ -60,11 +62,13 @@
 #          1.46.0 (structured pipeline attestation floor; see CONTRIBUTING.md).
 #          The AXI-family floor policy is owned beside GH_AXI_MIN and
 #          LAVISH_AXI_MIN below; the per-tool owners point there. An installed
-#          build below its floor reports MISSING like no-mistakes, so the operator
-#          is asked to upgrade rather than silently running an older tool.
+#          essential build below its floor reports MISSING like no-mistakes.
+#          Missing or incompatible lavish-axi reports PRESENTATION_UNAVAILABLE:
+#          nonvisual dispatch continues with plain-text decisions and reports,
+#          but Lavish use still requires a compatible build at or above its floor.
 #          tasks-axi feature probes remain a separate defense-in-depth check.
-#          tasks-axi and quota-axi are required bootstrap tools (same class as
-#          lavish-axi). A compatible tasks-axi default backend is silent.
+#          tasks-axi and quota-axi are essential bootstrap tools.
+#          A compatible tasks-axi default backend is silent.
 #          quota-axi is required for the agent-owned dispatch-profile array
 #          procedure owned by
 #          .agents/skills/quota-array-dispatch/SKILL.md.
@@ -97,6 +101,9 @@
 #          reads or writes another home; the fleet snapshot's classifier and
 #          bin/fm-secondmate-reconcile.sh's nudge stay as backstops. Replayed
 #          transitions and restored In-flight rows print BOOTSTRAP_INFO facts.
+#          The `code-root <file>` variant is a detect-only local check that runs
+#          even in a read-only session; detect_code_root_backlog_fork owns what
+#          it reports.
 #          Set FM_BOOTSTRAP_DETECT_ONLY=1 to skip the six MUTATING sweeps
 #          (backlog_record_reconcile, secondmate_sync,
 #          secondmate_liveness_sweep, secondmate_handoff_resume, x_mode_setup,
@@ -153,7 +160,14 @@
 #          keeps detect-only meaning unlocked, exactly as before.
 #        fm-bootstrap.sh install <tool>...
 #          Install the named tools (only ones the captain approved).
+#        fm-bootstrap.sh lavish-compatible
+#          Exit 0 when lavish-axi meets LAVISH_AXI_MIN, 1 otherwise, printing
+#          nothing; bin/fm-brief.sh uses it to gate scout Lavish hosting.
 set -u
+
+TYPESAFE_API_KEY_PRIVATE=${TYPESAFE_API_KEY:-}
+export -n TYPESAFE_API_KEY_PRIVATE 2>/dev/null || true
+unset TYPESAFE_API_KEY
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
@@ -168,6 +182,10 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 . "$SCRIPT_DIR/fm-backlog-transition-lib.sh"
 # shellcheck source=bin/fm-quota-axi-lib.sh disable=SC1091
 . "$SCRIPT_DIR/fm-quota-axi-lib.sh"
+# shellcheck source=bin/fm-control-lib.sh disable=SC1091
+. "$SCRIPT_DIR/fm-control-lib.sh"
+# shellcheck source=bin/fm-env-lib.sh disable=SC1091
+. "$SCRIPT_DIR/fm-env-lib.sh"
 # shellcheck source=bin/fm-tangle-lib.sh disable=SC1091
 . "$SCRIPT_DIR/fm-tangle-lib.sh"
 # shellcheck source=bin/fm-ff-lib.sh disable=SC1091
@@ -957,7 +975,7 @@ missing_tool_diagnostic() {
 # fm_backend_required_tools (bin/fm-backend.sh). So a herdr/zellij/cmux home is
 # never told tmux is missing, and only orca drops treehouse. A backend value with
 # no verified dependency set is reported before the universal checks continue.
-COMMON_TOOLS="node git gh no-mistakes gh-axi chrome-devtools-axi lavish-axi tasks-axi quota-axi"
+COMMON_TOOLS="node git gh no-mistakes gh-axi chrome-devtools-axi tasks-axi quota-axi"
 BACKEND=$(fm_backend_name)
 BACKEND_VALID=1
 if ! BACKEND_TOOLS=$(fm_backend_required_tools "$BACKEND"); then
@@ -1172,14 +1190,27 @@ crew_dispatch_validate() {
     echo "CREW_DISPATCH: invalid config/crew-dispatch.json - malformed JSON"
     return 0
   fi
-  err=$(jq -r '
+  err=$(jq -r --arg provider_re "$FM_QUOTA_PROVIDER_ID_RE" '
     def verified($h): ["claude","codex","codex-foundry-luna","pi","pi-signed","grok","cursor","qwen","agy"] | index($h);
+    def provider_id($p): ($p | type) == "string" and ($p | test($provider_re));
+    # A quota floor for bin/fm-dispatch-resolve.sh, on a rule or a profile: it
+    # is applied in code against one quota-axi row, so scope and min_percent
+    # must be concrete; a rule floor also names the provider whose row it reads.
+    def floor_bad($f; $need_provider):
+      ($f | type) != "object"
+      or (($f.scope | type) != "string") or (($f.scope | length) == 0)
+      or (($f.min_percent | type) != "number") or ($f.min_percent < 0) or ($f.min_percent > 100)
+      or (if $need_provider
+          then (provider_id($f.provider) | not)
+          else ($f | has("provider"))
+          end);
     def effort_ok($h; $m; $e):
       if $e == null then true
       elif ($e | type) != "string" then false
       elif $e == "ultra" then (($h == "pi" or $h == "pi-signed") and (($m | type) == "string") and ($m | startswith("codex-native/")) and ($m | length) > 13)
       elif $h == "claude" then (["low","medium","high","xhigh","max"] | index($e))
-      elif $h == "codex" or $h == "codex-foundry-luna" then (["low","medium","high","xhigh"] | index($e))
+      elif $h == "codex" then ((["low","medium","high","xhigh"] | index($e)) != null or ($e == "max" and $m == "gpt-5.6-luna"))
+      elif $h == "codex-foundry-luna" then (["low","medium","high","xhigh"] | index($e))
       elif $h == "grok" or $h == "agy" then (["low","medium","high"] | index($e))
       elif $h == "pi" or $h == "pi-signed" then (["low","medium","high","xhigh","max"] | index($e))
       elif $h == "cursor" then false
@@ -1247,7 +1278,7 @@ crew_dispatch_validate() {
         else v2_fail("unclassified model: " + $selector)
         end;
     def v2_profile($ordinary):
-      v2_fields("profile"; ["id", "harness", "model", "effort", "model_class", "reasoning_target", "reasoning_source", "eligible_when", "preferred_when"]; ["id", "harness", "model", "model_class"])
+      v2_fields("profile"; ["id", "harness", "model", "effort", "model_class", "reasoning_target", "reasoning_source", "eligible_when", "preferred_when", "provider", "floor"]; ["id", "harness", "model", "model_class"])
       | v2_string("profile"; "id")
       | v2_string("profile"; "harness")
       | v2_string("profile"; "model")
@@ -1257,6 +1288,12 @@ crew_dispatch_validate() {
       | if has("reasoning_source") then v2_string("profile"; "reasoning_source") else . end
       | if has("eligible_when") then v2_string("profile"; "eligible_when") else . end
       | if has("preferred_when") then v2_string("profile"; "preferred_when") else . end
+      | if has("provider") and (provider_id(.provider) | not)
+        then v2_fail("profile.provider must match ^[a-z0-9]+(-[a-z0-9]+)*\\z")
+        else . end
+      | if has("floor") and floor_bad(.floor; false)
+        then v2_fail("profile.floor needs scope and min_percent 0..100, and no provider")
+        else . end
       | . as $profile
       | if (verified($profile.harness) | not) then v2_fail("unverified harness: " + $profile.harness)
         elif $profile.model_class != ($profile.model | v2_model_class($ordinary))
@@ -1374,9 +1411,13 @@ crew_dispatch_validate() {
         else $dispatch
         end;
     def v2_rule($constraints; $ordinary):
-      v2_fields("rule"; ["id", "when", "match", "independence", "reasoning", "use", "decision_refs"]; ["id", "when", "reasoning", "use"])
+      v2_fields("rule"; ["id", "when", "match", "independence", "reasoning", "use", "decision_refs", "approval", "floor"]; ["id", "when", "reasoning", "use"])
       | v2_string("rule"; "id")
       | v2_string("rule"; "when")
+      | if has("approval") and .approval != "captain" then v2_fail("rule.approval must be captain when present") else . end
+      | if has("floor") and floor_bad(.floor; true)
+        then v2_fail("rule.floor needs scope, min_percent 0..100, and provider matching ^[a-z0-9]+(-[a-z0-9]+)*\\z")
+        else . end
       | . as $rule
       | (if ($rule | has("match")) then ($rule.match | v2_match) else null end) as $match
       | ($rule.reasoning | v2_reasoning) as $reasoning
@@ -1596,6 +1637,11 @@ startup_memory_budget_setup() {
   fi
 }
 
+if [ "${1:-}" = "lavish-compatible" ]; then
+  tool_version_at_least lavish-axi "$LAVISH_AXI_MIN"
+  exit
+fi
+
 if [ "${1:-}" = "install" ]; then
   shift
   [ $# -gt 0 ] || { echo "usage: fm-bootstrap.sh install <tool>..." >&2; exit 1; }
@@ -1692,8 +1738,8 @@ detect_local_tools() {
   if command -v gh-axi >/dev/null 2>&1 && ! tool_version_at_least gh-axi "$GH_AXI_MIN"; then
     echo "MISSING: gh-axi (install: $(install_cmd gh-axi))"
   fi
-  if command -v lavish-axi >/dev/null 2>&1 && ! tool_version_at_least lavish-axi "$LAVISH_AXI_MIN"; then
-    echo "MISSING: lavish-axi (install: $(install_cmd lavish-axi))"
+  if ! tool_version_at_least lavish-axi "$LAVISH_AXI_MIN"; then
+    echo "PRESENTATION_UNAVAILABLE: lavish-axi (requires >=$LAVISH_AXI_MIN; install: $(install_cmd lavish-axi)) - nonvisual work may proceed with plain-text decisions and reports; install or upgrade before using Lavish"
   fi
   if command -v quota-axi >/dev/null 2>&1 && ! fm_quota_axi_compatible; then
     echo "MISSING: quota-axi (install: $(install_cmd quota-axi))"
@@ -1734,7 +1780,25 @@ detect_local_config() {
     && ! fm_backlog_backend_manual "$CONFIG" && fm_tasks_axi_compatible; then
     echo "BOOTSTRAP_INFO: tasks-axi available"
   fi
+  detect_code_root_backlog_fork
   detect_home_summary_publication
+}
+
+# Shadow-backlog check. When this home's data directory is not the code root's,
+# a code-root data/backlog.md or data/done-archive.md that is not this home's
+# own file is a queue a cwd-relative tasks-axi write has already forked; a link
+# into the home does not survive such a write (docs/configuration.md "Backlog
+# backend" owns why). Detect-only: neither copy is a safe winner, so nothing is
+# merged here.
+detect_code_root_backlog_fork() {
+  local name root_copy
+  [ "$FM_ROOT/data" -ef "$DATA" ] && return 0
+  for name in backlog.md done-archive.md; do
+    root_copy="$FM_ROOT/data/$name"
+    [ -e "$root_copy" ] || [ -L "$root_copy" ] || continue
+    [ "$root_copy" -ef "$DATA/$name" ] && continue
+    echo "BACKLOG_RECONCILE: code-root $root_copy is not this home's $DATA/$name; tasks-axi wrote the code root instead of this home, so rows in it may be missing here - merge it into this home's copy and move it aside"
+  done
 }
 
 # This home's ledger publication is deliberately best-effort: every lifecycle
@@ -1860,6 +1924,13 @@ if [ "${FM_BOOTSTRAP_DETECT_ONLY:-0}" != 1 ]; then
       printf 'ORIGIN_PUSH_GUARD: %s; resolve the hook path and rerun bin/fm-bootstrap.sh\n' \
         "$origin_push_guard_error"
     fi
+  fi
+  # Adopt existing durable contribution links without making a network call.
+  # Detection-only startup must never publish a check registration.
+  if local_phase && command -v jq >/dev/null 2>&1 \
+    && [ -d "$DATA" ] && [ -x "$SCRIPT_DIR/fm-contributions.sh" ]; then
+    "$SCRIPT_DIR/fm-contributions.sh" arm --if-owned >/dev/null \
+      || echo "MISSING: contribution observation could not be armed; coverage is unconfirmed"
   fi
   if [ -n "$fleet_sync_pid" ]; then
     wait "$fleet_sync_pid" || true

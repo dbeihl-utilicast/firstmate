@@ -452,6 +452,7 @@ fm_task_inbox_doorbell_line() {  # <record-path>
     */claimed/*) dir=${dir%/claimed/*} ;;
   esac
   abs=$(cd "$dir" 2>/dev/null && pwd) || abs=$dir
+  abs=${abs%/handled}
   case "$abs" in
     *[![:print:]]*) return 1 ;;
   esac

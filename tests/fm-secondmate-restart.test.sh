@@ -62,6 +62,13 @@ case "${1:-}" in
     done
     payload=${1:-}
     if [ "$literal" = 1 ]; then
+      case "$payload" in
+        ". '"*"'")
+          staged=${payload#". '"}
+          staged=${staged%"'"}
+          [ ! -f "$staged" ] || payload=$(cat "$staged")
+          ;;
+      esac
       printf '%s\n' "$payload" >> "$D/literal"
       case "$payload" in
         /exit|/quit)
@@ -121,7 +128,7 @@ case "${1:-}" in
     if [ "$(cat "$D/command.$target" 2>/dev/null)" = codex ]; then
       printf '> \n› Ask Codex to do anything\n'
     else
-      printf '> \n'
+      printf '╭────╮\n│    │\n╰────╯\n'
     fi
     exit 0 ;;
   list-windows) [ -f "$D/windows" ] && cat "$D/windows"; exit 0 ;;

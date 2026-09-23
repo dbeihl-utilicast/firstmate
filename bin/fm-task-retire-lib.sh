@@ -19,7 +19,8 @@ fm_task_retire_plain_paths() {  # <state-dir> <task-id> [include-stopped]
     "$state/$id.nm-fix-rounds" "$state/.lease-$id" \
     "$state/$id.check.sh" "$state/$id.check-trust" \
     "$state/$id.pr-poll" "$state/$id.pr-poll-registration" \
-    "$state/$id.pr-poll-retirement" "$state/$id.pr-poll-rearm-notified"
+    "$state/$id.pr-poll-retirement" "$state/$id.pr-poll-rearm-notified" \
+    "$state/$id.merge-authority"
   [ "$include_stopped" != yes ] || printf '%s\n' "$state/$id.stopped"
 }
 
@@ -46,7 +47,8 @@ fm_task_retire_pr_artifacts_validate() {  # <state-dir> <task-id>
   fm_task_id_path_safe "$id" || return 1
   for artifact in "$state/$id.check.sh" "$state/$id.pr-poll" \
     "$state/$id.pr-poll-registration" "$state/$id.pr-poll-retirement" \
-    "$state/$id.pr-poll-rearm-notified" "$state/$id.check-trust"; do
+    "$state/$id.pr-poll-rearm-notified" "$state/$id.merge-authority" \
+    "$state/$id.check-trust"; do
     [ -e "$artifact" ] || [ -L "$artifact" ] || continue
     has_artifact=1
   done
@@ -55,11 +57,14 @@ fm_task_retire_pr_artifacts_validate() {  # <state-dir> <task-id>
   state_device=$(fm_pr_file_device "$state") || return 1
   for artifact in "$state/$id.check.sh" "$state/$id.pr-poll" \
     "$state/$id.pr-poll-registration" "$state/$id.pr-poll-retirement" \
-    "$state/$id.pr-poll-rearm-notified" "$state/$id.check-trust"; do
+    "$state/$id.pr-poll-rearm-notified" "$state/$id.merge-authority" \
+    "$state/$id.check-trust"; do
     [ -e "$artifact" ] || [ -L "$artifact" ] || continue
     if [ ! -f "$artifact" ] || [ -L "$artifact" ] \
       || [ "$(fm_pr_file_device "$artifact")" != "$state_device" ] \
-      || [ "$(fm_pr_file_link_count "$artifact")" != 1 ]; then
+      || [ "$(fm_pr_file_link_count "$artifact")" != 1 ] \
+      || { [ "$artifact" = "$state/$id.merge-authority" ] \
+        && [ "$(fm_pr_file_mode "$artifact")" != 600 ]; }; then
       echo "REFUSED: unsafe task PR-check artifact; preserving task state." >&2
       return 1
     fi
