@@ -1,0 +1,13 @@
+== tests/fm-gh-auth-lib.test.sh
+ok - fm-gh-auth-lib uses the mapped login token for a repository owner
+ok - fm-gh-auth-lib leaves an unmapped owner to gh's active account
+ok - fm-gh-auth-lib refuses a configured login whose token cannot be read
+ok - fm-gh-auth-lib preserves a caller-supplied GH_TOKEN
+ok - fm-gh-auth-lib keeps the configured token out of command output
+== tests/fm-pr-state.test.sh
+ok - every GitHub read uses the login mapped to the URL owner
+== tests/fm-pr-reviewers.test.sh
+ok - reviewer candidates use API-resolved logins and unique commits
+ok - every GitHub read uses the login mapped to the URL owner
+== tests/fm-crew-state.test.sh
+ok - bounded PR read keeps the resolved FM_HOME and uses the owner's mapped login

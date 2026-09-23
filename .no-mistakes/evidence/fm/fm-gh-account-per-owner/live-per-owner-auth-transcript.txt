@@ -1,0 +1,78 @@
+== active account before: dbeihl ==
+config/gh-accounts:
+# owner login
+dbeihl-utilicast dbeihl-utilicast
+masonrecipes masonrecipes
+dbeihl dbeihl
+
+### S1 work-owned PR while active=dbeihl
+$ bin/fm-pr-state.sh https://github.com/dbeihl-utilicast/firstmate/pull/86
+MERGEABILITY: conflicting
+CHECKS: no required check has reported; readiness unconfirmed
+rc=
+   1 gh-call as=dbeihl-utilicast cmd=pr checks
+   1 gh-call as=dbeihl-utilicast cmd=pr view
+
+### S2 masonrecipes-owned PR
+$ bin/fm-pr-state.sh https://github.com/masonrecipes/masonrecipes.github.io/pull/48
+STATE: merged at 2026-09-23T13:53:16Z
+rc=
+   1 gh-call as=masonrecipes cmd=pr view
+
+### S3 fm-pr-reviewers on masonrecipes PR
+$ bin/fm-pr-reviewers.sh https://github.com/masonrecipes/masonrecipes.github.io/pull/48
+masonrecipes	1 recent commit
+rc=
+  12 gh-call as=masonrecipes cmd=api --method
+   1 gh-call as=masonrecipes cmd=api /repos/masonrecipes/masonrecipes.github.io/pulls/48
+   1 gh-call as=masonrecipes cmd=api /repos/masonrecipes/masonrecipes.github.io/pulls/48/files?per_page=100
+
+### S4 fm-pr-poll --gate on work PR
+$ bin/fm-pr-poll.sh --gate github https://github.com/dbeihl-utilicast/firstmate/pull/86 github.com dbeihl-utilicast/firstmate 86
+rc=
+   1 gh-call as=dbeihl-utilicast cmd=api graphql
+
+### S4b fm-pr-poll --validated on masonrecipes PR
+$ bin/fm-pr-poll.sh --validated github https://github.com/masonrecipes/masonrecipes.github.io/pull/48 github.com masonrecipes/masonrecipes.github.io 48
+merged
+rc=
+   1 gh-call as=masonrecipes cmd=pr view
+
+### S5 unmapped owner, no default -> active account
+$ bin/fm-pr-state.sh https://github.com/masonrecipes/masonrecipes.github.io/pull/48
+STATE: merged at 2026-09-23T13:53:16Z
+rc=
+   1 gh-call as=dbeihl cmd=pr view
+
+### S6 unmapped owner with default masonrecipes
+$ bin/fm-pr-state.sh https://github.com/dbeihl-utilicast/firstmate/pull/86
+MERGEABILITY: conflicting
+CHECKS: no required check has reported; readiness unconfirmed
+rc=
+   1 gh-call as=masonrecipes cmd=pr checks
+   1 gh-call as=masonrecipes cmd=pr view
+
+### S7 caller GH_TOKEN (dbeihl-utilicast) wins over mapping to masonrecipes
+$ env GH_TOKEN=<redacted> bin/fm-pr-state.sh https://github.com/dbeihl-utilicast/firstmate/pull/86
+MERGEABILITY: conflicting
+CHECKS: no required check has reported; readiness unconfirmed
+rc=
+   1 gh-call as=dbeihl-utilicast cmd=pr checks
+   1 gh-call as=dbeihl-utilicast cmd=pr view
+
+### S8 adversarial: mapped login has no keyring token -> fail closed, no fallback call
+$ bin/fm-pr-state.sh https://github.com/dbeihl-utilicast/firstmate/pull/86
+error: cannot read the GitHub token for mapped login ghost-not-logged-in; authenticate it with gh auth login --user ghost-not-logged-in
+fm-pr-state: could not read https://github.com/dbeihl-utilicast/firstmate/pull/86
+rc=
+
+### S8b same for fm-pr-reviewers
+$ bin/fm-pr-reviewers.sh https://github.com/dbeihl-utilicast/firstmate/pull/86
+error: cannot read the GitHub token for mapped login ghost-not-logged-in; authenticate it with gh auth login --user ghost-not-logged-in
+fm-pr-reviewers: could not read https://github.com/dbeihl-utilicast/firstmate/pull/86
+rc=
+
+== active account after: dbeihl; gh auth status active line: ✓ Logged in to github.com account dbeihl (keyring) ==
+## exit codes
+S8 fail-closed fm-pr-state rc=2 gh repo calls made: 0
+S1 mapped fm-pr-state rc=0
