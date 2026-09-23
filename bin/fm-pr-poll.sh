@@ -20,6 +20,22 @@ set -u
 LC_ALL=C
 export LC_ALL
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
+# A registered poll is a byte-static snapshot under state/, while fm-watch
+# executes this canonical template after validating that snapshot. Prefer an
+# explicit or canonical helper path for direct operator runs. A historical
+# snapshot without either path retains its prior active-account behavior.
+GH_AUTH_LIB=${FM_GH_AUTH_LIB:-$SCRIPT_DIR/fm-gh-auth-lib.sh}
+[ -r "$GH_AUTH_LIB" ] || GH_AUTH_LIB="$FM_ROOT/bin/fm-gh-auth-lib.sh"
+if [ -r "$GH_AUTH_LIB" ]; then
+  # shellcheck source=bin/fm-gh-auth-lib.sh
+  . "$GH_AUTH_LIB"
+else
+  fm_gh_run() { shift; "$@"; }
+fi
+
 mode=poll
 if [ "$#" -eq 6 ] && [ "$1" = --gate ]; then
   mode=gate
@@ -72,7 +88,7 @@ esac
 # blocking until the forge dismisses it or its reviewer's latest review moves on.
 review_rows() {
   # shellcheck disable=SC2016  # GraphQL variables and jq bindings, not shell expansions.
-  gh api graphql --hostname "$host" \
+  fm_gh_run "$owner" gh api graphql --hostname "$host" \
     -f query='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100){pageInfo{hasNextPage} nodes{id isResolved isOutdated comments(first:50){nodes{id author{login} body path line pullRequestReview{state}}}}} latestReviews(first:50){nodes{id state author{login} body comments(first:1){totalCount}}}}}}' \
     -f owner="$owner" -f name="$repo" -F number="$number" --jq '
       .data.repository.pullRequest as $pr
@@ -215,7 +231,7 @@ case "$provider" in
       done
       exit 0
     fi
-    raw=$(gh pr view "$url" --json state,mergeStateStatus,mergeable,headRefOid,baseRefName \
+    raw=$(fm_gh_run "$owner" gh pr view "$url" --json state,mergeStateStatus,mergeable,headRefOid,baseRefName \
       -q '[.state, .mergeStateStatus, .mergeable, .headRefOid, .baseRefName, (.baseRefName | @uri)] | @tsv' 2>/dev/null) || exit 0
     case "$raw" in ''|*$'\n'*) exit 0 ;; esac
     IFS=$'\t' read -r state merge_state mergeable head base_name base_ref extra <<< "$raw"
@@ -240,15 +256,15 @@ case "$provider" in
       esac
       git check-ref-format "refs/heads/$base_name" 2>/dev/null || exit 0
       [ -n "$base_ref" ] || exit 0
-      strict=$(gh api --hostname "$host" "repos/$path/branches/$base_ref/protection/required_status_checks" \
+      strict=$(fm_gh_run "$owner" gh api --hostname "$host" "repos/$path/branches/$base_ref/protection/required_status_checks" \
         --jq '.strict == true and (((.checks // []) + (.contexts // [])) | length > 0)' 2>/dev/null) || strict=
       if [ "$strict" != true ]; then
-        strict=$(gh api --hostname "$host" "repos/$path/rules/branches/$base_ref" --paginate \
+        strict=$(fm_gh_run "$owner" gh api --hostname "$host" "repos/$path/rules/branches/$base_ref" --paginate \
           --jq '.[] | select(.type == "required_status_checks" and .parameters.strict_required_status_checks_policy == true and ((.parameters.required_status_checks // []) | length > 0)) | "true"' \
           2>/dev/null) || exit 0
       fi
       printf '%s\n' "$strict" | grep -qx true || exit 0
-      behind=$(gh api --hostname "$host" "repos/$path/compare/$base_ref...$head" \
+      behind=$(fm_gh_run "$owner" gh api --hostname "$host" "repos/$path/compare/$base_ref...$head" \
         --jq '.behind_by' 2>/dev/null) || exit 0
       case "$behind" in ''|*[!0-9]*) exit 0 ;; esac
       [ "$behind" -gt 0 ] 2>/dev/null && printf 'behind %s\n' "$head"

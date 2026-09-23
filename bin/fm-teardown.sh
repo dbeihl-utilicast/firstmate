@@ -527,7 +527,7 @@ record_ship_pr_merged() {  # <record>
   origin=$(git -C "$project" remote get-url origin 2>/dev/null) || return 1
   origin_slug=$(github_repo_slug "$origin") || return 1
   [ "$recorded_slug" = "$origin_slug" ] || return 1
-  out=$(cd "$project" && gh-axi pr view "$number" -R "$recorded_slug" 2>/dev/null) || return 1
+  out=$(cd "$project" && fm_gh_run "$owner" gh-axi pr view "$number" -R "$recorded_slug" 2>/dev/null) || return 1
   printf '%s\n' "$out" | awk -v want="$number" '
     /^[^ ]/ { scope = ($0 == "pull_request:"); next }
     scope && /^  number: / { n++; num = substr($0, 11) }
@@ -1663,9 +1663,12 @@ remove_kimi_turnend_auth() {
 # single match and returns 0; returns non-zero on no match or any lookup failure,
 # so the caller treats it as "no PR found" (fail-safe).
 pr_number_from_branch() {
-  local branch=$1 out n
+  local branch=$1 out n origin owner
   [ -n "$branch" ] && [ "$branch" != HEAD ] || return 1
-  out=$( cd "$WT" && gh-axi pr list --state all --head "$branch" --limit 1 2>/dev/null ) || return 1
+  origin=$(git -C "$WT" remote get-url origin 2>/dev/null) || return 1
+  owner=$(github_repo_slug "$origin") || return 1
+  owner=${owner%%/*}
+  out=$( cd "$WT" && fm_gh_run "$owner" gh-axi pr list --state all --head "$branch" --limit 1 2>/dev/null ) || return 1
   n=$(printf '%s\n' "$out" | sed -n 's/^[[:space:]]*\([0-9][0-9]*\),.*/\1/p' | head -1)
   [ -n "$n" ] || return 1
   printf '%s' "$n"
@@ -1735,14 +1738,17 @@ EOF
 # current work is not contained in the PR head, no PR is found, or any gh error
 # occurs - the caller then falls back to the content check.
 pr_is_merged() {
-  local branch=$1 target view state remainder head resolved_url current landed=0
+  local branch=$1 target view state remainder head resolved_url current landed=0 origin slug owner
   if [ -n "$PR_URL" ]; then
     target=$PR_URL
   else
     target=$(pr_number_from_branch "$branch") || return 1
   fi
   [ -n "$target" ] || return 1
-  view=$(cd "$WT" && gh pr view "$target" --json state,headRefOid,url -q '.state + "\t" + .headRefOid + "\t" + .url' 2>/dev/null) || return 1
+  origin=$(git -C "$WT" remote get-url origin 2>/dev/null) || return 1
+  slug=$(github_repo_slug "$origin") || return 1
+  owner=${slug%%/*}
+  view=$(cd "$WT" && fm_gh_run "$owner" gh pr view "$target" --json state,headRefOid,url -q '.state + "\t" + .headRefOid + "\t" + .url' 2>/dev/null) || return 1
   state=${view%%$'\t'*}
   remainder=${view#*$'\t'}
   [ "$state" != "$view" ] || return 1

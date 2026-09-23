@@ -94,6 +94,9 @@ FM_PR_RECORD_STATE=
 FM_PR_RECORD_MERGED=
 FM_PR_POLL_RETIREMENT_REJECTED=
 
+# shellcheck source=bin/fm-gh-auth-lib.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fm-gh-auth-lib.sh"
+
 fm_task_id_path_safe() {
   local id=${1-}
   local LC_ALL=C
@@ -1287,7 +1290,7 @@ fm_pr_read_draft() {  # <url> [worktree]
     case "$FM_PR_PROVIDER" in
       github)
         if command -v gh >/dev/null 2>&1 && [ -n "$wt" ] && [ -d "$wt" ]; then
-          if raw=$(cd "$wt" && gh pr view "$FM_PR_URL" --json headRefOid,isDraft \
+          if raw=$(cd "$wt" && fm_gh_run "$FM_PR_OWNER" gh pr view "$FM_PR_URL" --json headRefOid,isDraft \
             -q '[.headRefOid, (.isDraft|tostring)] | @tsv' 2>/dev/null); then
             case "$raw" in
               ''|*$'\n'*) ;;
