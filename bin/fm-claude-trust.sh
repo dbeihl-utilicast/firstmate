@@ -2,11 +2,11 @@
 # Pre-register Claude Code's workspace trust for the directory a claude spawn is
 # about to launch into - the isolated task worktree of a ship or scout crewmate,
 # or the seeded home of a secondmate - so the agent reaches its brief or charter
-# instead of wedging on the trust dialog. It also pre-answers Claude Code's
-# external-CLAUDE.md-imports dialog with the declined answer, on the entry the
-# imports check actually reads, and never approves: an approval the human
-# already gave is carried forward untouched - see the consent-gating block
-# below.
+# instead of wedging on the trust dialog. In worktree mode it also carries
+# forward the external-CLAUDE.md-import approval, but only when the primary
+# checkout already holds standing consent for it - see the consent-gating
+# block below for why that dialog is otherwise left for the worker to wedge
+# on rather than answered on the human's behalf.
 #
 # Usage: fm-claude-trust.sh <worktree> <project>
 #        fm-claude-trust.sh --secondmate-home <home> <id>
@@ -58,27 +58,30 @@
 # argument this script already receives for the worktree-mode scope test
 # below. So the trust flag is registered on BOTH the worktree entry (for
 # trust's ancestor-walk fallback and defense in depth) and the project entry
-# (the trust check's first, canonical-shaped, look); the external-imports
-# answer lands on those same two entries (see the consent-gating block below),
-# and the project entry is the only place the external-imports check ever
-# looks. Re-verified 2026-09-23 on 2.1.280 in an isolated pty launch from a
-# pooled copy nested inside a home whose CLAUDE.md imports a file outside the
-# copy: the dialog showed with the declined pair on the copy's entry or on the
-# home's entry, and did not show with it on the primary checkout's entry,
-# which is also where an interactive "No, disable" answer is persisted. Registering
+# (the trust check's first, canonical-shaped, look); the two external-imports
+# flags land on those same two entries only when the project entry already
+# carries standing consent (see the consent-gating block below) - the project
+# entry is the only place the external-imports check ever looks. Registering
 # the project entry is a write to the launching user's OWN Claude config
 # store, keyed by a project PATH the scope test below has already verified is
 # real - not a write to the project's tracked content, so hard rule 1 does not
 # apply, same as the existing worktree-entry write.
 #
 # THAT SAME PROJECT ENTRY IS ALSO THE LAUNCHING HUMAN'S OWN INTERACTIVE
-# CONFIG, though, so this registration never overwrites a decision the human
-# already made there and never grants one. An explicit "Yes, allow"
-# (hasClaudeMdExternalIncludesApproved===true) is carried forward; anything
-# else - absent, Claude Code's never-asked default of both flags false, or an
-# explicit "No, disable" (Approved false, WarningShown true) - leaves the entry
-# with the declined pair, which is a same-value refresh of a decline and the
-# answer firstmate would give by hand otherwise.
+# CONFIG, though, so this registration must never overwrite a decision the
+# human already made there. If the project entry already carries
+# hasClaudeMdExternalIncludesApproved===false WITH
+# hasClaudeMdExternalIncludesWarningShown===true - the pair Claude Code writes
+# on an explicit "No, disable" answer - the whole registration refuses
+# rather than flipping it, because doing so would grant every future
+# interactive session in that checkout silent external-file inclusion the
+# human declined, permanently and without being asked. The worktree entry is
+# left unwritten too: the spawn wedges on the dialog, which is the honest
+# outcome given a standing decline, not registered trust with a stripped
+# consent record. Approved===false with WarningShown false or absent is NOT
+# that decision: Claude Code's default project entry carries both flags as
+# false before the dialog was ever shown, so that pair means "never asked" and
+# is treated like an absent flag - trust registered, no import consent.
 #
 # THE SCOPE TEST IS THE SAFETY PROPERTY, and it is STRUCTURAL rather than a
 # path policy. Each mode has its own, because the two directories have entirely
@@ -92,11 +95,16 @@
 # directory are each refused. Refusal is a non-zero exit, never a warning and
 # never a silent skip. When <project> is itself a linked worktree (a
 # secondmate home spawned from, rather than as, the primary checkout),
-# refusing outright would wedge a relaunch that is otherwise perfectly valid,
-# so the primary checkout is resolved structurally (primary_checkout_of below)
-# or this refuses rather than guess. The project-entry trust flag and the
-# external-imports answer land on that resolved canonical checkout, never on
-# the linked-worktree argument itself.
+# refusing outright would wedge a relaunch that is otherwise perfectly valid:
+# its own common dir already IS the primary checkout's own git dir (git's
+# git-common-dir answer never changes by which worktree asks), so the
+# checkout is derived structurally from it - its parent directory in the
+# standard non-bare, non-GIT_DIR-overridden layout this script already
+# requires elsewhere - and verified, never assumed: the candidate's own
+# resolved git dir must equal that common dir, the same primary-checkout
+# definition used throughout, or this refuses rather than guess. The
+# consent-gated external-imports flags land on that resolved canonical
+# checkout, never on the linked-worktree argument itself.
 #
 # The test is deliberately NOT a treehouse or orca path prefix. Treehouse's
 # root is configurable (--root, TREEHOUSE_ROOT, config, and a relative
@@ -226,25 +234,6 @@ common_dir_of() {
   (cd -P -- "$dir" && real_dir "$common")
 }
 
-# The primary checkout of the repository <dir> belongs to, or empty: the path
-# Claude Code's own git-root canonicalization collapses every linked worktree
-# to, and so the only project entry its external-imports check reads. Git's
-# common dir is the same whichever worktree asks, so the checkout is derived
-# structurally from it - its parent directory in the standard non-bare,
-# non-GIT_DIR-overridden layout this script requires elsewhere - and verified,
-# never assumed: the candidate's own resolved git dir must equal that common
-# dir, the primary-checkout definition used throughout.
-primary_checkout_of() {
-  local common canon canon_git
-  common=$(common_dir_of "$1") || return 1
-  [ -n "$common" ] || return 1
-  canon=$(real_dir "$(dirname -- "$common")") || return 1
-  canon_git=$(git -C "$canon" rev-parse --absolute-git-dir 2>/dev/null) || return 1
-  canon_git=$(real_dir "$canon_git") || return 1
-  [ -n "$canon_git" ] && [ "$canon_git" = "$common" ] || return 1
-  printf '%s\n' "$canon"
-}
-
 TARGET_REAL=$(real_dir "$TARGET_ARG") || true
 [ -n "$TARGET_REAL" ] || refuse "$SCOPE_NOUN '$TARGET_ARG' is not an accessible directory"
 if [ "$MODE" != secondmate-home ]; then
@@ -301,14 +290,34 @@ if [ "$MODE" = worktree ]; then
   [ -n "$PROJ_COMMON" ] || refuse "project '$PROJ_REAL' is not inside a git repository"
   [ "$WT_COMMON" = "$PROJ_COMMON" ] || refuse "'$TARGET_REAL' is not a worktree of project '$PROJ_REAL'"
 
-  # The external-imports answer must land on the primary checkout, because that
-  # is the only entry Claude Code's imports check reads. When <project> is
-  # itself a linked worktree (a secondmate home spawned from, rather than as,
-  # the primary checkout), refusing outright would wedge a relaunch that is
-  # otherwise perfectly valid, so the checkout is resolved structurally rather
-  # than taken from the argument, or this refuses rather than guess.
-  PROJ_CANON=$(primary_checkout_of "$PROJ_REAL") || true
-  [ -n "$PROJ_CANON" ] || refuse "project '$PROJ_REAL' has no primary checkout that could be resolved"
+  # The external-imports flags must land on the primary checkout - its own git
+  # dir equals the common dir - because that is exactly the path Claude Code's
+  # own git-root canonicalization collapses every linked worktree to. When
+  # <project> is itself a linked worktree (a secondmate home spawned from,
+  # rather than as, the primary checkout), refusing outright would wedge a
+  # relaunch that is otherwise perfectly valid: PROJ_COMMON already IS that
+  # primary checkout's own git dir (git's git-common-dir answer never changes
+  # by which worktree asks), so the checkout is derived structurally from it -
+  # its parent directory in the standard non-bare, non-GIT_DIR-overridden
+  # layout this script already requires elsewhere - and verified, never
+  # assumed: the candidate's own resolved git dir must equal PROJ_COMMON, the
+  # same primary-checkout definition used above, or this refuses rather than
+  # guess.
+  PROJ_GIT_DIR=$(git -C "$PROJ_REAL" rev-parse --absolute-git-dir 2>/dev/null) || true
+  [ -n "$PROJ_GIT_DIR" ] || refuse "project '$PROJ_REAL' has no resolvable git directory"
+  PROJ_GIT_DIR=$(real_dir "$PROJ_GIT_DIR") || true
+  [ -n "$PROJ_GIT_DIR" ] || refuse "project '$PROJ_REAL' has an unresolvable git directory"
+  if [ "$PROJ_GIT_DIR" = "$PROJ_COMMON" ]; then
+    PROJ_CANON=$PROJ_REAL
+  else
+    PROJ_CANON=$(real_dir "$(dirname -- "$PROJ_COMMON")") || true
+    [ -n "$PROJ_CANON" ] \
+      || refuse "project '$PROJ_REAL' is a linked worktree whose primary checkout could not be resolved"
+    CANON_GIT_DIR=$(git -C "$PROJ_CANON" rev-parse --absolute-git-dir 2>/dev/null) || true
+    CANON_GIT_DIR=$(real_dir "${CANON_GIT_DIR:-}") || true
+    [ -n "$CANON_GIT_DIR" ] && [ "$CANON_GIT_DIR" = "$PROJ_COMMON" ] \
+      || refuse "project '$PROJ_REAL' is a linked worktree whose primary checkout could not be resolved"
+  fi
 elif [ "$MODE" = secondmate-home ]; then
   # The seed evidence, in the order that names the most useful reason first: the
   # marker decides whether this is a secondmate home at all, the id decides
@@ -399,33 +408,38 @@ fi
 # is fresh and the project entry stale, or the other way round. In
 # secondmate-home mode only the single home entry is written.
 #
-# The two external-imports flags are gated separately from the trust flag,
-# because approving is a CONSENT grant, not a pre-approval this script is
-# allowed to manufacture. Claude Code only ever writes
+# The two external-imports flags (worktree mode only) are gated separately
+# from the trust flag, because they are a CONSENT grant, not a pre-approval
+# this script is allowed to manufacture. Claude Code only ever writes
 # hasClaudeMdExternalIncludesApproved===true itself, on an explicit interactive
-# answer. So the approved pair is written only where the project entry ALREADY
-# carries it, as a same-value refresh (worktree mode), and --imports-only
-# never touches an approved entry at all.
+# answer; this script's own job is to keep a worker from wedging on a dialog,
+# never to answer that dialog on the human's behalf. So the import flags land
+# on the project entry - the only place the imports check ever reads (see the
+# disassembly note above) - only when that entry ALREADY carries
+# hasClaudeMdExternalIncludesApproved===true, i.e. the human already said yes
+# at some point and this write is a same-value refresh, not new consent from
+# an absent flag. When it is not already true (including plain absent, the
+# common case for a project claude has never asked about), the import flags
+# are left untouched on both entries: writing them to the worktree entry alone
+# would be a pure no-op (the imports check never reads it) that only obscures
+# the real state, so trust still registers normally but the import dialog is
+# left exactly as undecided as it already was - the worker wedges on it, the
+# same honest outcome as an explicit decline, rather than a spawn spending
+# consent the human was never asked for.
 #
-# THE DECLINED PRE-ANSWER. Everywhere else the declined answer
-# (hasClaudeMdExternalIncludesWarningShown true with
-# hasClaudeMdExternalIncludesApproved false) is written: in worktree mode on
-# both the worktree entry and the project entry, and in --imports-only mode on
-# the launch directory and, when it sits in a git repository, on that
-# repository's primary checkout. The primary checkout's entry is the one that
-# actually suppresses the prompt (see the disassembly note above); the others
-# are defense in depth. That is the answer firstmate would give by hand, so it
-# never grants consent. If a dialog still shows, bin/fm-busy-lib.sh classifies
-# it as blocked rather than letting the worker sit on it silently.
+# THE DECLINED PRE-ANSWER. Without standing consent, worktree mode also writes
+# the declined answer (hasClaudeMdExternalIncludesWarningShown true with
+# hasClaudeMdExternalIncludesApproved false) on the worktree entry, and
+# --imports-only writes only that pair on the directory claude really starts
+# in. That is the answer firstmate would give by hand, so it never grants
+# consent, and it is what suppresses the prompt wherever the launch directory
+# is itself the entry the imports check reads (a secondmate home). Where it
+# is not, bin/fm-busy-lib.sh classifies the visible dialog as blocked rather
+# than letting the worker sit on it silently.
 TRUST_FLAG='hasTrustDialogAccepted'
 IMPORT_FLAGS='["hasClaudeMdExternalIncludesApproved","hasClaudeMdExternalIncludesWarningShown"]'
 if [ "$MODE" = worktree ]; then
   WRITE_ARGS=("$STORE" "$MODE" "$TARGET_REAL" "$PROJ_CANON" "$TRUST_FLAG" "$IMPORT_FLAGS")
-elif [ "$MODE" = imports-only ]; then
-  # A launch directory outside git has no canonical root, and Claude then keys
-  # the answer by the directory itself, which is written either way.
-  IMPORTS_CANON=$(primary_checkout_of "$TARGET_REAL" 2>/dev/null) || IMPORTS_CANON=
-  WRITE_ARGS=("$STORE" "$MODE" "$TARGET_REAL" "$IMPORTS_CANON" "$TRUST_FLAG" "$IMPORT_FLAGS")
 else
   WRITE_ARGS=("$STORE" "$MODE" "$TARGET_REAL" "" "$TRUST_FLAG" "$IMPORT_FLAGS")
 fi
@@ -468,6 +482,20 @@ const setDeclined = (projects, key) => {
 const declinedLanded = (projects, key) =>
   projects?.[key]?.hasClaudeMdExternalIncludesWarningShown === true &&
   projects?.[key]?.hasClaudeMdExternalIncludesApproved === false;
+// The project entry is the launching user's OWN interactive config, not a
+// throwaway worktree, so a spawn must never silently reverse a decision the
+// human already recorded there. hasClaudeMdExternalIncludesApproved===false
+// together with hasClaudeMdExternalIncludesWarningShown===true is exactly that
+// decision (the dialog's "No, disable" answer writes that pair; Claude Code's
+// default project entry carries Approved===false with WarningShown===false,
+// which means never asked, not declined); flipping it to true would grant every future
+// interactive session in that checkout silent external-file inclusion the
+// human declined. Refuse the whole registration instead of overriding it -
+// the worktree entry is not written either, so the spawn wedges on the
+// dialog rather than the human's consent being spent without being asked.
+const declinedExternalImports = (projects, key) =>
+  projects?.[key]?.hasClaudeMdExternalIncludesApproved === false &&
+  projects?.[key]?.hasClaudeMdExternalIncludesWarningShown === true;
 // True only on an explicit prior "Yes, allow" answer - the sole state this
 // script may treat as standing consent to refresh. Absent, or any other
 // value, is NOT consent (see the block comment above this script's node call).
@@ -495,13 +523,16 @@ const attempt = () => {
   let declinedKeys = [];
   if (mode === "imports-only") {
     keys = [];
-    for (const key of new Set([target, project].filter(Boolean))) {
-      if (!approvedExternalImports(projects, key)) {
-        setDeclined(projects, key);
-        declinedKeys.push(key);
-      }
+    if (!approvedExternalImports(projects, target)) {
+      setDeclined(projects, target);
+      declinedKeys = [target];
     }
   } else if (mode === "worktree") {
+    if (declinedExternalImports(projects, project)) {
+      throw new Error(
+        `project entry for ${project} in ${store} already declined external CLAUDE.md imports; refusing to override that consent`,
+      );
+    }
     const carryImportConsent = approvedExternalImports(projects, project);
     const targetFlags = carryImportConsent ? [trustFlag, ...importFlags] : [trustFlag];
     const projectFlags = carryImportConsent ? [trustFlag, ...importFlags] : [trustFlag];
@@ -510,8 +541,7 @@ const attempt = () => {
     keys = [[target, targetFlags], [project, projectFlags]];
     if (!carryImportConsent) {
       setDeclined(projects, target);
-      setDeclined(projects, project);
-      declinedKeys = [target, project];
+      declinedKeys = [target];
     }
   } else {
     setFlags(projects, target, [trustFlag]);
