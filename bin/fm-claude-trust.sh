@@ -72,16 +72,15 @@
 # human already made there. If the project entry already carries
 # hasClaudeMdExternalIncludesApproved===false WITH
 # hasClaudeMdExternalIncludesWarningShown===true - the pair Claude Code writes
-# on an explicit "No, disable" answer - the whole registration refuses
-# rather than flipping it, because doing so would grant every future
-# interactive session in that checkout silent external-file inclusion the
-# human declined, permanently and without being asked. The worktree entry is
-# left unwritten too: the spawn wedges on the dialog, which is the honest
-# outcome given a standing decline, not registered trust with a stripped
-# consent record. Approved===false with WarningShown false or absent is NOT
-# that decision: Claude Code's default project entry carries both flags as
-# false before the dialog was ever shown, so that pair means "never asked" and
-# is treated like an absent flag - trust registered, no import consent.
+# on an explicit "No, disable" answer, and the pair firstmate's own
+# --imports-only pre-answer writes for a launch directory - workspace trust
+# still registers normally on both entries, but that decline is left exactly
+# as recorded: the project entry's import flags are never touched, so a spawn
+# never flips a "No, disable" to approved. Approved===false with WarningShown false or
+# absent is NOT that decision: Claude Code's default project entry carries
+# both flags as false before the dialog was ever shown, so that pair means
+# "never asked" and is treated like an absent flag - trust registered, no
+# import consent.
 #
 # THE SCOPE TEST IS THE SAFETY PROPERTY, and it is STRUCTURAL rather than a
 # path policy. Each mode has its own, because the two directories have entirely
@@ -423,9 +422,8 @@ fi
 # are left untouched on both entries: writing them to the worktree entry alone
 # would be a pure no-op (the imports check never reads it) that only obscures
 # the real state, so trust still registers normally but the import dialog is
-# left exactly as undecided as it already was - the worker wedges on it, the
-# same honest outcome as an explicit decline, rather than a spawn spending
-# consent the human was never asked for.
+# left exactly as undecided as it already was - the worker wedges on it
+# rather than a spawn spending consent the human was never asked for.
 #
 # THE DECLINED PRE-ANSWER. Without standing consent, worktree mode also writes
 # the declined answer (hasClaudeMdExternalIncludesWarningShown true with
@@ -482,20 +480,6 @@ const setDeclined = (projects, key) => {
 const declinedLanded = (projects, key) =>
   projects?.[key]?.hasClaudeMdExternalIncludesWarningShown === true &&
   projects?.[key]?.hasClaudeMdExternalIncludesApproved === false;
-// The project entry is the launching user's OWN interactive config, not a
-// throwaway worktree, so a spawn must never silently reverse a decision the
-// human already recorded there. hasClaudeMdExternalIncludesApproved===false
-// together with hasClaudeMdExternalIncludesWarningShown===true is exactly that
-// decision (the dialog's "No, disable" answer writes that pair; Claude Code's
-// default project entry carries Approved===false with WarningShown===false,
-// which means never asked, not declined); flipping it to true would grant every future
-// interactive session in that checkout silent external-file inclusion the
-// human declined. Refuse the whole registration instead of overriding it -
-// the worktree entry is not written either, so the spawn wedges on the
-// dialog rather than the human's consent being spent without being asked.
-const declinedExternalImports = (projects, key) =>
-  projects?.[key]?.hasClaudeMdExternalIncludesApproved === false &&
-  projects?.[key]?.hasClaudeMdExternalIncludesWarningShown === true;
 // True only on an explicit prior "Yes, allow" answer - the sole state this
 // script may treat as standing consent to refresh. Absent, or any other
 // value, is NOT consent (see the block comment above this script's node call).
@@ -528,11 +512,6 @@ const attempt = () => {
       declinedKeys = [target];
     }
   } else if (mode === "worktree") {
-    if (declinedExternalImports(projects, project)) {
-      throw new Error(
-        `project entry for ${project} in ${store} already declined external CLAUDE.md imports; refusing to override that consent`,
-      );
-    }
     const carryImportConsent = approvedExternalImports(projects, project);
     const targetFlags = carryImportConsent ? [trustFlag, ...importFlags] : [trustFlag];
     const projectFlags = carryImportConsent ? [trustFlag, ...importFlags] : [trustFlag];
