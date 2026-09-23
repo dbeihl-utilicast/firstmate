@@ -1,0 +1,8 @@
+=== AFTER FIX: fm-test-run.sh tests/fm-secondmate-restart.test.sh (HOME=sandbox) ===
+sandbox store projects before: 1
+runner rc=0
+sandbox store projects after: 1
+real ~/.claude.json project count before=68 after=68
+FM_TEST_SUMMARY total=1 failed=0 skipped_gate=0 duration_ms=137963
+FM_TEST_SUMMARY_FAMILY family=secondmate count=1 duration_ms=137752 failed=0
+FM_TEST_SLOWEST rank=1 script=tests/fm-secondmate-restart.test.sh duration_ms=137752

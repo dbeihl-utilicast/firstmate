@@ -1,0 +1,21 @@
+--- A: store missing, clean script
+rc=0
+  fm-test-run: warning: skipping the Claude store leak check; /tmp/nm-guard.Kvh3/h/.claude.json is missing or unreadable, or python3 is missing
+--- B: store invalid JSON, clean script
+rc=0
+  fm-test-run: warning: skipping the Claude store leak check; /tmp/nm-guard.Kvh3/h/.claude.json is missing or unreadable, or python3 is missing
+--- C: store valid, script adds entries outside RUN_TMP (/tmp/scratch-captain, other $TMPDIR path)
+rc=0
+--- D: store valid, serial leak under script TMPDIR
+rc=1
+  fm-test-run: a test wrote temp-directory project entries into /tmp/nm-guard.Kvh3/h/.claude.json; pin HOME and CLAUDE_CONFIG_DIR='' on its spawn calls:
+  /private/var/folders/h4/89z_m16d0sq00pkwstv182280000gn/T/fm-test-run.MRYj3e/s0/tmp/leak.31q6TF
+--- E: CLAUDE_CONFIG_DIR set, leak goes to that dir
+rc=1
+  fm-test-run: a test wrote temp-directory project entries into /tmp/nm-guard.Kvh3/cfg/.claude.json; pin HOME and CLAUDE_CONFIG_DIR='' on its spawn calls:
+--- F: python3 missing from PATH (runner PATH without python3)
+rc=0
+  fm-test-run: warning: skipping the Claude store leak check; /tmp/nm-guard.Kvh3/h/.claude.json is missing or unreadable, or python3 is missing
+--- G: store becomes invalid JSON during run
+rc=0
+  fm-test-run: warning: skipping the Claude store leak check; /tmp/nm-guard.Kvh3/h/.claude.json became missing or unreadable during the run

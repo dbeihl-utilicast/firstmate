@@ -1,0 +1,2 @@
+fm-test-run.test.sh rc=0
+ok - a test run that writes a temp directory into the Claude store fails

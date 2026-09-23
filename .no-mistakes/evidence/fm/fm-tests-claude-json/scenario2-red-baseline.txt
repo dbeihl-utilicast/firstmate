@@ -1,0 +1,7 @@
+=== RED BASELINE: base-commit fm-secondmate-restart test via fixed runner (HOME=sandbox) ===
+runner rc=1
+fm-test-run: a test wrote temp-directory project entries into /tmp/nm-claude.vc4w/home/.claude.json; pin HOME and CLAUDE_CONFIG_DIR='' on its spawn calls:
+/private/var/folders/h4/89z_m16d0sq00pkwstv182280000gn/T/fm-test-run.pKe3B0/s0/tmp/fm-secondmate-restart.x1gnHF/already-current-20109/sm1-home
+/private/var/folders/h4/89z_m16d0sq00pkwstv182280000gn/T/fm-test-run.pKe3B0/s0/tmp/fm-secondmate-restart.x1gnHF/answer-at-timeout-decision-16152/sm1-home
+/private/var/folders/h4/89z_m16d0sq00pkwstv182280000gn/T/fm-test-run.pKe3B0/s0/tmp/fm-secondmate-restart.x1gnHF/arrived-at-bound-1397/sm1-home
+sandbox store projects after: 11
