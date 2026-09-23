@@ -560,6 +560,29 @@ The lab home was deleted and the test entry was removed from the store and verif
 That automated spawn case runs against a fake claude, so it asserts the store entry and the launch command and nothing more; the live arms above are what establish that the entry actually suppresses the dialog.
 The composer-classification record below observes the same gate from the other side, where an untrusted worktree left Claude, Grok, and Muse unverified because the guard reads a first-launch trust dialog as an unreadable composer.
 
+### External CLAUDE.md imports
+
+Verified 2026-09-23 on Claude Code 2.1.280.
+A pooled copy nested inside a firstmate home picks up the home's own `CLAUDE.md` from a parent directory, and its `@AGENTS.md` import reaches outside the copy, so Claude raises `Allow external CLAUDE.md file imports?` with the cursor on `No, disable external imports`.
+The lab home held `CLAUDE.md` containing `@AGENTS.md`, a primary checkout at `home/projects/repo`, and a linked worktree at `home/.treehouse/pool/1/repo`.
+Each arm copied the operator's `.claude.json` into an isolated `CLAUDE_CONFIG_DIR`, replaced its `projects` with trust on the copy and the primary checkout, added the declined pair (`hasClaudeMdExternalIncludesWarningShown` true, `hasClaudeMdExternalIncludesApproved` false) on one entry, and launched from the copy in a 160x45 pty for 14 seconds.
+
+```sh
+cd home/.treehouse/pool/1/repo
+CLAUDE_CONFIG_DIR=<cfg> claude --setting-sources project,local
+```
+
+| Declined pair on | Result |
+| ---------------- | ------ |
+| no entry | imports dialog shown |
+| the pooled copy | imports dialog shown |
+| the home directory | imports dialog shown |
+| the primary checkout | no dialog, composer reached |
+
+Pressing Enter on the dialog in the no-entry arm persisted the declined pair on the primary checkout's entry, not the copy's, and the next launch from the copy showed no dialog.
+With an empty `projects` map, running `bin/fm-claude-trust.sh <copy> <primary>` and then `bin/fm-claude-trust.sh --imports-only <copy> <primary>` before the same launch reached the composer with no dialog, while the same two calls from the previous revision, which declined only the copy's entry, still showed it.
+The imports check therefore reads only the primary checkout's entry, the same canonical git root the disassembly note in `bin/fm-claude-trust.sh` names, so that script writes the declined answer there and `tests/fm-claude-trust.test.sh` pins that no registration ever approves.
+
 ## Launch-prompt backstop signatures
 
 `bin/fm-busy-lib.sh`'s launch-prompt backstop (`fm_busy_launch_prompt_parked`) reclassifies a launch whose busy record is still pinned at the fm-spawn seed as `unknown launch-prompt`, rather than `busy fm-spawn`, when the captured pane matches that harness's own recognized trust, sign-in, or first-run dialog.

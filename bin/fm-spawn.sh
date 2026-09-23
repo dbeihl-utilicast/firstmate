@@ -4212,9 +4212,10 @@ case "$HARNESS" in
       echo "error: could not pre-register Claude workspace trust for $WT; refusing to launch a claude worker that would wedge on the trust dialog; inspect window $T" >&2
       exit 1
     fi
-    # The external-imports answer is keyed by the directory claude actually
-    # starts in, so it is also recorded for the pane's own resolved directory
-    # and for a launch directory that is not a pooled copy (a secondmate home).
+    # Claude reads the external-imports answer from the launch directory's
+    # primary checkout, so it is also recorded for the pane's own resolved
+    # directory and for a launch directory that is not a pooled copy (a
+    # secondmate home); fm-claude-trust.sh resolves the entry it lands on.
     claude_imports_dirs=$WT
     claude_pane_dir=$(spawn_current_path "$WT_TARGET" || true)
     [ -z "$claude_pane_dir" ] || [ "$(real_path_or_raw "$claude_pane_dir")" = "$(real_path_or_raw "$WT")" ] \
