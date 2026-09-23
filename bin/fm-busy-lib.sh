@@ -927,7 +927,8 @@ fm_busy_claude_imports_dialog() {
 # option/footer lines, both required together: the question text alone is
 # plausible self-referential prose a firstmate-repo worker could easily render
 # on its own (fm-claude-trust.sh's header literally quotes both questions),
-# but the option/footer pairing only ever renders inside the real dialog.
+# but the option/footer pairing only ever renders inside the real dialog. The
+# imports option must fill its own line, so a diff or grep quoting it stays busy.
 fm_busy_claude_launch_prompt_tail() {
   local buf
   buf=$(cat)
@@ -936,7 +937,7 @@ fm_busy_claude_launch_prompt_tail() {
     return 0
   fi
   printf '%s' "$buf" | grep -qiE "${FM_BUSY_CLAUDE_IMPORTS_PROMPT_REGEX:-Allow external CLAUDE\\.md file imports\\?}" \
-    && printf '%s' "$buf" | grep -qiE 'No, disable external imports|Yes, allow external imports'
+    && printf '%s\n' "$buf" | grep -qiE '^[[:space:]]*((>|❯)[[:space:]]*)?([0-9]\.[[:space:]]*)?(No, disable|Yes, allow) external imports[[:space:]]*$'
 }
 
 # fm_busy_pi_launch_prompt_tail: Pi's project-trust dialog. Live-verified on
