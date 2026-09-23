@@ -394,6 +394,8 @@ A check run is green when its current run is green, because GitHub leaves a canc
 `--auto` and branch-deletion flags are refused unless `--attended-override` is passed for an explicit captain instruction; that override never skips the live green check, the away-record read, or a captain hold.
 The captain-authorized admin bypass is opt-in through the wrapper's own `--admin-bypass-review` flag, placed before the `--` separator; a raw `--admin` passed through as an extra forge argument is refused, naming that flag as the one supported way in.
 With `--admin-bypass-review`, the wrapper records the PR metadata, then reads the pull request's live mergeable state and status checks and refuses a merge conflict or any check that is failing or still pending, because the bypass skips only GitHub's required-review restriction and every other guard still applies.
+Because `--admin` would also bypass a required check that has never reported, it then refuses unless every check the base branch requires through branch protection or rulesets appears in that rollup, and it refuses when those requirements cannot be read.
+`--admin-bypass-review` is attended-only, refused while the away-posture record exists, and cannot be combined with `--allow-red`.
 It then invokes `gh pr merge` with `--admin`, preserving the wrapper's merge-method and outcome-verification contracts.
 A successful admin-bypass merge records an explicit `admin_bypass_review=true` line in the task's metadata and prints the outcome as merged with the review requirement bypassed, not satisfied; an ordinary merge carries neither.
 An attended `--allow-red <check-name>` may appear once, waives only GitHub checks with that exact name, and is refused while the away-posture record exists.
