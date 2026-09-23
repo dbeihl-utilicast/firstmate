@@ -1,0 +1,427 @@
+Behavior tests (Herdr)	Set up job	﻿2026-09-23T17:02:37.5837313Z Current runner version: '2.337.0'
+Behavior tests (Herdr)	Set up job	2026-09-23T17:02:37.5858305Z ##[group]Runner Image Provisioner
+Behavior tests (Herdr)	Set up job	2026-09-23T17:02:37.5859062Z Hosted Compute Agent
+Behavior tests (Herdr)	Set up job	2026-09-23T17:02:37.5859622Z Version: 20260828.587
+Behavior tests (Herdr)	Set up job	2026-09-23T17:02:37.5860186Z Commit: abac92662cab4cc7352de4f9f9d2e2419aad9c29
+Behavior tests (Herdr)	Set up job	2026-09-23T17:02:37.5860837Z Build Date: 2026-08-28T16:44:25Z
+Behavior tests (Herdr)	Set up job	2026-09-23T17:02:37.5861403Z Worker ID: {fdeaece2-dd82-4796-9e75-fae2042fa64e}
+Behavior tests (Herdr)	Set up job	2026-09-23T17:02:37.5861980Z Azure Region: centralus
+Behavior tests (Herdr)	Set up job	2026-09-23T17:02:37.5862494Z ##[endgroup]
+Behavior tests (Herdr)	Set up job	2026-09-23T17:02:37.5863858Z ##[group]Operating System
+Behavior tests (Herdr)	Set up job	2026-09-23T17:02:37.5864386Z Ubuntu
+Behavior tests (Herdr)	Set up job	2026-09-23T17:02:37.5864853Z 24.04.5
+Behavior tests (Herdr)	Set up job	2026-09-23T17:02:37.5865286Z LTS
+Behavior tests (Herdr)	Set up job	2026-09-23T17:02:37.5865726Z ##[endgroup]
+Behavior tests (Herdr)	Set up job	2026-09-23T17:02:37.5866199Z ##[group]Runner Image
+Behavior tests (Herdr)	Set up job	2026-09-23T17:02:37.5866697Z Image: ubuntu-24.04
+Behavior tests (Herdr)	Set up job	2026-09-23T17:02:37.5867193Z Version: 20260920.314.1
+Behavior tests (Herdr)	Set up job	2026-09-23T17:02:37.5868058Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20260920.314/images/ubuntu/Ubuntu2404-Readme.md
+Behavior tests (Herdr)	Set up job	2026-09-23T17:02:37.5869478Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20260920.314
+Behavior tests (Herdr)	Set up job	2026-09-23T17:02:37.5870278Z ##[endgroup]
+Behavior tests (Herdr)	Set up job	2026-09-23T17:02:37.5871249Z ##[group]GITHUB_TOKEN Permissions
+Behavior tests (Herdr)	Set up job	2026-09-23T17:02:37.5873644Z Contents: read
+Behavior tests (Herdr)	Set up job	2026-09-23T17:02:37.5874157Z Metadata: read
+Behavior tests (Herdr)	Set up job	2026-09-23T17:02:37.5874613Z ##[endgroup]
+Behavior tests (Herdr)	Set up job	2026-09-23T17:02:37.5876411Z Secret source: Actions
+Behavior tests (Herdr)	Set up job	2026-09-23T17:02:37.5877182Z Cache mode: write
+Behavior tests (Herdr)	Set up job	2026-09-23T17:02:37.5878031Z Prepare workflow directory
+Behavior tests (Herdr)	Set up job	2026-09-23T17:02:37.6150020Z Prepare all required actions
+Behavior tests (Herdr)	Set up job	2026-09-23T17:02:37.6191250Z Getting action download info
+Behavior tests (Herdr)	Set up job	2026-09-23T17:02:37.8685294Z Download action repository 'actions/checkout@v6' (SHA:d23441a48e516b6c34aea4fa41551a30e30af803)
+Behavior tests (Herdr)	Set up job	2026-09-23T17:02:37.9348136Z Download action repository 'actions/upload-artifact@v4' (SHA:ea165f8d65b6e75b540449e92b4886f43607fa02)
+Behavior tests (Herdr)	Set up job	2026-09-23T17:02:38.1875882Z Complete job name: Behavior tests (Herdr)
+Behavior tests (Herdr)	Run actions/checkout@v6	﻿2026-09-23T17:02:38.2556603Z ##[group]Run actions/checkout@v6
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.2557377Z with:
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.2557844Z   fetch-depth: 0
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.2558311Z   repository: dbeihl-utilicast/firstmate
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.2561781Z   token: ***
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.2562230Z   ssh-strict: true
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.2562680Z   ssh-user: git
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.2563476Z   persist-credentials: true
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.2563953Z   clean: true
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.2564394Z   sparse-checkout-cone-mode: true
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.2564917Z   fetch-tags: false
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.2565352Z   show-progress: true
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.2565788Z   lfs: false
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.2566186Z   submodules: false
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.2566612Z   set-safe-directory: true
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.2567135Z   allow-unsafe-pr-checkout: false
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.2567837Z ##[endgroup]
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.3496514Z Syncing repository: dbeihl-utilicast/firstmate
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.3498811Z ##[group]Getting Git version info
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.3499708Z Working directory is '/home/runner/work/firstmate/firstmate'
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.3501302Z [command]/usr/bin/git version
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.3550555Z git version 2.55.0
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.3568624Z ##[endgroup]
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.3579563Z Temporarily overriding HOME='/home/runner/work/_temp/47503221-482d-4b87-9e02-fa4db4e6e071' before making global git config changes
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.3581493Z Adding repository directory to the temporary git global config as a safe directory
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.3583217Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/firstmate/firstmate
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.3622612Z Deleting the contents of '/home/runner/work/firstmate/firstmate'
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.3626886Z ##[group]Determining repository object format
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.3628190Z ##[endgroup]
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.3629396Z ##[group]Initializing the repository
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.3631567Z [command]/usr/bin/git init /home/runner/work/firstmate/firstmate
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.3716017Z hint: Using 'master' as the name for the initial branch. This default branch name
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.3718088Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.3719426Z hint: to use in all of your new repositories, which will suppress this warning,
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.3720775Z hint: call:
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.3721628Z hint:
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.3722521Z hint: 	git config --global init.defaultBranch <name>
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.3723630Z hint:
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.3724578Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.3726019Z hint: 'development'. The just-created branch can be renamed via this command:
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.3727240Z hint:
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.3728001Z hint: 	git branch -m <name>
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.3728800Z hint:
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.3729812Z hint: Disable this message with "git config set advice.defaultBranchName false"
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.3731287Z Initialized empty Git repository in /home/runner/work/firstmate/firstmate/.git/
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.3744364Z [command]/usr/bin/git remote add origin https://github.com/dbeihl-utilicast/firstmate
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.3799350Z ##[endgroup]
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.3800651Z ##[group]Disabling automatic garbage collection
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.3801823Z [command]/usr/bin/git config --local gc.auto 0
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.3830332Z ##[endgroup]
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.3831766Z ##[group]Setting up auth
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.3832847Z Removing SSH command configuration
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.3854278Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.3863711Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.4135363Z Removing HTTP extra header
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.4141104Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.4169006Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.4337281Z Removing includeIf entries pointing to credentials config files
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.4343017Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.4369785Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.4528341Z [command]/usr/bin/git config --file /home/runner/work/_temp/git-credentials-4ade6bd3-cfba-4111-ac2d-e19b05df0618.config http.https://github.com/.extraheader AUTHORIZATION: basic ***
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.4556174Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/firstmate/firstmate/.git.path /home/runner/work/_temp/git-credentials-4ade6bd3-cfba-4111-ac2d-e19b05df0618.config
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.4581970Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/firstmate/firstmate/.git/worktrees/*.path /home/runner/work/_temp/git-credentials-4ade6bd3-cfba-4111-ac2d-e19b05df0618.config
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.4610517Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-4ade6bd3-cfba-4111-ac2d-e19b05df0618.config
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.4635796Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-4ade6bd3-cfba-4111-ac2d-e19b05df0618.config
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.4664996Z ##[endgroup]
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.4665813Z ##[group]Fetching the repository
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:38.4671090Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules origin +refs/heads/*:refs/remotes/origin/* +refs/tags/*:refs/tags/*
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9757137Z From https://github.com/dbeihl-utilicast/firstmate
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9759636Z  * [new branch]        fix/codex-readiness-transaction -> origin/fix/codex-readiness-transaction
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9762430Z  * [new branch]        fix/fm-backend-test-home-isolation -> origin/fix/fm-backend-test-home-isolation
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9764934Z  * [new branch]        fm-brief-branch-currency -> origin/fm-brief-branch-currency
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9767021Z  * [new branch]        fm/afk-pi-wake-bypass-r1 -> origin/fm/afk-pi-wake-bypass-r1
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9768755Z  * [new branch]        fm/agents-md-cut        -> origin/fm/agents-md-cut
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9770494Z  * [new branch]        fm/agy-harness-adapter  -> origin/fm/agy-harness-adapter
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9772603Z  * [new branch]        fm/agy-harness-verify   -> origin/fm/agy-harness-verify
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9775704Z  * [new branch]        fm/agy-print-firstmate-owned-agy-one-shot-print-path-b5 -> origin/fm/agy-print-firstmate-owned-agy-one-shot-print-path-b5
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9778652Z  * [new branch]        fm/agy-second-reading   -> origin/fm/agy-second-reading
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9780559Z  * [new branch]        fm/backpass-agents-shrink -> origin/fm/backpass-agents-shrink
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9783850Z  * [new branch]        fm/bash32-empty-bash-3-2-empty-array-aborts-under-nounse-cd -> origin/fm/bash32-empty-bash-3-2-empty-array-aborts-under-nounse-cd
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9788252Z  * [new branch]        fm/bash32-reraise-re-raise-bash-3-2-empty-array-guards-thr-d1 -> origin/fm/bash32-reraise-re-raise-bash-3-2-empty-array-guards-thr-d1
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9791917Z  * [new branch]        fm/board-secondmate-card-answers -> origin/fm/board-secondmate-card-answers
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9796396Z  * [new branch]        fm/ci-minutes-cut-github-actions-minutes-on-the-firstm-96 -> origin/fm/ci-minutes-cut-github-actions-minutes-on-the-firstm-96
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9800578Z  * [new branch]        fm/crew-dispatch-v2-schema-fixes -> origin/fm/crew-dispatch-v2-schema-fixes
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9803597Z  * [new branch]        fm/crew-dispatch-v2-validation -> origin/fm/crew-dispatch-v2-validation
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9807131Z  * [new branch]        fm/fm-actionable-update-escalation-misclassification-r1 -> origin/fm/fm-actionable-update-escalation-misclassification-r1
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9811394Z  * [new branch]        fm/fm-actionable-update-escalation-misclassification-r3 -> origin/fm/fm-actionable-update-escalation-misclassification-r3
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9814903Z  * [new branch]        fm/fm-autoarm-treehouse-primary -> origin/fm/fm-autoarm-treehouse-primary
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9817502Z  * [new branch]        fm/fm-bearings-undated-hold-aging-r1 -> origin/fm/fm-bearings-undated-hold-aging-r1
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9820006Z  * [new branch]        fm/fm-board-secondmate-keys -> origin/fm/fm-board-secondmate-keys
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9822734Z  * [new branch]        fm/fm-branch-note-sailboat-r2 -> origin/fm/fm-branch-note-sailboat-r2
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9825616Z  * [new branch]        fm/fm-brief-branch-currency -> origin/fm/fm-brief-branch-currency
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9828100Z  * [new branch]        fm/fm-claude-imports-dialog -> origin/fm/fm-claude-imports-dialog
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9831130Z  * [new branch]        fm/fm-composer-thin-adapter-refactor-r1 -> origin/fm/fm-composer-thin-adapter-refactor-r1
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9834415Z  * [new branch]        fm/fm-documentation-audience-cleanup-r1 -> origin/fm/fm-documentation-audience-cleanup-r1
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9837207Z  * [new branch]        fm/fm-fix-round-cap     -> origin/fm/fm-fix-round-cap
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9839531Z  * [new branch]        fm/fm-foundry-failure-diagnosis -> origin/fm/fm-foundry-failure-diagnosis
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9842385Z  * [new branch]        fm/fm-gh-account-per-owner -> origin/fm/fm-gh-account-per-owner
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9845217Z  * [new branch]        fm/fm-grok-trust-dialog -> origin/fm/fm-grok-trust-dialog
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9847463Z  * [new branch]        fm/fm-grok-trust-dialog-2 -> origin/fm/fm-grok-trust-dialog-2
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9849828Z  * [new branch]        fm/fm-herdr-contiguity-resume -> origin/fm/fm-herdr-contiguity-resume
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9852569Z  * [new branch]        fm/fm-herdr-husk-classifier-test -> origin/fm/fm-herdr-husk-classifier-test
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9855417Z  * [new branch]        fm/fm-imports-preanswer-followups -> origin/fm/fm-imports-preanswer-followups
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9858173Z  * [new branch]        fm/fm-imports-preanswer-spawn-gap -> origin/fm/fm-imports-preanswer-spawn-gap
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9860580Z  * [new branch]        fm/fm-inbox-take-dedup  -> origin/fm/fm-inbox-take-dedup
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9863410Z  * [new branch]        fm/fm-liveness-relaunches-stopped-mates -> origin/fm/fm-liveness-relaunches-stopped-mates
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9866434Z  * [new branch]        fm/fm-liveness-sweep-self-contention -> origin/fm/fm-liveness-sweep-self-contention
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9869344Z  * [new branch]        fm/fm-luna-private-config -> origin/fm/fm-luna-private-config
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9871886Z  * [new branch]        fm/fm-merges-dont-close-issues -> origin/fm/fm-merges-dont-close-issues
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9875186Z  * [new branch]        fm/fm-needs-decision-main-only-r1 -> origin/fm/fm-needs-decision-main-only-r1
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9878333Z  * [new branch]        fm/fm-nm-evidence-store-firstmate-r1 -> origin/fm/fm-nm-evidence-store-firstmate-r1
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9881110Z  * [new branch]        fm/fm-pending-reply-skip-stopped -> origin/fm/fm-pending-reply-skip-stopped
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9884145Z  * [new branch]        fm/fm-per-task-delivery-override-r1 -> origin/fm/fm-per-task-delivery-override-r1
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9886645Z  * [new branch]        fm/fm-pr-merge-admin-bypass -> origin/fm/fm-pr-merge-admin-bypass
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9889090Z  * [new branch]        fm/fm-pr-ready-line-ignores-draft -> origin/fm/fm-pr-ready-line-ignores-draft
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9891466Z  * [new branch]        fm/fm-public-fork-guard -> origin/fm/fm-public-fork-guard
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9894450Z  * [new branch]        fm/fm-public-stow-readbeforewrite-port-r1 -> origin/fm/fm-public-stow-readbeforewrite-port-r1
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9897441Z  * [new branch]        fm/fm-relaunch-missing-endpoint -> origin/fm/fm-relaunch-missing-endpoint
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9900592Z  * [new branch]        fm/fm-restart-skips-stopped-lanes -> origin/fm/fm-restart-skips-stopped-lanes
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9903698Z  * [new branch]        fm/fm-retire-merged-proof-format -> origin/fm/fm-retire-merged-proof-format
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9906120Z  * [new branch]        fm/fm-retire-pruned-done-row -> origin/fm/fm-retire-pruned-done-row
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9908722Z  * [new branch]        fm/fm-review-findings-gate -> origin/fm/fm-review-findings-gate
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9911215Z  * [new branch]        fm/fm-safe-auto-reboot-simple-r1 -> origin/fm/fm-safe-auto-reboot-simple-r1
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9913672Z  * [new branch]        fm/fm-secondmate-codex-sol -> origin/fm/fm-secondmate-codex-sol
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9916115Z  * [new branch]        fm/fm-secondmate-codex-sol-readiness -> origin/fm/fm-secondmate-codex-sol-readiness
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9919124Z  * [new branch]        fm/fm-secondmate-creation-record-intake-r1 -> origin/fm/fm-secondmate-creation-record-intake-r1
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9922233Z  * [new branch]        fm/fm-secondmate-parent-channel-structural-r1 -> origin/fm/fm-secondmate-parent-channel-structural-r1
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9925744Z  * [new branch]        fm/fm-secondmate-record-atomic-transitions-r1 -> origin/fm/fm-secondmate-record-atomic-transitions-r1
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9928557Z  * [new branch]        fm/fm-secondmate-restart-runtime -> origin/fm/fm-secondmate-restart-runtime
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9930724Z  * [new branch]        fm/fm-send-guards-01    -> origin/fm/fm-send-guards-01
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9932787Z  * [new branch]        fm/fm-send-guards-01-followup -> origin/fm/fm-send-guards-01-followup
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9935369Z  * [new branch]        fm/fm-sessionstart-network-free-r1 -> origin/fm/fm-sessionstart-network-free-r1
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9937813Z  * [new branch]        fm/fm-shared-test-fixtures-r1 -> origin/fm/fm-shared-test-fixtures-r1
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9940170Z  * [new branch]        fm/fm-signal-wake-fanout -> origin/fm/fm-signal-wake-fanout
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9942329Z  * [new branch]        fm/fm-skill-frontmatter-desc-r1 -> origin/fm/fm-skill-frontmatter-desc-r1
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9945209Z  * [new branch]        fm/fm-spawn-claim-unreadable-records -> origin/fm/fm-spawn-claim-unreadable-records
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9947577Z  * [new branch]        fm/fm-stale-lock-reclaim -> origin/fm/fm-stale-lock-reclaim
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9949750Z  * [new branch]        fm/fm-stale-turnend-crosshome -> origin/fm/fm-stale-turnend-crosshome
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9952065Z  * [new branch]        fm/fm-stopped-lane-inbox-wakes -> origin/fm/fm-stopped-lane-inbox-wakes
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9954554Z  * [new branch]        fm/fm-stopped-lane-ordinary-send -> origin/fm/fm-stopped-lane-ordinary-send
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9957366Z  * [new branch]        fm/fm-supervision-pr-url-hallucination-r1 -> origin/fm/fm-supervision-pr-url-hallucination-r1
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9960183Z  * [new branch]        fm/fm-supervision-rearm-resurface-r1 -> origin/fm/fm-supervision-rearm-resurface-r1
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9962949Z  * [new branch]        fm/fm-supervision-refused-ack-loop-r1 -> origin/fm/fm-supervision-refused-ack-loop-r1
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9965796Z  * [new branch]        fm/fm-teardown-closes-captain-held-scout-r1 -> origin/fm/fm-teardown-closes-captain-held-scout-r1
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9968411Z  * [new branch]        fm/fm-tmux-target-false-alive -> origin/fm/fm-tmux-target-false-alive
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9970948Z  * [new branch]        fm/fm-treehouse-pool-cross-home-collision -> origin/fm/fm-treehouse-pool-cross-home-collision
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9973768Z  * [new branch]        fm/fm-treehouse-pool-root-regression -> origin/fm/fm-treehouse-pool-root-regression
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9976190Z  * [new branch]        fm/fm-update-restart-persist -> origin/fm/fm-update-restart-persist
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9979298Z  * [new branch]        fm/fm-update-wedge-fm-update-wedges-before-the-first-remote-ac -> origin/fm/fm-update-wedge-fm-update-wedges-before-the-first-remote-ac
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9982395Z  * [new branch]        fm/fm-upstream-catchup  -> origin/fm/fm-upstream-catchup
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9984391Z  * [new branch]        fm/fm-watcher-false-fail -> origin/fm/fm-watcher-false-fail
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9986533Z  * [new branch]        fm/fm-watcher-flap-autoarm-fix-r2 -> origin/fm/fm-watcher-flap-autoarm-fix-r2
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9988722Z  * [new branch]        fm/fm-watcher-hardening-r1 -> origin/fm/fm-watcher-hardening-r1
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9990978Z  * [new branch]        fm/fm-watcher-spins-without-beating -> origin/fm/fm-watcher-spins-without-beating
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9993335Z  * [new branch]        fm/fm-worker-done-without-push -> origin/fm/fm-worker-done-without-push
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9995423Z  * [new branch]        fm/fork-branch-currency -> origin/fm/fork-branch-currency
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9997374Z  * [new branch]        fm/fork-procevent-state-root -> origin/fm/fork-procevent-state-root
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:40.9999445Z  * [new branch]        fm/fork-stale-lock-reclaim -> origin/fm/fork-stale-lock-reclaim
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0001424Z  * [new branch]        fm/fork-treehouse-primary -> origin/fm/fork-treehouse-primary
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0004344Z  * [new branch]        fm/foundry-luna-dispatch-crewmates-onto-azure-foundry-gp-f7 -> origin/fm/foundry-luna-dispatch-crewmates-onto-azure-foundry-gp-f7
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0007380Z  * [new branch]        fm/harness-trim-unused-adapters -> origin/fm/harness-trim-unused-adapters
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0009894Z  * [new branch]        fm/herdr-workspace-contiguity-maintenance -> origin/fm/herdr-workspace-contiguity-maintenance
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0013381Z  * [new branch]        fm/host-plugins-desc-describe-host-plugin-list-as-an-exact-ho-5b -> origin/fm/host-plugins-desc-describe-host-plugin-list-as-an-exact-ho-5b
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0017194Z  * [new branch]        fm/host-plugins-remote-homes-converge-the-configured-cla-ad -> origin/fm/host-plugins-remote-homes-converge-the-configured-cla-ad
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0020024Z  * [new branch]        fm/inbox-take-crash-fix -> origin/fm/inbox-take-crash-fix
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0023074Z  * [new branch]        fm/local-model-red-first-red-first-contract-for-local-model-ship-0d -> origin/fm/local-model-red-first-red-first-contract-for-local-model-ship-0d
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0026832Z  * [new branch]        fm/model-list-crew-dispatch-validator-accepts-gpt-5-6-3c -> origin/fm/model-list-crew-dispatch-validator-accepts-gpt-5-6-3c
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0029895Z  * [new branch]        fm/nm-required-exempt-release-please-r1 -> origin/fm/nm-required-exempt-release-please-r1
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0032069Z  * [new branch]        fm/pr6-nomistakes-route -> origin/fm/pr6-nomistakes-route
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0034735Z  * [new branch]        fm/push-guard-refuse-unguarded-pushes-and-pr-creation-2c -> origin/fm/push-guard-refuse-unguarded-pushes-and-pr-creation-2c
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0037349Z  * [new branch]        fm/quiescence-ship      -> origin/fm/quiescence-ship
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0039924Z  * [new branch]        fm/qwen-harness-verify-qwen-code-as-a-dispatchable-harne-75 -> origin/fm/qwen-harness-verify-qwen-code-as-a-dispatchable-harne-75
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0042620Z  * [new branch]        fm/qwen-overnight-batch -> origin/fm/qwen-overnight-batch
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0044965Z  * [new branch]        fm/reconcile-inactive-crew-investigate-s1 -> origin/fm/reconcile-inactive-crew-investigate-s1
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0047178Z  * [new branch]        fm/relaunch-custody-fix -> origin/fm/relaunch-custody-fix
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0049853Z  * [new branch]        fm/remote-send-confirm-readback-fix-r1 -> origin/fm/remote-send-confirm-readback-fix-r1
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0052213Z  * [new branch]        fm/remote-send-delivery-delta-r1 -> origin/fm/remote-send-delivery-delta-r1
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0055192Z  * [new branch]        fm/retire-record-guarded-retire-path-for-a-finished-task-9c -> origin/fm/retire-record-guarded-retire-path-for-a-finished-task-9c
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0058122Z  * [new branch]        fm/retire-record-resume-fix -> origin/fm/retire-record-resume-fix
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0060043Z  * [new branch]        fm/retire-record-safety-fix -> origin/fm/retire-record-safety-fix
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0061994Z  * [new branch]        fm/retro-pause-lift-owner -> origin/fm/retro-pause-lift-owner
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0064112Z  * [new branch]        fm/retro-steer-destination-check -> origin/fm/retro-steer-destination-check
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0066111Z  * [new branch]        fm/review-gate-followups -> origin/fm/review-gate-followups
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0068796Z  * [new branch]        fm/running-list-read-only-lavish-view-of-the-fleet-runni-b3 -> origin/fm/running-list-read-only-lavish-view-of-the-fleet-runni-b3
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0071860Z  * [new branch]        fm/secondmate-autonomous-supervision-s7 -> origin/fm/secondmate-autonomous-supervision-s7
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0074256Z  * [new branch]        fm/spark-local-model-serving -> origin/fm/spark-local-model-serving
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0076989Z  * [new branch]        fm/tier-policy-crew-dispatch-top-tier-constraint-enforc-f3 -> origin/fm/tier-policy-crew-dispatch-top-tier-constraint-enforc-f3
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0080567Z  * [new branch]        fm/wakequeue-race-make-the-wake-queue-concurrent-append-dr-90 -> origin/fm/wakequeue-race-make-the-wake-queue-concurrent-append-dr-90
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0084081Z  * [new branch]        fm/watch-beat-mid-cycle-watcher-beacon-so-a-slow-poll-c3 -> origin/fm/watch-beat-mid-cycle-watcher-beacon-so-a-slow-poll-c3
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0086429Z  * [new branch]        main                    -> origin/main
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0087956Z  * [new branch]        no-mistakes/evidence    -> origin/no-mistakes/evidence
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0089730Z  * [new branch]        proto/herdr-child-workspaces -> origin/proto/herdr-child-workspaces
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0093231Z [command]/usr/bin/git branch --list --remote origin/main
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0094724Z   origin/main
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0096945Z [command]/usr/bin/git rev-parse refs/remotes/origin/main
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0098195Z 2d135c3524836876667bbb131dd063e2702ac7f1
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0100860Z ##[endgroup]
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0102304Z ##[group]Determining the checkout info
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0104051Z ##[endgroup]
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0104981Z [command]/usr/bin/git sparse-checkout disable
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0107533Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0110547Z ##[group]Checking out the ref
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0111928Z [command]/usr/bin/git checkout --progress --force -B main refs/remotes/origin/main
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0881694Z Switched to a new branch 'main'
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0884093Z branch 'main' set up to track 'origin/main'.
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0897897Z ##[endgroup]
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0931687Z [command]/usr/bin/git log -1 --format=%H
+Behavior tests (Herdr)	Run actions/checkout@v6	2026-09-23T17:02:41.0953005Z 2d135c3524836876667bbb131dd063e2702ac7f1
+Behavior tests (Herdr)	Require tools for real Herdr	﻿2026-09-23T17:02:41.1161476Z ##[group]Run set -eu
+Behavior tests (Herdr)	Require tools for real Herdr	2026-09-23T17:02:41.1162593Z ^[[36;1mset -eu^[[0m
+Behavior tests (Herdr)	Require tools for real Herdr	2026-09-23T17:02:41.1164211Z ^[[36;1mcommand -v jq >/dev/null || { echo "::error::jq is required"; exit 1; }^[[0m
+Behavior tests (Herdr)	Require tools for real Herdr	2026-09-23T17:02:41.1166066Z ^[[36;1mcommand -v python3 >/dev/null || { echo "::error::python3 is required"; exit 1; }^[[0m
+Behavior tests (Herdr)	Require tools for real Herdr	2026-09-23T17:02:41.1167919Z ^[[36;1mcommand -v curl >/dev/null || { echo "::error::curl is required"; exit 1; }^[[0m
+Behavior tests (Herdr)	Require tools for real Herdr	2026-09-23T17:02:41.1169657Z ^[[36;1mcommand -v tar >/dev/null || { echo "::error::tar is required"; exit 1; }^[[0m
+Behavior tests (Herdr)	Require tools for real Herdr	2026-09-23T17:02:41.1171047Z ^[[36;1mjq --version^[[0m
+Behavior tests (Herdr)	Require tools for real Herdr	2026-09-23T17:02:41.1171979Z ^[[36;1mpython3 --version^[[0m
+Behavior tests (Herdr)	Require tools for real Herdr	2026-09-23T17:02:41.1349371Z shell: /usr/bin/bash -e {0}
+Behavior tests (Herdr)	Require tools for real Herdr	2026-09-23T17:02:41.1350407Z ##[endgroup]
+Behavior tests (Herdr)	Require tools for real Herdr	2026-09-23T17:02:41.1449386Z jq-1.7
+Behavior tests (Herdr)	Require tools for real Herdr	2026-09-23T17:02:41.1458646Z Python 3.12.3
+Behavior tests (Herdr)	Install pinned Herdr	﻿2026-09-23T17:02:41.1528933Z ##[group]Run set -eu
+Behavior tests (Herdr)	Install pinned Herdr	2026-09-23T17:02:41.1529892Z ^[[36;1mset -eu^[[0m
+Behavior tests (Herdr)	Install pinned Herdr	2026-09-23T17:02:41.1530890Z ^[[36;1mbin/fm-install-herdr.sh "$RUNNER_TEMP/bin"^[[0m
+Behavior tests (Herdr)	Install pinned Herdr	2026-09-23T17:02:41.1532248Z ^[[36;1mecho "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"^[[0m
+Behavior tests (Herdr)	Install pinned Herdr	2026-09-23T17:02:41.1569730Z shell: /usr/bin/bash -e {0}
+Behavior tests (Herdr)	Install pinned Herdr	2026-09-23T17:02:41.1570815Z ##[endgroup]
+Behavior tests (Herdr)	Install pinned Herdr	2026-09-23T17:02:41.1681554Z fm-install-herdr.sh: downloading herdr-linux-x86_64 from https://github.com/ogulcancelik/herdr/releases/download/v0.7.4/herdr-linux-x86_64
+Behavior tests (Herdr)	Install pinned Herdr	2026-09-23T17:02:41.7188423Z fm-install-herdr.sh: installed herdr 0.7.4 (protocol 16) to /home/runner/work/_temp/bin/herdr
+Behavior tests (Herdr)	Install pinned Herdr	2026-09-23T17:02:41.7194427Z herdr 0.7.4
+Behavior tests (Herdr)	Install pinned Treehouse	﻿2026-09-23T17:02:41.7259962Z ##[group]Run set -eu
+Behavior tests (Herdr)	Install pinned Treehouse	2026-09-23T17:02:41.7260325Z ^[[36;1mset -eu^[[0m
+Behavior tests (Herdr)	Install pinned Treehouse	2026-09-23T17:02:41.7260768Z ^[[36;1m# Several real-herdr-gated E2E scripts require treehouse for spawn^[[0m
+Behavior tests (Herdr)	Install pinned Treehouse	2026-09-23T17:02:41.7261296Z ^[[36;1m# worktree acquisition (presentation, workspace-per-home, autodetect).^[[0m
+Behavior tests (Herdr)	Install pinned Treehouse	2026-09-23T17:02:41.7261799Z ^[[36;1mbin/fm-install-treehouse.sh "$RUNNER_TEMP/bin"^[[0m
+Behavior tests (Herdr)	Install pinned Treehouse	2026-09-23T17:02:41.7262211Z ^[[36;1mecho "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"^[[0m
+Behavior tests (Herdr)	Install pinned Treehouse	2026-09-23T17:02:41.7302827Z shell: /usr/bin/bash -e {0}
+Behavior tests (Herdr)	Install pinned Treehouse	2026-09-23T17:02:41.7303485Z ##[endgroup]
+Behavior tests (Herdr)	Install pinned Treehouse	2026-09-23T17:02:41.7398937Z fm-install-treehouse.sh: downloading treehouse-v2.3.0-linux-amd64.tar.gz from https://github.com/kunchenguid/treehouse/releases/download/v2.3.0/treehouse-v2.3.0-linux-amd64.tar.gz
+Behavior tests (Herdr)	Install pinned Treehouse	2026-09-23T17:02:42.2045562Z fm-install-treehouse.sh: installed treehouse v2.3.0 to /home/runner/work/_temp/bin/treehouse
+Behavior tests (Herdr)	Install pinned Treehouse	2026-09-23T17:02:42.2065162Z v2.3.0
+Behavior tests (Herdr)	Assert Herdr pin and protocol floor	﻿2026-09-23T17:02:42.2134946Z ##[group]Run set -eu
+Behavior tests (Herdr)	Assert Herdr pin and protocol floor	2026-09-23T17:02:42.2135304Z ^[[36;1mset -eu^[[0m
+Behavior tests (Herdr)	Assert Herdr pin and protocol floor	2026-09-23T17:02:42.2135708Z ^[[36;1mcommand -v herdr >/dev/null || { echo "::error::herdr not on PATH after install"; exit 1; }^[[0m
+Behavior tests (Herdr)	Assert Herdr pin and protocol floor	2026-09-23T17:02:42.2136330Z ^[[36;1mcommand -v treehouse >/dev/null || { echo "::error::treehouse not on PATH after install"; exit 1; }^[[0m
+Behavior tests (Herdr)	Assert Herdr pin and protocol floor	2026-09-23T17:02:42.2136811Z ^[[36;1mherdr --version^[[0m
+Behavior tests (Herdr)	Assert Herdr pin and protocol floor	2026-09-23T17:02:42.2137104Z ^[[36;1mtreehouse --version^[[0m
+Behavior tests (Herdr)	Assert Herdr pin and protocol floor	2026-09-23T17:02:42.2137391Z ^[[36;1mstatus=$(herdr status --json)^[[0m
+Behavior tests (Herdr)	Assert Herdr pin and protocol floor	2026-09-23T17:02:42.2137686Z ^[[36;1mprintf '%s\n' "$status"^[[0m
+Behavior tests (Herdr)	Assert Herdr pin and protocol floor	2026-09-23T17:02:42.2138278Z ^[[36;1mversion=$(printf '%s' "$status" | jq -r '.client.version // empty')^[[0m
+Behavior tests (Herdr)	Assert Herdr pin and protocol floor	2026-09-23T17:02:42.2138749Z ^[[36;1mprotocol=$(printf '%s' "$status" | jq -r '.client.protocol // empty')^[[0m
+Behavior tests (Herdr)	Assert Herdr pin and protocol floor	2026-09-23T17:02:42.2139129Z ^[[36;1m[ "$version" = "0.7.4" ] || {^[[0m
+Behavior tests (Herdr)	Assert Herdr pin and protocol floor	2026-09-23T17:02:42.2139522Z ^[[36;1m  echo "::error::expected exact Herdr pin 0.7.4, got ${version:-<empty>}"^[[0m
+Behavior tests (Herdr)	Assert Herdr pin and protocol floor	2026-09-23T17:02:42.2139919Z ^[[36;1m  exit 1^[[0m
+Behavior tests (Herdr)	Assert Herdr pin and protocol floor	2026-09-23T17:02:42.2140261Z ^[[36;1m}^[[0m
+Behavior tests (Herdr)	Assert Herdr pin and protocol floor	2026-09-23T17:02:42.2140529Z ^[[36;1mcase "$protocol" in^[[0m
+Behavior tests (Herdr)	Assert Herdr pin and protocol floor	2026-09-23T17:02:42.2140908Z ^[[36;1m  ''|*[!0-9]*) echo "::error::could not read client protocol"; exit 1 ;;^[[0m
+Behavior tests (Herdr)	Assert Herdr pin and protocol floor	2026-09-23T17:02:42.2141300Z ^[[36;1mesac^[[0m
+Behavior tests (Herdr)	Assert Herdr pin and protocol floor	2026-09-23T17:02:42.2141650Z ^[[36;1m[ "$protocol" -ge 16 ] || {^[[0m
+Behavior tests (Herdr)	Assert Herdr pin and protocol floor	2026-09-23T17:02:42.2142039Z ^[[36;1m  echo "::error::herdr protocol $protocol is below the required floor 16"^[[0m
+Behavior tests (Herdr)	Assert Herdr pin and protocol floor	2026-09-23T17:02:42.2142414Z ^[[36;1m  exit 1^[[0m
+Behavior tests (Herdr)	Assert Herdr pin and protocol floor	2026-09-23T17:02:42.2142675Z ^[[36;1m}^[[0m
+Behavior tests (Herdr)	Assert Herdr pin and protocol floor	2026-09-23T17:02:42.2181418Z shell: /usr/bin/bash -e {0}
+Behavior tests (Herdr)	Assert Herdr pin and protocol floor	2026-09-23T17:02:42.2181810Z ##[endgroup]
+Behavior tests (Herdr)	Assert Herdr pin and protocol floor	2026-09-23T17:02:42.2243555Z herdr 0.7.4
+Behavior tests (Herdr)	Assert Herdr pin and protocol floor	2026-09-23T17:02:42.2264937Z v2.3.0
+Behavior tests (Herdr)	Assert Herdr pin and protocol floor	2026-09-23T17:02:42.2280172Z {"client":{"version":"0.7.4","channel":"stable","protocol":16,"binary":"/home/runner/work/_temp/bin/herdr","session":null},"server":{"status":"not_running","running":false,"version":null,"protocol":null,"capabilities":null,"compatible":null,"socket":"/home/runner/.config/herdr/herdr.sock","session":null,"restart_needed":false},"update":{"restart_needed":false}}
+Behavior tests (Herdr)	Start default Herdr session for fleet-state tripwire	﻿2026-09-23T17:02:42.2358169Z ##[group]Run set -eu
+Behavior tests (Herdr)	Start default Herdr session for fleet-state tripwire	2026-09-23T17:02:42.2358539Z ^[[36;1mset -eu^[[0m
+Behavior tests (Herdr)	Start default Herdr session for fleet-state tripwire	2026-09-23T17:02:42.2358886Z ^[[36;1m# Lab provision requires exactly one running default session so the^[[0m
+Behavior tests (Herdr)	Start default Herdr session for fleet-state tripwire	2026-09-23T17:02:42.2359391Z ^[[36;1m# default-session tripwire can arm. Start it headless; never use it^[[0m
+Behavior tests (Herdr)	Start default Herdr session for fleet-state tripwire	2026-09-23T17:02:42.2359840Z ^[[36;1m# for lab work (tests still refuse default and use fm-lab-* only).^[[0m
+Behavior tests (Herdr)	Start default Herdr session for fleet-state tripwire	2026-09-23T17:02:42.2360244Z ^[[36;1mmkdir -p "$RUNNER_TEMP/fm-herdr"^[[0m
+Behavior tests (Herdr)	Start default Herdr session for fleet-state tripwire	2026-09-23T17:02:42.2360654Z ^[[36;1mnohup herdr server >"$RUNNER_TEMP/fm-herdr/default-server.log" 2>&1 &^[[0m
+Behavior tests (Herdr)	Start default Herdr session for fleet-state tripwire	2026-09-23T17:02:42.2361129Z ^[[36;1mecho $! >"$RUNNER_TEMP/fm-herdr/default-server.pid"^[[0m
+Behavior tests (Herdr)	Start default Herdr session for fleet-state tripwire	2026-09-23T17:02:42.2361508Z ^[[36;1mattempt=0^[[0m
+Behavior tests (Herdr)	Start default Herdr session for fleet-state tripwire	2026-09-23T17:02:42.2361788Z ^[[36;1mwhile [ "$attempt" -lt 150 ]; do^[[0m
+Behavior tests (Herdr)	Start default Herdr session for fleet-state tripwire	2026-09-23T17:02:42.2362245Z ^[[36;1m  running=$(herdr status --json 2>/dev/null | jq -r '.server.running // false' || echo false)^[[0m
+Behavior tests (Herdr)	Start default Herdr session for fleet-state tripwire	2026-09-23T17:02:42.2362688Z ^[[36;1m  if [ "$running" = true ]; then^[[0m
+Behavior tests (Herdr)	Start default Herdr session for fleet-state tripwire	2026-09-23T17:02:42.2363329Z ^[[36;1m    herdr session list --json | jq -e '^[[0m
+Behavior tests (Herdr)	Start default Herdr session for fleet-state tripwire	2026-09-23T17:02:42.2363769Z ^[[36;1m      [.sessions[]? | select(.default == true and .name == "default" and .running == true)]^[[0m
+Behavior tests (Herdr)	Start default Herdr session for fleet-state tripwire	2026-09-23T17:02:42.2364171Z ^[[36;1m      | length == 1^[[0m
+Behavior tests (Herdr)	Start default Herdr session for fleet-state tripwire	2026-09-23T17:02:42.2364486Z ^[[36;1m    ' >/dev/null^[[0m
+Behavior tests (Herdr)	Start default Herdr session for fleet-state tripwire	2026-09-23T17:02:42.2364789Z ^[[36;1m    echo "default Herdr session is running"^[[0m
+Behavior tests (Herdr)	Start default Herdr session for fleet-state tripwire	2026-09-23T17:02:42.2365177Z ^[[36;1m    exit 0^[[0m
+Behavior tests (Herdr)	Start default Herdr session for fleet-state tripwire	2026-09-23T17:02:42.2365427Z ^[[36;1m  fi^[[0m
+Behavior tests (Herdr)	Start default Herdr session for fleet-state tripwire	2026-09-23T17:02:42.2365667Z ^[[36;1m  sleep 0.2^[[0m
+Behavior tests (Herdr)	Start default Herdr session for fleet-state tripwire	2026-09-23T17:02:42.2365963Z ^[[36;1m  attempt=$((attempt + 1))^[[0m
+Behavior tests (Herdr)	Start default Herdr session for fleet-state tripwire	2026-09-23T17:02:42.2366247Z ^[[36;1mdone^[[0m
+Behavior tests (Herdr)	Start default Herdr session for fleet-state tripwire	2026-09-23T17:02:42.2366558Z ^[[36;1mecho "::error::default Herdr server did not become ready"^[[0m
+Behavior tests (Herdr)	Start default Herdr session for fleet-state tripwire	2026-09-23T17:02:42.2367002Z ^[[36;1mcat "$RUNNER_TEMP/fm-herdr/default-server.log" || true^[[0m
+Behavior tests (Herdr)	Start default Herdr session for fleet-state tripwire	2026-09-23T17:02:42.2367349Z ^[[36;1mexit 1^[[0m
+Behavior tests (Herdr)	Start default Herdr session for fleet-state tripwire	2026-09-23T17:02:42.2401190Z shell: /usr/bin/bash -e {0}
+Behavior tests (Herdr)	Start default Herdr session for fleet-state tripwire	2026-09-23T17:02:42.2401651Z ##[endgroup]
+Behavior tests (Herdr)	Start default Herdr session for fleet-state tripwire	2026-09-23T17:02:42.4584935Z default Herdr session is running
+Behavior tests (Herdr)	Snapshot pre-suite Herdr sessions	﻿2026-09-23T17:02:42.4642433Z ##[group]Run set -eu
+Behavior tests (Herdr)	Snapshot pre-suite Herdr sessions	2026-09-23T17:02:42.4643067Z ^[[36;1mset -eu^[[0m
+Behavior tests (Herdr)	Snapshot pre-suite Herdr sessions	2026-09-23T17:02:42.4643451Z ^[[36;1mmkdir -p "$RUNNER_TEMP/fm-herdr"^[[0m
+Behavior tests (Herdr)	Snapshot pre-suite Herdr sessions	2026-09-23T17:02:42.4644164Z ^[[36;1mbin/fm-herdr-ci-cleanup.sh snapshot "$RUNNER_TEMP/fm-herdr/sessions-before.json"^[[0m
+Behavior tests (Herdr)	Snapshot pre-suite Herdr sessions	2026-09-23T17:02:42.4684665Z shell: /usr/bin/bash -e {0}
+Behavior tests (Herdr)	Snapshot pre-suite Herdr sessions	2026-09-23T17:02:42.4685116Z ##[endgroup]
+Behavior tests (Herdr)	Snapshot pre-suite Herdr sessions	2026-09-23T17:02:42.4804873Z fm-herdr-ci-cleanup.sh: wrote session snapshot to /home/runner/work/_temp/fm-herdr/sessions-before.json (1 names)
+Behavior tests (Herdr)	Run real-Herdr family (serial, required)	﻿2026-09-23T17:02:42.4840749Z ##[group]Run set -eu
+Behavior tests (Herdr)	Run real-Herdr family (serial, required)	2026-09-23T17:02:42.4841087Z ^[[36;1mset -eu^[[0m
+Behavior tests (Herdr)	Run real-Herdr family (serial, required)	2026-09-23T17:02:42.4841396Z ^[[36;1mmkdir -p "$RUNNER_TEMP/fm-test"^[[0m
+Behavior tests (Herdr)	Run real-Herdr family (serial, required)	2026-09-23T17:02:42.4841795Z ^[[36;1m# Serial only. Fail if any script reports herdr not found. Live^[[0m
+Behavior tests (Herdr)	Run real-Herdr family (serial, required)	2026-09-23T17:02:42.4842266Z ^[[36;1m# harness credential tests stay outside this family (opt-in env only).^[[0m
+Behavior tests (Herdr)	Run real-Herdr family (serial, required)	2026-09-23T17:02:42.4842705Z ^[[36;1mbin/fm-test-run.sh --family real-herdr-gated \^[[0m
+Behavior tests (Herdr)	Run real-Herdr family (serial, required)	2026-09-23T17:02:42.4843404Z ^[[36;1m  --fail-on-gate-skip 'herdr not found' \^[[0m
+Behavior tests (Herdr)	Run real-Herdr family (serial, required)	2026-09-23T17:02:42.4843822Z ^[[36;1m  --json "$RUNNER_TEMP/fm-test/fm-test-timing-herdr.json"^[[0m
+Behavior tests (Herdr)	Run real-Herdr family (serial, required)	2026-09-23T17:02:42.4874734Z shell: /usr/bin/bash -e {0}
+Behavior tests (Herdr)	Run real-Herdr family (serial, required)	2026-09-23T17:02:42.4875053Z ##[endgroup]
+Behavior tests (Herdr)	Run real-Herdr family (serial, required)	2026-09-23T17:02:42.9209090Z FM_TEST_BEGIN 2026-09-23T17:02:42Z tests/fm-afk-inject-herdr-e2e.test.sh family=real-herdr-gated expected_gate_skip=herdr
+Behavior tests (Herdr)	Run real-Herdr family (serial, required)	2026-09-23T17:22:54.9896390Z ##[error]The action 'Run real-Herdr family (serial, required)' has timed out after 20 minutes.
+Behavior tests (Herdr)	Cleanup job-owned Herdr lab sessions	﻿2026-09-23T17:22:54.9942333Z ##[group]Run set -eu
+Behavior tests (Herdr)	Cleanup job-owned Herdr lab sessions	2026-09-23T17:22:54.9942679Z ^[[36;1mset -eu^[[0m
+Behavior tests (Herdr)	Cleanup job-owned Herdr lab sessions	2026-09-23T17:22:54.9943221Z ^[[36;1mbin/fm-herdr-ci-cleanup.sh teardown "$RUNNER_TEMP/fm-herdr/sessions-before.json" || {^[[0m
+Behavior tests (Herdr)	Cleanup job-owned Herdr lab sessions	2026-09-23T17:22:54.9943735Z ^[[36;1m  echo "::warning::lab session cleanup reported a problem; see logs"^[[0m
+Behavior tests (Herdr)	Cleanup job-owned Herdr lab sessions	2026-09-23T17:22:54.9944214Z ^[[36;1m  # Surface diagnostics without weakening the suite result above.^[[0m
+Behavior tests (Herdr)	Cleanup job-owned Herdr lab sessions	2026-09-23T17:22:54.9944593Z ^[[36;1m  herdr session list --json || true^[[0m
+Behavior tests (Herdr)	Cleanup job-owned Herdr lab sessions	2026-09-23T17:22:54.9944878Z ^[[36;1m  exit 1^[[0m
+Behavior tests (Herdr)	Cleanup job-owned Herdr lab sessions	2026-09-23T17:22:54.9945143Z ^[[36;1m}^[[0m
+Behavior tests (Herdr)	Cleanup job-owned Herdr lab sessions	2026-09-23T17:22:54.9979920Z shell: /usr/bin/bash -e {0}
+Behavior tests (Herdr)	Cleanup job-owned Herdr lab sessions	2026-09-23T17:22:54.9980254Z ##[endgroup]
+Behavior tests (Herdr)	Cleanup job-owned Herdr lab sessions	2026-09-23T17:22:55.0169510Z fm-herdr-ci-cleanup.sh: stopping job-owned lab session fm-lab-afk-herdr-e2e-2673
+Behavior tests (Herdr)	Cleanup job-owned Herdr lab sessions	2026-09-23T17:22:55.4004739Z fm-herdr-ci-cleanup.sh: deleted job-owned lab session fm-lab-afk-herdr-e2e-2673
+Behavior tests (Herdr)	Upload Herdr timing and diagnostics	﻿2026-09-23T17:22:55.4086052Z ##[group]Run actions/upload-artifact@v4
+Behavior tests (Herdr)	Upload Herdr timing and diagnostics	2026-09-23T17:22:55.4086390Z with:
+Behavior tests (Herdr)	Upload Herdr timing and diagnostics	2026-09-23T17:22:55.4086696Z   name: fm-test-timing-herdr
+Behavior tests (Herdr)	Upload Herdr timing and diagnostics	2026-09-23T17:22:55.4087321Z   path: /home/runner/work/_temp/fm-test/fm-test-timing-herdr.json
+Behavior tests (Herdr)	Upload Herdr timing and diagnostics	/home/runner/work/_temp/fm-herdr/sessions-before.json
+Behavior tests (Herdr)	Upload Herdr timing and diagnostics	/home/runner/work/_temp/fm-herdr/default-server.log
+Behavior tests (Herdr)	Upload Herdr timing and diagnostics	
+Behavior tests (Herdr)	Upload Herdr timing and diagnostics	2026-09-23T17:22:55.4088025Z   if-no-files-found: warn
+Behavior tests (Herdr)	Upload Herdr timing and diagnostics	2026-09-23T17:22:55.4088299Z   compression-level: 6
+Behavior tests (Herdr)	Upload Herdr timing and diagnostics	2026-09-23T17:22:55.4088544Z   overwrite: false
+Behavior tests (Herdr)	Upload Herdr timing and diagnostics	2026-09-23T17:22:55.4088832Z   include-hidden-files: false
+Behavior tests (Herdr)	Upload Herdr timing and diagnostics	2026-09-23T17:22:55.4089110Z ##[endgroup]
+Behavior tests (Herdr)	Upload Herdr timing and diagnostics	2026-09-23T17:22:55.5500977Z (node:258978) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+Behavior tests (Herdr)	Upload Herdr timing and diagnostics	2026-09-23T17:22:55.5502343Z (Use `node --trace-deprecation ...` to show where the warning was created)
+Behavior tests (Herdr)	Upload Herdr timing and diagnostics	2026-09-23T17:22:55.5588076Z Multiple search paths detected. Calculating the least common ancestor of all paths
+Behavior tests (Herdr)	Upload Herdr timing and diagnostics	2026-09-23T17:22:55.5589903Z The least common ancestor is /home/runner/work/_temp. This will be the root directory of the artifact
+Behavior tests (Herdr)	Upload Herdr timing and diagnostics	2026-09-23T17:22:55.5590924Z With the provided path, there will be 2 files uploaded
+Behavior tests (Herdr)	Upload Herdr timing and diagnostics	2026-09-23T17:22:55.5591708Z Artifact name is valid!
+Behavior tests (Herdr)	Upload Herdr timing and diagnostics	2026-09-23T17:22:55.5592170Z Root directory input is valid!
+Behavior tests (Herdr)	Upload Herdr timing and diagnostics	2026-09-23T17:22:55.8037821Z Beginning upload of artifact content to blob storage
+Behavior tests (Herdr)	Upload Herdr timing and diagnostics	2026-09-23T17:22:55.8191564Z (node:258978) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+Behavior tests (Herdr)	Upload Herdr timing and diagnostics	2026-09-23T17:22:55.9849699Z Uploaded bytes 499
+Behavior tests (Herdr)	Upload Herdr timing and diagnostics	2026-09-23T17:22:56.0497604Z Finished uploading artifact content to blob storage!
+Behavior tests (Herdr)	Upload Herdr timing and diagnostics	2026-09-23T17:22:56.0498295Z SHA256 digest of uploaded artifact zip is abfea18fd48705517d6a8da341de365568fc12c8c1c1b059868804d8fde6bb39
+Behavior tests (Herdr)	Upload Herdr timing and diagnostics	2026-09-23T17:22:56.0499875Z Finalizing artifact upload
+Behavior tests (Herdr)	Upload Herdr timing and diagnostics	2026-09-23T17:22:56.4191146Z Artifact fm-test-timing-herdr.zip successfully finalized. Artifact ID 10767360321
+Behavior tests (Herdr)	Upload Herdr timing and diagnostics	2026-09-23T17:22:56.4192471Z Artifact fm-test-timing-herdr has been successfully uploaded! Final size is 499 bytes. Artifact ID is 10767360321
+Behavior tests (Herdr)	Upload Herdr timing and diagnostics	2026-09-23T17:22:56.4198289Z Artifact download URL: https://github.com/dbeihl-utilicast/firstmate/actions/runs/35892901749/artifacts/10767360321
+Behavior tests (Herdr)	Post Run actions/checkout@v6	﻿2026-09-23T17:22:56.4379360Z Post job cleanup.
+Behavior tests (Herdr)	Post Run actions/checkout@v6	2026-09-23T17:22:56.5121296Z [command]/usr/bin/git version
+Behavior tests (Herdr)	Post Run actions/checkout@v6	2026-09-23T17:22:56.5151649Z git version 2.55.0
+Behavior tests (Herdr)	Post Run actions/checkout@v6	2026-09-23T17:22:56.5183072Z Temporarily overriding HOME='/home/runner/work/_temp/abd132c9-b433-4e33-ab71-60c40653af00' before making global git config changes
+Behavior tests (Herdr)	Post Run actions/checkout@v6	2026-09-23T17:22:56.5184385Z Adding repository directory to the temporary git global config as a safe directory
+Behavior tests (Herdr)	Post Run actions/checkout@v6	2026-09-23T17:22:56.5187907Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/firstmate/firstmate
+Behavior tests (Herdr)	Post Run actions/checkout@v6	2026-09-23T17:22:56.5214645Z Removing SSH command configuration
+Behavior tests (Herdr)	Post Run actions/checkout@v6	2026-09-23T17:22:56.5220184Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+Behavior tests (Herdr)	Post Run actions/checkout@v6	2026-09-23T17:22:56.5248873Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+Behavior tests (Herdr)	Post Run actions/checkout@v6	2026-09-23T17:22:56.5427473Z Removing HTTP extra header
+Behavior tests (Herdr)	Post Run actions/checkout@v6	2026-09-23T17:22:56.5432305Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+Behavior tests (Herdr)	Post Run actions/checkout@v6	2026-09-23T17:22:56.5469954Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+Behavior tests (Herdr)	Post Run actions/checkout@v6	2026-09-23T17:22:56.5646849Z Removing includeIf entries pointing to credentials config files
+Behavior tests (Herdr)	Post Run actions/checkout@v6	2026-09-23T17:22:56.5651269Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+Behavior tests (Herdr)	Post Run actions/checkout@v6	2026-09-23T17:22:56.5680185Z includeif.gitdir:/home/runner/work/firstmate/firstmate/.git.path
+Behavior tests (Herdr)	Post Run actions/checkout@v6	2026-09-23T17:22:56.5681573Z includeif.gitdir:/home/runner/work/firstmate/firstmate/.git/worktrees/*.path
+Behavior tests (Herdr)	Post Run actions/checkout@v6	2026-09-23T17:22:56.5682519Z includeif.gitdir:/github/workspace/.git.path
+Behavior tests (Herdr)	Post Run actions/checkout@v6	2026-09-23T17:22:56.5683492Z includeif.gitdir:/github/workspace/.git/worktrees/*.path
+Behavior tests (Herdr)	Post Run actions/checkout@v6	2026-09-23T17:22:56.5690066Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/firstmate/firstmate/.git.path
+Behavior tests (Herdr)	Post Run actions/checkout@v6	2026-09-23T17:22:56.5708391Z /home/runner/work/_temp/git-credentials-4ade6bd3-cfba-4111-ac2d-e19b05df0618.config
+Behavior tests (Herdr)	Post Run actions/checkout@v6	2026-09-23T17:22:56.5718579Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/firstmate/firstmate/.git.path /home/runner/work/_temp/git-credentials-4ade6bd3-cfba-4111-ac2d-e19b05df0618.config
+Behavior tests (Herdr)	Post Run actions/checkout@v6	2026-09-23T17:22:56.5748391Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/firstmate/firstmate/.git/worktrees/*.path
+Behavior tests (Herdr)	Post Run actions/checkout@v6	2026-09-23T17:22:56.5765876Z /home/runner/work/_temp/git-credentials-4ade6bd3-cfba-4111-ac2d-e19b05df0618.config
+Behavior tests (Herdr)	Post Run actions/checkout@v6	2026-09-23T17:22:56.5773680Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/firstmate/firstmate/.git/worktrees/*.path /home/runner/work/_temp/git-credentials-4ade6bd3-cfba-4111-ac2d-e19b05df0618.config
+Behavior tests (Herdr)	Post Run actions/checkout@v6	2026-09-23T17:22:56.5802688Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git.path
+Behavior tests (Herdr)	Post Run actions/checkout@v6	2026-09-23T17:22:56.5819766Z /github/runner_temp/git-credentials-4ade6bd3-cfba-4111-ac2d-e19b05df0618.config
+Behavior tests (Herdr)	Post Run actions/checkout@v6	2026-09-23T17:22:56.5832561Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-4ade6bd3-cfba-4111-ac2d-e19b05df0618.config
+Behavior tests (Herdr)	Post Run actions/checkout@v6	2026-09-23T17:22:56.5853977Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git/worktrees/*.path
+Behavior tests (Herdr)	Post Run actions/checkout@v6	2026-09-23T17:22:56.5871307Z /github/runner_temp/git-credentials-4ade6bd3-cfba-4111-ac2d-e19b05df0618.config
+Behavior tests (Herdr)	Post Run actions/checkout@v6	2026-09-23T17:22:56.5879196Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-4ade6bd3-cfba-4111-ac2d-e19b05df0618.config
+Behavior tests (Herdr)	Post Run actions/checkout@v6	2026-09-23T17:22:56.5908072Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+Behavior tests (Herdr)	Post Run actions/checkout@v6	2026-09-23T17:22:56.6091940Z Removing credentials config '/home/runner/work/_temp/git-credentials-4ade6bd3-cfba-4111-ac2d-e19b05df0618.config'
+Behavior tests (Herdr)	Complete job	﻿2026-09-23T17:22:56.6210167Z Cleaning up orphan processes
+Behavior tests (Herdr)	Complete job	2026-09-23T17:22:56.6407333Z Terminate orphan process: pid (2120) (herdr)
+Behavior tests (Herdr)	Complete job	2026-09-23T17:22:56.6430897Z Terminate orphan process: pid (2158) (bash)
+Behavior tests (Herdr)	Complete job	2026-09-23T17:22:56.6452847Z Terminate orphan process: pid (2673) (bash)
+Behavior tests (Herdr)	Complete job	2026-09-23T17:22:56.6475898Z Terminate orphan process: pid (2674) (tee)
+Behavior tests (Herdr)	Complete job	2026-09-23T17:22:56.6639254Z Terminate orphan process: pid (3123) (bash)
+Behavior tests (Herdr)	Complete job	2026-09-23T17:22:56.6658333Z Terminate orphan process: pid (5813) (bash)
+Behavior tests (Herdr)	Complete job	2026-09-23T17:22:56.6730417Z Terminate orphan process: pid (258793) (sleep)
+Behavior tests (Herdr)	Complete job	2026-09-23T17:22:56.6753768Z Terminate orphan process: pid (259242) (sleep)
+Behavior tests (Herdr)	Complete job	2026-09-23T17:22:56.6787379Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/upload-artifact@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/

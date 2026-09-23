@@ -1,0 +1,6 @@
+main runs (Herdr job / other failures)
+49129da9 35869667862: Herdr success (13:48-14:00); failure was Lint canonical partition only
+2d135c35 35892901749: Herdr hung 20m at first script fm-afk-inject-herdr-e2e, no output; step timed out
+ca895bed 35910672156, 8148310e, 251fabfa: all success
+a6eddbc8 35924556546: Herdr success; Lint 2 failed
+b2e56b5b 35928819352: Herdr success; portable serial 4 failed (superseded paced runner test)
