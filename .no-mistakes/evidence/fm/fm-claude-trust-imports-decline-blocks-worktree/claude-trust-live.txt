@@ -1,0 +1,14 @@
+Firstmate imports-only pre-answer for canonical project:
+imports declined: /Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M37TJTPVVHB90Z2SAFC2KW56/.trust-live.nE23KE/project
+Register linked worker worktree after that decline:
+trusted: /Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M37TJTPVVHB90Z2SAFC2KW56/.trust-live.nE23KE/worktree
+trusted (project root): /Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M37TJTPVVHB90Z2SAFC2KW56/.trust-live.nE23KE/project
+Persisted canonical project: {"trusted":true,"importsApproved":false,"warningShown":true}
+Persisted worker worktree: {"trusted":true,"importsApproved":false,"warningShown":true}
+Explicit approval stays approved across worktree registration:
+trusted: /Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M37TJTPVVHB90Z2SAFC2KW56/.trust-live.nE23KE/worktree
+trusted (project root): /Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M37TJTPVVHB90Z2SAFC2KW56/.trust-live.nE23KE/project
+Both trusted entries retain approved imports.
+Adversarial scope check: primary checkout as worker target:
+error: refusing to pre-register Claude trust: '/Users/davidsair/.no-mistakes/worktrees/2f2b4426b91c/01M37TJTPVVHB90Z2SAFC2KW56/.trust-live.nE23KE/project' is a primary checkout, not an isolated worktree
+Primary checkout refused.
