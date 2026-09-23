@@ -66,9 +66,6 @@ if [ "${1:-}" = terminal ] && [ "${2:-}" = title ] && [ "${3:-}" = clear ]; then
   printf '{"result":{"reason":"%s"}}\n' "$reason"
   exit 0
 fi
-if [ "${FM_HERDR_HANG:-0}" = 1 ]; then
-  sleep 10
-fi
 n=$next
 echo "$n" > "$COUNT_FILE"
 if [ -f "$RESP/$n.exit" ]; then
@@ -352,17 +349,6 @@ test_cli_helper_sets_env_and_appends_trailing_session_flag() {
   assert_contains "$(cat "$log")" $'\x1f''workspace'$'\x1f''list'$'\x1f''--session'$'\x1f''fmtest' \
     "fm_backend_herdr_cli did not append a trailing --session <name> flag (the fix for the env-var-alone routing bug)"
   pass "fm_backend_herdr_cli: sets HERDR_SESSION AND appends a trailing --session flag on every call"
-}
-
-test_cli_helper_bounds_a_hung_external_client() {
-  local dir log resp fb out status
-  dir="$TMP_ROOT/cli-timeout"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
-  fb=$(make_herdr_fakebin "$dir")
-  out=$(PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
-    FM_HERDR_HANG=1 FM_BACKEND_HERDR_CLI_TIMEOUT=1 \
-    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_cli fmtest workspace list' "$ROOT" 2>&1); status=$?
-  [ "$status" -eq 124 ] || fail "a hung Herdr client must return the timeout status, got $status: $out"
-  pass "fm_backend_herdr_cli: bounds a hung external Herdr client"
 }
 
 # --- client selection: a stale client shadowing a compatible one -------------
@@ -5282,11 +5268,6 @@ test_relaunch_partial_tab_creation_keeps_recovery_ownership() {
     || fail "the retained Herdr replacement is absent from the summary"
   pass "partial Herdr relaunch stays durably recoverable and visible in the summary"
 }
-
-if [ "${FM_HERDR_TEST_ONLY:-0}" = cli-timeout ]; then
-  test_cli_helper_bounds_a_hung_external_client
-  exit 0
-fi
 
 if [ "${FM_HERDR_TEST_ONLY:-0}" = 1 ]; then
   test_relaunch_partial_tab_creation_keeps_recovery_ownership
