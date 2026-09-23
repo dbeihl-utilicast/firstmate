@@ -107,10 +107,12 @@
 # Exit status is non-zero if any selected script exits non-zero, a configured
 # --fail-on-gate-skip token appears, the measured duration exceeds
 # --max-wall-ms, timing-artifact finalization fails, a concurrent worker
-# violates its isolation check, or the run adds a project entry under a temp
-# root to the Claude store (${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json), which
-# means a test reached bin/fm-claude-trust.sh without pinning HOME and an empty
-# CLAUDE_CONFIG_DIR. Other gate skips (first meaningful line
+# violates its isolation check, or the run adds a project entry under its own
+# temp root to the Claude store (${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json),
+# which means a test reached bin/fm-claude-trust.sh without pinning HOME and an
+# empty CLAUDE_CONFIG_DIR. Every script, serial or concurrent, gets a private
+# TMPDIR under that root. A missing or unreadable store, or a missing python3,
+# skips this check with a warning. Other gate skips (first meaningful line
 # matching ^skip:) remain successful and are counted as skipped_gate; each one
 # is logged with its reason and recorded in the timing artifact.
 #
@@ -2321,22 +2323,24 @@ trap cleanup_run EXIT
 # Claude store guard. A test that reaches bin/fm-claude-trust.sh without
 # pinning HOME and CLAUDE_CONFIG_DIR writes the developer's real Claude store.
 # Any live Claude session rewrites that store constantly, so a whole-file hash
-# would flake; instead the run fails when it gains a project entry under a
-# temp root, which only a test leak produces.
+# would flake; instead the run fails when it gains a project entry under
+# RUN_TMP, which only this run's scripts can create.
 CLAUDE_STORE="${CLAUDE_CONFIG_DIR:-${HOME:-}}/.claude.json"
 claude_store_temp_entries() {
-  [ -e "$CLAUDE_STORE" ] || return 0
-  command -v python3 >/dev/null 2>&1 || { log "python3 is required to check $CLAUDE_STORE for test leaks"; return 1; }
-  python3 - "$CLAUDE_STORE" "${TMPDIR:-/tmp}" /tmp <<'PY'
+  [ -e "$CLAUDE_STORE" ] && command -v python3 >/dev/null 2>&1 || return 1
+  python3 - "$CLAUDE_STORE" "$RUN_TMP" 2>/dev/null <<'PY'
 import json, os, sys
 projects = json.load(open(sys.argv[1])).get("projects") or {}
-roots = {os.path.realpath(r).rstrip("/") + "/" for r in sys.argv[2:]}
-for key in sorted(k for k in projects if any(k.startswith(r) for r in roots)):
+root = os.path.realpath(sys.argv[2]).rstrip("/") + "/"
+for key in sorted(k for k in projects if k.startswith(root)):
     print(key)
 PY
 }
-claude_store_temp_entries >"$RUN_TMP/claude-store.before" \
-  || die "could not read $CLAUDE_STORE to guard it against test leaks"
+CLAUDE_STORE_GUARD=1
+claude_store_temp_entries >"$RUN_TMP/claude-store.before" || {
+  CLAUDE_STORE_GUARD=0
+  log "warning: skipping the Claude store leak check; $CLAUDE_STORE is missing or unreadable, or python3 is missing"
+}
 
 RUN_ID="fm-test-run-${RUN_STARTED_MS}-$$"
 TOTAL=0
@@ -2463,6 +2467,11 @@ run_one_serial() {
   family=$(family_for_basename "$base")
   expected=$(expected_gate_skip_for_family "$family")
   out="$RUN_TMP/out.$TOTAL"
+  local TMPDIR="$RUN_TMP/s$TOTAL/tmp" TMP
+  mkdir -p "$TMPDIR"
+  chmod 0700 "$RUN_TMP/s$TOTAL" "$TMPDIR" || die "could not chmod 0700 serial root $RUN_TMP/s$TOTAL"
+  TMP=$TMPDIR
+  export TMPDIR TMP
   begin_iso=$(now_iso)
   begin_ms=$(now_ms)
 
@@ -2680,16 +2689,17 @@ if [ -n "$MAX_WALL_MS" ]; then
   fi
 fi
 
-if claude_store_temp_entries >"$RUN_TMP/claude-store.after"; then
-  leaked=$(LC_ALL=C comm -13 "$RUN_TMP/claude-store.before" "$RUN_TMP/claude-store.after")
-  if [ -n "$leaked" ]; then
-    log "a test wrote temp-directory project entries into $CLAUDE_STORE; pin HOME and CLAUDE_CONFIG_DIR='' on its spawn calls:"
-    printf '%s\n' "$leaked" >&2
-    AGG_RC=1
+if [ "$CLAUDE_STORE_GUARD" -eq 1 ]; then
+  if claude_store_temp_entries >"$RUN_TMP/claude-store.after"; then
+    leaked=$(LC_ALL=C comm -13 "$RUN_TMP/claude-store.before" "$RUN_TMP/claude-store.after")
+    if [ -n "$leaked" ]; then
+      log "a test wrote temp-directory project entries into $CLAUDE_STORE; pin HOME and CLAUDE_CONFIG_DIR='' on its spawn calls:"
+      printf '%s\n' "$leaked" >&2
+      AGG_RC=1
+    fi
+  else
+    log "warning: skipping the Claude store leak check; $CLAUDE_STORE became missing or unreadable during the run"
   fi
-else
-  log "could not re-read $CLAUDE_STORE to guard it against test leaks"
-  AGG_RC=1
 fi
 
 exit "$AGG_RC"
