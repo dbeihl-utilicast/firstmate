@@ -174,7 +174,7 @@ if [ "$PROVIDER" = github ] && { [ -n "$issues" ] || [ "$intent_recorded" = 1 ];
   body_rc=0
   PR_BODY=
   if [ -n "$WT" ] && [ -d "$WT" ] && command -v gh >/dev/null 2>&1; then
-    PR_BODY=$(cd "$WT" && gh pr view "$URL" --json body -q .body 2>/dev/null) || body_rc=$?
+    PR_BODY=$(cd "$WT" && fm_gh_run "$FM_PR_OWNER" gh pr view "$URL" --json body -q .body 2>/dev/null) || body_rc=$?
   else
     body_rc=1
   fi

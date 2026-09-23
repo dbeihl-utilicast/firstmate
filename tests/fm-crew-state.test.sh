@@ -137,8 +137,13 @@ case "${1:-} ${2:-}" in
       *isDraft*) printf '%s\tfalse\n' 0123456789abcdef0123456789abcdef01234567 ; exit 0 ;;
     esac
     exit 1 ;;
+  "auth token")
+    [ "${4:-}" = work ] || exit 1
+    printf 'tok-work\n'
+    exit 0 ;;
   "api graphql")
     [ -z "${FM_FAKE_PR_READ_LOG:-}" ] || printf 'gh\n' >> "$FM_FAKE_PR_READ_LOG"
+    [ -z "${FM_FAKE_GH_TOKEN_LOG:-}" ] || printf '%s\n' "${GH_TOKEN:-}" >> "$FM_FAKE_GH_TOKEN_LOG"
     number=1
     for arg in "$@"; do
       case "$arg" in
@@ -1482,6 +1487,24 @@ test_terminal_passed() {
   assert_contains "$out" "run passed: PR merged" "passed run reports merged only after the PR record says merged"
   assert_not_contains "$out" "merged/closed" "passed merged PR must not keep the old ambiguous label"
   pass "terminal passed run is authoritative"
+}
+
+test_passed_pr_read_uses_owner_login_from_resolved_home() {
+  reset_fakes
+  local d; d=$(new_case passed-owner-login)
+  make_repo_on_branch "$d/wt" fm/feat-owner
+  make_fakebin "$d" >/dev/null
+  mkdir -p "$d/config"
+  printf 'o work\n' > "$d/config/gh-accounts"
+  fm_write_meta "$d/state/feat-owner.meta" "window=fm:fm-feat-owner" "worktree=$d/wt" "kind=ship"
+  FM_FAKE_AXI_STATUS="$(run_passed fm/feat-owner)"
+  local out; out=$(env -u FM_HOME -u GH_TOKEN FM_ROOT_OVERRIDE="$d" \
+    FM_FAKE_GH_TOKEN_LOG="$d/tokens" PATH="$d/fakebin:$PATH" \
+    FM_STATE_OVERRIDE="$d/state" "$CREW_STATE" feat-owner)
+  assert_contains "$out" "run passed: PR merged" "the owner-scoped PR read still reports merged"
+  [ "$(cat "$d/tokens" 2>/dev/null)" = tok-work ] \
+    || fail "the bounded PR read did not use the login mapped in the resolved FM_HOME: $(cat "$d/tokens" 2>/dev/null)"
+  pass "bounded PR read keeps the resolved FM_HOME and uses the owner's mapped login"
 }
 
 test_terminal_passed_with_override() {
@@ -5294,6 +5317,7 @@ test_ci_fixing_after_green_stays_working
 test_top_level_fixing_ci_running_after_green_stays_working
 test_top_level_fixing_done_log_stays_working
 test_terminal_passed
+test_passed_pr_read_uses_owner_login_from_resolved_home
 test_terminal_passed_with_override
 test_terminal_passed_uses_matching_retirement_receipt_without_forge
 test_terminal_passed_no_forge_switch_skips_read_but_keeps_receipt

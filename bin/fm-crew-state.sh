@@ -373,7 +373,7 @@ EOF
 pr_read_record_bounded() {  # <owner> <repo> <number>
   local record state merged
   # shellcheck disable=SC2016  # The inner script expands after bash -c receives positional args.
-  if ! record=$(fm_run_timed 5 bash -c '
+  if ! record=$(FM_HOME="$FM_HOME" fm_run_timed 5 bash -c '
     . "$1"
     fm_pr_github_read_record "$2" "$3" "$4" || exit 1
     printf "state=%s\nmerged=%s\n" "$FM_PR_RECORD_STATE" "$FM_PR_RECORD_MERGED"

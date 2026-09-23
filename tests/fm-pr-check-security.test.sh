@@ -786,7 +786,8 @@ make_poll_fixture() {
 
 run_poll() {
   local dir=$1
-  FM_TEST_GH_LOG="$dir/gh.log" FM_TEST_GLAB_LOG="$dir/glab.log" \
+  FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$dir/home" \
+    FM_TEST_GH_LOG="$dir/gh.log" FM_TEST_GLAB_LOG="$dir/glab.log" \
     PATH="$dir/fakebin:$BASE_PATH" \
     bash "$dir/home/state/task-a.check.sh"
 }
@@ -2570,7 +2571,8 @@ $(printf '%s\n' "$BASE_PATH" | tr ':' '\n')
 EOF
   ! PATH="$noglab" command -v glab >/dev/null 2>&1 \
     || fail "the glab-free search path still resolved glab"
-  out=$(FM_TEST_GLAB_STATE=merged FM_TEST_GH_LOG="$dir/gh.log" FM_TEST_GLAB_LOG="$dir/glab.log" \
+  out=$(FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$dir/home" \
+    FM_TEST_GLAB_STATE=merged FM_TEST_GH_LOG="$dir/gh.log" FM_TEST_GLAB_LOG="$dir/glab.log" \
     PATH="$noglab" \
     bash "$state/task-a.check.sh")
   [ -z "$out" ] || fail "GitLab poll emitted with glab absent from PATH"
