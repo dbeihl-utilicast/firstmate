@@ -1665,8 +1665,8 @@ remove_kimi_turnend_auth() {
 pr_number_from_branch() {
   local branch=$1 out n origin owner
   [ -n "$branch" ] && [ "$branch" != HEAD ] || return 1
-  origin=$(git -C "$WT" remote get-url origin 2>/dev/null) || return 1
-  owner=$(github_repo_slug "$origin") || return 1
+  origin=$(git -C "$WT" remote get-url origin 2>/dev/null) || origin=
+  owner=$(github_repo_slug "$origin") || owner=
   owner=${owner%%/*}
   out=$( cd "$WT" && fm_gh_run "$owner" gh-axi pr list --state all --head "$branch" --limit 1 2>/dev/null ) || return 1
   n=$(printf '%s\n' "$out" | sed -n 's/^[[:space:]]*\([0-9][0-9]*\),.*/\1/p' | head -1)
@@ -1745,8 +1745,8 @@ pr_is_merged() {
     target=$(pr_number_from_branch "$branch") || return 1
   fi
   [ -n "$target" ] || return 1
-  origin=$(git -C "$WT" remote get-url origin 2>/dev/null) || return 1
-  slug=$(github_repo_slug "$origin") || return 1
+  origin=$(git -C "$WT" remote get-url origin 2>/dev/null) || origin=
+  slug=$(github_repo_slug "$origin") || slug=
   owner=${slug%%/*}
   view=$(cd "$WT" && fm_gh_run "$owner" gh pr view "$target" --json state,headRefOid,url -q '.state + "\t" + .headRefOid + "\t" + .url' 2>/dev/null) || return 1
   state=${view%%$'\t'*}

@@ -728,6 +728,7 @@ tests/fm-fleet-snapshot-view.test.sh 17465
 tests/fm-fleet-sync.test.sh 35983
 tests/fm-gate-refuse.test.sh 5328
 tests/fm-gitignore-config.test.sh 58
+tests/fm-gh-auth-lib.test.sh 135
 tests/fm-gotmp.test.sh 1320
 tests/fm-grok-continuity-live-e2e.test.sh 45
 tests/fm-grok-stop-live-e2e.test.sh 46
