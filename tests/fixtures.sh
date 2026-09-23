@@ -349,6 +349,14 @@ make_spawn_fakebin() {
 # Common spawn env. Extra variables in the caller (GROK_HOME, FM_FAKE_LAUNCH_LOG,
 # CLAUDE_CONFIG_DIR, ...) are inherited. Does not add --mode/--yolo; ship tests
 # that need a delivery contract pass those flags themselves.
+# fm_test_spawn_user_home <home>: the throwaway HOME fm_test_run_spawn gives a
+# spawn. It is a sibling of the Firstmate home rather than inside it, because
+# bin/fm-treehouse-lib.sh derives this home's pool root from HOME and refuses a
+# root that would land inside the home.
+fm_test_spawn_user_home() {
+  printf '%s-user-home\n' "$1"
+}
+
 fm_test_run_spawn() {
   local home=$1 pane=$2 fakebin=$3
   shift 3
@@ -362,7 +370,8 @@ fm_test_run_spawn() {
   # because bin/fm-spawn.sh prefixes the launch only when the value is non-empty,
   # so every launch-shape assertion in the suite keeps reading the same command.
   # A test that needs the set case opts in through FM_TEST_CLAUDE_CONFIG_DIR.
-  local spawn_home=$home/user-home
+  local spawn_home
+  spawn_home=$(fm_test_spawn_user_home "$home")
   mkdir -p "$spawn_home"
   FM_ROOT_OVERRIDE='' FM_HOME="$home" HOME="$spawn_home" \
     CLAUDE_CONFIG_DIR="${FM_TEST_CLAUDE_CONFIG_DIR:-}" \

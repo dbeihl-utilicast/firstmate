@@ -3790,8 +3790,8 @@ elif [ -d "$WT" ] && [ "$KIND" != secondmate ]; then
   rm -f "$WT/.claude/settings.local.json" "$WT/.opencode/plugins/fm-turn-end.js" \
     "$WT/.fm-grok-turnend" "$WT/.fm-kimi-turnend"
   # Kills remaining processes in the worktree (including the agent), resets, returns
-  # to pool. Run it from the project so treehouse can identify the repo; the home
-  # scoped --root is appended by fm_treehouse (bin/fm-treehouse-lib.sh).
+  # to pool. Run it from the project so treehouse can identify the repo; this
+  # home's pool --root is appended by fm_treehouse (bin/fm-treehouse-lib.sh).
   # teardown_treehouse_return tolerates transient and stale git locks
   # left by a killed crew process; see the script header for retry and stale-lock proof.
   post_lock_cleanup_check=

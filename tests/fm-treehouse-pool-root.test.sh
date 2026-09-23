@@ -5,8 +5,10 @@
 #
 # The red reproduction drives real treehouse against two same-basename clones
 # with no --root (skip when treehouse is absent). The Firstmate contract is
-# pinned hermetically: the helper appends --root from FM_HOME, spawn/seed/
-# teardown invoke it, and spawn refuses a foreign-clone pool slot.
+# pinned hermetically: the helper appends a per-home --root that lies OUTSIDE
+# the home (so a pooled copy never finds the home's own CLAUDE.md in a parent
+# directory), spawn/seed/teardown invoke it, and spawn refuses a foreign-clone
+# pool slot.
 set -u
 
 # shellcheck source=tests/fixtures.sh
@@ -116,16 +118,83 @@ test_real_treehouse_home_root_isolates_pools() {
   pass "real treehouse: per-home --root isolates pools so a recycle stays on this clone"
 }
 
+# The captain-facing bug: a slot inside the home has the home's own CLAUDE.md
+# (an @AGENTS.md pointer) in a parent directory, so Claude asks to allow that
+# external import. A slot from the helper's root has no home ancestor at all.
+# A slot a home took before its root moved (a legacy in-home pool) must still
+# go back to its own pool through the helper, so moving the root never strands
+# a lease or discards a slot.
+test_real_treehouse_slots_live_outside_the_home_and_legacy_slots_still_return() {
+  command -v treehouse >/dev/null 2>&1 || {
+    echo "skip: treehouse not found (pool root outside the home)"
+    return 0
+  }
+  local dir user slot legacy dir_up status_out
+  dir="$TMP_ROOT/outside-home"
+  user="$dir/user"
+  mkdir -p "$user"
+  make_same_basename_clones "$dir"
+  printf '@AGENTS.md\n' > "$HOME_A/CLAUDE.md"
+
+  slot=$(cd "$CLONE_A" && HOME="$user" FM_HOME="$HOME_A" fm_treehouse get --lease --lease-holder home-a) || \
+    fail "fm_treehouse get --lease from home A failed"
+  dir_up=$slot
+  while [ "$dir_up" != / ]; do
+    [ ! -e "$dir_up/CLAUDE.md" ] || fail "slot '$slot' has the home's CLAUDE.md in its parent '$dir_up'"
+    dir_up=$(dirname "$dir_up")
+  done
+  case "$slot/" in
+    "$(phys "$HOME_A")"/*) fail "slot '$slot' was allocated inside the home" ;;
+  esac
+
+  legacy=$(cd "$CLONE_A" && treehouse get --lease --lease-holder legacy --root "$HOME_A") || \
+    fail "could not seed a legacy in-home slot"
+  (cd "$CLONE_A" && HOME="$user" FM_HOME="$HOME_A" fm_treehouse return --force "$legacy") || \
+    fail "fm_treehouse could not return a legacy in-home slot after the root moved"
+  status_out=$(cd "$CLONE_A" && treehouse status --root "$HOME_A" 2>&1)
+  assert_contains "$status_out" "available" "the legacy slot did not go back to its own pool: $status_out"
+  [ -d "$legacy" ] || fail "returning the legacy slot removed it instead of returning it"
+
+  (cd "$CLONE_A" && HOME="$user" FM_HOME="$HOME_A" fm_treehouse return --force "$slot") || true
+  pass "real treehouse: slots live outside the home, and a legacy in-home slot still returns to its pool"
+}
+
 # --- helper contract --------------------------------------------------------
 
-test_helper_resolves_root_from_fm_home() {
-  local home root
-  home="$TMP_ROOT/helper-home"
-  mkdir -p "$home"
-  root=$(FM_HOME="$home" fm_treehouse_home_root) || fail "fm_treehouse_home_root failed"
-  [ "$root" = "$(CDPATH='' cd -- "$home" && pwd -P)" ] || \
-    fail "fm_treehouse_home_root printed '$root', not the physical FM_HOME"
-  pass "fm_treehouse_home_root prints the physical FM_HOME path"
+# phys <dir>: the physical path, the way the helper resolves it.
+phys() { CDPATH='' cd -- "$1" && pwd -P; }
+
+test_helper_resolves_a_per_home_root_outside_the_home() {
+  local base home_a home_b user root_a root_b root_again
+  base="$TMP_ROOT/helper-home"
+  home_a="$base/a/firstmate"
+  home_b="$base/b/firstmate"
+  user="$base/user"
+  mkdir -p "$home_a" "$home_b" "$user"
+  root_a=$(HOME="$user" FM_HOME="$home_a" fm_treehouse_home_root) || fail "fm_treehouse_home_root failed for home a"
+  root_b=$(HOME="$user" FM_HOME="$home_b" fm_treehouse_home_root) || fail "fm_treehouse_home_root failed for home b"
+  root_again=$(HOME="$user" FM_HOME="$home_a" fm_treehouse_home_root) || fail "fm_treehouse_home_root failed on a repeat"
+  case "$root_a/" in
+    "$(phys "$home_a")"/*) fail "the pool root '$root_a' is inside the home, where the home's CLAUDE.md is a parent of every slot" ;;
+  esac
+  case "$root_a" in
+    "$(phys "$user")"/.firstmate-pools/firstmate-*) ;;
+    *) fail "the pool root '$root_a' is not a per-home directory under the user's .firstmate-pools" ;;
+  esac
+  [ "$root_a" != "$root_b" ] || fail "two same-basename homes resolved one shared pool root '$root_a'"
+  [ "$root_a" = "$root_again" ] || fail "the pool root is not stable for one home: '$root_a' then '$root_again'"
+  pass "fm_treehouse_home_root prints a stable per-home root outside the home"
+}
+
+test_helper_refuses_a_root_that_would_land_inside_the_home() {
+  local home out
+  home="$TMP_ROOT/helper-nested/home"
+  mkdir -p "$home/user"
+  if out=$(HOME="$home/user" FM_HOME="$home" fm_treehouse_home_root 2>&1); then
+    fail "a pool root inside the home was accepted: $out"
+  fi
+  assert_contains "$out" "inside" "the refusal did not say the root would land inside the home"
+  pass "fm_treehouse_home_root refuses a user home that sits inside the Firstmate home"
 }
 
 test_helper_appends_root_on_invocation() {
@@ -141,12 +210,12 @@ exit 0
 SH
   chmod +x "$fakebin/treehouse"
   : > "$log"
-  root=$(CDPATH='' cd -- "$home" && pwd -P)
+  root=$(FM_HOME="$home" fm_treehouse_home_root) || fail "fm_treehouse_home_root failed"
   PATH="$fakebin:$PATH" FM_HOME="$home" fm_treehouse get --lease --lease-holder dash \
     || fail "fm_treehouse get failed"
   assert_grep "get --lease --lease-holder dash --root $root" "$log" \
-    "fm_treehouse did not append --root <home> after the subcommand args"
-  pass "fm_treehouse appends --root from FM_HOME on every invocation"
+    "fm_treehouse did not append the home's pool --root after the subcommand args"
+  pass "fm_treehouse appends this home's pool --root on every invocation"
 }
 
 test_spawn_get_command_quotes_root() {
@@ -154,7 +223,7 @@ test_spawn_get_command_quotes_root() {
   home="$TMP_ROOT/helper-cmd"
   mkdir -p "$home/with space"
   home="$home/with space"
-  root=$(CDPATH='' cd -- "$home" && pwd -P)
+  root=$(FM_HOME="$home" fm_treehouse_home_root) || fail "fm_treehouse_home_root failed"
   cmd=$(FM_HOME="$home" fm_treehouse_spawn_get_command) || fail "spawn get command failed"
   [ "$cmd" = "treehouse get --root '$root'" ] || \
     fail "spawn get command was '$cmd', expected treehouse get --root '$root'"
@@ -200,14 +269,16 @@ test_spawn_types_home_scoped_get() {
   fm_test_spawn_brief "$home" spawn-root-a1
   fakebin=$(make_recording_spawn_fakebin "$dir/fake")
   : > "$rec"
-  root=$(CDPATH='' cd -- "$home" && pwd -P)
+  mkdir -p "$(fm_test_spawn_user_home "$home")"
+  root=$(HOME="$(fm_test_spawn_user_home "$home")" FM_HOME="$home" fm_treehouse_home_root) \
+    || fail "fm_treehouse_home_root failed"
   out=$(FM_TMUX_REC="$rec" fm_test_run_spawn "$home" "$wt" "$fakebin" \
     spawn-root-a1 "$proj" --scout)
   status=$?
   expect_code 0 "$status" "spawn should succeed into a genuine worktree"$'\n'"$out"
   assert_grep "send-keys -t @spawnwid treehouse get --root '$root' Enter" "$rec" \
     "spawn did not type a home-scoped treehouse get to the stable window id"
-  pass "spawn types treehouse get --root <FM_HOME> into the worker pane"
+  pass "spawn types this home's pool-scoped treehouse get into the worker pane"
 }
 
 test_spawn_refuses_foreign_clone_pool_slot() {
@@ -247,14 +318,14 @@ test_seed_passes_home_scoped_root() {
   fakebin=$(make_fake_tmux "$TMP_ROOT/seed-fake")
   log="$TMP_ROOT/seed-fake/tmux.log"
   lease="$TMP_ROOT/seed-fake/lease"
-  root=$(CDPATH='' cd -- "$home" && pwd -P)
+  root=$(FM_HOME="$home" fm_treehouse_home_root) || fail "fm_treehouse_home_root failed"
   out=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_TREEHOUSE_HOME="$acquired" \
     FM_FAKE_TMUX_LOG="$log" FM_FAKE_TREEHOUSE_LEASE_FILE="$lease" \
     FM_SECONDMATE_CHARTER='dash acquired scope' FM_SECONDMATE_SCOPE='dash acquired scope' \
     "$ROOT/bin/fm-home-seed.sh" dash - alpha) \
     || fail "seed failed for a treehouse-acquired home"$'\n'"$out"
   grep -F "get --lease --lease-holder dash --root $root" "$log" >/dev/null \
-    || fail "seed did not pass --root <FM_HOME> on treehouse get --lease"$'\n'"$(cat "$log")"
+    || fail "seed did not pass this home's pool --root on treehouse get --lease"$'\n'"$(cat "$log")"
   pass "home seed leases with this home's --root"
 }
 
@@ -297,7 +368,7 @@ SH
   fm_test_fake_gh_axi "$fakebin"
   chmod +x "$fakebin/treehouse" "$fakebin/tmux"
   : > "$log"
-  root=$(CDPATH='' cd -- "$home" && pwd -P)
+  root=$(FM_HOME="$home" fm_treehouse_home_root) || fail "fm_treehouse_home_root failed"
   out=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
     FM_CONFIG_OVERRIDE="$home/config" \
@@ -305,13 +376,15 @@ SH
   status=$?
   expect_code 0 "$status" "scout teardown with a report should succeed"$'\n'"$out"
   assert_grep "return --force $wt --root $root" "$log" \
-    "teardown did not pass --root <FM_HOME> on treehouse return"
+    "teardown did not pass this home's pool --root on treehouse return"
   pass "teardown returns a slot with this home's --root"
 }
 
 test_real_treehouse_same_basename_clones_share_default_pool
 test_real_treehouse_home_root_isolates_pools
-test_helper_resolves_root_from_fm_home
+test_real_treehouse_slots_live_outside_the_home_and_legacy_slots_still_return
+test_helper_resolves_a_per_home_root_outside_the_home
+test_helper_refuses_a_root_that_would_land_inside_the_home
 test_helper_appends_root_on_invocation
 test_spawn_get_command_quotes_root
 test_spawn_types_home_scoped_get

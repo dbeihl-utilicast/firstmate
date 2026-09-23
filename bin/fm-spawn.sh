@@ -207,8 +207,8 @@
 #   itself a linked worktree of the project repository still launches. A pane
 #   that never reaches an isolated worktree refuses at the end of that wait,
 #   naming the last path seen and why it was rejected.
-#   Ship/scout Treehouse acquisition passes a home-scoped --root derived from
-#   FM_HOME (bin/fm-treehouse-lib.sh) so two homes cloning the same project do
+#   Ship/scout Treehouse acquisition passes this home's own --root, outside the
+#   home (bin/fm-treehouse-lib.sh), so two homes cloning the same project do
 #   not share a pool, and refuses a handed-out slot whose git common dir is
 #   not this clone's.
 #   That placement is proven only at launch. Every ship or scout pane therefore
