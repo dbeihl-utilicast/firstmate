@@ -242,8 +242,9 @@ SH
   script=$(ruby -ryaml -e '
 steps = YAML.load_file(ARGV[0]).fetch("jobs").fetch("lint").fetch("steps")
 run = steps.find { |step| step["name"] == "Lint canonical partition" }.fetch("run")
-run = run.gsub("${{ matrix.partition }}", "2").gsub("${{ strategy.job-total }}", "2")
-raise "unresolved expression in lint step" if run.include?("${{")
+expr = "\x24{{"
+run = run.gsub("#{expr} matrix.partition }}", "2").gsub("#{expr} strategy.job-total }}", "2")
+raise "unresolved expression in lint step" if run.include?(expr)
 puts run
 ' "$CI_WORKFLOW") || fail "could not resolve the lint step"
   (cd "$tmp" && env -u FM_LINT_JOBS RUNNER_TEMP="$tmp/runner" FM_STUB_JOBS_LOG="$tmp/jobs.log" bash -c "$script") \
