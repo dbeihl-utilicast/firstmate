@@ -75,8 +75,8 @@
 # on an explicit "No, disable" answer, and the pair firstmate's own
 # --imports-only pre-answer writes for a launch directory - workspace trust
 # still registers normally on both entries, but that decline is left exactly
-# as recorded: the import flags are never written, so a spawn can never flip
-# a "No, disable" to approved. Approved===false with WarningShown false or
+# as recorded: the project entry's import flags are never touched, so a spawn
+# never flips a "No, disable" to approved. Approved===false with WarningShown false or
 # absent is NOT that decision: Claude Code's default project entry carries
 # both flags as false before the dialog was ever shown, so that pair means
 # "never asked" and is treated like an absent flag - trust registered, no
