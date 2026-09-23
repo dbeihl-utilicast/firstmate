@@ -851,6 +851,50 @@ SH
   pass "aggregate exit reflects any script failure"
 }
 
+test_claude_store_temp_entry_fails_the_run() {
+  local tmp leak_f clean_f rc
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-claude-store.XXXXXX")
+  mkdir -p "$tmp/user-home"
+  printf '{"projects":{"/opt/already-there":{}}}\n' >"$tmp/user-home/.claude.json"
+  leak_f="$tmp/leak.test.sh"
+  clean_f="$tmp/clean.test.sh"
+  # A test that registers a temp directory in the Claude store it inherited,
+  # the way an unpinned spawn reaches bin/fm-claude-trust.sh.
+  cat >"$leak_f" <<'SH'
+#!/usr/bin/env bash
+d=$(mktemp -d "${TMPDIR:-/tmp}/leak.XXXXXX")
+python3 - "${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json" "$(cd "$d" && pwd -P)" <<'PY'
+import json, sys
+doc = json.load(open(sys.argv[1]))
+doc["projects"][sys.argv[2]] = {"hasTrustDialogAccepted": True}
+json.dump(doc, open(sys.argv[1], "w"))
+PY
+rm -rf "$d"
+echo "ok - leak"
+SH
+  cat >"$clean_f" <<'SH'
+#!/usr/bin/env bash
+echo "ok - clean"
+SH
+  chmod +x "$leak_f" "$clean_f"
+  set +e
+  HOME="$tmp/user-home" CLAUDE_CONFIG_DIR='' "$RUNNER" "$clean_f" >"$tmp/out.txt" 2>"$tmp/err.txt"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || { rm -rf "$tmp"; fail "a run that leaves the Claude store alone must pass: $(cat "$tmp/err.txt")"; }
+  set +e
+  HOME="$tmp/user-home" CLAUDE_CONFIG_DIR='' "$RUNNER" "$leak_f" >"$tmp/out.txt" 2>"$tmp/err.txt"
+  rc=$?
+  set -e
+  grep -q '"hasTrustDialogAccepted"' "$tmp/user-home/.claude.json" \
+    || { rm -rf "$tmp"; fail "the leak fixture never wrote the store, so this case checked nothing"; }
+  [ "$rc" -ne 0 ] || { rm -rf "$tmp"; fail "a run that adds a temp-directory entry to the Claude store must fail"; }
+  grep -q 'leak\.' "$tmp/err.txt" \
+    || { rm -rf "$tmp"; fail "the failure must name the leaked entry: $(cat "$tmp/err.txt")"; }
+  rm -rf "$tmp"
+  pass "a test run that writes a temp directory into the Claude store fails"
+}
+
 test_gate_skip_accounting() {
   local tmp skip_f out json
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-skip.XXXXXX")
@@ -1842,6 +1886,7 @@ test_family_proofs_run_in_separate_concurrent_phases
 test_empty_selection_emits_summary
 test_timing_markers_and_json
 test_aggregate_exit_behavior
+test_claude_store_temp_entry_fails_the_run
 test_gate_skip_accounting
 test_gate_skip_reason_is_recorded
 test_a_run_that_ran_records_no_skip_reason

@@ -106,8 +106,13 @@
 #
 # Exit status is non-zero if any selected script exits non-zero, a configured
 # --fail-on-gate-skip token appears, the measured duration exceeds
-# --max-wall-ms, timing-artifact finalization fails, or a concurrent worker
-# violates its isolation check. Other gate skips (first meaningful line
+# --max-wall-ms, timing-artifact finalization fails, a concurrent worker
+# violates its isolation check, or the run adds a project entry under its own
+# temp root to the Claude store (${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json),
+# which means a test reached bin/fm-claude-trust.sh without pinning HOME and an
+# empty CLAUDE_CONFIG_DIR. Every script, serial or concurrent, gets a private
+# TMPDIR under that root. A missing or unreadable store, or a missing python3,
+# skips this check with a warning. Other gate skips (first meaningful line
 # matching ^skip:) remain successful and are counted as skipped_gate; each one
 # is logged with its reason and recorded in the timing artifact.
 #
@@ -2315,6 +2320,28 @@ cleanup_run() {
 
 trap cleanup_run EXIT
 
+# Claude store guard. A test that reaches bin/fm-claude-trust.sh without
+# pinning HOME and CLAUDE_CONFIG_DIR writes the developer's real Claude store.
+# Any live Claude session rewrites that store constantly, so a whole-file hash
+# would flake; instead the run fails when it gains a project entry under
+# RUN_TMP, which only this run's scripts can create.
+CLAUDE_STORE="${CLAUDE_CONFIG_DIR:-${HOME:-}}/.claude.json"
+claude_store_temp_entries() {
+  [ -e "$CLAUDE_STORE" ] && command -v python3 >/dev/null 2>&1 || return 1
+  python3 - "$CLAUDE_STORE" "$RUN_TMP" 2>/dev/null <<'PY'
+import json, os, sys
+projects = json.load(open(sys.argv[1])).get("projects") or {}
+root = os.path.realpath(sys.argv[2]).rstrip("/") + "/"
+for key in sorted(k for k in projects if k.startswith(root)):
+    print(key)
+PY
+}
+CLAUDE_STORE_GUARD=1
+claude_store_temp_entries >"$RUN_TMP/claude-store.before" || {
+  CLAUDE_STORE_GUARD=0
+  log "warning: skipping the Claude store leak check; $CLAUDE_STORE is missing or unreadable, or python3 is missing"
+}
+
 RUN_ID="fm-test-run-${RUN_STARTED_MS}-$$"
 TOTAL=0
 FAILED=0
@@ -2440,6 +2467,11 @@ run_one_serial() {
   family=$(family_for_basename "$base")
   expected=$(expected_gate_skip_for_family "$family")
   out="$RUN_TMP/out.$TOTAL"
+  local TMPDIR="$RUN_TMP/s$TOTAL/tmp" TMP
+  mkdir -p "$TMPDIR"
+  chmod 0700 "$RUN_TMP/s$TOTAL" "$TMPDIR" || die "could not chmod 0700 serial root $RUN_TMP/s$TOTAL"
+  TMP=$TMPDIR
+  export TMPDIR TMP
   begin_iso=$(now_iso)
   begin_ms=$(now_ms)
 
@@ -2654,6 +2686,19 @@ if [ -n "$MAX_WALL_MS" ]; then
   if [ "$RUN_DURATION" -gt "$MAX_WALL_MS" ]; then
     log "wall-clock budget exceeded: ${RUN_DURATION}ms > ${MAX_WALL_MS}ms for $SELECTION_DESC"
     AGG_RC=1
+  fi
+fi
+
+if [ "$CLAUDE_STORE_GUARD" -eq 1 ]; then
+  if claude_store_temp_entries >"$RUN_TMP/claude-store.after"; then
+    leaked=$(LC_ALL=C comm -13 "$RUN_TMP/claude-store.before" "$RUN_TMP/claude-store.after")
+    if [ -n "$leaked" ]; then
+      log "a test wrote temp-directory project entries into $CLAUDE_STORE; pin HOME and CLAUDE_CONFIG_DIR='' on its spawn calls:"
+      printf '%s\n' "$leaked" >&2
+      AGG_RC=1
+    fi
+  else
+    log "warning: skipping the Claude store leak check; $CLAUDE_STORE became missing or unreadable during the run"
   fi
 fi
 
