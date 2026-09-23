@@ -1,0 +1,26 @@
+== config/gh-accounts
+# owner login
+dbeihl dbeihl
+dbeihl-utilicast dbeihl-utilicast
+MasonRecipes masonrecipes
+== active account before
+dbeihl
+owner=dbeihl             -> api user login: dbeihl
+owner=dbeihl-utilicast   -> api user login: dbeihl-utilicast
+owner=masonrecipes       -> api user login: masonrecipes
+owner=unmapped-owner     -> api user login: dbeihl
+== real repo reads, each under its owner's login
+firstmate PR #86 OPEN
+masonrecipes.github.io admin=true
+   (same repo as active account dbeihl, collaborator):
+masonrecipes.github.io admin=false
+== active account after (must be unchanged)
+dbeihl
+  ✓ Logged in to github.com account dbeihl (keyring)
+== adversarial: mapped login missing from keyring
+error: cannot read the GitHub token for mapped login no-such-login-xyz; authenticate it with gh auth login --user no-such-login-xyz
+exit=1
+== adversarial: caller GH_TOKEN wins over mapping
+masonrecipes
+== default <login> catch-all
+unmapped-owner -> masonrecipes

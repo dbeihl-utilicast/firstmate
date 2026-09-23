@@ -1,0 +1,15 @@
+== gh global active account: dbeihl
+== fm-pr-poll.sh --gate on real PR dbeihl-utilicast/firstmate#86
+gate exit=0
+== fm-pr-poll.sh --validated (poll mode) on same PR
+poll exit=0
+== gh calls seen by PATH shim (login of token used)
+gh api graphql ... as=dbeihl-utilicast
+gh pr view ... as=dbeihl-utilicast
+gh api graphql ... as=dbeihl-utilicast
+gh api --hostname ... as=dbeihl-utilicast
+gh api --hostname ... as=dbeihl-utilicast
+== gh global active account after: dbeihl
+== fail-closed: poll copied alone, FM_ROOT_OVERRIDE has no bin/
+fm-pr-poll: cannot read fm-gh-auth-lib.sh in <tmp>/lone or <tmp>/emptyroot/bin
+exit=1
