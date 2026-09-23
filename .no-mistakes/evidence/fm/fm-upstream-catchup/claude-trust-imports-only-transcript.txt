@@ -1,0 +1,24 @@
+--- before
+{"projects":{"<tmp>/a":{"hasClaudeMdExternalIncludesApproved":true,"hasClaudeMdExternalIncludesWarningShown":true}}}
+$ fm-claude-trust.sh --imports-only <dir-a already approved> <proj>
+imports declined: <tmp>/a
+exit=0
+$ fm-claude-trust.sh --imports-only <dir-b fresh> <proj>
+imports declined: <tmp>/b
+exit=0
+--- after
+{
+  "projects": {
+    "<tmp>/a": {
+      "hasClaudeMdExternalIncludesApproved": true,
+      "hasClaudeMdExternalIncludesWarningShown": true
+    },
+    "<tmp>/b": {
+      "hasClaudeMdExternalIncludesWarningShown": true,
+      "hasClaudeMdExternalIncludesApproved": false
+    }
+  }
+}
+$ PATH without node: fm-claude-trust.sh --imports-only <dir-b>
+error: refusing to pre-register Claude trust: node is required to record workspace trust and was not found on PATH
+exit=1

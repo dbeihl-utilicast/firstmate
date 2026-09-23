@@ -1,0 +1,9 @@
+$ fm-pr-merge.sh t1 https://github.com/o/r/pull/1 --attended-override -- --admin
+error: raw --admin is not accepted; pass --admin-bypass-review before -- to request an admin merge
+exit=1
+$ fm-pr-merge.sh t1 https://github.com/o/r/pull/1 --admin-bypass-review --allow-red deploy
+error: --allow-red cannot be combined with --admin-bypass-review; an admin merge still requires every check to be green
+exit=2
+$ TYPESAFE_API_KEY unset: fm-dispatch-resolve.sh brief
+dispatch-resolve: off (TYPESAFE_API_KEY absent from the environment and /var/folders/h4/89z_m16d0sq00pkwstv182280000gn/T/tmp.p13moYdBhx/.env)
+exit=0
