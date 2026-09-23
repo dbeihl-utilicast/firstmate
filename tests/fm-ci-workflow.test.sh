@@ -74,8 +74,8 @@ puts YAML.load_file(ARGV[0]).fetch("jobs").fetch(ARGV[1]).fetch("timeout-minutes
 # must join a tier, and a job-level value outside these tiers is exactly the
 # one-off number the policy removed.
 FAST_TIER_JOBS='changes test-coverage invariants tests-timing-aggregate private-pattern-check'
-NORMAL_TIER_JOBS='lint tests-portable-parallel-1 tests-portable-parallel-2 tests-portable-serial macos-stock-bash'
-HEAVY_TIER_JOBS='tests-herdr'
+NORMAL_TIER_JOBS='tests-portable-parallel-1 tests-portable-parallel-2 tests-portable-serial macos-stock-bash'
+HEAVY_TIER_JOBS='tests-herdr lint'
 
 # Print the one timeout every listed job shares; fail on any disagreement.
 tier_timeout() {  # <tier> <job>...
@@ -219,6 +219,40 @@ puts steps[index].fetch("timeout-minutes", "none")
   pass "Herdr keeps a $step minute step tripwire under a $heavy minute job backstop"
 }
 
+# Resolve the lint step's run block for one matrix partition, then execute it
+# against a stub fm-lint.sh that applies the real script's worker-count rules
+# (FM_LINT_JOBS, overridden by --jobs) and records the effective count.
+test_ci_lint_step_serializes_source_aware_workers() {
+  local tmp script jobs
+  tmp=$(fm_test_tmproot fm-ci-lint-jobs)
+  mkdir -p "$tmp/bin" "$tmp/runner"
+  cat > "$tmp/bin/fm-lint.sh" <<'SH'
+#!/usr/bin/env bash
+jobs=${FM_LINT_JOBS:-2}
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --jobs) jobs=$2; shift 2 ;;
+    --jobs=*) jobs=${1#*=}; shift ;;
+    *) shift ;;
+  esac
+done
+printf '%s\n' "$jobs" > "$FM_STUB_JOBS_LOG"
+SH
+  chmod +x "$tmp/bin/fm-lint.sh"
+  script=$(ruby -ryaml -e '
+steps = YAML.load_file(ARGV[0]).fetch("jobs").fetch("lint").fetch("steps")
+run = steps.find { |step| step["name"] == "Lint canonical partition" }.fetch("run")
+run = run.gsub("${{ matrix.partition }}", "2").gsub("${{ strategy.job-total }}", "2")
+raise "unresolved expression in lint step" if run.include?("${{")
+puts run
+' "$CI_WORKFLOW") || fail "could not resolve the lint step"
+  (cd "$tmp" && env -u FM_LINT_JOBS RUNNER_TEMP="$tmp/runner" FM_STUB_JOBS_LOG="$tmp/jobs.log" bash -c "$script") \
+    || fail "the lint step failed against a stub fm-lint.sh"
+  jobs=$(cat "$tmp/jobs.log")
+  [ "$jobs" = 1 ] || fail "CI lint must serialize source-aware ShellCheck workers, effective jobs=$jobs"
+  pass "CI lint step runs fm-lint.sh with one worker"
+}
+
 test_ci_matrices_match_executable_partitions() {
   ruby -ryaml -ropen3 - "$CI_WORKFLOW" "$ROOT" <<'RUBY' || fail "CI partition contract"
 jobs = YAML.load_file(ARGV[0]).fetch("jobs")
@@ -235,8 +269,6 @@ expected = shards.map { |s| "portable-serial-#{s}of#{shards.length}" }
 raise "CI matrix and runner disagree" unless actual.sort == expected.sort
 lint = jobs.fetch("lint").fetch("strategy")
 raise "lint failures must not cancel another partition" unless lint.fetch("fail-fast") == false
-lint_run = jobs.fetch("lint").fetch("steps").find { |step| step["name"] == "Lint canonical partition" }.fetch("run")
-raise "CI lint must serialize source-aware ShellCheck workers" unless lint_run.include?("FM_LINT_JOBS=1")
 matrix = lint.fetch("matrix")
 raise "unexpected lint dimensions" unless matrix.keys == ["partition"]
 parts = matrix.fetch("partition")
@@ -252,6 +284,7 @@ RUBY
 }
 
 test_ci_matrices_match_executable_partitions
+test_ci_lint_step_serializes_source_aware_workers
 test_pr_pushes_supersede_within_one_pr
 test_separate_prs_do_not_cancel_each_other
 test_main_pushes_are_never_cancelled

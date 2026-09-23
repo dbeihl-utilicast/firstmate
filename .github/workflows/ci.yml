@@ -65,8 +65,9 @@ jobs:
   lint:
     name: Lint ${{ matrix.partition }}
     runs-on: ubuntu-latest
-    # Normal tier (see the timeout policy above).
-    timeout-minutes: 30
+    # Heavy tier (see the timeout policy above): serialized source-aware
+    # ShellCheck runs about 25 minutes per partition.
+    timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
