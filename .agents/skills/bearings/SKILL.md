@@ -127,7 +127,7 @@ A current structured Reconcile selection closes nothing: the versioned board con
 The rollout-compatible old context still feeds ordinary non-reconcile answers, but its bare or separator-annotated reconcile values and every structurally uncertain choice feed neither intake and remain announced for deliberate handling.
 Verify the call's latest state, then retire the request through `bin/fm-captain-hold.sh reconcile close <id> --evidence-file <path>` when it turns out to be moot, or `reconcile note <id> --note-file <path>` when it is genuinely still open.
 Both outcomes refuse without that pending board-created request, and `bin/fm-captain-hold.sh reconcile list` names every request still outstanding.
-A remote-secondmate card (its key is `<secondmate>/<task>`) carries a visible not-yet-routable note instead of a Queue-answer or Reconcile control, so it never produces a wake to handle at all until the separately tracked owner-aware routing follow-up lands.
+A remote-secondmate card (its key is `<secondmate>/<task>`) renders like a local one - options, recommendation, a lane badge, and a Queue-answer control - but the owner-aware routing follow-up that would let a wake for it be handled is still separately tracked.
 `captain-hold-lifecycle` owns why a reconcile may never be recorded as the captain's answer.
 Route the non-decision keys yourself:
 
