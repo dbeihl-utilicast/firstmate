@@ -14,7 +14,8 @@ The tracked code root contains the shared instruction, skill, documentation, wor
 `state/` holds runtime records such as task metadata, append-only status events, endpoint signals, watcher and wake-queue coordination, inactive terminal-outcome receipts under `state/terminal-outcomes/`, enabled extension working namespaces under `state/extensions/`, away-mode state, generated Relay artifacts, parent-side remote ledger copies under `state/secondmate-summary-cache/`, one-shot Bearings reconcile requests under `state/reconcile-notify/`, private secondmate config-reread generations with their retry and quarantine state, per-task steering-inbox records under `state/<id>.inbox/` (`bin/fm-task-inbox-lib.sh`), and parent-owned secondmate pending-reply records under `state/pending-replies/` (`bin/fm-pending-reply-lib.sh`).
 `config/` holds local gitignored operating choices, including explicit extension bindings under `config/extensions.d/`, and `projects/` holds the local project clones that Firstmate reads but changes only through the narrow guarded and concrete captain-approved exceptions in `AGENTS.md`.
 Untracked files and directories whose names begin with `scratchpad` are also gitignored, so temporary scratch does not make porcelain-based secondmate sync guards treat a home as dirty.
-`.treehouse/` is the home-scoped Treehouse pool root: `bin/fm-treehouse-lib.sh` passes `--root` derived from `FM_HOME` on every Firstmate-issued `treehouse get`/`status`/`return`/`prune` so two homes cloning the same project do not share slots.
+Each home's Treehouse pool lives outside the home, at `$HOME/.firstmate-pools/<home-basename>-<hash>/`: `bin/fm-treehouse-lib.sh` owns that root and passes it as `--root` on every Firstmate-issued `treehouse get`/`status`/`return`/`prune`, so two homes cloning the same project do not share slots and no pooled copy has the home's own `CLAUDE.md` in a parent directory.
+A `.treehouse/` inside a home is a legacy pool from before that move: nothing new is allocated there, slots still in use return to it normally, and `treehouse prune --root <home>` (a dry run until `--yes`) retires only its clean, unused, merged slots.
 
 `bin/fm-spawn.sh` owns the base task-metadata fields it emits, while the runtime-backend section below owns backend-specific fields and selector interpretation.
 `bin/fm-contributions.sh` owns durable published-contribution records under each task, observation bounds, equivalent triage-label configuration, and the authenticated contribution check.
@@ -72,7 +73,7 @@ data/                personal fleet records; LOCAL, gitignored as a whole
   <id>/brief.md      per-task crewmate brief, or per-secondmate charter brief when kind=secondmate
   <id>/report.md     scout task deliverable, written by the crewmate; survives teardown
 projects/            cloned repos; gitignored; read-only except under hard rule 1's concrete captain-approved project operation exception
-.treehouse/          home-scoped Treehouse pool root (bin/fm-treehouse-lib.sh); LOCAL, gitignored
+.treehouse/          legacy in-home Treehouse pool, no longer allocated (bin/fm-treehouse-lib.sh); LOCAL, gitignored
 state/               runtime records and signals; gitignored
   <id>.status        append-only wake events, not current-state truth; bin/fm-classify-lib.sh owns their syntax
   <id>.turn-ended    touched by turn-end hooks only when this home already has <id>.meta; a hook that resolved this home without that record refuses rather than creating the marker (bin/fm-busy-event.sh turn-end)

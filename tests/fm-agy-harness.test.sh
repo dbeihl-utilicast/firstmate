@@ -184,7 +184,7 @@ make_case() {  # <name> <id>
   project="$case_dir/project"
   wt="$case_dir/wt"
   fakebin=$(make_fakebin "$case_dir/fake")
-  mkdir -p "$home/data/$id" "$home/projects" "$home/state" "$home/config"
+  mkdir -p "$case_dir/user-home" "$home/data/$id" "$home/projects" "$home/state" "$home/config"
   cat > "$home/data/$id/brief.md" <<'EOF'
 # Task
 
@@ -216,7 +216,7 @@ EOF
 run_spawn() {  # <id> [fm-spawn args]
   local id=$1
   shift
-  HOME="$HOME_DIR" FM_ROOT_OVERRIDE='' FM_HOME="$HOME_DIR" \
+  HOME="$CASE_DIR/user-home" FM_ROOT_OVERRIDE='' FM_HOME="$HOME_DIR" \
     FM_STATE_OVERRIDE="$HOME_DIR/state" FM_DATA_OVERRIDE="$HOME_DIR/data" \
     FM_PROJECTS_OVERRIDE="$HOME_DIR/projects" FM_CONFIG_OVERRIDE="$HOME_DIR/config" \
     FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$WT_DIR" TMUX="fake,1,0" \
@@ -231,7 +231,7 @@ run_spawn() {  # <id> [fm-spawn args]
 
 run_relaunch() {  # <id>
   local id=$1
-  HOME="$HOME_DIR" FM_ROOT_OVERRIDE='' FM_HOME="$HOME_DIR" \
+  HOME="$CASE_DIR/user-home" FM_ROOT_OVERRIDE='' FM_HOME="$HOME_DIR" \
     FM_STATE_OVERRIDE="$HOME_DIR/state" FM_DATA_OVERRIDE="$HOME_DIR/data" \
     FM_PROJECTS_OVERRIDE="$HOME_DIR/projects" FM_CONFIG_OVERRIDE="$HOME_DIR/config" \
     FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$WT_DIR" TMUX="fake,1,0" \
