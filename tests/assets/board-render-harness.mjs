@@ -27,6 +27,15 @@ class Node {
     this.classList = {
       add: (c) => { this.className = (this.className + " " + c).trim(); },
       contains: (c) => this.className.split(/\s+/).includes(c),
+      toggle: (c, force) => {
+        const classes = this.className.split(/\s+/).filter(Boolean);
+        const has = classes.includes(c);
+        const shouldAdd = force === undefined ? !has : force;
+        this.className = shouldAdd
+          ? [...new Set([...classes, c])].join(" ")
+          : classes.filter((name) => name !== c).join(" ");
+        return shouldAdd;
+      },
     };
   }
   get textContent() {
@@ -122,5 +131,40 @@ const errorText = [...byId.entries()]
 const empty = ch.children.filter((c) => c.className.includes("bb-empty")).map((c) => c.textContent);
 const more = ch.children.filter((c) => c.className.includes("bb-morechip")).map((c) => c.textContent);
 
-process.stdout.write(
-  JSON.stringify({ stats, underway, charted, empty, more, error: errorText }) + "\n");
+const descendants = (root, className) => {
+  const found = [];
+  const walk = (node) => {
+    for (const child of node.children) {
+      if (child.className.split(/\s+/).includes(className)) found.push(child);
+      walk(child);
+    }
+  };
+  walk(root);
+  return found;
+};
+const callDeck = byId.get("bb-call") || new Node("div");
+const decisions = callDeck.children
+  .filter((card) => card.className.split(/\s+/).includes("bb-decision"))
+  .map((card) => {
+    const form = descendants(card, "bb-opts")[0]?.parentNode;
+    const options = descendants(card, "bb-opt").map((option) => {
+      const input = option.children.find((child) => child.tagName === "input");
+      return {
+        value: input?.value ?? "",
+        label: descendants(option, "bb-opt__label")[0]?.textContent ?? "",
+        recommended: descendants(option, "bb-opt__rec").length === 1,
+        selected: input?.checked === true,
+      };
+    });
+    return {
+      question: form?.attributes["data-lavish-question"] ?? "",
+      badges: descendants(card, "fm-badge").map((badge) => ({
+        tone: badge.className.replace(/.*fm-badge--/, "").trim(),
+        text: badge.textContent,
+      })),
+      options,
+      button: descendants(card, "fm-btn")[0]?.textContent ?? "",
+    };
+  });
+
+process.stdout.write(JSON.stringify({ stats, underway, charted, decisions, empty, more, error: errorText }) + "\n");
