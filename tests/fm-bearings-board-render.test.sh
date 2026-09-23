@@ -58,12 +58,12 @@ SH
 
 # Build the board from <underway-json> plus <charted-json> and return what the
 # renderer produced.
-render_board() {  # <home> <underway-json> <charted-json> [charted_more] [charted_warning_more]
-  local home=$1 underway=$2 charted=$3 more=${4:-0} warning_more=${5:-0} data="$1/payload.json"
+render_board() {  # <home> <underway-json> <charted-json> [charted_more] [charted_warning_more] [captains_call]
+  local home=$1 underway=$2 charted=$3 more=${4:-0} warning_more=${5:-0} calls=${6:-'[]'} data="$1/payload.json"
   jq -n --argjson underway "$underway" --argjson charted "$charted" \
-    --argjson more "$more" --argjson warning_more "$warning_more" '{
+    --argjson more "$more" --argjson warning_more "$warning_more" --argjson calls "$calls" '{
     schema:"fm-bearings-board.v1", home:"render-home", generated:"2026-08-26T00:00Z",
-    prs_live:false, captains_call:[], underway:$underway, landed:[],
+    prs_live:false, captains_call:$calls, underway:$underway, landed:[],
     charted:$charted, charted_more:$more, charted_warning_more:$warning_more}' > "$data"
   PATH="$home/fakebin:$PATH" FM_HOME="$home" \
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
@@ -74,8 +74,8 @@ render_board() {  # <home> <underway-json> <charted-json> [charted_more] [charte
 }
 
 # Build the board from <charted-json> alone and return what the renderer produced.
-render() {  # <home> <charted-json> [charted_more] [charted_warning_more]
-  render_board "$1" '[]' "$2" "${3:-0}" "${4:-0}"
+render() {  # <home> <charted-json> [charted_more] [charted_warning_more] [captains_call]
+  render_board "$1" '[]' "$2" "${3:-0}" "${4:-0}" "${5:-[]}"
 }
 
 charted_next_count() {  # <render-json>
@@ -232,8 +232,40 @@ test_an_underway_row_leads_with_the_task_name_and_keeps_its_run_status
 test_an_underway_identifier_label_is_not_replaced_by_run_status
 test_charted_next_reads_newest_filed_first
 test_charted_rows_without_a_filed_date_follow_the_dated_rows_in_payload_order
+test_a_secondmate_decision_is_answerable_from_its_owning_lane() {
+  local home out
+  home=$(make_home secondmate-decision)
+  out=$(render "$home" '[]' 0 0 '[{
+    "key":"domain-alpha/phase8-decision-release",
+    "type":"decision",
+    "repo":"sample",
+    "title":"Choose the release posture",
+    "about":"the phase 8 release",
+    "decide":"which posture to use",
+    "options":[
+      {"value":"ship","label":"Ship it","hint":"release now"},
+      {"value":"wait","label":"Wait","hint":"hold for another pass"}
+    ],
+    "recommend_value":"ship",
+    "allow_freeform":false
+  }]')
+  printf '%s' "$out" | jq -e '
+    (.decisions | length) == 1
+      and (.decisions[0].question == "domain-alpha/phase8-decision-release")
+      and (.decisions[0].badges | map(.text) | index("lane domain-alpha") != null)
+      and (.decisions[0].options == [
+        {"value":"ship","label":"Ship it","recommended":true,"selected":true},
+        {"value":"wait","label":"Wait","recommended":false,"selected":false},
+        {"value":"reconcile","label":"Reconcile","recommended":false,"selected":false}
+      ])
+      and (.decisions[0].button == "Queue answer")
+  ' >/dev/null || fail "a secondmate decision did not render a one-click answer for its owning lane: $out"
+  pass "a secondmate decision renders its lane and a preselected recommended answer"
+}
+
 test_a_warning_row_reads_as_a_repair_not_as_queued_work
 test_warnings_are_excluded_from_the_charted_next_count
 test_a_board_of_only_warnings_still_reports_nothing_queued
 test_omitted_warnings_never_count_as_more_queued
 test_an_omitted_kind_keeps_the_existing_queued_rendering
+test_a_secondmate_decision_is_answerable_from_its_owning_lane
