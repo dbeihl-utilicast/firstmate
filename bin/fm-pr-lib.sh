@@ -92,6 +92,7 @@ FM_PR_RETIRE_RECEIPT_HASH=
 FM_PR_RETIRE_RECEIPT_IDENTITY=
 FM_PR_RECORD_STATE=
 FM_PR_RECORD_MERGED=
+FM_PR_RECORD_MERGE_COMMIT=
 FM_PR_POLL_RETIREMENT_REJECTED=
 
 # shellcheck source=bin/fm-gh-auth-lib.sh
@@ -871,15 +872,16 @@ fm_pr_poll_retirement_receipt_valid() {
 
 fm_pr_github_read_record_with_gh() {  # <owner> <repo> <number>
   local owner=$1 repo=$2 number=$3 fields line total=0 named=0
-  local state='' merged=''
+  local state='' merged='' merge_commit=''
   FM_PR_RECORD_STATE=
   FM_PR_RECORD_MERGED=
+  FM_PR_RECORD_MERGE_COMMIT=
 
   # shellcheck disable=SC2016  # GraphQL variables are literal query syntax.
   if ! fields=$(fm_gh_run "$owner" gh api graphql \
-    -f query='query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){state merged}}}' \
+    -f query='query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){state merged mergeCommit{oid}}}}' \
     -F "owner=$owner" -F "repo=$repo" -F "number=$number" \
-    --jq '.data.repository.pullRequest | "state=" + (.state // ""), "merged=" + (.merged | tostring)' \
+    --jq '.data.repository.pullRequest | "state=" + (.state // ""), "merged=" + (.merged | tostring), "merge_commit=" + (.mergeCommit.oid // "")' \
     2>/dev/null) || [ -z "$fields" ]; then
     return 1
   fi
@@ -888,14 +890,16 @@ fm_pr_github_read_record_with_gh() {  # <owner> <repo> <number>
     case "$line" in
       state=*) state=${line#state=} ;;
       merged=*) merged=${line#merged=} ;;
+      merge_commit=*) merge_commit=${line#merge_commit=} ;;
       *) continue ;;
     esac
     named=$((named + 1))
   done <<FIELDS
 $fields
 FIELDS
-  if [ "$named" -ne 2 ] || [ "$total" -ne 2 ] || [ -z "$state" ] \
-    || { [ "$merged" != true ] && [ "$merged" != false ]; }; then
+  if [ "$named" -ne 3 ] || [ "$total" -ne 3 ] || [ -z "$state" ] \
+    || { [ "$merged" != true ] && [ "$merged" != false ]; } \
+    || { [ -n "$merge_commit" ] && ! fm_pr_head_valid "$merge_commit"; }; then
     return 1
   fi
 
@@ -905,12 +909,16 @@ FIELDS
   # Consumed by bin/fm-crew-state.sh passed_pr_detail.
   # shellcheck disable=SC2034
   FM_PR_RECORD_MERGED=$merged
+  # Consumed by bin/fm-crew-state.sh passed_pr_detail.
+  # shellcheck disable=SC2034
+  FM_PR_RECORD_MERGE_COMMIT=$merge_commit
 }
 
 fm_pr_github_read_record_with_gh_axi() {  # <owner> <repo> <number>
   local owner=$1 repo=$2 number=$3 output state
   FM_PR_RECORD_STATE=
   FM_PR_RECORD_MERGED=
+  FM_PR_RECORD_MERGE_COMMIT=
   if ! output=$(fm_gh_run "$owner" gh-axi pr view "$number" --repo "$owner/$repo" 2>/dev/null); then
     return 1
   fi
@@ -928,6 +936,10 @@ fm_pr_github_read_record_with_gh_axi() {  # <owner> <repo> <number>
       # Consumed by bin/fm-crew-state.sh passed_pr_detail.
       # shellcheck disable=SC2034
       FM_PR_RECORD_MERGED=true
+      # gh-axi's view schema does not expose a merge commit, so this fallback
+      # can report forge state but cannot by itself prove a landed merge.
+      # shellcheck disable=SC2034
+      FM_PR_RECORD_MERGE_COMMIT=
       ;;
     OPEN|open)
       # Consumed by bin/fm-crew-state.sh passed_pr_detail.
@@ -936,6 +948,8 @@ fm_pr_github_read_record_with_gh_axi() {  # <owner> <repo> <number>
       # Consumed by bin/fm-crew-state.sh passed_pr_detail.
       # shellcheck disable=SC2034
       FM_PR_RECORD_MERGED=false
+      # shellcheck disable=SC2034
+      FM_PR_RECORD_MERGE_COMMIT=
       ;;
     CLOSED|closed)
       # Consumed by bin/fm-crew-state.sh passed_pr_detail.
@@ -944,6 +958,8 @@ fm_pr_github_read_record_with_gh_axi() {  # <owner> <repo> <number>
       # Consumed by bin/fm-crew-state.sh passed_pr_detail.
       # shellcheck disable=SC2034
       FM_PR_RECORD_MERGED=false
+      # shellcheck disable=SC2034
+      FM_PR_RECORD_MERGE_COMMIT=
       ;;
     *)
       return 1
@@ -961,9 +977,10 @@ fm_pr_github_read_record() {  # <owner> <repo> <number>
 
 fm_pr_gitlab_read_record() {  # <host> <path> <number>
   local host=$1 path=$2 number=$3 project_url json fields line
-  local total=0 named=0 state='' merged=''
+  local total=0 named=0 state='' merged='' merge_commit=''
   FM_PR_RECORD_STATE=
   FM_PR_RECORD_MERGED=
+  FM_PR_RECORD_MERGE_COMMIT=
   command -v glab >/dev/null 2>&1 || return 1
   command -v jq >/dev/null 2>&1 || return 1
   project_url="https://$host/$path"
@@ -975,7 +992,8 @@ fm_pr_gitlab_read_record() {  # <host> <path> <number>
   if ! fields=$(printf '%s' "$json" | jq -r '
       if type == "object" and (.state | type == "string") and .state != "" then
         "state=" + .state,
-        "merged=" + (if .state == "merged" then "true" else "false" end)
+        "merged=" + (if .state == "merged" then "true" else "false" end),
+        "merge_commit=" + (.merge_commit_sha // "")
       else
         error("invalid merge request state")
       end' 2>/dev/null); then
@@ -986,14 +1004,16 @@ fm_pr_gitlab_read_record() {  # <host> <path> <number>
     case "$line" in
       state=*) state=${line#state=} ;;
       merged=*) merged=${line#merged=} ;;
+      merge_commit=*) merge_commit=${line#merge_commit=} ;;
       *) continue ;;
     esac
     named=$((named + 1))
   done <<FIELDS
 $fields
 FIELDS
-  if [ "$named" -ne 2 ] || [ "$total" -ne 2 ] || [ -z "$state" ] \
-    || { [ "$merged" != true ] && [ "$merged" != false ]; }; then
+  if [ "$named" -ne 3 ] || [ "$total" -ne 3 ] || [ -z "$state" ] \
+    || { [ "$merged" != true ] && [ "$merged" != false ]; } \
+    || { [ -n "$merge_commit" ] && ! fm_pr_head_valid "$merge_commit"; }; then
     return 1
   fi
 
@@ -1003,6 +1023,9 @@ FIELDS
   # Consumed by bin/fm-crew-state.sh passed_pr_detail.
   # shellcheck disable=SC2034
   FM_PR_RECORD_MERGED=$merged
+  # Consumed by bin/fm-crew-state.sh passed_pr_detail.
+  # shellcheck disable=SC2034
+  FM_PR_RECORD_MERGE_COMMIT=$merge_commit
 }
 
 fm_pr_poll_retirement_data_valid() {
