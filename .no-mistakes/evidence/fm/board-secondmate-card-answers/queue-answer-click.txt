@@ -1,0 +1,1 @@
+<pre id="queued">[{"text":"Captain's Call answer - Choose the release posture: ship","data":{"schema":"fm-bearings-answer.v1","question":"domain-alpha/phase8-decision-release","selection":"ship","note":""}}]</pre>
