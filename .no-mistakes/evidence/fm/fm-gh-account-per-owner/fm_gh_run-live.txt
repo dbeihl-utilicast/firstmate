@@ -1,0 +1,12 @@
+== active before: dbeihl
+== S1 owner dbeihl-utilicast -> login: dbeihl-utilicast
+== S2 owner masonrecipes -> login: masonrecipes
+   masonrecipes repo perms via map: true
+   masonrecipes repo perms via active: false
+== S3 owner MasonRecipes (case) -> masonrecipes
+== S4 unmapped owner dbeihl -> dbeihl
+== S5 mapped login missing from keyring:
+error: cannot read the GitHub token for mapped login no-such-login-zz; authenticate it with gh auth login --user no-such-login-zz
+   rc=1
+== S6 GH_TOKEN precedence (token of masonrecipes, owner dbeihl-utilicast) -> masonrecipes
+== active after: dbeihl

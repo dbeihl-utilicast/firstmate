@@ -1,0 +1,8 @@
+== snapshot copy of fm-pr-poll with no helper beside it and FM_ROOT_OVERRIDE lacking bin/
+fm-pr-poll: cannot read fm-gh-auth-lib.sh in /tmp/fmgh.kb3A/snap/state or /tmp/fmgh.kb3A/emptyroot/bin
+rc=1
+gh calls made: 0
+== same snapshot, FM_ROOT_OVERRIDE points at real firstmate root (fallback path)
+merged
+rc=0
+gh-call token=dbeihl-utilicast args=pr view https://github.com/dbeihl-utilicast/firstmate/pull/83

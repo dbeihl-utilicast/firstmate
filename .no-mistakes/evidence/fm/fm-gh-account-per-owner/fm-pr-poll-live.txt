@@ -1,0 +1,19 @@
+== fm-pr-poll --validated masonrecipes/masonrecipes.github.io PR 45 (poll mode)
+rc=0
+== fm-pr-poll --gate masonrecipes/masonrecipes.github.io PR 45
+rc=0
+== fm-pr-poll --validated dbeihl-utilicast/firstmate PR 83 (poll mode)
+merged
+rc=0
+== fm-pr-poll --gate dbeihl-utilicast/firstmate PR 83
+rc=0
+== gh calls seen (token owner per call):
+gh-call token=masonrecipes args=pr view https://github.com/masonrecipes/masonrecipes.github.io/pull/45
+gh-call token=dbeihl-utilicast args=pr view https://github.com/dbeihl-utilicast/firstmate/pull/83
+gh-call token=masonrecipes args=api graphql --hostname
+gh-call token=masonrecipes args=api --hostname github.com
+gh-call token=masonrecipes args=api --hostname github.com
+gh-call token=masonrecipes args=api graphql --hostname
+gh-call token=dbeihl-utilicast args=pr view https://github.com/dbeihl-utilicast/firstmate/pull/83
+gh-call token=dbeihl-utilicast args=api graphql --hostname
+== active account after:   ✓ Logged in to github.com account dbeihl (keyring)

@@ -1,0 +1,5 @@
+ok - fm-gh-auth-lib leaves an unmapped owner to gh's active account
+ok - fm-gh-auth-lib applies a configured default mapping
+ok - fm-gh-auth-lib refuses a configured login whose token cannot be read
+ok - fm-gh-auth-lib preserves a caller-supplied GH_TOKEN
+ok - fm-gh-auth-lib keeps the configured token out of command output
