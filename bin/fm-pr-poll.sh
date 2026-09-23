@@ -24,17 +24,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 # A registered poll is a byte-static snapshot under state/, while fm-watch
-# executes this canonical template after validating that snapshot. Prefer an
-# explicit or canonical helper path for direct operator runs. A historical
-# snapshot without either path retains its prior active-account behavior.
-GH_AUTH_LIB=${FM_GH_AUTH_LIB:-$SCRIPT_DIR/fm-gh-auth-lib.sh}
+# executes this canonical template after validating that snapshot, so the
+# helper is sourced from beside this script or from the firstmate root.
+GH_AUTH_LIB="$SCRIPT_DIR/fm-gh-auth-lib.sh"
 [ -r "$GH_AUTH_LIB" ] || GH_AUTH_LIB="$FM_ROOT/bin/fm-gh-auth-lib.sh"
-if [ -r "$GH_AUTH_LIB" ]; then
-  # shellcheck source=bin/fm-gh-auth-lib.sh
-  . "$GH_AUTH_LIB"
-else
-  fm_gh_run() { shift; "$@"; }
+if [ ! -r "$GH_AUTH_LIB" ]; then
+  echo "fm-pr-poll: cannot read fm-gh-auth-lib.sh in $SCRIPT_DIR or $FM_ROOT/bin" >&2
+  exit 1
 fi
+# shellcheck source=bin/fm-gh-auth-lib.sh
+. "$GH_AUTH_LIB"
 
 mode=poll
 if [ "$#" -eq 6 ] && [ "$1" = --gate ]; then
