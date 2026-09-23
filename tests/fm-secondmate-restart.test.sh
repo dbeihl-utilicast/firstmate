@@ -149,9 +149,13 @@ SH
 }
 
 # new_case <name> -> a parent home with a stub session provider.
+# A relaunch registers Claude trust for the mate's home in the launching user's
+# store (bin/fm-claude-trust.sh), so every run below pins HOME to the case's
+# user-home and CLAUDE_CONFIG_DIR empty; without that this suite would write the
+# developer's real ~/.claude.json.
 new_case() {
   local dir="$TMP_ROOT/$1-$RANDOM"
-  mkdir -p "$dir/home/state" "$dir/home/data" "$dir/home/config" "$dir/fake"
+  mkdir -p "$dir/home/state" "$dir/home/data" "$dir/home/config" "$dir/fake" "$dir/user-home"
   printf 'claude\n' > "$dir/home/config/secondmate-harness"
   : > "$dir/fake/literal"
   : > "$dir/fake/keys"
@@ -244,6 +248,7 @@ add_repo_backed_mate() {  # <case-dir> <id> [harness] [backend]
 run_update_in_case() {
   local dir=$1
   env PATH="$dir/fakebin:$PATH" FM_FAKE_DIR="$dir/fake" \
+    HOME="$dir/user-home" CLAUDE_CONFIG_DIR='' \
     FM_ROOT_OVERRIDE="$dir/fmrepo" FM_HOME="$dir/home" \
     FM_SSH_BIN="${FM_TEST_SSH_BIN:-ssh}" \
     "$ROOT/bin/fm-update.sh" 2>/dev/null
@@ -259,6 +264,7 @@ arm_answer() {
 run_restart() {  # <case-dir> <args...>
   local dir=$1; shift
   env PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" FM_FAKE_DIR="$dir/fake" \
+    HOME="$dir/user-home" CLAUDE_CONFIG_DIR='' \
     FM_SPAWN_NO_GUARD=1 FM_SECONDMATE_PERSIST_POLL=1 \
     FM_SECONDMATE_PERSIST_WAIT="${FM_TEST_PERSIST_WAIT:-30}" \
     FM_CONTROL_POLL=0.01 FM_CONTROL_EXIT_WAIT=0.05 FM_CONTROL_LAUNCH_WAIT=0.05 \
@@ -269,6 +275,7 @@ run_restart() {  # <case-dir> <args...>
 run_config_push() {  # <case-dir>
   local dir=$1
   env PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" FM_FAKE_DIR="$dir/fake" \
+    HOME="$dir/user-home" CLAUDE_CONFIG_DIR='' \
     FM_SPAWN_NO_GUARD=1 FM_SSH_BIN="${FM_TEST_SSH_BIN:-ssh}" \
     "$ROOT/bin/fm-config-push.sh" 2>&1
 }

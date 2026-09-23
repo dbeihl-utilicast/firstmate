@@ -106,8 +106,11 @@
 #
 # Exit status is non-zero if any selected script exits non-zero, a configured
 # --fail-on-gate-skip token appears, the measured duration exceeds
-# --max-wall-ms, timing-artifact finalization fails, or a concurrent worker
-# violates its isolation check. Other gate skips (first meaningful line
+# --max-wall-ms, timing-artifact finalization fails, a concurrent worker
+# violates its isolation check, or the run adds a project entry under a temp
+# root to the Claude store (${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json), which
+# means a test reached bin/fm-claude-trust.sh without pinning HOME and an empty
+# CLAUDE_CONFIG_DIR. Other gate skips (first meaningful line
 # matching ^skip:) remain successful and are counted as skipped_gate; each one
 # is logged with its reason and recorded in the timing artifact.
 #
@@ -2315,6 +2318,26 @@ cleanup_run() {
 
 trap cleanup_run EXIT
 
+# Claude store guard. A test that reaches bin/fm-claude-trust.sh without
+# pinning HOME and CLAUDE_CONFIG_DIR writes the developer's real Claude store.
+# Any live Claude session rewrites that store constantly, so a whole-file hash
+# would flake; instead the run fails when it gains a project entry under a
+# temp root, which only a test leak produces.
+CLAUDE_STORE="${CLAUDE_CONFIG_DIR:-${HOME:-}}/.claude.json"
+claude_store_temp_entries() {
+  [ -e "$CLAUDE_STORE" ] || return 0
+  command -v python3 >/dev/null 2>&1 || { log "python3 is required to check $CLAUDE_STORE for test leaks"; return 1; }
+  python3 - "$CLAUDE_STORE" "${TMPDIR:-/tmp}" /tmp <<'PY'
+import json, os, sys
+projects = json.load(open(sys.argv[1])).get("projects") or {}
+roots = {os.path.realpath(r).rstrip("/") + "/" for r in sys.argv[2:]}
+for key in sorted(k for k in projects if any(k.startswith(r) for r in roots)):
+    print(key)
+PY
+}
+claude_store_temp_entries >"$RUN_TMP/claude-store.before" \
+  || die "could not read $CLAUDE_STORE to guard it against test leaks"
+
 RUN_ID="fm-test-run-${RUN_STARTED_MS}-$$"
 TOTAL=0
 FAILED=0
@@ -2655,6 +2678,18 @@ if [ -n "$MAX_WALL_MS" ]; then
     log "wall-clock budget exceeded: ${RUN_DURATION}ms > ${MAX_WALL_MS}ms for $SELECTION_DESC"
     AGG_RC=1
   fi
+fi
+
+if claude_store_temp_entries >"$RUN_TMP/claude-store.after"; then
+  leaked=$(LC_ALL=C comm -13 "$RUN_TMP/claude-store.before" "$RUN_TMP/claude-store.after")
+  if [ -n "$leaked" ]; then
+    log "a test wrote temp-directory project entries into $CLAUDE_STORE; pin HOME and CLAUDE_CONFIG_DIR='' on its spawn calls:"
+    printf '%s\n' "$leaked" >&2
+    AGG_RC=1
+  fi
+else
+  log "could not re-read $CLAUDE_STORE to guard it against test leaks"
+  AGG_RC=1
 fi
 
 exit "$AGG_RC"
