@@ -1077,7 +1077,7 @@ cmd_start() {
   # it is outside this confused-agent-grade boundary.
   export FM_PROCEVENT_IN_RUNNER=1
   start_owner_guard "$id" || die "cannot start the runner's owner guard: $id"
-  local launch_floor runner inbox reservation_dir staging launch_ready launch_reply launch_pid
+  local launch_floor runner inbox reservation_dir staging launch_ready launch_reply launch_pid current_identity
   launch_floor=$(fm_procevent_launch_floor_seconds) \
     || die "FM_PROCEVENT_LAUNCH_FLOOR_SECONDS must be whole seconds from $FM_PROCEVENT_LAUNCH_FLOOR_MIN_SECONDS to $FM_PROCEVENT_LAUNCH_FLOOR_MAX_SECONDS"
   if [ "$extension_owner" -eq 1 ]; then
@@ -1126,6 +1126,16 @@ cmd_start() {
     2) [ "$extension_owner" -eq 1 ] || rm -f -- "$runner"; exit 0 ;;
     *) die "cannot enforce the source launch floor: $id" ;;
   esac
+  # Re-registration can replace the source while launch-floor waiting sleeps.
+  # Recheck under the source lock and keep that lock until the command launch
+  # boundary, so a superseded runner cannot execute its captured argv.
+  fm_procevent_source_lock_acquire "$id" || die "cannot lock source launch boundary: $id"
+  current_identity=$(fm_pr_file_identity "$(source_file "$id")" 2>/dev/null || true)
+  if [ "$current_identity" != "$CLAIM_REG_IDENTITY" ]; then
+    fm_procevent_source_lock_release "$id" || true
+    [ "$extension_owner" -eq 1 ] || rm -f -- "$runner"
+    exit 0
+  fi
   exec 7<&-
   if [ "$extension_owner" -eq 1 ]; then
     launch_ready=".$id.$CLAIM_TOKEN.launch-ready"
