@@ -749,6 +749,22 @@ test_non_pooled_spawn_preanswers_imports_for_the_launch_dir() {
   pass "fm-spawn.sh: a non-pooled claude spawn pre-answers imports for its launch dir"
 }
 
+test_imports_only_keeps_an_approved_entry() {
+  local rec store
+  rec=$(make_case imports-only-approved)
+  read_case "$rec"
+  store="$CONFIG/.claude.json"
+  cat > "$store" <<JSON
+{"projects":{"$PROJ":{"hasClaudeMdExternalIncludesApproved":true,"hasClaudeMdExternalIncludesWarningShown":true}}}
+JSON
+  CLAUDE_CONFIG_DIR="$CONFIG" HOME="$CONFIG" "$TRUST" --imports-only "$PROJ" "$PROJ" >/dev/null 2>&1 \
+    || fail "--imports-only failed against an entry that already approved external imports"
+  assert_store_value "$store" true \
+    "--imports-only revoked the human's standing external-imports approval" \
+    projects "$PROJ" hasClaudeMdExternalIncludesApproved
+  pass "fm-claude-trust.sh: --imports-only never flips an approved entry to declined"
+}
+
 # Every claude launch, a secondmate's included, now pre-registers workspace
 # trust first, and that registration requires node and refuses without it. So a
 # node-less spawn stops at trust, before the imports pre-answer is ever reached,
@@ -1009,6 +1025,7 @@ test_claude_spawn_pretrusts_its_worktree_and_reaches_the_brief
 test_refused_spawn_leaves_no_task_state
 test_pooled_spawn_preanswers_imports_for_the_launch_dir
 test_non_pooled_spawn_preanswers_imports_for_the_launch_dir
+test_imports_only_keeps_an_approved_entry
 test_missing_node_refuses_the_spawn_before_the_imports_preanswer
 test_failed_imports_write_refuses_a_secondmate_spawn
 test_secondmate_standalone_clone_home_is_trusted

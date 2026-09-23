@@ -38,9 +38,10 @@
 # reaches outside the project tree - which every crewmate's does, through the
 # captain's own `~/.claude/CLAUDE.md` importing `~/.claude/RTK.md` - and it is
 # gated the same fail-closed way as trust: cursor on "No, disable", no arrow
-# navigation from firstmate's steering plane. Only worktree mode reaches this
-# second dialog's flags: a secondmate home has no separate "project" entry to
-# carry consent forward from, so its registration stays trust-only.
+# navigation from firstmate's steering plane. A secondmate home has no separate
+# "project" entry to carry consent forward from, so its registration never
+# grants the imports flags; only the declined pre-answer below reaches it,
+# through --imports-only.
 #
 # TWO PROJECT-CONFIG ENTRIES IN WORKTREE MODE, NOT ONE. Registering both flags
 # on the worktree entry alone (the original trust-only design) leaves the
@@ -521,9 +522,11 @@ const attempt = () => {
   let keys;
   let declinedKeys = [];
   if (mode === "imports-only") {
-    setDeclined(projects, target);
     keys = [];
-    declinedKeys = [target];
+    if (!approvedExternalImports(projects, target)) {
+      setDeclined(projects, target);
+      declinedKeys = [target];
+    }
   } else if (mode === "worktree") {
     if (declinedExternalImports(projects, project)) {
       throw new Error(

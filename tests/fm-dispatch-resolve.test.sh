@@ -397,6 +397,22 @@ assert_contains "$out" 'candidate: claude:fable  provider=claude  scope=model:fa
 assert_not_contains "$out" '  profile:' "escalate emits no profile line"
 pass "escalate: a rule declared approval: captain never yields a profile"
 
+# --- escalate: strict V2 policy the resolver does not evaluate ---------------
+# Rule 4's top spendPriority candidate is cursor. With independence excluding
+# the author's harness the resolver cannot know who authored the work, so it
+# must hand the decision back rather than pick cursor as clear.
+reset_log
+jq '.rules[3].independence = {"exclude_author_harness": true, "minimum_distinct_harnesses": 1, "explicit_task_instruction_may_raise_minimum": false}' \
+  "$BASE_RULES" > "$RULES"
+write_response "$RESPONSE" rule_4 0.95
+TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
+expect_code 0 "$code" "independence escalation exits 0"
+assert_contains "$out" '  status: escalate' "a rule with independence policy escalates"
+assert_contains "$out" 'declares task_shape, independence, or fixed reasoning policy this resolver does not evaluate' "escalate names the unevaluated policy"
+assert_not_contains "$out" '  profile:' "independence escalation emits no profile line"
+cp "$BASE_RULES" "$RULES"
+pass "escalate: a rule with exclude_author_harness never yields a clear profile"
+
 # --- rule floor fails: fall through to default -------------------------------
 reset_log
 write_response "$RESPONSE" rule_1 0.97

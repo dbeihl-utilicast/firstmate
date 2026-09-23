@@ -5256,15 +5256,17 @@ test_relaunch_partial_tab_creation_keeps_recovery_ownership() {
     "$ROOT/bin/fm-spawn.sh" "$id" --relaunch --harness codex 2>&1); status=$?
   [ "$status" -ne 0 ] || fail "a malformed Herdr creation response succeeded"
   tabs=$(jq --arg label "fm-$id" '[.tabs[] | select(.label == $label)] | length' "$dir/state.json")
-  [ "$tabs" -gt 0 ] || grep -q 'tab.*create' "$dir/log" \
-    || fail "the fixture never reached Herdr tab creation: $out"
-  if [ "$tabs" -gt 0 ]; then
-    [ -f "$home/state/$id.relaunch-endpoint" ] && [ -f "$meta" ] \
-      || fail "a partially created Herdr tab has no durable recovery owner"
-  else
-    [ -f "$meta" ] || fail "a relaunch whose tab was never created lost the task record"
-  fi
-  pass "partial Herdr relaunch is retired or durably recoverable"
+  [ "$tabs" -gt 0 ] || fail "the fixture never created the replacement Herdr tab: $out"
+  [ -f "$home/state/$id.relaunch-endpoint" ] && [ -f "$meta" ] \
+    || fail "a partially created Herdr tab has no durable recovery owner"
+  PATH="$fb:$PATH" FM_FAKE_HERDR_STATE="$dir/state.json" FM_HERDR_LOG="$dir/log" \
+    FM_BACKEND_HERDR_BIN="$fb/herdr" FM_BACKEND_HERDR_CLIENT_SESSION=testsesh \
+    HERDR_SESSION=testsesh FM_HOME_SUMMARY_TIMEOUT=5 \
+    FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" "$ROOT/bin/fm-home-summary-refresh.sh" \
+    || fail "the retained Herdr recovery owner could not refresh its summary"
+  jq -e --arg id "$id" 'any(.endpoints[]; .id == $id)' "$home/state/home-summary.json" >/dev/null \
+    || fail "the retained Herdr replacement is absent from the summary"
+  pass "partial Herdr relaunch stays durably recoverable and visible in the summary"
 }
 
 if [ "${FM_HERDR_TEST_ONLY:-0}" = 1 ]; then

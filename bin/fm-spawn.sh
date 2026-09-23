@@ -3493,19 +3493,13 @@ if [ "$RELAUNCH" -eq 1 ]; then
         relaunch_endpoint_journal_publish || exit 1
         ;;
       herdr)
-        HERDR_LABEL_HOME=$FM_HOME
-        HERDR_LAUNCHER_RELATIONSHIP=launcher-home
-        if [ "$KIND" = secondmate ]; then
-          HERDR_LABEL_HOME=$WT
-          HERDR_LAUNCHER_RELATIONSHIP=other-home
-        fi
         # Re-create under the RECORDED session, never the ambient one, so a
         # reclaim from a seat outside that session cannot relocate the task onto
         # another herdr server.
         HERDR_REBIND_SES=${RELAUNCH_TARGET%%:*}
         HERDR_CONTAINER_RAW=$(
           if [ -n "$RELAUNCH_LAUNCHER_PANE" ]; then export HERDR_PANE_ID=$RELAUNCH_LAUNCHER_PANE; else unset HERDR_PANE_ID; fi
-          FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_container_ensure "$WT" "$HERDR_LAUNCHER_RELATIONSHIP" "$HERDR_REBIND_SES"
+          fm_backend_herdr_container_ensure "$WT" launcher-home "$HERDR_REBIND_SES"
         ) || {
           # container_ensure already printed its own cause. Name a session
           # mismatch only when this seat really is in another herdr session; a
@@ -3531,7 +3525,7 @@ if [ "$RELAUNCH" -eq 1 ]; then
         RELAUNCH_ENDPOINT_CREATION_PHASE=creating
         relaunch_endpoint_journal_publish || exit 1
         RELAUNCH_ENDPOINT_PENDING=1
-        HERDR_TASK_IDS=$(FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_create_task "$CONTAINER" "$W" "$WT" "${HERDR_CONTAINER_RAW#*$'\t'}") || exit 1
+        HERDR_TASK_IDS=$(fm_backend_herdr_create_task "$CONTAINER" "$W" "$WT" "${HERDR_CONTAINER_RAW#*$'\t'}") || exit 1
         read -r HERDR_TAB_ID HERDR_PANE_ID <<EOF
 $HERDR_TASK_IDS
 EOF
@@ -4226,7 +4220,6 @@ case "$HARNESS" in
     [ -z "$claude_pane_dir" ] || [ "$(real_path_or_raw "$claude_pane_dir")" = "$(real_path_or_raw "$WT")" ] \
       || claude_imports_dirs="$claude_imports_dirs"$'\n'"$claude_pane_dir"
     claude_imports_skip=
-    command -v node >/dev/null 2>&1 || claude_imports_skip="node is not on PATH"
     [ -n "${CLAUDE_CONFIG_DIR:-${HOME:-}}" ] || claude_imports_skip="neither CLAUDE_CONFIG_DIR nor HOME locates the Claude store"
     while IFS= read -r claude_imports_dir; do
       [ -n "$claude_imports_dir" ] || continue

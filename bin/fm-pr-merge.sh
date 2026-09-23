@@ -224,6 +224,10 @@ while [ "$#" -gt 0 ]; do
     *) break ;;
   esac
 done
+if [ "${#ALLOW_RED[@]}" -gt 0 ] && [ "$ADMIN_BYPASS_REVIEW" = true ]; then
+  echo "error: --allow-red cannot be combined with --admin-bypass-review; an admin merge still requires every check to be green" >&2
+  exit 2
+fi
 if [ "${#ALLOW_RED[@]}" -gt 0 ] && [ "$PROVIDER" = gitlab ]; then
   echo "error: --allow-red does not apply to GitLab, where a merge already requires the head pipeline to have succeeded" >&2
   exit 2
@@ -749,6 +753,11 @@ FIELDS
     echo "error: could not read the GitHub pull request state before merging" >&2
     return 1
   fi
+  if ! FM_PR_GITHUB_REPORTED=$(printf '%s' "$json" | jq -r '
+      .statusCheckRollup[] | (if .__typename == "CheckRun" then .name else .context end) // empty' 2>/dev/null); then
+    echo "error: could not read the GitHub pull request state before merging" >&2
+    return 1
+  fi
 
   case "$state" in
     [oO][pP][eE][nN]) ;;
@@ -795,6 +804,34 @@ EOF
     "$URL" "$live_head" >&2
   FM_PR_MERGE_HEAD=$live_head
   FM_PR_GITHUB_BASE=$base
+}
+
+# A required check that has never reported is absent from the rollup, so the
+# green check above cannot see it. An ordinary merge is still refused by
+# GitHub, but --admin would bypass it, so an admin merge first proves every
+# check the base branch requires (branch protection and rulesets) reported.
+FM_PR_GITHUB_REPORTED=
+github_require_required_checks_reported() {
+  local branch_path protected rules name missing=''
+  branch_path=$(github_urlencode_path_segment "$FM_PR_GITHUB_BASE")
+  if ! protected=$(gh api "repos/$PR_OWNER/$PR_REPO/branches/$branch_path" \
+      --jq '.protection.required_status_checks.contexts // [] | .[]' 2>/dev/null) \
+    || ! rules=$(gh api --paginate "repos/$PR_OWNER/$PR_REPO/rules/branches/$branch_path" \
+      --jq '.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context' 2>/dev/null); then
+    printf 'error: refusing admin merge of %s: the base branch required checks could not be read\n' "$URL" >&2
+    return 1
+  fi
+  while IFS= read -r name; do
+    [ -n "$name" ] || continue
+    printf '%s\n' "$FM_PR_GITHUB_REPORTED" | grep -qxF -- "$name" \
+      || missing="${missing:+$missing, }$name"
+  done <<REQUIRED
+$protected
+$rules
+REQUIRED
+  [ -z "$missing" ] && return 0
+  printf 'error: refusing admin merge of %s: required checks have not reported: %s\n' "$URL" "$missing" >&2
+  return 1
 }
 
 # Read one live GitHub pull request view after gh returns. The selected
@@ -1073,6 +1110,10 @@ require_current_away_authority() {
     echo "error: --allow-red is attended-only; while the away-posture record exists the green check is absolute" >&2
     return 2
   fi
+  if [ "$FM_PR_AWAY_POSTURE" = true ] && [ "$ADMIN_BYPASS_REVIEW" = true ]; then
+    echo "error: --admin-bypass-review is attended-only; away mode never expands merge authority" >&2
+    return 2
+  fi
 }
 
 persist_accepted_merge_authority() {
@@ -1326,6 +1367,9 @@ case "$PROVIDER" in
     fi
     FM_PR_GITHUB_CALLER_METHOD=$(caller_merge_method "$@")
     github_verify_mergeable || exit 1
+    if [ "$ADMIN_BYPASS_REVIEW" = true ]; then
+      github_require_required_checks_reported || exit 1
+    fi
     # The away record is locked first, so this last presence and authority read
     # and the forge command below share one live-owner critical section.
     hold_away_record_for_merge || exit 1

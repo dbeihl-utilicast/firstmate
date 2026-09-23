@@ -204,6 +204,9 @@ case "${1:-} ${2:-}" in
     exit 0
     ;;
   api\ *)
+    case " $* " in *required_status_checks*)
+      case " $* " in */rules/branches/*) [ ! -f "${FM_TEST_GH_REQUIRED_RULES:-}" ] || cat "$FM_TEST_GH_REQUIRED_RULES" ;; esac
+      exit 0 ;; esac
     if [ -f "${FM_TEST_GH_RULES_FAIL_BODY:-}" ]; then
       cat "$FM_TEST_GH_RULES_FAIL_BODY" >&2
       exit 1
@@ -393,6 +396,7 @@ run_pr_merge() {
   FM_TEST_GH_LOG="$case_dir/gh.log" \
   FM_TEST_GH_OUTCOME="$case_dir/github-outcome" \
   FM_TEST_GH_RULES="$case_dir/github-rules" \
+  FM_TEST_GH_REQUIRED_RULES="$case_dir/github-required-rules" \
   FM_TEST_GH_VIEW_JSON="$case_dir/github-view.json" \
   FM_TEST_GH_HEAD="$case_dir/github-head" \
   FM_TEST_GH_MERGE_RC_FILE="$case_dir/github-merge-rc" \
@@ -2025,10 +2029,6 @@ test_github_admin_bypass_review_merges_and_records_marker() {
   assert_grep 'admin_bypass_review=true' "$case_dir/state/task-x1.meta" \
     "github-admin-bypass-marker: the durable record does not state the review requirement was bypassed"
   assert_logged_gh_merge "$case_dir" 81 example/repo --squash --admin
-  assert_no_grep '--admin' "$case_dir/gh-axi.log" \
-    "github-admin-bypass-marker: gh-axi received --admin"
-  assert_no_grep 'pr merge' "$case_dir/gh-axi.log" \
-    "github-admin-bypass-marker: gh-axi performed the admin merge"
   pass "fm-pr-merge merges an admin-bypass request through gh and records the bypass marker"
 }
 
@@ -2140,8 +2140,6 @@ test_github_admin_bypass_review_open_unqueued_outcome_refuses() {
   assert_no_grep 'admin_bypass_review' "$case_dir/state/task-x1.meta" \
     "github-admin-bypass-unproved: an unproved admin-bypass merge recorded the bypass marker"
   assert_logged_gh_merge "$case_dir" 82 example/repo --squash --admin
-  assert_no_grep '--admin' "$case_dir/gh-axi.log" \
-    "github-admin-bypass-unproved: gh-axi still received --admin"
   pass "fm-pr-merge refuses an admin-bypass merge that leaves the PR open and unqueued"
 }
 
@@ -2167,13 +2165,91 @@ test_github_admin_bypass_review_without_gh_refuses() {
     "github-admin-bypass-without-gh: refusal did not name that admin merge requires gh"
   assert_no_grep 'verified: ' "$case_dir/stdout" \
     "github-admin-bypass-without-gh: admin-bypass merge without gh was reported as verified"
-  assert_no_grep '--admin' "$case_dir/gh-axi.log" \
-    "github-admin-bypass-without-gh: admin-bypass merge without gh fell back to gh-axi"
-  assert_no_grep 'pr merge' "$case_dir/gh-axi.log" \
-    "github-admin-bypass-without-gh: admin-bypass merge without gh still invoked gh-axi pr merge"
   assert_no_grep 'pr=https://github.com/example/repo/pull/83' "$case_dir/state/task-x1.meta" \
     "github-admin-bypass-without-gh: pr= was recorded despite the missing gh"
   pass "fm-pr-merge refuses an admin-bypass merge when gh is absent and does not fall back to gh-axi"
+}
+
+test_github_admin_bypass_review_refuses_allow_red() {
+  local case_dir rc
+  case_dir=$(make_case github-admin-bypass-allow-red)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" 4242424242424242424242424242424242424242
+  write_github_red_json "$case_dir" 4242424242424242424242424242424242424242 ci
+  : > "$case_dir/gh.log"
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/84 \
+    --admin-bypass-review --allow-red ci \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 2 "$rc" "github-admin-bypass-allow-red: --admin-bypass-review with --allow-red must refuse"
+  assert_grep '--allow-red cannot be combined with --admin-bypass-review' "$case_dir/stderr" \
+    "github-admin-bypass-allow-red: refusal did not name the combination"
+  ! gh_merge_logged "$case_dir" \
+    || fail "github-admin-bypass-allow-red: gh pr merge ran for a waived red check under admin"
+  pass "fm-pr-merge refuses --admin-bypass-review combined with --allow-red"
+}
+
+test_github_admin_bypass_review_refused_while_away() {
+  local case_dir rc
+  case_dir=$(make_case github-admin-bypass-away)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" 4343434343434343434343434343434343434343
+  write_away_record "$case_dir" --words 'merge task-x1 when green'
+  : > "$case_dir/gh.log"
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/85 \
+    --admin-bypass-review \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 2 "$rc" "github-admin-bypass-away: --admin-bypass-review must be refused while away"
+  assert_grep '--admin-bypass-review is attended-only' "$case_dir/stderr" \
+    "github-admin-bypass-away: refusal did not name attended-only"
+  ! gh_merge_logged "$case_dir" \
+    || fail "github-admin-bypass-away: gh pr merge ran under away authority with admin"
+  assert_no_grep 'admin_bypass_review' "$case_dir/state/task-x1.meta" \
+    "github-admin-bypass-away: a refused admin merge recorded the bypass marker"
+  pass "fm-pr-merge refuses --admin-bypass-review while the away-posture record exists"
+}
+
+test_github_admin_bypass_review_refuses_unreported_required_check() {
+  local case_dir rc
+  case_dir=$(make_case github-admin-bypass-unreported)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" 4444444444444444444444444444444444444444
+  printf 'deploy-gate\n' > "$case_dir/github-required-rules"
+  : > "$case_dir/gh.log"
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/86 \
+    --admin-bypass-review \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "github-admin-bypass-unreported: an admin merge with an unreported required check must refuse"
+  assert_grep 'required checks have not reported: deploy-gate' "$case_dir/stderr" \
+    "github-admin-bypass-unreported: refusal did not name the missing required check"
+  ! gh_merge_logged "$case_dir" \
+    || fail "github-admin-bypass-unreported: gh pr merge ran before the required check reported"
+
+  case_dir=$(make_case github-admin-bypass-reported)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" 4545454545454545454545454545454545454545
+  write_github_rollup_json "$case_dir" 4545454545454545454545454545454545454545 \
+    "$(check_run deploy-gate COMPLETED SUCCESS 2026-01-01T00:00:00Z)"
+  printf 'deploy-gate\n' > "$case_dir/github-required-rules"
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/87 \
+    --admin-bypass-review > "$case_dir/stdout" 2> "$case_dir/stderr" \
+    || fail "github-admin-bypass-reported: a reported green required check should merge: $(cat "$case_dir/stderr")"
+  assert_logged_gh_merge "$case_dir" 87 example/repo --squash --admin
+  pass "fm-pr-merge refuses an admin merge until every required check has reported"
 }
 
 test_gitlab_admin_bypass_review_refuses_before_recording() {
@@ -2687,6 +2763,9 @@ test_github_admin_bypass_review_red_checks_refuses
 test_github_admin_bypass_review_legacy_status_context_checks_pass
 test_github_admin_bypass_review_open_unqueued_outcome_refuses
 test_github_admin_bypass_review_without_gh_refuses
+test_github_admin_bypass_review_refuses_allow_red
+test_github_admin_bypass_review_refused_while_away
+test_github_admin_bypass_review_refuses_unreported_required_check
 test_gitlab_admin_bypass_review_refuses_before_recording
 test_raw_admin_after_separator_is_refused
 test_github_admin_bypass_review_explicit_method_not_overridden

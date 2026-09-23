@@ -41,7 +41,9 @@
 #     profile: --harness <h> [--model <m>] [--effort <e>]     (status clear only)
 #   clear     -> pass the profile line to fm-spawn.sh unless you state a reason to override
 #   ambiguous -> confidence below the floor; decide as today from the probabilities
-#   escalate  -> the rule requires captain approval, no candidate is rankable, or a genuine tie
+#   escalate  -> the rule requires captain approval or declares task_shape,
+#                independence, or fixed reasoning policy this tool does not
+#                evaluate, no candidate is rankable, or a genuine tie
 #   error     -> API, network, response, or quota-axi failure; decide as today
 #   Every outcome exits 0 so an intake is never blocked by this tool.
 #   Exit 2 only for a usage or configuration error (unreadable brief, an
@@ -358,6 +360,8 @@ RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg non
    elif $rule_floor_state == "unknown" then {source: $choice, escalate: "rule \($choice) floor \($rule.floor.provider)/\($rule.floor.scope) is unverifiable"}
    elif $rule_floor_state == "below"
      then {source: "default", use: profiles($cfg.default // null), note: "rule \($choice) floor \($rule.floor.scope) below \($rule.floor.min_percent)%: fall through to default"}
+   elif ($rule.match.task_shape != null) or ($rule | has("independence")) or (($rule.reasoning.mode // "generic") != "generic")
+     then {source: $choice, escalate: "rule \($choice) declares task_shape, independence, or fixed reasoning policy this resolver does not evaluate"}
    else {source: $choice, use: profiles($rule.use), note: "rule matched"} end) as $sel |
   {
     model: $r.model, latency_ms: $lat, tokens: ($r.usage // null),
