@@ -385,7 +385,6 @@ pr_read_record_bounded() {  # <owner> <repo> <number>
   merge_commit=$(printf '%s\n' "$record" | sed -n 's/^merge_commit=//p' | head -1)
   [ -n "$state" ] || return 1
   [ "$merged" = true ] || [ "$merged" = false ] || return 1
-  FM_PR_RECORD_STATE=$state
   FM_PR_RECORD_MERGED=$merged
   FM_PR_RECORD_MERGE_COMMIT=$merge_commit
 }
@@ -406,7 +405,6 @@ mr_read_record_bounded() {  # <host> <path> <number>
   merge_commit=$(printf '%s\n' "$record" | sed -n 's/^merge_commit=//p' | head -1)
   [ -n "$state" ] || return 1
   [ "$merged" = true ] || [ "$merged" = false ] || return 1
-  FM_PR_RECORD_STATE=$state
   FM_PR_RECORD_MERGED=$merged
   FM_PR_RECORD_MERGE_COMMIT=$merge_commit
 }
