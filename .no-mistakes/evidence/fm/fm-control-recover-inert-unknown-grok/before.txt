@@ -1,0 +1,2 @@
+not ok - exhausted grok on tmux: expected empty, got 'unknown'
+not ok - a blank exhausted grok composer should be exitable

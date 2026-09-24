@@ -1,0 +1,9 @@
+ok - fm_composer_classify_screen: a proven box tolerates a bottom-border cursor
+ok - fm_composer_extract_selected_content: scopes user content and excludes furniture
+ok - fm_composer_queued_enter_verdict: pending + busy returns empty (queued Enter)
+ok - fm_composer_queued_enter_verdict: pending + idle/unknown stays pending
+ok - fm_composer_queued_enter_verdict: only proven pending is converted
+ok - fm-control exit: an allowance-exhausted grok with a blank composer is stopped
+ok - fm-control exit: an allowance-exhausted grok composer holding work still refuses
+ok - fm-control exit: an unrecognized grok notice is still refused as not proven empty
+ok - matrix: an allowance-exhausted grok composer reads empty only when blank, and typed or unrecognized panes stay safe

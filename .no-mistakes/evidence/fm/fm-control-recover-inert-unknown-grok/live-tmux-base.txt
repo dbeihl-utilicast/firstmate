@@ -1,0 +1,6 @@
+--- blank exhausted
+state=unknown
+--- typed work
+state=pending-unproven
+--- unrecognized notice
+state=unknown
