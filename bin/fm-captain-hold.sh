@@ -847,6 +847,9 @@ command_hold() {
       *) fail "--until must be a YYYY-MM-DD date: $until" ;;
     esac
   fi
+  if fm_parent_channel_home_id "$FM_HOME" >/dev/null && ! fm_parent_channel_note_fits "$reason"; then
+    fail "reason is over the $FM_PARENT_CHANNEL_NOTE_MAX-byte parent-channel note limit and the captain would see it cut; shorten the reason and hold again (nothing was held)"
+  fi
   hold_set=${FM_CAPTAIN_HOLD_NOW:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}
   case "$hold_set" in
     [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z) : ;;
