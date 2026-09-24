@@ -516,6 +516,7 @@ The full cmux home label also includes a short hash of the resolved `FM_ROOT` pa
 
 The main home reads one absolute path from `config/vault-path` when present and copies finished `data/<task>/report.md` documents into that vault's `research/` directory.
 Destination names are `YYYY-MM-DD-<project>-<task>.md`, where project and task values are reduced to filename-safe slugs.
+A remote secondmate report takes its project from the `project=` field its child outcome line carries just before the offered `report=` pointer, falling back to the secondmate id, never the secondmate's own recorded project.
 The copy scans main tasks, local secondmate homes, and reports already mirrored from remote secondmate homes on each watcher scan and after each remote-reply ingest, so reports finished before the feature was enabled are caught up.
 A private ledger at `state/vault-copied.ledger` records each copied source path with its content hash, so a report is copied once even if the vault copy is later edited, moved, or renamed; changed source content is copied again under a new dated name.
 Different bytes at an existing destination receive a content-addressed suffix instead of replacing the existing document.
