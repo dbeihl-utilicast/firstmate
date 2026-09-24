@@ -75,6 +75,8 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 . "$SCRIPT_DIR/fm-backend.sh"
 # shellcheck source=bin/fm-timeout-lib.sh
 . "$SCRIPT_DIR/fm-timeout-lib.sh"
+# shellcheck source=bin/fm-classify-lib.sh
+. "$SCRIPT_DIR/fm-classify-lib.sh"
 
 die() { printf 'error: %s\n' "$1" >&2; exit 2; }
 usage() {
@@ -300,16 +302,19 @@ cmd_select() {
   [ "$(jq -r '.status' <<< "$SEL_JSON")" != none ]
 }
 
-# The first line of a command's output that carries anything, with its "error: "
-# prefix dropped: a refusal's own words are the most useful thing to report.
+# The last "error: " line of a command's output, else its first non-empty line:
+# banners and warnings precede a refusal's own words.
 first_reported_line() {  # <text>
-  printf '%s\n' "$1" | sed -n '/./{s/^error: //;s/[[:space:]]\{1,\}/ /g;p;q;}'
+  local err
+  err=$(printf '%s\n' "$1" | sed -n '/^error: /h;${x;p;}')
+  [ -n "$err" ] || err=$(printf '%s\n' "$1" | sed -n '/./{p;q;}')
+  printf '%s\n' "$err" | sed 's/^error: //;s/[[:space:]]\{1,\}/ /g'
 }
 
 cmd_sweep() {
   local relaunch=0 snapshot='' meta id kind recorded harness model effort line state source
   local checked=0 exhausted=0 actionable=0 relaunched=0 failed=0 held=0
-  local status h2 m2 e2 reason note out
+  local status h2 m2 e2 reason note out verb
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --relaunch) relaunch=1; shift ;;
@@ -356,6 +361,13 @@ cmd_sweep() {
         *:run-step) ;;
         working:pane|working:status-log|unknown:*) state=relaunchable ;;
       esac
+      if [ "$state" = relaunchable ] && [[ "$line" = 'state: unknown '* ]]; then
+        verb=$(status_line_verb "$(status_current_line "$STATE/$id.status" "$kind")")
+        case "$verb" in
+          done|needs-decision|blocked|failed|"${FM_CLASSIFY_PAUSED_VERB:-$FM_CLASSIFY_PAUSED_VERB_DEFAULT}")
+            state=$verb; source=status-log ;;
+        esac
+      fi
       if [ "$state" != relaunchable ]; then
         held=$((held + 1))
         printf '  held: %s %s %s:%s exhausted; state %s via %s\n' "$id" "$kind" "$harness" "${model:--}" "${state:-unreadable}" "${source:-none}"

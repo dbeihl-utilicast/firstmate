@@ -376,7 +376,7 @@ cat > "$SWEEP_ROOT/bin/fm-control.sh" <<SH
 printf '%s\n' "\$*" >> "$STUBS/control.log"
 rc=0
 [ ! -f "$STUBS/control-rc/\$1" ] || rc=\$(cat "$STUBS/control-rc/\$1")
-if [ "\$rc" -ne 0 ]; then echo "error: relaunch of \$1 was refused before its agent was touched" >&2; exit "\$rc"; fi
+if [ "\$rc" -ne 0 ]; then printf '%s\n' '●━━━━ firstmate' 'WARNING: watcher still down' >&2; echo "error: relaunch of \$1 was refused before its agent was touched" >&2; exit "\$rc"; fi
 echo "relaunched \$1 harness=ok"
 SH
 chmod +x "$SWEEP_ROOT/bin/fm-crew-state.sh" "$SWEEP_ROOT/bin/fm-control.sh"
@@ -407,12 +407,15 @@ lane i1 ship claude sonnet
 lane b1 ship claude sonnet
 lane x1 ship claude sonnet
 lane e1 ship claude sonnet
+lane c1 ship claude sonnet
 printf 'state: done · source: status-log · finished\n' > "$STUBS/crew-state/d1"
 printf 'state: parked · source: run-step · awaiting the captain\n' > "$STUBS/crew-state/p1"
 printf 'state: unknown · source: none · no current-state source available\n' > "$STUBS/crew-state/i1"
 printf 'state: blocked · source: status-log · waiting on a decision\n' > "$STUBS/crew-state/b1"
 printf 'state: working · source: run-step · no-mistakes review\n' > "$STUBS/crew-state/x1"
 : > "$STUBS/crew-state/e1"
+printf 'state: unknown · source: pane · harness state unavailable (unknown codex-unverified)\n' > "$STUBS/crew-state/c1"
+printf 'done: finished the task, PR opened\n' > "$STATE/c1.status"
 printf 'stopped 2030-01-01T00:00:00Z\n' > "$STATE/s2.stopped"
 Q_SWEEP="$TMP_ROOT/q-sweep.json"
 snapshot "$Q_SWEEP" \
@@ -430,6 +433,7 @@ assert_contains "$GATE_OUT" "held: p1 scout claude:sonnet exhausted; state parke
 assert_contains "$GATE_OUT" "exhausted: i1 ship claude:sonnet -> grok:grok-4.6" "an idle lane with no declared state, the usual shape of a harness that hit its limit, is actionable"
 assert_contains "$GATE_OUT" "held: b1 ship claude:sonnet exhausted; state blocked via status-log" "a blocked lane is held"
 assert_contains "$GATE_OUT" "held: x1 ship claude:sonnet exhausted; state working via run-step" "a lane the pipeline owns is held"
+assert_contains "$GATE_OUT" "held: c1 ship claude:sonnet exhausted; state done via status-log" "a finished lane whose pane state is unverified is held by its status log"
 assert_contains "$GATE_OUT" "held: e1 ship claude:sonnet exhausted; state unreadable via none" "a lane whose state cannot be read is held"
 assert_not_contains "$GATE_OUT" " h1 " "a lane on a healthy model is not reported"
 assert_not_contains "$GATE_OUT" " n1 " "a lane whose provider cannot be measured is not reported as exhausted"
@@ -451,6 +455,7 @@ assert_no_grep "p1 relaunch" "$STUBS/control.log" "a parked lane is never relaun
 assert_grep "i1 relaunch --harness grok --model grok-4.6" "$STUBS/control.log" "an idle exhausted lane is relaunched"
 assert_no_grep "b1 relaunch" "$STUBS/control.log" "a blocked lane is never relaunched"
 assert_no_grep "x1 relaunch" "$STUBS/control.log" "a pipeline-owned lane is never relaunched"
+assert_no_grep "c1 relaunch" "$STUBS/control.log" "a finished lane with an unverified pane is never relaunched"
 assert_no_grep "e1 relaunch" "$STUBS/control.log" "a lane whose state cannot be read is never relaunched"
 assert_no_grep "h1 relaunch" "$STUBS/control.log" "a healthy lane is never relaunched"
 assert_no_grep "s2 relaunch" "$STUBS/control.log" "a stopped lane is never relaunched"
@@ -472,7 +477,7 @@ snapshot "$Q_PAIR_BOTH" \
 run_sweep --relaunch --snapshot "$Q_PAIR_BOTH"
 expect_code 3 "$GATE_RC" "sweep with a refused relaunch"
 assert_contains "$GATE_OUT" "unreached: w1: " "a control-plane refusal is reported with its reason"
-assert_contains "$GATE_OUT" "refused before its agent was touched" "the refusal's own words are carried"
+assert_contains "$GATE_OUT" "unreached: w1: relaunch of w1 was refused before its agent was touched" "the refusal's error line is carried past the banner and warnings"
 assert_contains "$GATE_OUT" "unresolved: s1 secondmate claude:sonnet: no alternate profile is declared" "a secondmate with no declared alternate is reported unresolved"
 pass "a refused relaunch and a lane with no alternate exit 3 with their reasons"
 
