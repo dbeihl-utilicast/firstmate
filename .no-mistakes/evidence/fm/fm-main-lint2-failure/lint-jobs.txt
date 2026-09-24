@@ -1,0 +1,16 @@
+== stub, fixed ci.yml
+lint timeout-minutes: 75  herdr: 75
+stub effective jobs = 1
+== negative control: FM_LINT_JOBS=1 removed from step
+lint timeout-minutes: 75  herdr: 75
+stub effective jobs = 2
+== real fm-lint.sh via resolved step
+/home/dbeihl/.local/bin/shellcheck
+fm-lint.sh: ShellCheck 0.11.0 (pinned 0.11.0)
+fm-lint.sh: full ShellCheck extended analysis enabled
+== live worker processes while resolved CI step ran the real fm-lint.sh (FM_LINT_JOBS=1 from ci.yml)
+1026245       12:17  1336 /usr/bin/time NTERNAL_FOLLOW_SOURCES=1 FM_LINT_INTERNAL_EXCLUDE= FM_LINT_SHELLCHECK=/home/dbeihl/.local/bin/shellcheck /usr/bin/bash /home/dbeihl
+1026254       12:17  3440 /usr/bin/bash /output 0
+2758185       00:00  2308 sed -E s/(inte
+internal-worker count: 4
+-- single internal worker (pid 1026245/1026254/1026271, ~8GB RSS) was the only shellcheck worker observed while the resolved CI step ran real fm-lint.sh with FM_LINT_JOBS=1; run stopped after ~12 min to avoid a 25 min, 13GB run

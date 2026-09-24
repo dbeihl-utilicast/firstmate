@@ -1,0 +1,4 @@
+FM_LINT_JOBS=1:
+jobs	1
+default:
+jobs	2
