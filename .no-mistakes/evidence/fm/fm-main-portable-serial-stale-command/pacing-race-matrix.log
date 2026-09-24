@@ -1,0 +1,11 @@
+== floor=3 injected_stall=0s
+ok - a superseded sleeping runner cannot recreate stale pacing state
+SECTION PASSED
+== floor=3 injected_stall=4s
+not ok - the superseded paced runner invoked its stale command
+== floor=8 injected_stall=4s
+ok - a superseded sleeping runner cannot recreate stale pacing state
+SECTION PASSED
+== floor=8 injected_stall=0s
+ok - a superseded sleeping runner cannot recreate stale pacing state
+SECTION PASSED
