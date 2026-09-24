@@ -65,8 +65,9 @@ jobs:
   lint:
     name: Lint ${{ matrix.partition }}
     runs-on: ubuntu-latest
-    # Normal tier (see the timeout policy above).
-    timeout-minutes: 30
+    # Heavy tier (see the timeout policy above): serialized source-aware
+    # ShellCheck runs about 25 minutes per partition.
+    timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
@@ -91,7 +92,8 @@ jobs:
         run: |
           set -eu
           mkdir -p "$RUNNER_TEMP/fm-lint"
-          bin/fm-lint.sh --partition "${{ matrix.partition }}of${{ strategy.job-total }}" \
+          # Full source-aware ShellCheck can exceed runner memory when both bounded workers run together.
+          FM_LINT_JOBS=1 bin/fm-lint.sh --partition "${{ matrix.partition }}of${{ strategy.job-total }}" \
             --telemetry "$RUNNER_TEMP/fm-lint/partition-${{ matrix.partition }}.tsv"
       - name: Upload lint telemetry
         if: always()
