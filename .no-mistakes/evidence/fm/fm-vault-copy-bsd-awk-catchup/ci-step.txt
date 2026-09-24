@@ -1,0 +1,2 @@
+macos-latest
+step: Run snapshot consumers with stock Bash

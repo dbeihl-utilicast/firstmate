@@ -1,0 +1,13 @@
+== FIXED script, busybox awk (strict-regex awk standing in for BSD awk) ==
+ok - main catch-up copies only the finished report boundary
+ok - main catches up local secondmate reports
+ok - main catches up remote secondmate reports already fetched by reply relay
+ok - disabled copying and collisions preserve existing files
+ok - ledger copies each source path and content once
+all vault copy tests passed
+
+== PRE-FIX script (base commit), same test, busybox awk ==
+ok - main catch-up copies only the finished report boundary
+ok - main catches up local secondmate reports
+awk: bad regex '^report=data\/remote-secondmates\/[^': Invalid regular expression
+not ok - remote secondmate report was not copied from the existing mirror
