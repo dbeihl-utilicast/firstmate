@@ -154,6 +154,28 @@ test_empty_fleet_json() {
   pass "empty fleet snapshot and view use explicit absence markers"
 }
 
+test_oversized_contribution_input_avoids_argv_limit() {
+  local home out
+  home=$(make_home oversized-contribution-input)
+  {
+    printf '## Queued\n'
+    printf 'oversized '
+    dd if=/dev/zero bs=131072 count=1 2>/dev/null | tr '\0' x
+    printf '\n'
+  } > "$home/data/backlog.md"
+
+  out=$(FM_HOME="$home" "$SNAPSHOT" --contribution-input) \
+    || fail "oversized contribution input did not complete"
+  printf '%s' "$out" | jq -e '
+    .backlog.present == true
+      and (.backlog.records | length) == 1
+      and .backlog.records[0].structured == false
+      and (.backlog.records[0].raw | length) == 131082
+      and .tasks == []
+  ' >/dev/null || fail "oversized contribution input changed the snapshot payload"
+  pass "oversized contribution input completes without transporting fleet JSON through argv"
+}
+
 test_fixture_snapshot_json() {
   local home fakebin out ids
   home=$(make_home fixture)
@@ -1156,6 +1178,7 @@ EOF
 }
 
 test_empty_fleet_json
+test_oversized_contribution_input_avoids_argv_limit
 test_fixture_snapshot_json
 test_home_summary_excludes_secondmate_from_child_inventory
 test_undated_captain_hold_phrasing_and_aging
