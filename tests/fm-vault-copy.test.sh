@@ -147,12 +147,11 @@ test_remote_status_scan_does_not_fork_per_line() {
 test_symlinked_ancestor_is_rejected() {
   make_world symlink-ancestor
   mkdir -p "$MAIN/data/real/task"
-  ln -s "$MAIN/data/real" "$MAIN/data/linked"
-  printf 'kind=scout\nproject=/repo/theta\n' > "$MAIN/state/task.meta"
-  printf 'done: complete\n' > "$MAIN/state/task.status"
+  ln -s "$MAIN/data/real/task" "$MAIN/data/linked"
+  printf 'kind=scout\nproject=/repo/theta\n' > "$MAIN/state/linked.meta"
+  printf 'done: complete\n' > "$MAIN/state/linked.status"
   printf '# via symlink\n' > "$MAIN/data/real/task/report.md"
-  FM_HOME="$MAIN" FM_STATE_OVERRIDE="$MAIN/state" FM_DATA_OVERRIDE="$MAIN/data/linked" \
-    FM_CONFIG_OVERRIDE="$MAIN/config" "$COPY" catch-up >/dev/null
+  run_copy >/dev/null
   [ "$(report_count)" = 0 ] || fail "a report reached through a symlinked ancestor directory was copied"
   pass "a symlinked ancestor directory is refused, not just a symlinked report file"
 }
