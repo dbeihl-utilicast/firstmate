@@ -52,12 +52,12 @@ safe_task_id() {
 }
 
 safe_regular_report() {
-  local path=$1 component
+  local path=$1 component=$1
   [ -f "$path" ] && [ ! -L "$path" ] || return 1
-  component=$path
   while [ "$component" != / ]; do
     [ ! -L "$component" ] || return 1
-    component=$(dirname "$component")
+    component=${component%/*}
+    [ -n "$component" ] || component=/
   done
 }
 
@@ -97,10 +97,10 @@ vault_destination() { # <vault> <project> <task> <source>
 }
 
 sha256_file() {
-  if command -v shasum >/dev/null 2>&1; then
-    shasum -a 256 "$1" | awk '{print $1}'
-  elif command -v sha256sum >/dev/null 2>&1; then
+  if command -v sha256sum >/dev/null 2>&1; then
     sha256sum "$1" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{print $1}'
   else
     return 1
   fi
@@ -179,8 +179,53 @@ copy_local_secondmate_reports() {
   done
 }
 
+# One awk pass per status file finds every finished-round report offer,
+# instead of forking a verb check and a report-regex match per line - the
+# per-line fork made catch-up take minutes against an accumulated log.
+remote_report_offers() { # <status-file>
+  LC_ALL=C awk '
+    {
+      line = $0
+      colon = index(line, ":")
+      v = (colon > 0) ? substr(line, 1, colon - 1) : line
+      bracket = index(v, "[")
+      if (bracket > 0) v = substr(v, 1, bracket - 1)
+      gsub(/^[ \t]+/, "", v)
+      gsub(/[ \t]+$/, "", v)
+      if (index(v, "corr=") > 0) {
+        n = split(v, words, /[ \t]+/)
+        out = words[1]
+        for (i = 2; i <= n; i++) {
+          if (words[i] ~ /^corr=[0-9A-Fa-f]{16}$/) continue
+          out = out " " words[i]
+        }
+      } else {
+        out = v
+      }
+      if (out != "done" && out != "failed") next
+      report = ""
+      for (i = 1; i <= NF; i++) {
+        if ($i ~ /^report=data\/remote-secondmates\/[^\/][^\/]*\/data\/[A-Za-z0-9._-][A-Za-z0-9._-]*\/report[.]md$/) {
+          report = $i
+          sub(/^report=/, "", report)
+          break
+        }
+      }
+      if (report == "") next
+      task = report
+      sub(/^data\/remote-secondmates\/[^\/]*\/data\//, "", task)
+      sub(/\/report\.md$/, "", task)
+      if (task == report) next
+      printf "%s\t%s\n", report, task
+    }
+  ' "$1"
+}
+
+# A grep per offer against the ledger left this slow even after the scan
+# stopped forking per line; check the whole file's offers in one grep.
 copy_remote_reports() {
-  local vault=$1 meta id project status line report task source verb
+  local vault=$1 meta id project status report task source hash batch matches i
+  local -a sources tasks entries
   for meta in "$STATE"/*.meta; do
     [ -f "$meta" ] && [ ! -L "$meta" ] || continue
     [ "$(meta_field "$meta" kind)" = secondmate ] || continue
@@ -189,16 +234,36 @@ copy_remote_reports() {
     status="$STATE/$id.status"
     [ -f "$status" ] && [ ! -L "$status" ] || continue
     project=$(meta_field "$meta" project)
-    while IFS= read -r line || [ -n "$line" ]; do
-      status_line_verb "$line" verb
-      case "$verb" in done|failed) ;; *) continue ;; esac
-      report=$(printf '%s\n' "$line" | awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^report=data\/remote-secondmates\/[^\/][^\/]*\/data\/[A-Za-z0-9._-][A-Za-z0-9._-]*\/report[.]md$/) { sub(/^report=/, "", $i); print $i; exit } }')
+    sources=()
+    tasks=()
+    entries=()
+    while IFS=$'\t' read -r report task || [ -n "$report" ]; do
       [ -n "$report" ] || continue
-      task=$(printf '%s\n' "$report" | sed -n 's|^data/remote-secondmates/[^/]*/data/\([A-Za-z0-9._-]*\)/report[.]md$|\1|p')
       safe_task_id "$task" || continue
       source="$FM_HOME/$report"
-      copy_report "$vault" "$source" "$project" "$task" || true
-    done < "$status"
+      safe_regular_report "$source" || continue
+      hash=$(sha256_file "$source") || continue
+      sources+=("$source")
+      tasks+=("$task")
+      entries+=("$hash $source")
+    done < <(remote_report_offers "$status")
+    [ "${#entries[@]}" -gt 0 ] || continue
+    matches=
+    if [ -f "$LEDGER" ] && [ ! -L "$LEDGER" ]; then
+      batch=$(umask 077; mktemp "${TMPDIR:-/tmp}/fm-vault-copy-batch.XXXXXX") || continue
+      printf '%s\n' "${entries[@]}" > "$batch"
+      matches=$(grep -Fxf "$batch" "$LEDGER" 2>/dev/null || true)
+      rm -f -- "$batch"
+    fi
+    matches=$'\n'"$matches"$'\n'
+    i=0
+    while [ "$i" -lt "${#entries[@]}" ]; do
+      case "$matches" in
+        *$'\n'"${entries[$i]}"$'\n'*) ;;
+        *) copy_report "$vault" "${sources[$i]}" "$project" "${tasks[$i]}" || true ;;
+      esac
+      i=$((i + 1))
+    done
   done
 }
 
