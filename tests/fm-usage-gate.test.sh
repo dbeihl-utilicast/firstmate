@@ -403,8 +403,14 @@ lane n1 ship pi 'openai-codex/gpt-5.6-sol'
 lane s1 secondmate claude sonnet "home=$TMP_ROOT/home-s1"
 lane s2 secondmate claude sonnet
 lane r1 secondmate claude sonnet remote_host=box
+lane i1 ship claude sonnet
+lane b1 ship claude sonnet
+lane x1 ship claude sonnet
 printf 'state: done · source: status-log · finished\n' > "$STUBS/crew-state/d1"
 printf 'state: parked · source: run-step · awaiting the captain\n' > "$STUBS/crew-state/p1"
+printf 'state: unknown · source: none · no current-state source available\n' > "$STUBS/crew-state/i1"
+printf 'state: blocked · source: status-log · waiting on a decision\n' > "$STUBS/crew-state/b1"
+printf 'state: working · source: run-step · no-mistakes review\n' > "$STUBS/crew-state/x1"
 printf 'stopped 2030-01-01T00:00:00Z\n' > "$STATE/s2.stopped"
 Q_SWEEP="$TMP_ROOT/q-sweep.json"
 snapshot "$Q_SWEEP" \
@@ -419,6 +425,9 @@ assert_contains "$GATE_OUT" "exhausted: w1 ship claude:sonnet -> grok:grok-4.6" 
 assert_contains "$GATE_OUT" "exhausted: s1 secondmate claude:sonnet -> codex:gpt-5.6-terra" "a secondmate on an exhausted model is detected with its replacement"
 assert_contains "$GATE_OUT" "held: d1 ship claude:sonnet exhausted; state done via status-log" "a finished lane is held, not restarted"
 assert_contains "$GATE_OUT" "held: p1 scout claude:sonnet exhausted; state parked via run-step" "a lane parked on a gate is held"
+assert_contains "$GATE_OUT" "exhausted: i1 ship claude:sonnet -> grok:grok-4.6" "an idle lane with no declared state, the usual shape of a harness that hit its limit, is actionable"
+assert_contains "$GATE_OUT" "held: b1 ship claude:sonnet exhausted; state blocked via status-log" "a blocked lane is held"
+assert_contains "$GATE_OUT" "held: x1 ship claude:sonnet exhausted; state working via run-step" "a lane the pipeline owns is held"
 assert_not_contains "$GATE_OUT" " h1 " "a lane on a healthy model is not reported"
 assert_not_contains "$GATE_OUT" " n1 " "a lane whose provider cannot be measured is not reported as exhausted"
 assert_not_contains "$GATE_OUT" " s2 " "a stopped secondmate lane is skipped"
@@ -436,6 +445,9 @@ assert_grep "w1 relaunch --harness grok --model grok-4.6 --effort default --note
 assert_grep "s1 relaunch --harness codex --model gpt-5.6-terra --effort default --note" "$STUBS/control.log" "the secondmate lane goes through fm-control relaunch too"
 assert_no_grep "d1 relaunch" "$STUBS/control.log" "a finished lane is never relaunched"
 assert_no_grep "p1 relaunch" "$STUBS/control.log" "a parked lane is never relaunched"
+assert_grep "i1 relaunch --harness grok --model grok-4.6" "$STUBS/control.log" "an idle exhausted lane is relaunched"
+assert_no_grep "b1 relaunch" "$STUBS/control.log" "a blocked lane is never relaunched"
+assert_no_grep "x1 relaunch" "$STUBS/control.log" "a pipeline-owned lane is never relaunched"
 assert_no_grep "h1 relaunch" "$STUBS/control.log" "a healthy lane is never relaunched"
 assert_no_grep "s2 relaunch" "$STUBS/control.log" "a stopped lane is never relaunched"
 assert_no_grep "r1 relaunch" "$STUBS/control.log" "a remote lane is never relaunched"
@@ -468,6 +480,34 @@ FM_USAGE_GATE=off PATH="$FAKEBIN:$BASE_PATH" run_sweep
 expect_code 0 "$GATE_RC" "sweep disabled"
 assert_contains "$GATE_OUT" "disabled by FM_USAGE_GATE=off" "the off switch is named"
 pass "an unavailable quota source is exit 4, and the off switch is a clean no-op"
+
+# --- the watcher runs the sweep itself, with no operator or quota wake ------------
+WATCH_HOME="$TMP_ROOT/watch-home"
+mkdir -p "$WATCH_HOME/state" "$WATCH_HOME/data" "$WATCH_HOME/config" "$WATCH_HOME/projects"
+printf '# Seeded Firstmate home\n' > "$WATCH_HOME/AGENTS.md"
+printf '## In flight\n\n## Queued\n\n## Done\n' > "$WATCH_HOME/data/backlog.md"
+printf '%s\n' "$DISPATCH_PAIR" > "$WATCH_HOME/config/crew-dispatch.json"
+fm_write_meta "$WATCH_HOME/state/w9.meta" "window=firstmate:fm-w9" "kind=ship" "harness=claude" "model=sonnet" "effort=default" "worktree=$TMP_ROOT/wt-w9"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$FAKEBIN/tmux"
+chmod +x "$FAKEBIN/tmux"
+: > "$STUBS/control.log"
+export FAKE_QUOTA_FILE="$Q_PAIR_BOTH"
+PATH="$FAKEBIN:$BASE_PATH" FM_HOME="$WATCH_HOME" FM_ROOT_OVERRIDE="$SWEEP_ROOT" \
+  FM_POLL=1 FM_SIGNAL_GRACE=0 FM_CHECK_INTERVAL=9999999 FM_HEARTBEAT=9999999 \
+  FM_HOME_SUMMARY_INTERVAL=9999999 \
+  "$SWEEP_ROOT/bin/fm-watch.sh" > "$TMP_ROOT/watch.out" 2> "$TMP_ROOT/watch.err" &
+WATCH_PID=$!
+i=0
+until grep -q '^w9 relaunch' "$STUBS/control.log" 2>/dev/null; do
+  [ "$i" -lt 150 ] || { kill "$WATCH_PID" 2>/dev/null; fail "the watcher did not relaunch an exhausted lane on its own: $(cat "$WATCH_HOME/state/.usage-sweep.log" "$TMP_ROOT/watch.err" 2>/dev/null)"; }
+  sleep 0.1
+  i=$((i + 1))
+done
+kill "$WATCH_PID" 2>/dev/null || true
+wait "$WATCH_PID" 2>/dev/null || true
+assert_grep "w9 relaunch --harness codex --model gpt-5.6-terra" "$STUBS/control.log" "the watcher's sweep moves the lane onto the declared alternate"
+assert_present "$WATCH_HOME/state/.usage-sweep.log" "the watcher keeps the sweep's last report"
+pass "the watcher sweeps exhausted lanes and relaunches them without being asked"
 
 echo "# all fm-usage-gate tests passed"
 

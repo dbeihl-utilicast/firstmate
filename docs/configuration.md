@@ -710,7 +710,7 @@ See [`docs/examples/foundry-luna.json`](examples/foundry-luna.json) for a copyab
 Bootstrap's dispatch validator checks the local policy without matching task intent, choosing a candidate, resolving quota, or reading target-host catalogues.
 Firstmate chooses the best matching natural-language rule with judgment, resolves its profile array under [`harness-adapters`](../.agents/skills/harness-adapters/SKILL.md) and [`quota-array-dispatch`](../.agents/skills/quota-array-dispatch/SKILL.md), then passes only concrete `--harness`, `--model`, and `--effort` flags to `fm-spawn.sh`.
 When the file exists, `fm-spawn.sh` enforces that contract by refusing crewmate and scout spawns that lack an explicit harness (`--harness`, a positional adapter, or a raw launch command).
-It also refuses a resolved profile whose quota is exhausted and names the eligible sibling from these arrays ([usage gate](#usage-gate-binfm-usage-gatesh)).
+A resolved profile whose quota is exhausted launches on the eligible sibling from these arrays instead ([usage gate](#usage-gate-binfm-usage-gatesh)).
 Batch spawns satisfy the same requirement with a shared `--harness`.
 Secondmate spawns are exempt and still resolve through `config/secondmate-harness` and its optional model and effort tokens.
 V2 is the required fleet policy whenever this file exists.
@@ -801,7 +801,7 @@ The live rule-match evidence is recorded in [`verification/dispatch-resolve.md`]
 
 ## Usage gate (bin/fm-usage-gate.sh)
 
-`bin/fm-usage-gate.sh` is the deterministic usage check every launch path runs, and the recovery for a live lane whose model ran out.
+`bin/fm-usage-gate.sh` is the deterministic usage check every launch path runs, and the recovery the watcher runs for a live lane whose model ran out.
 This section is the single owner of its operator contract; the script header owns its exact flags and output lines, and `bin/fm-quota-axi-lib.sh` owns the candidate verdict it shares with [typed dispatch resolution](#typed-dispatch-resolution-env-typesafe_api_key).
 Unlike that resolver, the gate has no opt-in key: it reads one `quota-axi --json` snapshot, so it runs wherever quota-axi does.
 
@@ -816,21 +816,22 @@ For a crewmate or scout they are the siblings in the `config/crew-dispatch.json`
 For a secondmate they are the later lines of `config/secondmate-harness`, limited to harnesses verified for a secondmate.
 A candidate below its own declared `floor` is skipped, while the current profile's floor never makes it exhausted.
 Candidates are ranked by `spendPriority` exactly as the resolver ranks them, and a genuine tie is reported with every tied candidate for the attended caller to choose.
-Unattended callers pass `--tie-break declared`, which takes the first tied candidate in declared order, because a stalled lane is worse than an equal-quota pick.
+The launch owners and the sweep pass `--tie-break declared`, which takes the first tied candidate in declared order, because a stalled lane is worse than an equal-quota pick.
 
 The launch owners enforce it:
 
-- `bin/fm-spawn.sh` refuses a resolved profile that is out of quota before any endpoint or task record exists, printing the eligible replacement.
-  An unattended secondmate launch that resolves its profile from `config/secondmate-harness` (session-start respawn, `fm-secondmate-lane.sh reopen`, or a fresh spawn) instead launches on the first eligible declared alternate and says so on stderr; an explicit profile is never swapped.
-- `bin/fm-control.sh relaunch` refuses an exhausted target before the running agent is stopped, so a launch that cannot help never costs the agent, and its launch half does not re-check after the stop.
+- `bin/fm-spawn.sh` launches a new lane whose explicit or `config/secondmate-harness` profile is out of quota on the eligible declared alternate instead, and says so on stderr.
+  With no eligible alternate, or for a profile it resolves any other way, it refuses before any endpoint or task record exists.
+- `bin/fm-control.sh relaunch` moves an exhausted target onto the eligible declared alternate before the running agent is stopped, and refuses before the stop when none is eligible, so a launch that cannot help never costs the agent; its launch half does not re-check after the stop.
   `bin/fm-secondmate-restart.sh` reaches the same refusal through the control plane and reports it as unreached.
 - `bin/fm-usage-gate.sh sweep` detects live lanes whose recorded profile is exhausted and, with `--relaunch`, moves them onto an eligible alternate through `fm-control.sh relaunch` with a progress note.
+  `bin/fm-watch.sh` runs `sweep --relaunch` detached every `FM_USAGE_SWEEP_INTERVAL` seconds (default 300) and keeps its last report in `state/.usage-sweep.log`.
   It reads this home's task records only and skips remote secondmates, whose accounts the primary's quota-axi cannot see, and stopped secondmate lanes.
-  A ship or scout lane is relaunched only while its current state is `working` from the pane or status log; a finished, parked, blocked, or pipeline-owned lane is reported as held.
+  A ship or scout lane is relaunched while its current state is `working` or `unknown`, which covers the usual shape of a harness that printed its limit and went idle; a `done`, `parked`, `blocked`, `paused`, or `failed` lane, and any lane whose state comes from a no-mistakes run, is reported as held.
   A secondmate is relaunched whatever its state, because an exhausted mate cannot answer the persist request `fm-secondmate-restart.sh` waits for.
   Exit 0 means nothing needed action (or every relaunch succeeded), 1 means detection found an actionable exhausted lane, 3 means a lane had no eligible alternate or its relaunch was refused, and 4 means quota-axi was unavailable, which is never reported as a clean sweep.
 
-A `quota` wake from `bin/fm-procevent-quota.sh` is the natural trigger for the sweep; `process-event-sources` owns that handling.
+A `quota` wake from `bin/fm-procevent-quota.sh` can also trigger the sweep at once; `process-event-sources` owns that handling.
 The gate reads the lane's recorded provider quota, so it never scrapes pane text for a vendor limit banner.
 Pi's live model switching and remote-host lanes are out of scope.
 
@@ -1458,8 +1459,9 @@ FMX_ENV_FILE=           # optional alternate .env file for direct Relay client i
 FMX_DRY_RUN=            # truthy previews Relay replies and dismissals to state/x-outbox/ without posting or requiring a token
 FMX_X_REPLY_MAX_CHARS=280   # X reply per-message split budget; values below 50 clamp to 50
 TYPESAFE_API_KEY=       # typed dispatch resolution opt-in, from the environment or .env; absent means bin/fm-dispatch-resolve.sh is off (docs/configuration.md "Typed dispatch resolution")
-FM_USAGE_GATE=          # set to off to skip the launch-time usage check in bin/fm-usage-gate.sh, fm-spawn.sh, and fm-control.sh relaunch (docs/configuration.md "Usage gate"); tests/lib.sh sets it off so suites never read the operator's real quota
+FM_USAGE_GATE=          # set to off to skip the launch-time usage check in bin/fm-usage-gate.sh, fm-spawn.sh, and fm-control.sh relaunch, and the watcher's sweep (docs/configuration.md "Usage gate"); tests/lib.sh sets it off so suites never read the operator's real quota
 FM_USAGE_GATE_TIMEOUT=20  # seconds bounding the gate's quota-axi call; an unanswered call leaves the profile launchable and disclosed as unmeasured
+FM_USAGE_SWEEP_INTERVAL=300  # seconds between the watcher's detached fm-usage-gate.sh sweep --relaunch runs; invalid or zero values use 300
 FMX_DISCORD_REPLY_MAX_CHARS=1900   # Discord reply per-message split budget; values below 50 clamp to 50, values above 2000 reset to 1900
 FMX_X_THREAD_MAX=25     # maximum messages in one auto-split reply thread
 FMX_FOLLOWUP_MAX_AGE_SECS=604800   # local window for posting Relay completion follow-ups (7 days)

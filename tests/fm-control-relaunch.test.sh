@@ -752,23 +752,38 @@ SH
     > "$dir/home/config/crew-dispatch.json"
 }
 
-test_relaunch_refuses_an_exhausted_target_before_stopping_the_agent() {
+test_relaunch_moves_an_exhausted_target_onto_the_declared_replacement() {
   local dir out rc
   dir=$(new_case usage-gate rl60)
   add_ship_task "$dir" rl60 claude
   sed 's/^model=default$/model=sonnet/' "$dir/home/state/rl60.meta" > "$dir/home/state/rl60.meta.tmp"
   mv "$dir/home/state/rl60.meta.tmp" "$dir/home/state/rl60.meta"
   quota_fixture "$dir" 'claude|all_models|0|exhausted_now|-1' 'codex|all_models|80|through_reset|0.5'
+  printf 'codex' > "$dir/fake/becomes"
   out=$(FM_USAGE_GATE=on run_control "$dir" rl60 relaunch --note "the model ran out"); rc=$?
-  expect_code 1 "$rc" "a relaunch onto an exhausted model must be refused"$'\n'"$out"
-  assert_contains "$out" "out of quota" "the refusal should say why"
-  assert_contains "$out" "runway exhausted_now at all_models" "the refusal should carry the quota evidence"
-  assert_contains "$out" "relaunch --harness 'codex' --model 'gpt-5.6-terra'" "the refusal should name the eligible replacement"
+  expect_code 0 "$rc" "a relaunch onto an exhausted model must move to the declared replacement"$'\n'"$out"
+  assert_contains "$out" "usage gate" "the substitution should be announced"
+  assert_contains "$out" "runway exhausted_now at all_models" "the announcement should carry the quota evidence"
+  assert_contains "$out" "harness=codex from=claude" "the outcome should name the transition"
+  [ "$(meta_field "$dir" rl60 model)" = gpt-5.6-terra ] || fail "the record should follow the replacement model"
+  pass "fm-control relaunch: an exhausted target moves onto the eligible declared replacement"
+}
+
+test_relaunch_refuses_an_exhausted_target_with_no_alternate_before_stopping_the_agent() {
+  local dir out rc
+  dir=$(new_case usage-gate-none rl64)
+  add_ship_task "$dir" rl64 claude
+  sed 's/^model=default$/model=sonnet/' "$dir/home/state/rl64.meta" > "$dir/home/state/rl64.meta.tmp"
+  mv "$dir/home/state/rl64.meta.tmp" "$dir/home/state/rl64.meta"
+  quota_fixture "$dir" 'claude|all_models|0|exhausted_now|-1' 'codex|all_models|0|exhausted_now|-1'
+  out=$(FM_USAGE_GATE=on run_control "$dir" rl64 relaunch --note "the model ran out"); rc=$?
+  expect_code 1 "$rc" "a relaunch with no eligible alternate must be refused"$'\n'"$out"
+  assert_contains "$out" "no eligible alternate" "the refusal should say why"
   [ "$(cat "$dir/fake/command")" = claude ] || fail "the refusal must leave the running agent alone"
   assert_no_grep "/exit" "$dir/fake/literal" "no exit command may be typed for a launch that cannot help"
-  [ "$(meta_field "$dir" rl60 model)" = sonnet ] || fail "the refusal must not touch the task record"
-  [ ! -e "$dir/home/state/rl60.control-relaunch" ] || fail "a pre-stop refusal must not open the transaction journal"
-  pass "fm-control relaunch: an exhausted target is refused before the agent is stopped, naming the eligible replacement"
+  [ "$(meta_field "$dir" rl64 model)" = sonnet ] || fail "the refusal must not touch the task record"
+  [ ! -e "$dir/home/state/rl64.control-relaunch" ] || fail "a pre-stop refusal must not open the transaction journal"
+  pass "fm-control relaunch: an exhausted target with no eligible alternate is refused before the agent is stopped"
 }
 
 test_relaunch_onto_the_named_replacement_proceeds() {
@@ -2796,7 +2811,8 @@ test_relaunch_appends_the_progress_note_to_the_instructions
 test_relaunch_requires_a_note_for_a_ship_task
 test_harness_switch_moves_the_record_and_clears_prior_wiring
 test_harness_switch_does_not_carry_the_old_profile_axes
-test_relaunch_refuses_an_exhausted_target_before_stopping_the_agent
+test_relaunch_moves_an_exhausted_target_onto_the_declared_replacement
+test_relaunch_refuses_an_exhausted_target_with_no_alternate_before_stopping_the_agent
 test_relaunch_onto_the_named_replacement_proceeds
 test_relaunch_with_the_gate_off_or_quota_unreadable_still_proceeds
 test_harness_switch_resolves_a_prefixed_recorded_harness

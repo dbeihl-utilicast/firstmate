@@ -1103,27 +1103,38 @@ SH
   printf '%s\n' "$dispatch" > "$home/config/crew-dispatch.json"
 }
 
-test_exhausted_model_refuses_the_spawn_and_names_the_replacement() {
+test_exhausted_model_launches_the_spawn_on_the_declared_replacement() {
   local rec id out status
-  id=profile-usage-refuse-z30
-  rec=$(make_spawn_case profile-usage-refuse claude "$id")
+  id=profile-usage-swap-z30
+  rec=$(make_spawn_case profile-usage-swap claude "$id")
   read_case_record "$rec"
   usage_gate_fixture "$FAKEBIN_DIR" "$HOME_DIR" exhausted_now
 
+  out=$(FM_USAGE_GATE=on run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --harness claude --model sonnet --effort high)
+  status=$?
+  expect_code 0 "$status" "a spawn onto an exhausted model must launch on the declared replacement"$'\n'"$out"
+  assert_contains "$out" "usage gate" "the substitution must be announced"
+  assert_contains "$out" "runway exhausted_now at all_models" "the announcement must carry the quota evidence"
+  assert_meta_profile "$HOME_DIR/state/$id.meta" codex gpt-5.6-terra default
+  assert_grep "codex" "$LAUNCH_LOG" "the launch command must run the replacement harness"
+  pass "an exhausted model launches the spawn on the eligible declared replacement, dropping the old profile's effort"
+}
+
+test_exhausted_model_without_an_alternate_refuses_the_spawn() {
+  local rec id out status
+  id=profile-usage-refuse-z35
+  rec=$(make_spawn_case profile-usage-refuse claude "$id")
+  read_case_record "$rec"
+  usage_gate_fixture "$FAKEBIN_DIR" "$HOME_DIR" exhausted_now '{"schema_version":2,"rules":[],"default":[{"harness":"claude","model":"sonnet"}]}'
+
   out=$(FM_USAGE_GATE=on run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --harness claude --model sonnet)
   status=$?
-  expect_code 1 "$status" "a spawn onto an exhausted model must be refused"
+  expect_code 1 "$status" "a spawn onto an exhausted model with no alternate must be refused"
   assert_contains "$out" "out of quota" "the refusal did not say why"
-  assert_contains "$out" "runway exhausted_now at all_models" "the refusal did not carry the quota evidence"
-  assert_contains "$out" "--harness 'codex' --model 'gpt-5.6-terra'" "the refusal did not name the eligible replacement"
+  assert_contains "$out" "no alternate profile is declared" "the refusal did not say nothing was declared"
   assert_absent "$HOME_DIR/state/$id.meta" "a refused spawn wrote task metadata"
   [ ! -s "$LAUNCH_LOG" ] || fail "a refused spawn typed a launch command"
-
-  out=$(FM_USAGE_GATE=on run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --harness codex --model gpt-5.6-terra)
-  status=$?
-  expect_code 0 "$status" "the replacement the gate named must launch"$'\n'"$out"
-  assert_meta_profile "$HOME_DIR/state/$id.meta" codex gpt-5.6-terra default
-  pass "an exhausted model refuses the spawn before any endpoint, and the named replacement launches"
+  pass "an exhausted model with no eligible alternate refuses the spawn before any endpoint"
 }
 
 test_usage_gate_off_or_healthy_quota_does_not_block_a_spawn() {
@@ -1168,7 +1179,7 @@ test_secondmate_pin_falls_back_to_a_declared_alternate() {
   pass "an exhausted secondmate pin launches on the first eligible alternate declared beside it"
 }
 
-test_secondmate_without_an_alternate_or_with_an_explicit_profile_refuses() {
+test_secondmate_without_an_alternate_refuses_and_an_explicit_profile_is_replaced() {
   local rec id sm out status
   id=profile-usage-sm-z34
   rec=$(make_spawn_case profile-usage-sm-refuse claude "$id")
@@ -1188,10 +1199,10 @@ test_secondmate_without_an_alternate_or_with_an_explicit_profile_refuses() {
   printf '%s\n' 'claude sonnet' 'codex gpt-5.6-terra' > "$HOME_DIR/config/secondmate-harness"
   out=$(FM_USAGE_GATE=on run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$sm" --secondmate --harness claude --model sonnet)
   status=$?
-  expect_code 1 "$status" "an explicit exhausted profile is refused, never silently swapped"
-  assert_contains "$out" "out of quota" "the explicit refusal must say why"
-  assert_absent "$HOME_DIR/state/$id.meta" "an explicit refused spawn wrote task metadata"
-  pass "a secondmate with no alternate, or an explicit exhausted profile, is refused rather than swapped"
+  expect_code 0 "$status" "an explicit exhausted profile must launch on the declared alternate"$'\n'"$out"
+  assert_contains "$out" "spawned $id harness=codex kind=secondmate" "the explicit profile must be replaced by the alternate"
+  assert_meta_profile "$HOME_DIR/state/$id.meta" codex gpt-5.6-terra default
+  pass "a secondmate with no alternate is refused, and an explicit exhausted profile launches on the alternate"
 }
 
 test_batch_forwards_shared_profile_flags() {
@@ -1866,10 +1877,11 @@ test_pi_tui_mode_probe_is_safe_for_old_and_new_pi
 test_pi_signed_threads_shared_pi_profile_and_preserves_identity
 test_pi_signed_missing_binary_refuses_before_endpoint_or_metadata
 test_pi_signed_persistent_secondmate_uses_pi_extensions_and_identity
-test_exhausted_model_refuses_the_spawn_and_names_the_replacement
+test_exhausted_model_launches_the_spawn_on_the_declared_replacement
+test_exhausted_model_without_an_alternate_refuses_the_spawn
 test_usage_gate_off_or_healthy_quota_does_not_block_a_spawn
 test_secondmate_pin_falls_back_to_a_declared_alternate
-test_secondmate_without_an_alternate_or_with_an_explicit_profile_refuses
+test_secondmate_without_an_alternate_refuses_and_an_explicit_profile_is_replaced
 test_batch_forwards_shared_profile_flags
 test_claude_forwards_firstmate_config_dir_when_set
 test_lavish_server_address_is_exported_to_worker_launch
