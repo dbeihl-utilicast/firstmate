@@ -9,7 +9,9 @@
 # copies only data/<task>/report.md documents. A destination is never replaced
 # by different bytes; a content-addressed suffix preserves both documents. A
 # private state ledger of source path plus content hash makes each report copy
-# once, even if the vault copy is later edited, moved, or renamed.
+# once, even if the vault copy is later edited, moved, or renamed. A remote
+# report is named by the project= on its offering status line, else by the
+# secondmate id, never by the secondmate's own recorded project.
 set -u
 export LC_ALL=C
 
@@ -202,11 +204,12 @@ remote_report_offers() { # <status-file>
       }
       if (out != "done" && out != "failed") next
       report = ""
+      project = ""
       for (i = 1; i <= NF; i++) {
-        if ($i ~ /^report=data\/remote-secondmates\/[^\/][^\/]*\/data\/[A-Za-z0-9._-][A-Za-z0-9._-]*\/report[.]md$/) {
+        if (project == "" && $i ~ /^project=[A-Za-z0-9._-]+$/) project = substr($i, 9)
+        if (report == "" && $i ~ /^report=data\/remote-secondmates\/[^\/][^\/]*\/data\/[A-Za-z0-9._-][A-Za-z0-9._-]*\/report[.]md$/) {
           report = $i
           sub(/^report=/, "", report)
-          break
         }
       }
       if (report == "") next
@@ -214,15 +217,15 @@ remote_report_offers() { # <status-file>
       sub(/^data\/remote-secondmates\/[^\/]*\/data\//, "", task)
       sub(/\/report\.md$/, "", task)
       if (task == report) next
-      printf "%s\t%s\n", report, task
+      printf "%s\t%s\t%s\n", report, task, project
     }
   ' "$1"
 }
 
 # Check all offers against the ledger in one scan.
 copy_remote_reports() {
-  local vault=$1 meta id project status report task source hash batch matches i
-  local -a sources tasks entries
+  local vault=$1 meta id status report task offered source hash batch matches i
+  local -a sources tasks projects entries
   for meta in "$STATE"/*.meta; do
     [ -f "$meta" ] && [ ! -L "$meta" ] || continue
     [ "$(meta_field "$meta" kind)" = secondmate ] || continue
@@ -230,11 +233,11 @@ copy_remote_reports() {
     id=$(basename "$meta" .meta)
     status="$STATE/$id.status"
     [ -f "$status" ] && [ ! -L "$status" ] || continue
-    project=$(meta_field "$meta" project)
     sources=()
     tasks=()
+    projects=()
     entries=()
-    while IFS=$'\t' read -r report task || [ -n "$report" ]; do
+    while IFS=$'\t' read -r report task offered || [ -n "$report" ]; do
       [ -n "$report" ] || continue
       safe_task_id "$task" || continue
       source="$FM_HOME/$report"
@@ -242,6 +245,7 @@ copy_remote_reports() {
       hash=$(sha256_file "$source") || continue
       sources+=("$source")
       tasks+=("$task")
+      projects+=("${offered:-$id}")
       entries+=("$hash $source")
     done < <(remote_report_offers "$status")
     [ "${#entries[@]}" -gt 0 ] || continue
@@ -257,7 +261,7 @@ copy_remote_reports() {
     while [ "$i" -lt "${#entries[@]}" ]; do
       case "$matches" in
         *$'\n'"${entries[$i]}"$'\n'*) ;;
-        *) copy_report "$vault" "${sources[$i]}" "$project" "${tasks[$i]}" || true ;;
+        *) copy_report "$vault" "${sources[$i]}" "${projects[$i]}" "${tasks[$i]}" || true ;;
       esac
       i=$((i + 1))
     done
