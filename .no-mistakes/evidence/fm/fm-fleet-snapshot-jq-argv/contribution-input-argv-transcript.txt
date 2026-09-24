@@ -1,0 +1,20 @@
+== getconf ARG_MAX: 2097152; Linux MAX_ARG_STRLEN (single argument) = 131072
+== oversized backlog size: 200021 bytes
+
+== BASE 35c65686: fm-fleet-snapshot.sh --contribution-input (oversized backlog)
+exit=0  stdout_bytes=0
+/tmp/tmp.4T8fiXWeaf/base/bin/fm-fleet-snapshot.sh: line 2035: /usr/bin/jq: Argument list too long
+
+== TARGET 6325840d: fm-fleet-snapshot.sh --contribution-input (oversized backlog)
+exit=0  stdout_bytes=200333
+{"present":true,"records":1,"raw_len":200010,"tasks":[]}
+
+== Normal backlog: base vs target byte comparison
+base exit=0
+target exit=0
+IDENTICAL (766 bytes)
+
+== Default startup snapshot (json mode) with oversized backlog, target
+exit=0
+["backlog","contributions","fm_home","generated","main_inventory","roots","schema","scout_reports","secondmate_current","secondmate_guidance","secondmate_landed","tasks"]
+

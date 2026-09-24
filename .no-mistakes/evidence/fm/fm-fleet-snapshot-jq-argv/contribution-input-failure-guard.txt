@@ -1,0 +1,4 @@
+== Adversarial: composition jq fails (shimmed), target must fail loud
+exit=1 stdout_bytes=0
+simulated jq failure
+fm-fleet-snapshot: contribution input composition failed
