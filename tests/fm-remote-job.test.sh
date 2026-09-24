@@ -20,6 +20,7 @@ OTHER_PID=
 RECOVERY_WORKER_PID=
 REPEAT_WORKER_PID=
 RESTART_SUPERVISOR_PID=
+SWEEP_STATE="$TMP_ROOT/sweep-jobs"
 mkdir -p "$REMOTE_ROOT/bin" "$REMOTE_HOME" "$ACCOUNT_HOME" "$RUNTIME_BIN"
 # worker.pid records the serving child, not its restart supervisor, so stopping
 # that pid alone leaves the supervisor to respawn - the leak
@@ -32,12 +33,15 @@ cleanup_remote_job_fixture() {
   if [ -f "$STATE_ROOT/worker.pid" ]; then
     fm_remote_job_stop_worker_tree "$(cat "$STATE_ROOT/worker.pid")" || true
   fi
+  if [ -f "$SWEEP_STATE/worker.pid" ]; then
+    fm_remote_job_stop_worker_tree "$(cat "$SWEEP_STATE/worker.pid")" || true
+  fi
   rm -rf -- "$TMP_ROOT"
 }
 trap cleanup_remote_job_fixture EXIT
 
 cp "$ROOT/bin/fm-remote-job-lib.sh" "$ROOT/bin/fm-remote-job-worker.sh" \
-  "$ROOT/bin/fm-remote-delta-read.sh" "$REMOTE_ROOT/bin/"
+  "$ROOT/bin/fm-remote-delta-read.sh" "$ROOT/bin/fm-remote-entrypoint.sh" "$REMOTE_ROOT/bin/"
 printf 'fixture\n' > "$REMOTE_ROOT/AGENTS.md"
 cat > "$REMOTE_ROOT/bin/fm-probe-job.sh" <<'SH'
 #!/bin/bash
@@ -49,6 +53,10 @@ printf '\n'
 if [ -n "${TOP_SECRET:-}" ]; then printf 'secret=leaked\n'; else printf 'secret=absent\n'; fi
 while IFS= read -r line || [ -n "$line" ]; do printf 'stdin=%s\n' "$line"; done
 exit "${FM_PROBE_EXIT:-0}"
+SH
+cat > "$REMOTE_ROOT/bin/fm-echo-job.sh" <<'SH'
+#!/bin/bash
+printf 'ok\n'
 SH
 cat > "$REMOTE_ROOT/bin/fm-timeout-job.sh" <<'SH'
 #!/bin/bash
@@ -764,5 +772,63 @@ RESTART_SUPERVISOR_PID=
 assert_grep "remote job worker exited 3 times; stopping the supervisor" "$TMP_ROOT/restart-supervisor.err" \
   "the restart guard did not explain why it stopped"
 pass "barely healthy worker failures remain bounded by the restart guard"
+
+# The worker's hourly sequence-claim sweep runs inside its serving loop, so it
+# must finish well inside the 10-second readiness bound. A day of claims on a
+# busy remote is thousands of entries; while the heartbeat is stale every
+# entrypoint call fails with "remote job worker did not report ready".
+sweep_heartbeat_age() { # <state-root>
+  local mtime
+  if [ "$(uname)" = Darwin ]; then
+    mtime=$(stat -f %m "$1/worker.ready" 2>/dev/null)
+  else
+    mtime=$(stat -c %Y "$1/worker.ready" 2>/dev/null)
+  fi
+  case "$mtime" in ''|*[!0-9]*) printf '999\n'; return ;; esac
+  printf '%s\n' $(( $(date +%s) - mtime ))
+}
+sweep_call() { # <stdout> <stderr>; prints the entrypoint exit status
+  local rc
+  set +e
+  FM_REMOTE_JOB_STATE_ROOT="$SWEEP_STATE" FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux \
+    "$REMOTE_ROOT/bin/fm-remote-entrypoint.sh" 1 \
+    "$(printf '%s' "$REMOTE_ROOT" | base64 | tr -d '\n')" \
+    "$(printf '%s' "$REMOTE_HOME" | base64 | tr -d '\n')" \
+    "$(printf '%s\0' fm-echo-job.sh | base64 | tr -d '\n')" < /dev/null > "$1" 2> "$2"
+  rc=$?
+  set -e
+  printf '%s\n' "$rc"
+}
+SWEEP_RC=$(sweep_call "$TMP_ROOT/sweep-warmup.out" "$TMP_ROOT/sweep-warmup.err")
+[ "$SWEEP_RC" -eq 0 ] || fail "the sweep fixture's warm-up call failed: $(cat "$TMP_ROOT/sweep-warmup.err")"
+SWEEP_CLAIMS="$SWEEP_STATE/.seq-claims"
+SWEEP_OUTSIDE="$TMP_ROOT/sweep-outside"
+mkdir "$SWEEP_OUTSIDE"
+(cd "$SWEEP_CLAIMS" && seq 100000 102499 | xargs mkdir && seq 102500 104999 | xargs mkdir \
+  && seq 100000 102499 | xargs touch -t 200001010000)
+mkdir "$SWEEP_CLAIMS/not-a-claim"
+touch -t 200001010000 "$SWEEP_CLAIMS/not-a-claim" "$SWEEP_OUTSIDE"
+ln -s "$SWEEP_OUTSIDE" "$SWEEP_CLAIMS/200000"
+touch -t 200001010000 "$SWEEP_STATE/.seq-claims-reaped"
+SWEEP_MAX_AGE=0
+SWEEP_END=$(( $(date +%s) + 12 ))
+while [ "$(date +%s)" -lt "$SWEEP_END" ]; do
+  SWEEP_AGE=$(sweep_heartbeat_age "$SWEEP_STATE")
+  [ "$SWEEP_AGE" -le "$SWEEP_MAX_AGE" ] || SWEEP_MAX_AGE=$SWEEP_AGE
+  sleep 0.2
+done
+SWEEP_RC=$(sweep_call "$TMP_ROOT/sweep-during.out" "$TMP_ROOT/sweep-during.err")
+[ "$SWEEP_MAX_AGE" -le 10 ] \
+  || fail "the worker heartbeat aged ${SWEEP_MAX_AGE}s during the sequence-claim sweep, past the 10-second readiness bound"
+[ "$SWEEP_RC" -eq 0 ] \
+  || fail "an entrypoint call during the sequence-claim sweep exited $SWEEP_RC: $(cat "$TMP_ROOT/sweep-during.err")"
+[ "$(cat "$TMP_ROOT/sweep-during.out")" = ok ] || fail "the call during the sweep lost its job output"
+[ -z "$(cd "$SWEEP_CLAIMS" && seq 100000 102499 | while read -r c; do [ ! -e "$c" ] || printf '%s\n' "$c"; done)" ] \
+  || fail "the sweep kept day-old sequence claims"
+[ -z "$(cd "$SWEEP_CLAIMS" && seq 102500 104999 | while read -r c; do [ -d "$c" ] || printf '%s\n' "$c"; done)" ] \
+  || fail "the sweep removed sequence claims younger than a day"
+assert_present "$SWEEP_CLAIMS/not-a-claim" "the sweep removed a non-numeric entry"
+[ -L "$SWEEP_CLAIMS/200000" ] && [ -d "$SWEEP_OUTSIDE" ] || fail "the sweep followed or removed a symlinked claim"
+pass "the sequence-claim sweep keeps the worker ready and reaps only day-old claim directories"
 
 echo "ALL TESTS PASSED"
