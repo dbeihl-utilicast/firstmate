@@ -1,0 +1,38 @@
+### hold at-limit (reason 1200 bytes)
+exit=0
+parent channel: whole question (1200 bytes)
+backlog: at-limit is held
+
+### hold over-by-one (reason 1201 bytes)
+exit=1
+stderr: fm-captain-hold: reason is over the 1200-byte parent-channel note limit and the captain would see it cut; shorten the reason and hold again (nothing was held)
+parent channel: no line for over-by-one
+backlog: over-by-one not held
+
+### hold huge (reason 100000 bytes)
+exit=1
+stderr: fm-captain-hold: reason is over the 1200-byte parent-channel note limit and the captain would see it cut; shorten the reason and hold again (nothing was held)
+parent channel: no line for huge
+backlog: huge not held
+
+### hold multibyte (reason 1400 bytes)
+exit=1
+stderr: fm-captain-hold: reason is over the 1200-byte parent-channel note limit and the captain would see it cut; shorten the reason and hold again (nothing was held)
+parent channel: no line for multibyte
+backlog: multibyte not held
+
+### hold short (reason 12 bytes)
+exit=0
+parent channel: whole question (12 bytes)
+backlog: short is held
+
+### revise short hold with a long reason
+### hold short (reason 2000 bytes)
+exit=1
+stderr: fm-captain-hold: reason is over the 1200-byte parent-channel note limit and the captain would see it cut; shorten the reason and hold again (nothing was held)
+parent channel: DIFFERS (12 bytes)
+backlog: short is held
+
+### main home (no parent channel), long reason
+exit=0
+backlog: held

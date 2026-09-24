@@ -1,0 +1,1 @@
+not ok - 2000-byte hold: exit 0 but the parent channel carries 1200 of the question's 2026 bytes
