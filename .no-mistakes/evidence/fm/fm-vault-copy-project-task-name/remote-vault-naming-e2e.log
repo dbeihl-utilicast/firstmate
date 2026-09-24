@@ -1,0 +1,25 @@
+== remote state/parent-replies.status (emitted by fm-inactive-reconcile.sh)
+done [key=child-outcome-odd-name-done-07622ae3] [at=1790288385]: child odd-name done: odd project written mode=scout yolo=off project=My-App--v2- report=data/odd-name/report.md
+done [key=child-outcome-orphan-task-done-911172af] [at=1790288386]: child orphan-task done: see project=decoy for context mode=scout yolo=off report=data/orphan-task/report.md
+done [key=child-outcome-vault-summary-done-821300d6] [at=1790288387]: child vault-summary done: vault summary written mode=scout yolo=off project=spark-notes report=data/vault-summary/report.md
+
+== main state/ios.status after the real relay
+working: delegated
+done [key=child-outcome-odd-name-done-07622ae3] [at=1790288385]: child odd-name done: odd project written mode=scout yolo=off project=My-App--v2- report=data/remote-secondmates/ios/data/odd-name/report.md
+done [key=child-outcome-orphan-task-done-911172af] [at=1790288386]: child orphan-task done: see project=decoy for context mode=scout yolo=off report=data/remote-secondmates/ios/data/orphan-task/report.md
+done [key=child-outcome-vault-summary-done-821300d6] [at=1790288387]: child vault-summary done: vault summary written mode=scout yolo=off project=spark-notes report=data/remote-secondmates/ios/data/vault-summary/report.md
+
+== fm-vault-copy.sh catch-up (this branch)
+copied: /tmp/fm-vault-e2e.dSwrit/vault/research/2026-09-24-My-App-v2-odd-name.md
+copied: /tmp/fm-vault-e2e.dSwrit/vault/research/2026-09-24-ios-orphan-task.md
+copied: /tmp/fm-vault-e2e.dSwrit/vault/research/2026-09-24-spark-notes-vault-summary.md
+
+== vault/research
+2026-09-24-ios-orphan-task.md
+2026-09-24-My-App-v2-odd-name.md
+2026-09-24-spark-notes-vault-summary.md
+
+== same state, BASE fm-vault-copy.sh (01b80335)
+copied: /tmp/fm-vault-e2e.dSwrit/vault/research/2026-09-24-firstmate-odd-name.md
+copied: /tmp/fm-vault-e2e.dSwrit/vault/research/2026-09-24-firstmate-orphan-task.md
+copied: /tmp/fm-vault-e2e.dSwrit/vault/research/2026-09-24-firstmate-vault-summary.md
