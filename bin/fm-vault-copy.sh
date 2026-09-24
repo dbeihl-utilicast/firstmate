@@ -191,7 +191,7 @@ copy_remote_reports() {
     project=$(meta_field "$meta" project)
     while IFS= read -r line || [ -n "$line" ]; do
       case "$(status_line_verb "$line")" in done|failed) ;; *) continue ;; esac
-      report=$(printf '%s\n' "$line" | awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^report=data\/remote-secondmates\/[^/]+\/data\/[A-Za-z0-9._-]+\/report[.]md$/) { sub(/^report=/, "", $i); print $i; exit } }')
+      report=$(printf '%s\n' "$line" | awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^report=data\/remote-secondmates\/[^\/][^\/]*\/data\/[A-Za-z0-9._-][A-Za-z0-9._-]*\/report[.]md$/) { sub(/^report=/, "", $i); print $i; exit } }')
       [ -n "$report" ] || continue
       task=$(printf '%s\n' "$report" | sed -n 's|^data/remote-secondmates/[^/]*/data/\([A-Za-z0-9._-]*\)/report[.]md$|\1|p')
       safe_task_id "$task" || continue
