@@ -1003,6 +1003,7 @@ EOF
 # rule glyph, so the title is embedded IN the rule rather than replacing it.
 _fm_composer_titled_bottom_ok() {  # <family> <bottom-inner> <top-spaces>
   local family=$1 inner=$2 expected=$3 dash spaces title effort model
+  local notice='' notice_ascii=''
   fm_composer_normalize_trim_var inner
   case "$family" in
     rounded|light) dash='─' ;;
@@ -1015,6 +1016,14 @@ _fm_composer_titled_bottom_ok() {  # <family> <bottom-inner> <top-spaces>
     "$dash"*"$dash") ;;
     *) return 1 ;;
   esac
+  # Grok 1.0.41 titles a spent allowance `Weekly limit left: 0% · Grok 4.6
+  # (high)`; map that one notice's middle dot to ASCII before the width proof,
+  # so any other non-ASCII title still fails on its residue.
+  if [[ $inner =~ ([A-Za-z]+\ limit\ left:\ [0-9]{1,3}%\ ·\ )Grok\  ]]; then
+    notice=${BASH_REMATCH[1]}
+    notice_ascii=${notice//·/.}
+    inner=${inner/"$notice"/"$notice_ascii"}
+  fi
   spaces=${inner//"$dash"/ }
   spaces=$(printf '%s' "$spaces" | LC_ALL=C sed 's/[!-~]/ /g')
   case "$spaces" in
@@ -1033,6 +1042,12 @@ _fm_composer_titled_bottom_ok() {  # <family> <bottom-inner> <top-spaces>
   [ "$spaces" = "$expected$overhang" ] || return 1
   title=${inner//"$dash"/}
   fm_composer_normalize_trim_var title
+  if [ -n "$notice_ascii" ]; then
+    case "$title" in
+      "$notice_ascii"*) title=${title#"$notice_ascii"} ;;
+      *) return 1 ;;
+    esac
+  fi
   case "$title" in
     'Grok '*\ \(low\)) effort=low ;;
     'Grok '*\ \(medium\)) effort=medium ;;

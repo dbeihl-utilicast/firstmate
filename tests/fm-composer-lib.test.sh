@@ -680,6 +680,28 @@ test_matrix_grok_titled_bottom_border() {
   pass "matrix: grok's real oversized titled bottom is empty while typed and unproved panes stay safe"
 }
 
+test_matrix_grok_allowance_exhausted_title() {
+  # Grok 1.0.41 with its weekly allowance spent, captured live 2026-09-24: an
+  # aligned box whose bottom title gains a `Weekly limit left: 0% · ` prefix.
+  # The middle dot is what used to leave the proven blank box `unknown`.
+  local top bottom empty typed other wrong
+  top='  ╭──────────────────────────────────────────────────────────────────────────╮'
+  bottom='  ╰──────────────────────────────── Weekly limit left: 0% · Grok 4.6 (high) ─╯'
+  empty=$top$'\n  │ ❯                                                                        │\n'$bottom
+  typed=$top$'\n  │ ❯ deploy the fix                                                         │\n'$bottom
+  assert_screen "exhausted grok on tmux" empty "$CAPS_TMUX" "$empty" 1
+  assert_screen "exhausted grok on herdr" empty "$CAPS_STYLED" "$empty"
+  assert_screen "exhausted grok on cmux/orca" empty "$CAPS_PLAIN" "$empty"
+  assert_screen "exhausted grok on zellij" empty "$CAPS_STYLED_NOID" "$empty"
+  assert_screen "exhausted grok with typed work on tmux" pending "$CAPS_TMUX" "$typed" 1
+  assert_screen "exhausted grok with typed work on herdr" pending "$CAPS_STYLED" "$typed"
+  other=${empty//Weekly limit left: 0%/Weekly usage banner}
+  assert_screen "an unrecognized middle-dot notice stays unproven" unknown "$CAPS_TMUX" "$other" 1
+  wrong=${empty//Grok 4.6 (high)/Sonnet 5}
+  assert_screen "an exhausted notice without a Grok title stays unproven" unknown "$CAPS_TMUX" "$wrong" 1
+  pass "matrix: an allowance-exhausted grok composer reads empty only when blank, and typed or unrecognized panes stay safe"
+}
+
 test_matrix_kimi_bordered_shell_glyph_box() {
   # Kimi's bordered `│ > │` composer - the shape fm-spawn.sh's retired
   # spawn-local regex used to own. Now the shared owner proves it everywhere,
@@ -930,6 +952,7 @@ test_matrix_codex_idle_starfield_furniture
 test_matrix_pi_separated_needs_identity
 test_matrix_opencode_leftbar_signals
 test_matrix_grok_titled_bottom_border
+test_matrix_grok_allowance_exhausted_title
 test_matrix_kimi_bordered_shell_glyph_box
 test_matrix_claude_inside_zellij_ansi_dump
 test_strict_blank_row_divergence
