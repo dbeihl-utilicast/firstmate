@@ -179,9 +179,7 @@ copy_local_secondmate_reports() {
   done
 }
 
-# One awk pass per status file finds every finished-round report offer,
-# instead of forking a verb check and a report-regex match per line - the
-# per-line fork made catch-up take minutes against an accumulated log.
+# Parse each status file once without subprocesses per line.
 remote_report_offers() { # <status-file>
   LC_ALL=C awk '
     {
@@ -221,8 +219,7 @@ remote_report_offers() { # <status-file>
   ' "$1"
 }
 
-# A grep per offer against the ledger left this slow even after the scan
-# stopped forking per line; check the whole file's offers in one grep.
+# Check all offers against the ledger in one scan.
 copy_remote_reports() {
   local vault=$1 meta id project status report task source hash batch matches i
   local -a sources tasks entries

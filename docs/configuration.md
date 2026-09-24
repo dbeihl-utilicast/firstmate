@@ -519,7 +519,7 @@ Destination names are `YYYY-MM-DD-<project>-<task>.md`, where project and task v
 The copy scans main tasks, local secondmate homes, and reports already mirrored from remote secondmate homes on each watcher scan and after each remote-reply ingest, so reports finished before the feature was enabled are caught up.
 A private ledger at `state/vault-copied.ledger` records each copied source path with its content hash, so a report is copied once even if the vault copy is later edited, moved, or renamed; changed source content is copied again under a new dated name.
 Different bytes at an existing destination receive a content-addressed suffix instead of replacing the existing document.
-The copier never reads or writes any path other than the exact report file for a finished task and the derived vault destination.
+Report sources must be regular files reached without symlinked path components, and only the exact report named by a finished task is eligible for copying.
 The existing remote-reply document fetch remains the only remote transport; the main home copies a report after that fetch has populated its confined mirror.
 
 ## Harness support
