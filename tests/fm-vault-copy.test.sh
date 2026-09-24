@@ -21,6 +21,14 @@ run_copy() {
     FM_CONFIG_OVERRIDE="$MAIN/config" "$COPY" catch-up
 }
 
+run_copy_with_system_awk() {
+  local awk_bin="$WORLD/system-awk-bin"
+  [ -x /usr/bin/awk ] || fail "system awk is not available at /usr/bin/awk"
+  mkdir -p "$awk_bin"
+  ln -s /usr/bin/awk "$awk_bin/awk"
+  PATH="$awk_bin:$PATH" run_copy
+}
+
 report_count() {
   find "$VAULT/research" -type f -name '*.md' 2>/dev/null | wc -l | tr -d ' '
 }
@@ -63,7 +71,7 @@ test_remote_secondmate_report() {
   printf 'done [key=finished]: child remote-task done report=data/remote-secondmates/ios/data/remote-task/report.md\n' \
     > "$MAIN/state/ios.status"
   printf '# remote\n' > "$MAIN/data/remote-secondmates/ios/data/remote-task/report.md"
-  run_copy >/dev/null
+  run_copy_with_system_awk >/dev/null
   [ "$(report_count)" = 1 ] || fail "remote secondmate report was not copied from the existing mirror"
   grep -Fq '# remote' "$VAULT/research/$(date +%F)-gamma-remote-task.md" \
     || fail "remote secondmate report used the wrong project-task name"
