@@ -1722,6 +1722,52 @@ test_tick_over_many_resolved_records_stays_bounded() {
   pass "tick over thousands of resolved records stays bounded and still closes an open escalation"
 }
 
+test_tick_prunes_only_settled_resolved_records_past_retention() {
+  (
+    local home state dir old recent escalated wake old_rec recent_rec escalated_rec wake_rec
+    home=$(setup_parent resolved-retention)
+    state="$home/state"
+    # This fixture clock is intentionally scoped to the isolated subshell.
+    # shellcheck disable=SC2030,SC2031
+    export FM_PENDING_REPLY_NOW=1000
+    export FM_PENDING_REPLY_RESOLVED_RETAIN_SECS=500
+    dir=$(fm_pending_reply_dir "$state")
+    old=$(fm_pending_reply_create "$home" "$state" aged "old settled request")
+    recent=$(fm_pending_reply_create "$home" "$state" aged "recent settled request")
+    escalated=$(fm_pending_reply_create "$home" "$state" hibit "old escalated request")
+    wake=$(fm_pending_reply_create "$home" "$state" waker "old wake request")
+    for corr in "$old" "$recent" "$escalated" "$wake"; do
+      fm_pending_reply_mark_delivered "$state" "$corr"
+      fm_pending_reply_set "$(fm_pending_reply_path "$state" "$corr")" phase resolved
+      fm_pending_reply_set "$(fm_pending_reply_path "$state" "$corr")" resolved_epoch 1000
+    done
+    old_rec=$(fm_pending_reply_path "$state" "$old")
+    recent_rec=$(fm_pending_reply_path "$state" "$recent")
+    escalated_rec=$(fm_pending_reply_path "$state" "$escalated")
+    wake_rec=$(fm_pending_reply_path "$state" "$wake")
+    fm_pending_reply_set "$escalated_rec" escalated_epoch 900
+    printf 'blocked: pending-reply-missed: task=hibit pending-reply-id=%s request=old escalated request\n' "$escalated" \
+      > "$state/hibit.status"
+    printf 'confirmed:%s\n' "$wake" > "$state/.backlog-handoff-waker.wake-pending"
+    printf 'delivered\n' > "$(fm_pending_reply_delivery_confirmation_path "$state" "$old")"
+
+    export FM_PENDING_REPLY_NOW=1600
+    fm_pending_reply_set "$recent_rec" resolved_epoch 1200
+    fm_pending_reply_tick "$state" || fail "the retention tick failed"
+
+    assert_absent "$old_rec" "a settled record resolved past retention was kept"
+    assert_absent "$(fm_pending_reply_delivery_confirmation_path "$state" "$old")" \
+      "a pruned record left its delivery confirmation behind"
+    assert_present "$recent_rec" "a record resolved inside retention was pruned"
+    assert_present "$escalated_rec" "a record with an open escalation was pruned before it closed"
+    [ -n "$(fm_pending_reply_get "$escalated_rec" escalation_closed_epoch)" ] \
+      || fail "the aged record's open escalation was not closed"
+    assert_present "$wake_rec" "a record a handoff wake marker still names was pruned"
+    [ -z "$(find "$state" -maxdepth 1 -name '.pending-reply-*.lock')" ] || fail "pruning left a record lock behind"
+  ) || fail "resolved-record retention regression failed"
+  pass "tick prunes resolved records past retention and keeps open, recent, and referenced ones"
+}
+
 # --- run --------------------------------------------------------------------
 
 test_normal_correlated_reply_resolves_once
@@ -1753,6 +1799,7 @@ test_kimi_capture_fallback_uses_recorded_harness
 test_tick_skips_terminal_and_reuses_target_observation
 test_tick_skips_stopped_tasks_before_reconciliation
 test_tick_over_many_resolved_records_stays_bounded
+test_tick_prunes_only_settled_resolved_records_past_retention
 test_correlations_reuse_only_for_matching_open_task
 test_tick_end_to_end_missed_then_escalate
 test_failed_send_discards_undelivered_expectation

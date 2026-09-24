@@ -103,6 +103,11 @@
 #
 # Tunables (env):
 #   FM_PENDING_REPLY_GRACE_SECS   default 120
+#   FM_PENDING_REPLY_RESOLVED_RETAIN_SECS
+#                                 default 604800; the watcher tick deletes a
+#                                 resolved record older than this once any
+#                                 escalation it opened is closed and no backlog
+#                                 handoff wake marker names it
 #   FM_PENDING_REPLY_DIR_OVERRIDE override the pending-replies directory (tests)
 #   FM_PENDING_REPLY_SEND_HOOK    optional command template for recovery delivery
 #                                 (tests); receives task_id and full message as args
@@ -1443,27 +1448,25 @@ fm_pending_reply_progress() {
 
 fm_pending_reply_tick() {  # <state-dir>
   local state=$1 dir rec corr task_id phase delivered meta backend target label busy sm_home harness remote_host
-  local observation observation_task found i line escalated closed
-  local -a observation_tasks=() observation_values=()
+  local observation observation_task found i line escalated closed resolved_at now retain wake_marker wake_refs=' '
+  local -a observation_tasks=() observation_values=() prune=()
   dir=$(fm_pending_reply_dir "$state")
   [ -d "$dir" ] || return 0
+  now=$(fm_pending_reply_now)
+  retain=${FM_PENDING_REPLY_RESOLVED_RETAIN_SECS:-604800}
+  # A backlog handoff wake marker names its correlation; its record must survive.
+  for wake_marker in "$state"/.backlog-handoff-*.wake-pending; do
+    [ -f "$wake_marker" ] && [ ! -L "$wake_marker" ] || continue
+    line=$(<"$wake_marker")
+    line=${line#*:}
+    wake_refs+="${line%%:*} "
+  done
   for rec in "$dir"/*; do
     [ -f "$rec" ] || continue
     case "${rec##*/}" in
       .*) continue ;;
     esac
-    # One builtin pass per record, last value winning like fm_pending_reply_get,
-    # keeps a large resolved backlog from costing forks every cycle.
-    corr='' task_id='' phase='' escalated='' closed=''
-    while IFS= read -r line || [ -n "$line" ]; do
-      case "$line" in
-        corr_id=*) corr=${line#corr_id=} ;;
-        task_id=*) task_id=${line#task_id=} ;;
-        phase=*) phase=${line#phase=} ;;
-        escalated_epoch=*) escalated=${line#escalated_epoch=} ;;
-        escalation_closed_epoch=*) closed=${line#escalation_closed_epoch=} ;;
-      esac
-    done < "$rec"
+    _fm_pending_reply_scan_record "$rec"
     [ -n "$corr" ] || corr=${rec##*/}
     # Stopped lanes keep their delivery state for a later reopen. Skip before
     # reconciliation takes the record lock or observes the remote endpoint.
@@ -1473,6 +1476,8 @@ fm_pending_reply_tick() {  # <state-dir>
       # that makes the close converge after a transient write failure.
       if [ -n "$escalated" ] && [ -z "$closed" ]; then
         fm_pending_reply_close_escalation "$state" "$corr" || true
+      elif _fm_pending_reply_past_retention "$resolved_at" "$now" "$retain"; then
+        case "$wake_refs" in *" ${rec##*/} "*) ;; *) prune+=("${rec##*/}") ;; esac
       fi
       continue
     fi
@@ -1567,7 +1572,58 @@ fm_pending_reply_tick() {  # <state-dir>
     fi
     fm_pending_reply_tick_one "$state" "$corr" "$busy" "$sm_home" || true
   done
+  [ "${#prune[@]}" -eq 0 ] || fm_pending_reply_prune_resolved "$state" "$now" "$retain" "${prune[@]}" || true
   return 0
+}
+
+# One builtin pass over a record, last value winning like fm_pending_reply_get,
+# so a large resolved backlog costs no forks. Assigns the caller's locals.
+_fm_pending_reply_scan_record() {  # <record-path>
+  local line
+  corr='' task_id='' phase='' escalated='' closed='' resolved_at=''
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      corr_id=*) corr=${line#corr_id=} ;;
+      task_id=*) task_id=${line#task_id=} ;;
+      phase=*) phase=${line#phase=} ;;
+      escalated_epoch=*) escalated=${line#escalated_epoch=} ;;
+      escalation_closed_epoch=*) closed=${line#escalation_closed_epoch=} ;;
+      resolved_epoch=*) resolved_at=${line#resolved_epoch=} ;;
+    esac
+  done < "$1"
+}
+
+_fm_pending_reply_past_retention() {  # <resolved-epoch> <now> <retain-secs>
+  case "$1$2$3" in ''|*[!0-9]*) return 1 ;; esac
+  [ -n "$1" ] && [ -n "$2" ] && [ -n "$3" ] && [ $(($2 - $1)) -ge "$3" ]
+}
+
+# Delete resolved records whose escalation, if any, is closed and whose
+# resolution is older than FM_PENDING_REPLY_RESOLVED_RETAIN_SECS, re-checking
+# each under its record lock. Unresolved records are never expired.
+fm_pending_reply_prune_resolved() {  # <state-dir> <now> <retain-secs> <corr_id>...
+  local state=$1 now=$2 retain=$3 dir name rec lock corr task_id phase escalated closed resolved_at
+  local STATE FM_WAKE_QUEUE FM_WAKE_QUEUE_LOCK
+  shift 3
+  STATE=$state
+  # shellcheck source=bin/fm-wake-lib.sh
+  . "$_FM_PENDING_REPLY_LIB_DIR/fm-wake-lib.sh"
+  dir=$(fm_pending_reply_dir "$state")
+  for name in "$@"; do
+    case "$name" in *[!a-f0-9]*|'') continue ;; esac
+    [ "${#name}" -eq 16 ] || continue
+    rec="$dir/$name"
+    lock="$state/.pending-reply-$name.lock"
+    fm_lock_acquire_wait "$lock" || continue
+    if [ -f "$rec" ] && [ ! -L "$rec" ]; then
+      _fm_pending_reply_scan_record "$rec"
+      if [ "$phase" = resolved ] && { [ -z "$escalated" ] || [ -n "$closed" ]; } \
+        && _fm_pending_reply_past_retention "$resolved_at" "$now" "$retain"; then
+        rm -f -- "$dir/.delivery-confirmed-$name" "$rec"
+      fi
+    fi
+    fm_lock_release "$lock"
+  done
 }
 
 # True when any open (non-resolved) pending reply exists for a task.
