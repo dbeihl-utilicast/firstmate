@@ -784,6 +784,56 @@ test_grok_idle_footer_does_not_confirm_cancellation() {
   pass "fm-control interrupt: grok's idle footer does not confirm cancellation"
 }
 
+# The 2026-09-24 MCP lane shape: a grok whose allowance is spent never started
+# work, and its blank composer's title gained a `Weekly limit left: 0% · ` prefix.
+exhausted_grok_pane() {  # <case-dir> <composer-text> [notice]
+  local notice=${3:-Weekly limit left: 0%}
+  {
+    printf '  ╭──────────────────────────────────────────────────────────────────────────╮\n'
+    printf '  │ ❯ %-70s │\n' "$2"
+    printf '  ╰──────────────────────────────── %s · Grok 4.6 (high) ─╯\n' "$notice"
+  } > "$1/fake/pane"
+}
+
+test_exit_recovers_allowance_exhausted_grok_with_blank_composer() {
+  local dir out rc
+  dir=$(new_case exhausted-grok-exit)
+  add_task "$dir" t1 grok
+  alive_as "$dir" grok
+  exhausted_grok_pane "$dir" ''
+  out=$(run_control "$dir" t1 exit); rc=$?
+  expect_code 0 "$rc" "a blank exhausted grok composer should be exitable"$'\n'"$out"
+  assert_contains "$out" "stopped t1 harness=grok" "the exhausted grok should be reported stopped"
+  [ "$(literals "$dir")" = /exit ] || fail "the exhausted grok should receive exactly its exit command"
+  pass "fm-control exit: an allowance-exhausted grok with a blank composer is stopped"
+}
+
+test_exit_refuses_allowance_exhausted_grok_holding_work() {
+  local dir out rc
+  dir=$(new_case exhausted-grok-work)
+  add_task "$dir" t1 grok
+  alive_as "$dir" grok
+  exhausted_grok_pane "$dir" 'deploy the fix'
+  out=$(run_control "$dir" t1 exit); rc=$?
+  expect_code 1 "$rc" "an exhausted grok composer holding text must be refused"$'\n'"$out"
+  assert_contains "$out" "pending text" "the refusal should name the pending text"
+  [ ! -s "$dir/fake/literal" ] || fail "nothing may be typed into a composer holding work"
+  pass "fm-control exit: an allowance-exhausted grok composer holding work still refuses"
+}
+
+test_exit_refuses_grok_composer_with_unrecognized_notice() {
+  local dir out rc
+  dir=$(new_case unrecognized-grok-notice)
+  add_task "$dir" t1 grok
+  alive_as "$dir" grok
+  exhausted_grok_pane "$dir" '' 'Weekly usage banner'
+  out=$(run_control "$dir" t1 exit); rc=$?
+  expect_code 1 "$rc" "an unrecognized grok notice must stay refused"$'\n'"$out"
+  assert_contains "$out" "not proven empty" "the refusal should say the composer is unproven"
+  [ ! -s "$dir/fake/literal" ] || fail "nothing may be typed into an unproven composer"
+  pass "fm-control exit: an unrecognized grok notice is still refused as not proven empty"
+}
+
 # --- 6. marker non-regression -----------------------------------------------
 
 test_secondmate_control_command_carries_no_marker() {
@@ -860,5 +910,8 @@ test_exit_accepts_agent_stopped_by_busy_interrupt
 test_agent_that_does_not_stop_fails_closed
 test_grok_interrupt_without_acknowledgement_reports_unconfirmed
 test_grok_idle_footer_does_not_confirm_cancellation
+test_exit_recovers_allowance_exhausted_grok_with_blank_composer
+test_exit_refuses_allowance_exhausted_grok_holding_work
+test_exit_refuses_grok_composer_with_unrecognized_notice
 test_secondmate_control_command_carries_no_marker
 test_fm_send_still_marks_the_same_secondmate_task
