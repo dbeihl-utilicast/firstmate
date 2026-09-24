@@ -11,8 +11,9 @@
 # check mode can inspect worker gaps without changing them and --fix can repair
 # them. Every other command is staged after the worker is ready. On Darwin, a
 # missing Aqua session fails before staging with the doctor-actionable
-# console-login diagnostic. Linux uses the same queue and worker shape without
-# an Aqua requirement.
+# console-login diagnostic. An unavailable worker exits 69 before staging;
+# invalid caller input still exits 64. Linux uses the same queue and worker
+# shape without an Aqua requirement.
 #
 # stdin is captured as bounded job input. The completed worker result is relayed
 # with stdout and stderr kept separate and its exit status preserved. An SSH

@@ -84,6 +84,9 @@
 # fm-send --resolve-key (bin/fm-send.sh header): it must speak the close note
 # owned below (fm_pending_reply_resolved_note), because a bare answered: note is
 # not a reserved-key transition and would leave the decision open.
+# The watcher closes only open escalations and prunes settled resolved records
+# after seven days, including stopped lanes. Missing resolved_epoch uses record
+# mtime; a pending backlog-handoff wake defers pruning. Unresolved records remain.
 #
 # Retryable undelivered escalation: a delivery-unknown escalation reports that
 # the request may never have reached the mate, so the request stays the owner's
