@@ -67,15 +67,30 @@ test_local_secondmate_report() {
 test_remote_secondmate_report() {
   make_world remote
   mkdir -p "$MAIN/data/remote-secondmates/ios/data/remote-task"
-  printf 'kind=secondmate\nremote_host=remote-mac\nproject=/repo/gamma\n' > "$MAIN/state/ios.meta"
-  printf 'done [key=finished]: child remote-task done report=data/remote-secondmates/ios/data/remote-task/report.md\n' \
+  printf 'kind=secondmate\nremote_host=remote-mac\nproject=/repo/firstmate\n' > "$MAIN/state/ios.meta"
+  printf 'done [key=finished] [at=1700000000]: child remote-task done: report written mode=scout yolo=off project=gamma report=data/remote-secondmates/ios/data/remote-task/report.md\n' \
     > "$MAIN/state/ios.status"
   printf '# remote\n' > "$MAIN/data/remote-secondmates/ios/data/remote-task/report.md"
   run_copy_with_system_awk >/dev/null
   [ "$(report_count)" = 1 ] || fail "remote secondmate report was not copied from the existing mirror"
   grep -Fq '# remote' "$VAULT/research/$(date +%F)-gamma-remote-task.md" \
-    || fail "remote secondmate report used the wrong project-task name"
+    || fail "remote secondmate report was not named by its report project and task"
   pass "main catches up remote secondmate reports already fetched by reply relay"
+}
+
+test_remote_report_without_project_uses_secondmate_id() {
+  make_world remote-fallback
+  mkdir -p "$MAIN/data/remote-secondmates/ios/data/vault-summary"
+  printf 'kind=secondmate\nremote_host=remote-mac\nproject=/repo/firstmate\n' > "$MAIN/state/ios.meta"
+  printf 'done [key=finished]: child vault-summary done: see project=decoy notes mode=scout report=data/remote-secondmates/ios/data/vault-summary/report.md\n' \
+    > "$MAIN/state/ios.status"
+  printf '# summary\n' > "$MAIN/data/remote-secondmates/ios/data/vault-summary/report.md"
+  run_copy >/dev/null
+  [ -f "$VAULT/research/$(date +%F)-ios-vault-summary.md" ] \
+    || fail "remote report without a project was not named by secondmate id and task"
+  [ -z "$(find "$VAULT/research" -name '*firstmate*' -o -name '*decoy*')" ] \
+    || fail "remote report was named with the main-home project or a note token"
+  pass "remote reports without a project fall back to the secondmate id"
 }
 
 test_disabled_and_collision_are_safe() {
@@ -195,6 +210,7 @@ test_realistic_scale_catch_up_stays_bounded() {
 test_main_report_and_boundaries
 test_local_secondmate_report
 test_remote_secondmate_report
+test_remote_report_without_project_uses_secondmate_id
 test_disabled_and_collision_are_safe
 test_ledger_skips_recorded_sources
 test_remote_status_scan_does_not_fork_per_line
