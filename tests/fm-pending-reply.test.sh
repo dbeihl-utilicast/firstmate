@@ -1724,35 +1724,44 @@ test_tick_over_many_resolved_records_stays_bounded() {
 
 test_tick_prunes_only_settled_resolved_records_past_retention() {
   (
-    local home state dir old recent escalated wake old_rec recent_rec escalated_rec wake_rec
+    local home state dir old recent escalated wake stopped interrupted unresolved corr
+    local old_rec recent_rec escalated_rec wake_rec stopped_rec interrupted_rec unresolved_rec
     home=$(setup_parent resolved-retention)
     state="$home/state"
     # This fixture clock is intentionally scoped to the isolated subshell.
     # shellcheck disable=SC2030,SC2031
-    export FM_PENDING_REPLY_NOW=1000
-    export FM_PENDING_REPLY_RESOLVED_RETAIN_SECS=500
+    export FM_PENDING_REPLY_NOW=1600000000
     dir=$(fm_pending_reply_dir "$state")
     old=$(fm_pending_reply_create "$home" "$state" aged "old settled request")
     recent=$(fm_pending_reply_create "$home" "$state" aged "recent settled request")
     escalated=$(fm_pending_reply_create "$home" "$state" hibit "old escalated request")
     wake=$(fm_pending_reply_create "$home" "$state" waker "old wake request")
-    for corr in "$old" "$recent" "$escalated" "$wake"; do
+    stopped=$(fm_pending_reply_create "$home" "$state" stopped "old stopped request")
+    interrupted=$(fm_pending_reply_create "$home" "$state" interrupted "resolved without timestamp")
+    unresolved=$(fm_pending_reply_create "$home" "$state" active "old unresolved request")
+    for corr in "$old" "$recent" "$escalated" "$wake" "$stopped" "$interrupted"; do
       fm_pending_reply_mark_delivered "$state" "$corr"
       fm_pending_reply_set "$(fm_pending_reply_path "$state" "$corr")" phase resolved
-      fm_pending_reply_set "$(fm_pending_reply_path "$state" "$corr")" resolved_epoch 1000
+      fm_pending_reply_set "$(fm_pending_reply_path "$state" "$corr")" resolved_epoch 1600000000
     done
     old_rec=$(fm_pending_reply_path "$state" "$old")
     recent_rec=$(fm_pending_reply_path "$state" "$recent")
     escalated_rec=$(fm_pending_reply_path "$state" "$escalated")
     wake_rec=$(fm_pending_reply_path "$state" "$wake")
-    fm_pending_reply_set "$escalated_rec" escalated_epoch 900
+    stopped_rec=$(fm_pending_reply_path "$state" "$stopped")
+    interrupted_rec=$(fm_pending_reply_path "$state" "$interrupted")
+    unresolved_rec=$(fm_pending_reply_path "$state" "$unresolved")
+    fm_pending_reply_set "$escalated_rec" escalated_epoch 1599999900
+    fm_pending_reply_set "$interrupted_rec" resolved_epoch ''
+    touch -t 202001010000 "$interrupted_rec" "$unresolved_rec"
+    : > "$state/stopped.stopped"
     printf 'blocked: pending-reply-missed: task=hibit pending-reply-id=%s request=old escalated request\n' "$escalated" \
       > "$state/hibit.status"
     printf 'confirmed:%s\n' "$wake" > "$state/.backlog-handoff-waker.wake-pending"
     printf 'delivered\n' > "$(fm_pending_reply_delivery_confirmation_path "$state" "$old")"
 
-    export FM_PENDING_REPLY_NOW=1600
-    fm_pending_reply_set "$recent_rec" resolved_epoch 1200
+    export FM_PENDING_REPLY_NOW=1700000000
+    fm_pending_reply_set "$recent_rec" resolved_epoch 1699999900
     fm_pending_reply_tick "$state" || fail "the retention tick failed"
 
     assert_absent "$old_rec" "a settled record resolved past retention was kept"
@@ -1763,6 +1772,9 @@ test_tick_prunes_only_settled_resolved_records_past_retention() {
     [ -n "$(fm_pending_reply_get "$escalated_rec" escalation_closed_epoch)" ] \
       || fail "the aged record's open escalation was not closed"
     assert_present "$wake_rec" "a record a handoff wake marker still names was pruned"
+    assert_absent "$stopped_rec" "a settled record on a stopped lane was kept"
+    assert_absent "$interrupted_rec" "a resolved record without an epoch was kept"
+    assert_present "$unresolved_rec" "an unresolved record was pruned"
     [ -z "$(find "$state" -maxdepth 1 -name '.pending-reply-*.lock')" ] || fail "pruning left a record lock behind"
   ) || fail "resolved-record retention regression failed"
   pass "tick prunes resolved records past retention and keeps open, recent, and referenced ones"
