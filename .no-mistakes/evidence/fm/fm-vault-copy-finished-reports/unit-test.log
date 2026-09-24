@@ -1,0 +1,6 @@
+ok - main catch-up copies only the finished report boundary
+ok - main catches up local secondmate reports
+ok - main catches up remote secondmate reports already fetched by reply relay
+ok - disabled copying and collisions preserve existing files
+ok - ledger copies each source path and content once
+all vault copy tests passed

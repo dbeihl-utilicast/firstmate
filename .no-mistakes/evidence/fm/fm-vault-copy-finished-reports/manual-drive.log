@@ -1,0 +1,38 @@
+## A: unset config -> disabled
+rc=0
+## B: enabled
+copied: /tmp/tmp.cNbAid5xHc/vault/research/2026-09-24-alpha-t1.md
+rc=0
+total 4
+-rw------- 1 dbeihl dbeihl 5 Sep 24 09:59 2026-09-24-alpha-t1.md
+## C: idempotent
+rc=0
+1
+## D: traversal/symlink: report.md symlink to outside secret, and non-report file
+rc=0
+2026-09-24-alpha-t1.md
+no secret leaked
+## E: task id traversal ../
+## F: different existing file not overwritten
+copied: /tmp/tmp.cNbAid5xHc/vault/research/2026-09-24-c-t3-7aa7a5359173d05b.md
+rc=0
+mine
+2026-09-24-alpha-t1.md
+2026-09-24-c-t3-7aa7a5359173d05b.md
+2026-09-24-c-t3.md
+## G: remote path escaping
+rc=0
+3
+## H: running task not copied
+rc=0
+t4 not copied
+## I: relative vault path disables
+rc=0
+not copied
+## ledger
+91fa08debd27714d6947694c355b3f44a258fad9d3e721460040f85f55f3d44f $W/main/data/t1/report.md
+7aa7a5359173d05b63cfd682e3c38487f3cb4f7f1d60659fe59fab1505977d4c $W/main/data/t3/report.md
+600 $W/main/state/vault-copied.ledger
+600 $W/vault/research/2026-09-24-alpha-t1.md
+600 $W/vault/research/2026-09-24-c-t3-7aa7a5359173d05b.md
+664 $W/vault/research/2026-09-24-c-t3.md
