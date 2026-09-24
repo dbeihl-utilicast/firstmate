@@ -1443,26 +1443,37 @@ fm_pending_reply_progress() {
 
 fm_pending_reply_tick() {  # <state-dir>
   local state=$1 dir rec corr task_id phase delivered meta backend target label busy sm_home harness remote_host
-  local observation observation_task found i
+  local observation observation_task found i line escalated closed
   local -a observation_tasks=() observation_values=()
   dir=$(fm_pending_reply_dir "$state")
   [ -d "$dir" ] || return 0
   for rec in "$dir"/*; do
     [ -f "$rec" ] || continue
-    case "$(basename "$rec")" in
+    case "${rec##*/}" in
       .*) continue ;;
     esac
-    corr=$(fm_pending_reply_get "$rec" corr_id)
-    [ -n "$corr" ] || corr=$(basename "$rec")
-    task_id=$(fm_pending_reply_get "$rec" task_id)
+    # One builtin pass per record, last value winning like fm_pending_reply_get,
+    # keeps a large resolved backlog from costing forks every cycle.
+    corr='' task_id='' phase='' escalated='' closed=''
+    while IFS= read -r line || [ -n "$line" ]; do
+      case "$line" in
+        corr_id=*) corr=${line#corr_id=} ;;
+        task_id=*) task_id=${line#task_id=} ;;
+        phase=*) phase=${line#phase=} ;;
+        escalated_epoch=*) escalated=${line#escalated_epoch=} ;;
+        escalation_closed_epoch=*) closed=${line#escalation_closed_epoch=} ;;
+      esac
+    done < "$rec"
+    [ -n "$corr" ] || corr=${rec##*/}
     # Stopped lanes keep their delivery state for a later reopen. Skip before
     # reconciliation takes the record lock or observes the remote endpoint.
     [ ! -e "$state/${task_id}.stopped" ] || continue
-    phase=$(fm_pending_reply_get "$rec" phase)
     if [ "$phase" = resolved ]; then
-      # Cheap no-op unless an escalation for this record is still open; this is
-      # the retry that makes the close converge after a transient write failure.
-      fm_pending_reply_close_escalation "$state" "$corr" || true
+      # Only an escalation still open needs the locked close; this is the retry
+      # that makes the close converge after a transient write failure.
+      if [ -n "$escalated" ] && [ -z "$closed" ]; then
+        fm_pending_reply_close_escalation "$state" "$corr" || true
+      fi
       continue
     fi
     fm_pending_reply_reconcile_delivery "$state" "$corr" || true

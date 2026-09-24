@@ -1674,6 +1674,54 @@ test_escalated_undelivered_correlation_stays_retryable() {
   pass "an escalated correlation stays retryable only while undelivered"
 }
 
+test_tick_over_many_resolved_records_stays_bounded() {
+  (
+    local home state dir template corr rec open i tick_pid waited=0
+    home=$(setup_parent resolved-backlog)
+    state="$home/state"
+    # This fixture clock is intentionally scoped to the isolated subshell.
+    # shellcheck disable=SC2030,SC2031
+    export FM_PENDING_REPLY_NOW=10300
+    template=$(fm_pending_reply_create "$home" "$state" quiet "long resolved request")
+    fm_pending_reply_mark_delivered "$state" "$template"
+    printf 'done [corr=%s]: complete\n' "$template" > "$state/quiet.status"
+    fm_pending_reply_try_resolve "$state" "$template" || fail "resolved fixture should resolve"
+    dir=$(fm_pending_reply_dir "$state")
+    for i in $(seq 1000 2999); do
+      corr="00000000000${i}0"
+      sed "s/^corr_id=.*/corr_id=$corr/" "$dir/$template" > "$dir/$corr"
+    done
+
+    corr=$(fm_pending_reply_create "$home" "$state" hibit "escalated then resolved")
+    fm_pending_reply_mark_delivered "$state" "$corr"
+    rec=$(fm_pending_reply_path "$state" "$corr")
+    fm_pending_reply_set "$rec" escalated_epoch 10250
+    fm_pending_reply_set "$rec" phase resolved
+    printf 'blocked: pending-reply-missed: task=hibit pending-reply-id=%s request=escalated then resolved\n' "$corr" \
+      > "$state/hibit.status"
+
+    fm_pending_reply_tick "$state" &
+    tick_pid=$!
+    while kill -0 "$tick_pid" 2>/dev/null && [ "$waited" -lt 150 ]; do
+      sleep 0.2
+      waited=$((waited + 1))
+    done
+    if kill -0 "$tick_pid" 2>/dev/null; then
+      kill "$tick_pid" 2>/dev/null || true
+      fail "one tick over 2000 resolved records ran past 30 seconds"
+    fi
+    wait "$tick_pid" || fail "the tick over many resolved records failed"
+
+    [ -n "$(fm_pending_reply_get "$rec" escalation_closed_epoch)" ] \
+      || fail "an escalated but unclosed resolved record was not closed by the tick"
+    [ "$(sed -E 's/ \[at=[0-9]+\]//' "$state/hibit.status" | grep -Fc "resolved [key=default]: pending-reply-resolved: task=hibit pending-reply-id=$corr")" -eq 1 ] \
+      || fail "the tick did not append one resolution for the open escalation"
+    open=$(status_open_decisions "$state/hibit.status")
+    [ -z "$open" ] || fail "the escalation stayed open after the tick: $open"
+  ) || fail "resolved-backlog tick regression failed"
+  pass "tick over thousands of resolved records stays bounded and still closes an open escalation"
+}
+
 # --- run --------------------------------------------------------------------
 
 test_normal_correlated_reply_resolves_once
@@ -1704,6 +1752,7 @@ test_unknown_backend_state_uses_capture_fallback
 test_kimi_capture_fallback_uses_recorded_harness
 test_tick_skips_terminal_and_reuses_target_observation
 test_tick_skips_stopped_tasks_before_reconciliation
+test_tick_over_many_resolved_records_stays_bounded
 test_correlations_reuse_only_for_matching_open_task
 test_tick_end_to_end_missed_then_escalate
 test_failed_send_discards_undelivered_expectation
