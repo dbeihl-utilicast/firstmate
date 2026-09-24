@@ -112,6 +112,7 @@ The workflow uploads each partition's quiet telemetry to distinguish analysis co
 No fast mode, path skips, reduced checks, or paid runner provisioning is part of this layout.
 
 The performance objective is a complete green run under fifteen minutes including start delay: roughly twelve minutes of longest-path execution, at most two minutes of runner delay, and less than one minute of other overhead.
+Serializing CI lint to one worker (about 25 minutes per partition, measured from the Lint 2 telemetry) trades that objective for memory headroom: two concurrent full source-aware ShellCheck workers summed to about 22 GB of RSS on a 16 GB runner, and the lint partitions are now the longest path. Restoring the objective needs a lint re-partition, which this layout does not include.
 The candidate uses fourteen long-lived Linux jobs (nine serial, two parallel, Herdr, two lint), plus short checks and macOS; insufficient shared account capacity can erase the packing gain.
 Compare complete before/after runs, preserve cancelled and partial-run evidence, and measure a representative normal-run sample before claiming a P95 improvement.
 The workflow retains per-PR supersession without cancelling main pushes or changing the compliance workflow's event semantics.
@@ -130,7 +131,7 @@ A lane that reaches its tier bound is wedged, not slow, so change the policy her
 | Tier | Jobs | Bound | Rationale |
 |---|---|---|---|
 | Fast | coverage guard, repo invariants, timing aggregate | 5 minutes | Seconds-long local work, so the tripwire only catches a hung runner. |
-| Normal | portable parallel shards, portable serial shards, macOS stock Bash | 30 minutes, one value shared by every job in the tier | One shared hang tripwire keeps every ordinary test and lint lane on the same policy instead of allowing per-lane packing estimates or one-off caps to set the bound. |
+| Normal | portable parallel shards, portable serial shards, macOS stock Bash | 30 minutes, one value shared by every job in the tier | One shared hang tripwire keeps every ordinary test lane on the same policy instead of allowing per-lane packing estimates or one-off caps to set the bound. |
 | Heavy | Herdr, lint partitions | Herdr family-run step 20 minutes under a 75-minute job-level last-resort backstop; lint partitions carry the 75-minute job-level backstop alone | Healthy Herdr runs finish in about 7-10 minutes, so the step tripwire fails a wedged suite while the `always()` cleanup and timing upload still run, and the job cap only catches a hang outside that step. Lint runs one serialized ShellCheck worker in CI to stay within runner memory, which takes about 25 minutes per partition, so it needs the heavy backstop rather than the normal 30-minute budget. |
 
 [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) holds the executable values and names each job's tier beside its `timeout-minutes`.
