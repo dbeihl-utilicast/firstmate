@@ -63,6 +63,7 @@ config/cmux-socket-password  optional cmux control-socket password; LOCAL, gitig
 config/wedge-alarm  optional away-mode wedge-alarm active-alert directives; LOCAL, gitignored; absent means auto (macOS Notification Center when available); see docs/wedge-alarm.md
 config/watched-tools.json  optional list of the tools this home depends on, read by the update check armed with bin/fm-tool-update-check.sh; LOCAL, gitignored, firstmate-maintained but human-editable, and NOT inherited by secondmate homes; see "Watched tool updates" below
 config/x-mode.env    generated Relay watcher cadence; LOCAL, gitignored; source before arming watcher when present
+config/vault-path     optional absolute captain-vault directory; LOCAL, gitignored, and only read by the main home for finished report catch-up; absent or empty disables copying
 data/                personal fleet records; LOCAL, gitignored as a whole
   backlog.md         task queue, dependencies, history
   captain.md         this home's domain-local captain preferences and working style; LOCAL, gitignored, canonical even if harness memory mirrors it, and updated with inspect-then-update
@@ -510,6 +511,15 @@ For the zellij backend, `FM_HOME` does not split containers, but it determines t
 The full zellij home label also includes a short hash of the resolved `FM_ROOT` path.
 For the cmux backend, `FM_CONFIG_OVERRIDE` overrides where `config/cmux-socket-password` is read from, while `FM_HOME` determines the default config path and readable home prefix embedded in workspace titles.
 The full cmux home label also includes a short hash of the resolved `FM_ROOT` path, and there is no per-home container split.
+
+## Finished report vault copy
+
+The main home reads one absolute path from `config/vault-path` when present and copies finished `data/<task>/report.md` documents into that vault's `research/` directory.
+Destination names are `YYYY-MM-DD-<project>-<task>.md`, where project and task values are reduced to filename-safe slugs.
+The copy scans main tasks, local secondmate homes, and reports already mirrored from remote secondmate homes on every watcher reconciliation pass, so reports finished before the feature was enabled are caught up.
+An existing destination with identical bytes is retained, while different bytes receive a content-addressed suffix instead of replacing the existing document.
+The copier never reads or writes any path other than the exact report file for a finished task and the derived vault destination.
+The existing remote-reply document fetch remains the only remote transport; the main home copies a report after that fetch has populated its confined mirror.
 
 ## Harness support
 
