@@ -549,8 +549,8 @@ jobs:
           vault_output=$(/bin/bash tests/fm-vault-copy.test.sh)
           printf '%s\n' "$vault_output"
           vault_count=$(printf '%s\n' "$vault_output" | grep -c '^ok - ')
-          [ "$vault_count" -eq 5 ] || {
-            echo "::error::expected 5 vault-copy tests under stock macOS awk and Bash, got $vault_count"
+          [ "$vault_count" -eq 6 ] || {
+            echo "::error::expected 6 vault-copy tests under stock macOS awk and Bash, got $vault_count"
             exit 1
           }
 
