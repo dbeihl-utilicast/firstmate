@@ -7,7 +7,9 @@
 # The primary home owns this operation. It reads the optional config/vault-path
 # from that home, scans finished local work and mirrored remote reports, and
 # copies only data/<task>/report.md documents. A destination is never replaced
-# by different bytes; a content-addressed suffix preserves both documents.
+# by different bytes; a content-addressed suffix preserves both documents. A
+# private state ledger of source path plus content hash makes each report copy
+# once, even if the vault copy is later edited, moved, or renamed.
 set -u
 export LC_ALL=C
 
@@ -17,6 +19,7 @@ DATA=${FM_DATA_OVERRIDE:-$FM_HOME/data}
 STATE=${FM_STATE_OVERRIDE:-$FM_HOME/state}
 CONFIG=${FM_CONFIG_OVERRIDE:-$FM_HOME/config}
 VAULT_CONFIG="$CONFIG/vault-path"
+LEDGER="$STATE/vault-copied.ledger"
 
 # shellcheck source=bin/fm-classify-lib.sh
 . "$SCRIPT_DIR/fm-classify-lib.sh"
@@ -104,12 +107,17 @@ sha256_file() {
 }
 
 copy_report() { # <vault> <source> <project> <task>
-  local vault=$1 source=$2 project=$3 task=$4 destination parent tmp
+  local vault=$1 source=$2 project=$3 task=$4 destination parent tmp entry
   safe_task_id "$task" || return 1
   safe_regular_report "$source" || return 0
+  entry="$(sha256_file "$source") $source" || return 1
+  if [ -f "$LEDGER" ] && [ ! -L "$LEDGER" ] && grep -Fqx -- "$entry" "$LEDGER"; then
+    return 0
+  fi
   destination=$(vault_destination "$vault" "$project" "$task" "$source") || return 1
-  if [ -f "$destination" ] && [ ! -L "$destination" ]; then
-    cmp -s "$source" "$destination" && return 0
+  if [ -f "$destination" ] && [ ! -L "$destination" ] && cmp -s "$source" "$destination"; then
+    record_copied "$entry"
+    return 0
   fi
   parent=$(dirname "$destination")
   mkdir -p "$parent" || return 1
@@ -119,7 +127,13 @@ copy_report() { # <vault> <source> <project> <task>
     rm -f -- "$tmp"
     return 1
   fi
+  record_copied "$entry"
   printf 'copied: %s\n' "$destination"
+}
+
+record_copied() { # <entry>
+  [ ! -L "$LEDGER" ] || return 1
+  (umask 077; printf '%s\n' "$1" >> "$LEDGER")
 }
 
 finished_status() { # <status-file>

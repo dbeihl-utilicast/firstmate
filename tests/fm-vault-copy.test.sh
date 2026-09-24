@@ -94,8 +94,34 @@ test_disabled_and_collision_are_safe() {
   pass "disabled copying and collisions preserve existing files"
 }
 
+test_ledger_skips_recorded_sources() {
+  local dated
+  make_world ledger
+  mkdir -p "$MAIN/data/task"
+  printf 'kind=scout\nproject=/repo/zeta\n' > "$MAIN/state/task.meta"
+  printf 'done: complete\n' > "$MAIN/state/task.status"
+  printf '# one\n' > "$MAIN/data/task/report.md"
+  run_copy >/dev/null
+  dated="$VAULT/research/$(date +%F)-zeta-task.md"
+  printf '# annotated\n' > "$dated"
+  run_copy >/dev/null
+  [ "$(report_count)" = 1 ] || fail "an edited vault copy was copied again"
+  grep -Fq '# annotated' "$dated" || fail "an edited vault copy was overwritten"
+  mv "$dated" "$VAULT/curated.md"
+  run_copy >/dev/null
+  [ ! -e "$dated" ] || fail "a moved vault copy was copied again"
+  printf '# two\n' > "$MAIN/data/task/report.md"
+  run_copy >/dev/null
+  [ "$(report_count)" = 1 ] || fail "a changed source report was not copied once more"
+  grep -Fq '# two' "$dated" || fail "a changed source report was not copied under a new name"
+  run_copy >/dev/null
+  [ "$(report_count)" = 1 ] || fail "a recorded changed report was copied again"
+  pass "ledger copies each source path and content once"
+}
+
 test_main_report_and_boundaries
 test_local_secondmate_report
 test_remote_secondmate_report
 test_disabled_and_collision_are_safe
+test_ledger_skips_recorded_sources
 printf 'all vault copy tests passed\n'
