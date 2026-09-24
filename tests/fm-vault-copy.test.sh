@@ -127,9 +127,27 @@ test_ledger_skips_recorded_sources() {
   pass "ledger copies each source path and content once"
 }
 
+test_remote_status_scan_does_not_fork_per_line() {
+  local started elapsed i
+  make_world scan-cost
+  mkdir -p "$MAIN/data/remote-secondmates/ios/data/remote-task"
+  printf 'kind=secondmate\nremote_host=remote-mac\nproject=/repo/gamma\n' > "$MAIN/state/ios.meta"
+  : > "$MAIN/state/ios.status"
+  for i in $(seq 1 4000); do
+    printf 'working [at=%s]: line %s\n' "$i" "$i" >> "$MAIN/state/ios.status"
+  done
+  started=$SECONDS
+  run_copy >/dev/null
+  elapsed=$((SECONDS - started))
+  [ "$elapsed" -lt 3 ] \
+    || fail "remote status scan took ${elapsed}s for 4000 lines; it must not fork a subprocess per line (this is what stalls fm-procevent-remote-reply.sh cmd_ingest and fm-inactive-reconcile.sh scan() on every call, starving remote-reply source relaunches)"
+  pass "remote status scan stays bounded across thousands of non-report lines"
+}
+
 test_main_report_and_boundaries
 test_local_secondmate_report
 test_remote_secondmate_report
 test_disabled_and_collision_are_safe
 test_ledger_skips_recorded_sources
+test_remote_status_scan_does_not_fork_per_line
 printf 'all vault copy tests passed\n'

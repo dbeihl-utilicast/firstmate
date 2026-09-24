@@ -180,7 +180,7 @@ copy_local_secondmate_reports() {
 }
 
 copy_remote_reports() {
-  local vault=$1 meta id project status line report task source
+  local vault=$1 meta id project status line report task source verb
   for meta in "$STATE"/*.meta; do
     [ -f "$meta" ] && [ ! -L "$meta" ] || continue
     [ "$(meta_field "$meta" kind)" = secondmate ] || continue
@@ -190,7 +190,8 @@ copy_remote_reports() {
     [ -f "$status" ] && [ ! -L "$status" ] || continue
     project=$(meta_field "$meta" project)
     while IFS= read -r line || [ -n "$line" ]; do
-      case "$(status_line_verb "$line")" in done|failed) ;; *) continue ;; esac
+      status_line_verb "$line" verb
+      case "$verb" in done|failed) ;; *) continue ;; esac
       report=$(printf '%s\n' "$line" | awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^report=data\/remote-secondmates\/[^\/][^\/]*\/data\/[A-Za-z0-9._-][A-Za-z0-9._-]*\/report[.]md$/) { sub(/^report=/, "", $i); print $i; exit } }')
       [ -n "$report" ] || continue
       task=$(printf '%s\n' "$report" | sed -n 's|^data/remote-secondmates/[^/]*/data/\([A-Za-z0-9._-]*\)/report[.]md$|\1|p')
