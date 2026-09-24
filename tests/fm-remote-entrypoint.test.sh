@@ -55,5 +55,34 @@ test_direct_invocation_still_works() {
   pass "fm-remote-entrypoint.sh invoked directly still resolves SCRIPT_DIR correctly"
 }
 
+test_unavailable_worker_is_a_temporary_failure() {
+  # A worker that cannot report ready is a remote-side outage, not a caller
+  # error, and must not reuse 75, which the reply source reads as "window
+  # closed empty, channel caught up".
+  local root home out err code
+  root="$TMP_ROOT/no-worker-root"
+  home="$TMP_ROOT/no-worker-home"
+  mkdir -p "$root/bin" "$home"
+  printf 'fixture\n' > "$root/AGENTS.md"
+  printf '#!/bin/bash\nprintf ok\\n\n' > "$root/bin/fm-echo-job.sh"
+  chmod +x "$root/bin/fm-echo-job.sh"
+  git -C "$root" init -q -b main
+  git -C "$root" add AGENTS.md bin
+  git -C "$root" -c user.email=test@example.com -c user.name=Test commit -qm fixture
+  out="$TMP_ROOT/no-worker.stdout"
+  err="$TMP_ROOT/no-worker.stderr"
+  FM_REMOTE_JOB_STATE_ROOT="$TMP_ROOT/no-worker-jobs" FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux \
+    "$REAL_BIN/fm-remote-entrypoint.sh" 1 \
+    "$(printf '%s' "$root" | base64 | tr -d '\n')" \
+    "$(printf '%s' "$home" | base64 | tr -d '\n')" \
+    "$(printf '%s\0' fm-echo-job.sh | base64 | tr -d '\n')" < /dev/null > "$out" 2> "$err"
+  code=$?
+  assert_grep 'no safe executable remote job worker' "$err" \
+    "the unavailable-worker call did not fail at worker startup"
+  expect_code 69 "$code" "unavailable worker exit code"
+  pass "an unavailable remote job worker exits 69, distinct from caller errors and an empty reply window"
+}
+
 test_symlink_invocation_resolves_sibling_lib
 test_direct_invocation_still_works
+test_unavailable_worker_is_a_temporary_failure

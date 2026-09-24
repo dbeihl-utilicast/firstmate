@@ -674,7 +674,7 @@ test_remote_restart_preserves_repair_failure_diagnostics() {
 }
 
 test_remote_restart_serializes_config_push_through_relaunch() {
-  local dir restart_out restart_rc config_out config_rc driver i inherit_before inherit_after
+  local dir restart_out restart_rc config_out config_rc driver deadline inherit_before inherit_after
   dir=$(new_case remote-lock-race)
   setup_remote_case "$dir" sm1 slow-relaunch
   export FM_FAKE_ANSWER_STATUS="$dir/home/state/sm1.status"
@@ -683,14 +683,14 @@ test_remote_restart_serializes_config_push_through_relaunch() {
 
   ( run_restart "$dir" sm1 > "$restart_out" 2>&1; printf '%s\n' "$?" > "$restart_rc" ) &
   driver=$!
-  i=0
-  while [ "$i" -lt 200 ]; do
+  # A wall-clock bound: the restart's fake hops take seconds on a slow host.
+  deadline=$((SECONDS + 60))
+  while [ "$SECONDS" -lt "$deadline" ]; do
     [ -e "$dir/fake/remote-relaunch-active" ] && break
     kill -0 "$driver" 2>/dev/null || fail "remote restart exited before relaunch began"
     /bin/sleep 0.01
-    i=$((i + 1))
   done
-  assert_present "$dir/fake/remote-relaunch-active" "remote restart never reached relaunch"
+  assert_present "$dir/fake/remote-relaunch-active" "remote restart never reached relaunch within 60 seconds"
   assert_absent "$dir/fake/remote-relaunch-end" "remote relaunch ended before the competing config push"
   inherit_before=$(grep -c '^fm-remote-inherit.sh ' "$dir/ssh.log" || true)
   config_out=$(run_config_push "$dir"); config_rc=$?
@@ -891,7 +891,7 @@ test_relaunches_do_not_block_persist_polling() {
 
 # --- T13: a worker that cannot publish its result cannot hang the pass -------
 test_unpublished_worker_result_is_accounted_for() {
-  local dir out rc_file driver i result_dir
+  local dir out rc_file driver deadline result_dir
   dir=$(new_case worker-result)
   setup_remote_case "$dir" sm1 slow-relaunch
   export FM_FAKE_ANSWER_STATUS="$dir/home/state/sm1.status"
@@ -901,19 +901,18 @@ test_unpublished_worker_result_is_accounted_for() {
   ( run_restart "$dir" sm1 > "$out" 2>&1; printf '%s\n' "$?" > "$rc_file" ) &
   driver=$!
   result_dir=
-  i=0
-  while [ "$i" -lt 200 ]; do
+  deadline=$((SECONDS + 60))
+  while [ "$SECONDS" -lt "$deadline" ]; do
     result_dir=$(find "$dir/home/state" -maxdepth 1 -type d -name '.secondmate-restart.*' -print -quit)
     [ -e "$dir/fake/remote-relaunch-start" ] && [ -n "$result_dir" ] && break
     /bin/sleep 0.01
-    i=$((i + 1))
   done
-  [ -n "$result_dir" ] || { kill "$driver" 2>/dev/null || true; fail "restart result directory never appeared"; }
+  [ -e "$dir/fake/remote-relaunch-start" ] && [ -n "$result_dir" ] \
+    || { kill "$driver" 2>/dev/null || true; fail "restart never reached relaunch with a result directory"; }
   rm -rf -- "$result_dir"
-  i=0
-  while kill -0 "$driver" 2>/dev/null && [ "$i" -lt 400 ]; do
+  deadline=$((SECONDS + 60))
+  while kill -0 "$driver" 2>/dev/null && [ "$SECONDS" -lt "$deadline" ]; do
     /bin/sleep 0.01
-    i=$((i + 1))
   done
   if kill -0 "$driver" 2>/dev/null; then
     kill "$driver" 2>/dev/null || true

@@ -772,7 +772,7 @@ fm_remote_job_stage_owner_alive() { # <stage-dir>
 }
 
 fm_remote_job_reap_stale() { # <account-home>
-  local account_home=$1 job id state mtime now stage claim value marker tmp reap_claims=0
+  local account_home=$1 job id state mtime now stage marker tmp reap_claims=0
   fm_remote_job_prepare_state "$account_home" || return 1
   now=$(date +%s)
   for job in "$FM_REMOTE_JOB_JOBS"/job-*; do
@@ -796,15 +796,9 @@ fm_remote_job_reap_stale() { # <account-home>
     tmp=$(umask 077; mktemp "$FM_REMOTE_JOB_STATE/.seqreap.XXXXXX") || tmp=
     if [ -n "$tmp" ] && printf '%s\n' "$now" > "$tmp" && chmod 600 "$tmp" \
       && mv -f -- "$tmp" "$marker"; then
-      for claim in "$FM_REMOTE_JOB_SEQ_CLAIMS"/*; do
-        [ -d "$claim" ] && [ ! -L "$claim" ] || continue
-        value=${claim##*/}
-        case "$value" in ''|*[!0-9]*|0) continue ;; esac
-        mtime=$(fm_remote_job_path_mtime "$claim" 2>/dev/null || true)
-        case "$mtime" in ''|*[!0-9]*) continue ;; esac
-        [ $((now - mtime)) -ge "$FM_REMOTE_JOB_SEQ_CLAIM_REAP_SECONDS" ] || continue
-        rmdir "$claim" 2>/dev/null || true
-      done
+      # One process for the whole sweep: a per-entry stat stalls the heartbeat.
+      find "$FM_REMOTE_JOB_SEQ_CLAIMS" -mindepth 1 -maxdepth 1 -type d -name '[1-9]*' ! -name '*[!0-9]*' \
+        -mmin +$((FM_REMOTE_JOB_SEQ_CLAIM_REAP_SECONDS / 60)) -exec rmdir {} + 2>/dev/null || true
     else
       [ -z "$tmp" ] || rm -f -- "$tmp"
     fi
