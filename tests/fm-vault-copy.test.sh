@@ -144,10 +144,60 @@ test_remote_status_scan_does_not_fork_per_line() {
   pass "remote status scan stays bounded across thousands of non-report lines"
 }
 
+test_symlinked_ancestor_is_rejected() {
+  make_world symlink-ancestor
+  mkdir -p "$MAIN/data/real/task"
+  ln -s "$MAIN/data/real/task" "$MAIN/data/linked"
+  printf 'kind=scout\nproject=/repo/theta\n' > "$MAIN/state/linked.meta"
+  printf 'done: complete\n' > "$MAIN/state/linked.status"
+  printf '# via symlink\n' > "$MAIN/data/real/task/report.md"
+  run_copy >/dev/null
+  [ "$(report_count)" = 0 ] || fail "a report reached through a symlinked ancestor directory was copied"
+  pass "a symlinked ancestor directory is refused, not just a symlinked report file"
+}
+
+test_realistic_scale_catch_up_stays_bounded() {
+  local n mate line_no task started elapsed offers=0
+  make_world realistic-scale
+  for n in $(seq 1 15); do
+    mate="mate-$n"
+    mkdir -p "$MAIN/data/remote-secondmates/$mate/data"
+    printf 'kind=secondmate\nremote_host=remote-mac\nproject=/repo/eta\n' > "$MAIN/state/$mate.meta"
+    : > "$MAIN/state/$mate.status"
+    for line_no in $(seq 1 700); do
+      if [ $((line_no % 20)) -eq 0 ]; then
+        task="task-$n-$line_no"
+        mkdir -p "$MAIN/data/remote-secondmates/$mate/data/$task"
+        printf '# report %s\n' "$task" > "$MAIN/data/remote-secondmates/$mate/data/$task/report.md"
+        printf 'done [key=finished]: child %s done report=data/remote-secondmates/%s/data/%s/report.md\n' \
+          "$task" "$mate" "$task" >> "$MAIN/state/$mate.status"
+        if [ "$n" -lt 15 ] || [ "$line_no" -lt 680 ]; then
+          entry="$(sha256sum "$MAIN/data/remote-secondmates/$mate/data/$task/report.md" 2>/dev/null \
+            || shasum -a 256 "$MAIN/data/remote-secondmates/$mate/data/$task/report.md")"
+          printf '%s %s\n' "${entry%% *}" "$MAIN/data/remote-secondmates/$mate/data/$task/report.md" \
+            >> "$MAIN/state/vault-copied.ledger"
+        fi
+        offers=$((offers + 1))
+      else
+        printf 'working [at=%s]: line %s\n' "$line_no" "$line_no" >> "$MAIN/state/$mate.status"
+      fi
+    done
+  done
+  started=$SECONDS
+  run_copy_with_system_awk >/dev/null
+  elapsed=$((SECONDS - started))
+  [ "$elapsed" -lt 15 ] \
+    || fail "catch-up took ${elapsed}s across $offers report offers at production scale (~10,500 status lines, 15 remote second mates); it must not fork a subprocess per offer to scan status lines, walk ancestor directories, or check the ledger"
+  [ "$(report_count)" -ge 1 ] || fail "the newly-uncached reports at the end of the fixture were not copied"
+  pass "catch-up stays bounded at production-scale status log volume"
+}
+
 test_main_report_and_boundaries
 test_local_secondmate_report
 test_remote_secondmate_report
 test_disabled_and_collision_are_safe
 test_ledger_skips_recorded_sources
 test_remote_status_scan_does_not_fork_per_line
+test_symlinked_ancestor_is_rejected
+test_realistic_scale_catch_up_stays_bounded
 printf 'all vault copy tests passed\n'
