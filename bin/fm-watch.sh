@@ -2600,7 +2600,8 @@ home_summary_refresh_detached() {
 
 # The deterministic exhausted-lane recovery: bin/fm-usage-gate.sh sweep --relaunch
 # moves a live lane whose model ran out onto an eligible declared alternate. Its
-# last report stays in state/.usage-sweep.log, whose age is the cadence.
+# last report stays in state/.usage-sweep.log, whose age is the cadence, and its
+# exit status in state/.usage-sweep.rc until usage_sweep_surface reads it.
 USAGE_SWEEP_PID=
 usage_sweep_detached() {
   if [ -n "$USAGE_SWEEP_PID" ]; then
@@ -2610,9 +2611,33 @@ usage_sweep_detached() {
     wait "$USAGE_SWEEP_PID" 2>/dev/null || true
     USAGE_SWEEP_PID=
   fi
-  FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
-    "$SCRIPT_DIR/fm-usage-gate.sh" sweep --relaunch </dev/null >"$STATE/.usage-sweep.log" 2>&1 &
+  (
+    rc=0
+    FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
+      "$SCRIPT_DIR/fm-usage-gate.sh" sweep --relaunch </dev/null >"$STATE/.usage-sweep.log" 2>&1 || rc=$?
+    printf '%s\n' "$rc" > "$STATE/.usage-sweep.rc.tmp" && mv -f "$STATE/.usage-sweep.rc.tmp" "$STATE/.usage-sweep.rc"
+  ) &
   USAGE_SWEEP_PID=$!
+}
+
+# A finished sweep that left a lane unresolved or unreached (exit 3) wakes once
+# per distinct report; a clean sweep clears that memory.
+usage_sweep_surface() {
+  local rc lines reason
+  [ -f "$STATE/.usage-sweep.rc" ] || return 0
+  rc=$(cat "$STATE/.usage-sweep.rc" 2>/dev/null)
+  rm -f "$STATE/.usage-sweep.rc"
+  if [ "$rc" != 3 ]; then
+    [ "$rc" = 4 ] || rm -f "$STATE/.usage-sweep.surfaced"
+    return 0
+  fi
+  lines=$(sed -nE 's/^  (unresolved|unreached): /\1: /p' "$STATE/.usage-sweep.log" 2>/dev/null | paste -sd';' -)
+  [ -n "$lines" ] || lines="exit 3 with no lane report; see state/.usage-sweep.log"
+  [ "$lines" != "$(cat "$STATE/.usage-sweep.surfaced" 2>/dev/null)" ] || return 0
+  printf '%s\n' "$lines" > "$STATE/.usage-sweep.surfaced"
+  reason="check: usage-sweep: $lines"
+  fm_wake_append check usage-sweep "$reason" || exit 1
+  wake "$reason"
 }
 
 RECONCILE_REQUEST_PID=
@@ -2771,6 +2796,7 @@ while :; do
     home_summary_refresh_detached
   fi
 
+  usage_sweep_surface
   if [ "${FM_USAGE_GATE:-}" != off ] && [ "$(age_of "$STATE/.usage-sweep.log")" -ge "$USAGE_SWEEP_INTERVAL" ]; then
     usage_sweep_detached
   fi

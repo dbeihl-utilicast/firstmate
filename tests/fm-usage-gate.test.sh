@@ -406,11 +406,13 @@ lane r1 secondmate claude sonnet remote_host=box
 lane i1 ship claude sonnet
 lane b1 ship claude sonnet
 lane x1 ship claude sonnet
+lane e1 ship claude sonnet
 printf 'state: done · source: status-log · finished\n' > "$STUBS/crew-state/d1"
 printf 'state: parked · source: run-step · awaiting the captain\n' > "$STUBS/crew-state/p1"
 printf 'state: unknown · source: none · no current-state source available\n' > "$STUBS/crew-state/i1"
 printf 'state: blocked · source: status-log · waiting on a decision\n' > "$STUBS/crew-state/b1"
 printf 'state: working · source: run-step · no-mistakes review\n' > "$STUBS/crew-state/x1"
+: > "$STUBS/crew-state/e1"
 printf 'stopped 2030-01-01T00:00:00Z\n' > "$STATE/s2.stopped"
 Q_SWEEP="$TMP_ROOT/q-sweep.json"
 snapshot "$Q_SWEEP" \
@@ -428,6 +430,7 @@ assert_contains "$GATE_OUT" "held: p1 scout claude:sonnet exhausted; state parke
 assert_contains "$GATE_OUT" "exhausted: i1 ship claude:sonnet -> grok:grok-4.6" "an idle lane with no declared state, the usual shape of a harness that hit its limit, is actionable"
 assert_contains "$GATE_OUT" "held: b1 ship claude:sonnet exhausted; state blocked via status-log" "a blocked lane is held"
 assert_contains "$GATE_OUT" "held: x1 ship claude:sonnet exhausted; state working via run-step" "a lane the pipeline owns is held"
+assert_contains "$GATE_OUT" "held: e1 ship claude:sonnet exhausted; state unreadable via none" "a lane whose state cannot be read is held"
 assert_not_contains "$GATE_OUT" " h1 " "a lane on a healthy model is not reported"
 assert_not_contains "$GATE_OUT" " n1 " "a lane whose provider cannot be measured is not reported as exhausted"
 assert_not_contains "$GATE_OUT" " s2 " "a stopped secondmate lane is skipped"
@@ -448,6 +451,7 @@ assert_no_grep "p1 relaunch" "$STUBS/control.log" "a parked lane is never relaun
 assert_grep "i1 relaunch --harness grok --model grok-4.6" "$STUBS/control.log" "an idle exhausted lane is relaunched"
 assert_no_grep "b1 relaunch" "$STUBS/control.log" "a blocked lane is never relaunched"
 assert_no_grep "x1 relaunch" "$STUBS/control.log" "a pipeline-owned lane is never relaunched"
+assert_no_grep "e1 relaunch" "$STUBS/control.log" "a lane whose state cannot be read is never relaunched"
 assert_no_grep "h1 relaunch" "$STUBS/control.log" "a healthy lane is never relaunched"
 assert_no_grep "s2 relaunch" "$STUBS/control.log" "a stopped lane is never relaunched"
 assert_no_grep "r1 relaunch" "$STUBS/control.log" "a remote lane is never relaunched"
@@ -508,6 +512,29 @@ wait "$WATCH_PID" 2>/dev/null || true
 assert_grep "w9 relaunch --harness codex --model gpt-5.6-terra" "$STUBS/control.log" "the watcher's sweep moves the lane onto the declared alternate"
 assert_present "$WATCH_HOME/state/.usage-sweep.log" "the watcher keeps the sweep's last report"
 pass "the watcher sweeps exhausted lanes and relaunches them without being asked"
+
+# --- a sweep that cannot restart a lane wakes the watcher's supervisor -----------
+STUCK_HOME="$TMP_ROOT/stuck-home"
+mkdir -p "$STUCK_HOME/state" "$STUCK_HOME/data" "$STUCK_HOME/config" "$STUCK_HOME/projects"
+printf '# Seeded Firstmate home\n' > "$STUCK_HOME/AGENTS.md"
+printf '## In flight\n\n## Queued\n\n## Done\n' > "$STUCK_HOME/data/backlog.md"
+printf '%s\n' '{"schema_version":2,"rules":[],"default":[{"harness":"claude","model":"sonnet"}]}' > "$STUCK_HOME/config/crew-dispatch.json"
+fm_write_meta "$STUCK_HOME/state/u9.meta" "window=firstmate:fm-u9" "kind=ship" "harness=claude" "model=sonnet" "effort=default" "worktree=$TMP_ROOT/wt-u9"
+PATH="$FAKEBIN:$BASE_PATH" FM_HOME="$STUCK_HOME" FM_ROOT_OVERRIDE="$SWEEP_ROOT" \
+  FM_POLL=1 FM_SIGNAL_GRACE=0 FM_CHECK_INTERVAL=9999999 FM_HEARTBEAT=9999999 \
+  FM_HOME_SUMMARY_INTERVAL=9999999 \
+  "$SWEEP_ROOT/bin/fm-watch.sh" > "$TMP_ROOT/stuck-watch.out" 2> "$TMP_ROOT/stuck-watch.err" &
+WATCH_PID=$!
+i=0
+while kill -0 "$WATCH_PID" 2>/dev/null; do
+  [ "$i" -lt 150 ] || { kill "$WATCH_PID" 2>/dev/null; fail "the watcher never surfaced a sweep that could not restart a lane: $(cat "$STUCK_HOME/state/.usage-sweep.log" "$TMP_ROOT/stuck-watch.err" 2>/dev/null)"; }
+  sleep 0.1
+  i=$((i + 1))
+done
+wait "$WATCH_PID" 2>/dev/null || true
+assert_contains "$(cat "$TMP_ROOT/stuck-watch.out")" "check: usage-sweep: unresolved: u9 ship claude:sonnet: no alternate profile is declared" "the unresolved lane wakes the supervisor with its reason"
+assert_no_grep "^u9 relaunch" "$STUBS/control.log" "a lane with no eligible alternate is never relaunched"
+pass "a watcher sweep that leaves a lane unresolved raises a usage-sweep wake"
 
 echo "# all fm-usage-gate tests passed"
 

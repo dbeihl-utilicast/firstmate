@@ -728,12 +728,6 @@ resolve_relaunch_profile() {
   else
     TARGET_HARNESS=$PRIOR_HARNESS
   fi
-  # The launch owner refuses an adapter that cannot run this task's kind, but it
-  # is only reached after the old agent has been stopped. Asking the same
-  # capability table here keeps that refusal on the pre-stop side of the
-  # transaction, where nothing has changed yet.
-  fm_control_harness_supports_kind "$TARGET_HARNESS" "$KIND" \
-    || die "'$TARGET_HARNESS' is not verified to run a $KIND task, so relaunching $ID onto it would stop the running agent for a launch that must be refused; choose an adapter verified for this kind"
   # A model or effort chosen for the previous harness does not transfer to a
   # different one, so an explicit harness change resets both axes unless the
   # caller names them too.
@@ -751,10 +745,21 @@ resolve_relaunch_profile() {
   else
     TARGET_EFFORT=default
   fi
+  check_target_profile || return 1
+  select_usable_target
+}
+
+# check_target_profile: the launch owner refuses an adapter that cannot run this
+# task's kind, or an unsupported native effort, but it is only reached after the
+# old agent has been stopped. Asking the same owners here keeps those refusals on
+# the pre-stop side of the transaction, where nothing has changed yet.
+check_target_profile() {
+  fm_control_harness_supports_kind "$TARGET_HARNESS" "$KIND" \
+    || die "'$TARGET_HARNESS' is not verified to run a $KIND task, so relaunching $ID onto it would stop the running agent for a launch that must be refused; choose an adapter verified for this kind"
   if [ "$TARGET_EFFORT" = ultra ]; then
     "$SCRIPT_DIR/fm-harness.sh" validate-native-effort "$TARGET_HARNESS" "$TARGET_MODEL" "$TARGET_EFFORT" || return 1
   fi
-  select_usable_target
+  return 0
 }
 
 # select_usable_target: the pre-stop usage check (bin/fm-usage-gate.sh owns the
@@ -787,6 +792,9 @@ select_usable_target() {
       *) want= ;;
     esac
   done < <(printf '%s\n' "$out" | sed -n 's/^  profile: //p' | xargs -n1)
+  fm_control_harness_supported "$TARGET_HARNESS" \
+    || die "the usage gate's alternate '$TARGET_HARNESS' for task $ID is not a verified harness; nothing was changed"
+  check_target_profile || return 1
   echo "usage gate: task $ID's target profile is out of quota ($current); relaunching on $TARGET_HARNESS:$TARGET_MODEL instead" >&2
 }
 

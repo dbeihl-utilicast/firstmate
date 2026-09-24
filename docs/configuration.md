@@ -825,9 +825,9 @@ The launch owners enforce it:
 - `bin/fm-control.sh relaunch` moves an exhausted target onto the eligible declared alternate before the running agent is stopped, and refuses before the stop when none is eligible, so a launch that cannot help never costs the agent; its launch half does not re-check after the stop.
   `bin/fm-secondmate-restart.sh` reaches the same refusal through the control plane and reports it as unreached.
 - `bin/fm-usage-gate.sh sweep` detects live lanes whose recorded profile is exhausted and, with `--relaunch`, moves them onto an eligible alternate through `fm-control.sh relaunch` with a progress note.
-  `bin/fm-watch.sh` runs `sweep --relaunch` detached every `FM_USAGE_SWEEP_INTERVAL` seconds (default 300) and keeps its last report in `state/.usage-sweep.log`.
+  `bin/fm-watch.sh` runs `sweep --relaunch` detached every `FM_USAGE_SWEEP_INTERVAL` seconds (default 300) and keeps its last report in `state/.usage-sweep.log`; a sweep that leaves a lane unresolved or unreached (exit 3) raises one `check: usage-sweep` wake per distinct report.
   It reads this home's task records only and skips remote secondmates, whose accounts the primary's quota-axi cannot see, and stopped secondmate lanes.
-  A ship or scout lane is relaunched while its current state is `working` or `unknown`, which covers the usual shape of a harness that printed its limit and went idle; a `done`, `parked`, `blocked`, `paused`, or `failed` lane, and any lane whose state comes from a no-mistakes run, is reported as held.
+  A ship or scout lane is relaunched while its current state is `working` from the pane or status log, or `unknown`, which covers the usual shape of a harness that printed its limit and went idle; every other state, an unreadable state, and any lane whose state comes from a no-mistakes run is reported as held.
   A secondmate is relaunched whatever its state, because an exhausted mate cannot answer the persist request `fm-secondmate-restart.sh` waits for.
   Exit 0 means nothing needed action (or every relaunch succeeded), 1 means detection found an actionable exhausted lane, 3 means a lane had no eligible alternate or its relaunch was refused, and 4 means quota-axi was unavailable, which is never reported as a clean sweep.
 

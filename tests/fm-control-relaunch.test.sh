@@ -786,6 +786,25 @@ test_relaunch_refuses_an_exhausted_target_with_no_alternate_before_stopping_the_
   pass "fm-control relaunch: an exhausted target with no eligible alternate is refused before the agent is stopped"
 }
 
+test_relaunch_refuses_an_alternate_the_launch_owner_would_refuse_before_stopping_the_agent() {
+  local dir out rc
+  dir=$(new_case usage-gate-ultra rl65)
+  add_ship_task "$dir" rl65 claude
+  sed 's/^model=default$/model=sonnet/' "$dir/home/state/rl65.meta" > "$dir/home/state/rl65.meta.tmp"
+  mv "$dir/home/state/rl65.meta.tmp" "$dir/home/state/rl65.meta"
+  quota_fixture "$dir" 'claude|all_models|0|exhausted_now|-1' 'codex|all_models|80|through_reset|0.5'
+  printf '%s\n' '{"schema_version":2,"rules":[],"default":[{"harness":"claude","model":"sonnet"},{"harness":"codex","model":"gpt-5.6-terra","effort":"ultra"}]}' \
+    > "$dir/home/config/crew-dispatch.json"
+  out=$(FM_USAGE_GATE=on run_control "$dir" rl65 relaunch --note "the model ran out"); rc=$?
+  expect_code 1 "$rc" "an alternate with an unsupported native effort must be refused"$'\n'"$out"
+  assert_contains "$out" "ultra effort requires" "the refusal should carry the launch owner's reason"
+  [ "$(cat "$dir/fake/command")" = claude ] || fail "the refusal must leave the running agent alone"
+  assert_no_grep "/exit" "$dir/fake/literal" "no exit command may be typed for an alternate the launch would refuse"
+  [ "$(meta_field "$dir" rl65 model)" = sonnet ] || fail "the refusal must not touch the task record"
+  [ ! -e "$dir/home/state/rl65.control-relaunch" ] || fail "a pre-stop refusal must not open the transaction journal"
+  pass "fm-control relaunch: the gate's alternate passes the pre-stop profile checks before the agent is stopped"
+}
+
 test_relaunch_onto_the_named_replacement_proceeds() {
   local dir out rc
   dir=$(new_case usage-gate-ok rl61)
@@ -2813,6 +2832,7 @@ test_harness_switch_moves_the_record_and_clears_prior_wiring
 test_harness_switch_does_not_carry_the_old_profile_axes
 test_relaunch_moves_an_exhausted_target_onto_the_declared_replacement
 test_relaunch_refuses_an_exhausted_target_with_no_alternate_before_stopping_the_agent
+test_relaunch_refuses_an_alternate_the_launch_owner_would_refuse_before_stopping_the_agent
 test_relaunch_onto_the_named_replacement_proceeds
 test_relaunch_with_the_gate_off_or_quota_unreadable_still_proceeds
 test_harness_switch_resolves_a_prefixed_recorded_harness

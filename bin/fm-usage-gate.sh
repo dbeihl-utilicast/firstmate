@@ -353,12 +353,14 @@ cmd_sweep() {
       state=$(printf '%s\n' "$line" | sed -n 's/^state: \([a-z]*\) .*/\1/p')
       source=$(printf '%s\n' "$line" | sed -n 's/.*source: \([a-z-]*\).*/\1/p')
       case "$state:$source" in
-        *:run-step|done:*|parked:*|blocked:*|paused:*|failed:*)
-          held=$((held + 1))
-          printf '  held: %s %s %s:%s exhausted; state %s via %s\n' "$id" "$kind" "$harness" "${model:--}" "$state" "$source"
-          continue
-          ;;
+        *:run-step) ;;
+        working:pane|working:status-log|unknown:*) state=relaunchable ;;
       esac
+      if [ "$state" != relaunchable ]; then
+        held=$((held + 1))
+        printf '  held: %s %s %s:%s exhausted; state %s via %s\n' "$id" "$kind" "$harness" "${model:--}" "${state:-unreadable}" "${source:-none}"
+        continue
+      fi
     fi
     exhausted=$((exhausted + 1))
     actionable=$((actionable + 1))
