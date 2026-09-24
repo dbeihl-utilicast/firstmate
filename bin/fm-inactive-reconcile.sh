@@ -102,6 +102,8 @@ CREW_STATE_BIN="${FM_INACTIVE_CREW_STATE_BIN:-$SCRIPT_DIR/fm-crew-state.sh}"
 # shellcheck source=bin/fm-done-delivery-lib.sh
 . "$SCRIPT_DIR/fm-done-delivery-lib.sh"
 
+VAULT_COPY_BIN="$SCRIPT_DIR/fm-vault-copy.sh"
+
 FM_INACTIVE_RECONCILE_SECS=${FM_INACTIVE_RECONCILE_SECS:-900}
 case "$FM_INACTIVE_RECONCILE_SECS" in
   ''|*[!0-9]*|0)
@@ -587,9 +589,18 @@ scan_pass() { # <cursor> <after|through> <deadline> <secondmate-id-or-empty>
 }
 
 scan() {
-  local startup=${1:-0} self='' cursor deadline rc=0 marker_rc=0
+  local startup=${1:-0} self='' cursor deadline rc=0 marker_rc=0 vault_home vault_state vault_data vault_config
   mkdir -p "$STATE" "$OUTCOME_DIR" || return 1
   [ ! -L "$OUTCOME_DIR" ] || return 1
+  if [ ! -e "$FM_HOME/.fm-secondmate-home" ] && [ ! -L "$FM_HOME/.fm-secondmate-home" ] \
+    && [ -x "$VAULT_COPY_BIN" ]; then
+    vault_home=$FM_HOME
+    vault_state=$STATE
+    vault_data=${FM_DATA_OVERRIDE:-$FM_HOME/data}
+    vault_config=${FM_CONFIG_OVERRIDE:-$FM_HOME/config}
+    FM_HOME="$vault_home" FM_STATE_OVERRIDE="$vault_state" FM_DATA_OVERRIDE="$vault_data" \
+      FM_CONFIG_OVERRIDE="$vault_config" "$VAULT_COPY_BIN" catch-up >/dev/null 2>&1 || true
+  fi
   if self=$(home_secondmate_id); then
     # The ledger-first delivery is per poll, not per cadence.
     ledger_pass

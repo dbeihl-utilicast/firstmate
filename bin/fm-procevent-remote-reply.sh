@@ -466,6 +466,7 @@ stage_mirror_lines() { # <source> <rewritten> <source-record> <status> <status-a
 cmd_ingest() {
   local id=${1:-} result=${2:-} seq=${3:-} class blank payload normalized_payload schema status path from to from_hash to_hash payload_hash payload_bytes reason
   local actual_bytes actual_hash line doc local_doc appended=0 cursor_already=0 lock status_file source_record tmp
+  local vault_home vault_state vault_data vault_config
   local fetch_rc append_rc offered='' delivered_map='' mirrored='' status_additions='' source_additions='' undelivered=''
   validate_id "$id"
   [ -f "$result" ] && [ ! -L "$result" ] || die "result file is unavailable or unsafe: $result"
@@ -617,6 +618,15 @@ EOF
     write_cursor "$id" "$to" "$to_hash" || { fm_lock_release "$lock"; die "cannot commit remote reply cursor"; }
   fi
   fm_lock_release "$lock"
+  if [ ! -e "$FM_HOME/.fm-secondmate-home" ] && [ ! -L "$FM_HOME/.fm-secondmate-home" ] \
+    && [ -x "$SCRIPT_DIR/fm-vault-copy.sh" ]; then
+    vault_home=$FM_HOME
+    vault_state=$STATE
+    vault_data=$DATA
+    vault_config=${FM_CONFIG_OVERRIDE:-$FM_HOME/config}
+    FM_HOME="$vault_home" FM_STATE_OVERRIDE="$vault_state" FM_DATA_OVERRIDE="$vault_data" \
+      FM_CONFIG_OVERRIDE="$vault_config" "$SCRIPT_DIR/fm-vault-copy.sh" catch-up >/dev/null 2>&1 || true
+  fi
   trap - EXIT
   rm -rf -- "$tmp"
   printf 'ingested: %s appended=%s offset=%s\n' "$id" "$appended" "$to"
