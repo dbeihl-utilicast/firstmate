@@ -44,6 +44,95 @@ FM_QUOTA_ROW_JQ='
     end;
 '
 
+# The candidate verdict bin/fm-dispatch-resolve.sh and bin/fm-usage-gate.sh share:
+# quota_evaluate($snapshot; $pmap; $candidate) and quota_choose($verdicts). Prepend
+# it after FM_QUOTA_ROW_JQ; docs/configuration.md "Usage gate" owns the contract.
+# shellcheck disable=SC2016,SC2034  # jq program text, not shell expansion; read by the sourcing consumers
+FM_QUOTA_EVAL_JQ='
+  def quota_bare($m): ($m | split("/") | last);
+  def quota_provider_of($pmap; $c): ($c.provider // $pmap[$c.harness] // null);
+  def quota_rows($q; $p; $lane):
+    (quota_row($q; $p; $lane) | .quotaSemantics.effectiveAvailability // []);
+  def quota_measured($q; $p; $lane):
+    (quota_row($q; $p; $lane) != null and
+     (["known", "partial"] | index(quota_row($q; $p; $lane).quotaSemantics.status)) != null);
+  def quota_applicable($q; $p; $lane; $m):
+    (quota_bare($m)) as $bare |
+    [quota_rows($q; $p; $lane)[] | select(
+      .scope == "all_models" or .scope == "all_products" or
+      ($m != "" and (.scope == ("model:" + $bare) or .scope == ("product:" + $bare)))
+    )];
+  def quota_floor_state($q; $f; $p; $lane):
+    if $f == null then "none"
+    elif quota_row($q; $p; $lane) == null or (quota_measured($q; $p; $lane) | not) then "unknown"
+    else [quota_rows($q; $p; $lane)[] | select(.scope == $f.scope)] as $matches
+      | if ($matches | length) == 0 or any($matches[]; .status != "known") then "unknown"
+        elif any($matches[]; .effectivePercentRemaining < $f.min_percent) then "below"
+        else "ok"
+        end
+    end;
+  def quota_evidence($rows):
+    $rows | map({scope, status, pct: (.effectivePercentRemaining // null), runway: (.runway.status // null), spendPriority: (.selection.spendPriority // null)});
+  def quota_evaluate($q; $pmap; $c):
+    (quota_provider_of($pmap; $c)) as $p | (quota_lane($c.harness; $c.model)) as $lane |
+    if $p == null then {profile: $c, eligible: false, reason: "no provider family for harness \($c.harness); declare provider on the profile"}
+    elif quota_row($q; $p; $lane) == null then
+      {profile: $c, provider: $p, eligible: true, unranked: true,
+       reason: (if any($q.providers[]; .provider == $p)
+                then "provider \($p) has no quota row for account \(if $lane == "" then "default" else $lane end)"
+                else "provider \($p) not in the quota snapshot" end)}
+    else
+      (quota_applicable($q; $p; $lane; ($c.model // ""))) as $rows |
+      (quota_evidence($rows)) as $bounds |
+      (quota_floor_state($q; $c.floor; $p; $lane)) as $profile_floor_state |
+      if any($rows[]; (.runway.status // "") == "exhausted_now") then
+        ($rows | map(select((.runway.status // "") == "exhausted_now")) | first) as $bad |
+        {profile: $c, provider: $p, bounds: $bounds, scope: $bad.scope, pct: ($bad.effectivePercentRemaining // null), runway: $bad.runway.status, eligible: false, veto: "exhausted", reason: "runway exhausted_now at \($bad.scope)"}
+      elif any($rows[]; .status == "known" and (.effectivePercentRemaining | type) == "number" and .effectivePercentRemaining <= 0) then
+        ($rows | map(select(.status == "known" and (.effectivePercentRemaining | type) == "number" and .effectivePercentRemaining <= 0)) | first) as $bad |
+        {profile: $c, provider: $p, bounds: $bounds, scope: $bad.scope, pct: $bad.effectivePercentRemaining, runway: $bad.runway.status, eligible: false, veto: "exhausted", reason: "0% remaining at \($bad.scope)"}
+      elif $profile_floor_state == "below" then
+        ([quota_rows($q; $p; $lane)[] | select(
+          .scope == $c.floor.scope and
+          .effectivePercentRemaining < $c.floor.min_percent
+        )] | first) as $floor_row |
+        {profile: $c, provider: $p, bounds: $bounds, scope: ($floor_row.scope // $c.floor.scope), pct: ($floor_row.effectivePercentRemaining // null), runway: ($floor_row.runway.status // null), eligible: false, veto: "floor", reason: "profile floor \($c.floor.scope) below \($c.floor.min_percent)%"}
+      elif (quota_measured($q; $p; $lane) | not) then
+        ($rows | first) as $row |
+        {profile: $c, provider: $p, bounds: $bounds, scope: ($row.scope // null), pct: ($row.effectivePercentRemaining // null), runway: ($row.runway.status // null), eligible: true, unranked: true, unknown: true, reason: "provider \($p) unmeasured (\(quota_row($q; $p; $lane).quotaSemantics.status))"}
+      elif ($rows | length) == 0 then
+        {profile: $c, provider: $p, bounds: $bounds, eligible: true, unranked: true, unknown: true, reason: "no applicable quota row for provider \($p)"}
+      elif $profile_floor_state == "unknown" then
+        ([quota_rows($q; $p; $lane)[] | select(.scope == $c.floor.scope)] | first) as $floor_row |
+        {profile: $c, provider: $p, bounds: $bounds, scope: $c.floor.scope, pct: ($floor_row.effectivePercentRemaining // null), runway: ($floor_row.runway.status // null), eligible: true, unranked: true, unknown: true, reason: "profile floor \($c.floor.scope) is unverifiable: not rankable"}
+      elif any($rows[]; .status != "known") then
+        ($rows | map(select(.status != "known")) | first) as $bad |
+        {profile: $c, provider: $p, bounds: $bounds, scope: $bad.scope, eligible: true, unranked: true, unknown: true, reason: "quota row \($bad.scope) unknown: not rankable"}
+      elif any($rows[]; (.selection.spendPriority | type) != "number") then
+        ($rows | map(select((.selection.spendPriority | type) != "number")) | first) as $bad |
+        {profile: $c, provider: $p, bounds: $bounds, scope: $bad.scope, pct: $bad.effectivePercentRemaining, runway: $bad.runway.status, eligible: true, unranked: true, reason: "spendPriority missing or non-numeric at \($bad.scope): not rankable"}
+      else
+        ($rows | min_by(.selection.spendPriority)) as $limiting |
+        {profile: $c, provider: $p, bounds: $bounds, scope: $limiting.scope, pct: $limiting.effectivePercentRemaining,
+         spendPriority: $limiting.selection.spendPriority, runway: $limiting.runway.status, eligible: true, reason: "ok"}
+      end
+    end;
+  def quota_choose($cands):
+    ([$cands[] | select(.eligible and ((.unranked // false) | not))]) as $elig |
+    ([$cands[] | select(.unranked)]) as $unranked |
+    if ($elig | length) == 0 then {status: "escalate", reason: "no rankable eligible candidate"}
+    else
+      ($elig | max_by(.spendPriority)) as $best |
+      ([$elig[] | select(.spendPriority == $best.spendPriority)] | length) as $ties |
+      if $ties > 1 then {status: "escalate", reason: "genuine spendPriority tie", tied: [$elig[] | select(.spendPriority == $best.spendPriority)]}
+      else {status: "clear", chosen: $best}
+        + (if ($unranked | length) > 0 then
+             {unranked_note: "\($unranked | length) eligible candidate(s) unranked (\([$unranked[].provider] | unique | join(", ")))"}
+           else {} end)
+      end
+    end;
+'
+
 fm_quota_axi_compatible() {
   local timeout=${1:-} output parts major minor patch extra
   local min_major min_minor min_patch min_extra

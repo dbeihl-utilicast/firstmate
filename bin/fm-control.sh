@@ -70,6 +70,9 @@
 #              inherits the local copy but none of the conversation; a
 #              secondmate reconciles its own home's records at startup, so its
 #              standing charter is never rewritten.
+#              A target profile whose quota is exhausted is refused before the
+#              agent is stopped, naming the eligible declared alternate
+#              (bin/fm-usage-gate.sh owns the verdict).
 #              Records a durable checkpoint and that note, exits the old agent,
 #              then delegates the launch to its single owner,
 #              bin/fm-spawn.sh --relaunch. A failure before publication keeps
@@ -751,6 +754,24 @@ resolve_relaunch_profile() {
   if [ "$TARGET_EFFORT" = ultra ]; then
     "$SCRIPT_DIR/fm-harness.sh" validate-native-effort "$TARGET_HARNESS" "$TARGET_MODEL" "$TARGET_EFFORT" || return 1
   fi
+  refuse_exhausted_target
+}
+
+# refuse_exhausted_target: the pre-stop usage check (bin/fm-usage-gate.sh owns the verdict).
+refuse_exhausted_target() {
+  local out rc=0 status current replacement
+  out=$("$SCRIPT_DIR/fm-usage-gate.sh" select --kind "$KIND" --harness "$TARGET_HARNESS" \
+    --model "$TARGET_MODEL" --effort "$TARGET_EFFORT" 2>&1) || rc=$?
+  [ "$rc" -le 1 ] || die "the usage gate could not check task $ID's target profile: $(printf '%s\n' "$out" | sed -n '/./{s/^error: //;p;q;}')"
+  status=$(printf '%s\n' "$out" | sed -n 's/^  status: //p')
+  [ "$status" != keep ] || return 0
+  current=$(printf '%s\n' "$out" | sed -n 's/^  current: //p')
+  replacement=$(printf '%s\n' "$out" | sed -n 's/^  profile: //p')
+  if [ -n "$replacement" ]; then
+    die "task $ID's target profile is out of quota ($current), so relaunching onto it would stop the running agent for a launch that cannot help; nothing was changed. Relaunch onto an eligible declared alternate instead: fm-control.sh $ID relaunch $replacement --note <text> (FM_USAGE_GATE=off overrides this check)"
+  fi
+  printf '%s\n' "$out" | sed -n 's/^  candidate: /candidate: /p' >&2
+  die "task $ID's target profile is out of quota ($current) and the usage gate found no eligible alternate ($(printf '%s\n' "$out" | sed -n 's/^  reason: //p')); nothing was changed (FM_USAGE_GATE=off overrides this check)"
 }
 
 # safe_checkpoint: prove, before anything is stopped, that the work a relaunch
@@ -939,7 +960,9 @@ do_relaunch() {
   spawn_args=("$ID" --relaunch --harness "$TARGET_HARNESS")
   [ "$TARGET_MODEL" = default ] || spawn_args+=(--model "$TARGET_MODEL")
   [ "$TARGET_EFFORT" = default ] || spawn_args+=(--effort "$TARGET_EFFORT")
-  if FM_CONTROL_RELAUNCH_TX="$RELAUNCH_TX" \
+  # The usage gate already passed this target before the agent was stopped; the
+  # launch half must not refuse it again after the stop.
+  if FM_CONTROL_RELAUNCH_TX="$RELAUNCH_TX" FM_USAGE_GATE=off \
       "$SCRIPT_DIR/fm-spawn.sh" "${spawn_args[@]}" >/dev/null; then
     RELAUNCH_META_PUBLISHED=1
     # $T was resolved from the record before the launch. When the recorded

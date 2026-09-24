@@ -47,7 +47,8 @@
 #                                        of the selection.
 # config/secondmate-harness format: a single line "<harness> [<model>] [<effort>]",
 # whitespace-separated. A bare "<harness>" (today's format) behaves exactly as before:
-# harness only, no model/effort. Only the first non-empty, non-comment line is parsed.
+# harness only, no model/effort. Only the first non-empty, non-comment line is parsed
+# here; later lines are ordered alternates read only by bin/fm-usage-gate.sh.
 # Model/effort come ONLY from this file - config/crew-harness stays a bare adapter
 # name and is never parsed for a model.
 # Detection evidence and precedence:
