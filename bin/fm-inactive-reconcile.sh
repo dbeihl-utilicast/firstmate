@@ -410,7 +410,7 @@ claim_inactive_report_for_ledger() { # <task> <incarnation> <state> <ledger-fing
 # delivered, or nothing is owed, and 1 when it is owed but the parent channel
 # could not be written (the notice is queued once per record).
 report_child_ledger_locked() { # <id> <meta>
-  local id=$1 meta=$2 status last previous state note pr mode yolo data incarnation fingerprint predecessor_head outcome_key line
+  local id=$1 meta=$2 status last previous state note pr mode yolo project data incarnation fingerprint predecessor_head outcome_key line
   status="$STATE/$id.status"
   last=$(child_terminal_ledger_line "$status") || return 0
   state=$(status_line_verb "$last")
@@ -437,12 +437,15 @@ report_child_ledger_locked() { # <id> <meta>
   note=$(clean_field "$(status_line_note "$last")")
   mode=$(clean_field "$(meta_field "$meta" mode)")
   yolo=$(clean_field "$(meta_field "$meta" yolo)")
+  project=$(meta_field "$meta" project)
+  project=$(printf '%s' "${project##*/}" | LC_ALL=C tr -c 'A-Za-z0-9._-' '-')
   data="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
   line="$state [key=$outcome_key]: child $id $state: $note"
   [ -z "$pr" ] || line="$line pr=$pr"
   [ -z "$mode" ] || line="$line mode=$mode"
   [ -z "$yolo" ] || line="$line yolo=$yolo"
   if [ -f "$data/$id/report.md" ] && [ ! -L "$data/$id/report.md" ]; then
+    [ -z "$project" ] || line="$line project=$project"
     line="$line report=data/$id/report.md"
   fi
   if fm_parent_channel_report "$FM_HOME" "$STATE" "$line"; then

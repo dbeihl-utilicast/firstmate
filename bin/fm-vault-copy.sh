@@ -10,8 +10,8 @@
 # by different bytes; a content-addressed suffix preserves both documents. A
 # private state ledger of source path plus content hash makes each report copy
 # once, even if the vault copy is later edited, moved, or renamed. A remote
-# report is named by the project= on its offering status line, else by the
-# secondmate id, never by the secondmate's own recorded project.
+# report is named by the project= field just before its offered report=, else
+# by the secondmate id, never by the secondmate's own recorded project.
 set -u
 export LC_ALL=C
 
@@ -206,10 +206,11 @@ remote_report_offers() { # <status-file>
       report = ""
       project = ""
       for (i = 1; i <= NF; i++) {
-        if (project == "" && $i ~ /^project=[A-Za-z0-9._-]+$/) project = substr($i, 9)
-        if (report == "" && $i ~ /^report=data\/remote-secondmates\/[^\/][^\/]*\/data\/[A-Za-z0-9._-][A-Za-z0-9._-]*\/report[.]md$/) {
+        if ($i ~ /^report=data\/remote-secondmates\/[^\/][^\/]*\/data\/[A-Za-z0-9._-][A-Za-z0-9._-]*\/report[.]md$/) {
           report = $i
           sub(/^report=/, "", report)
+          if (i > 1 && $(i - 1) ~ /^project=[A-Za-z0-9._-]+$/) project = substr($(i - 1), 9)
+          break
         }
       }
       if (report == "") next
