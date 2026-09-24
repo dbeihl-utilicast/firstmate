@@ -1,0 +1,8 @@
+first catch-up: copied: <isolated>/vault/research/2026-09-24-live-task.md
+vault copy content: # first reply
+symlinked ancestor: rejected
+second catch-up output: ''
+ledger lines after rerun: 1
+changed-source catch-up: copied: <isolated>/vault/research/2026-09-24-live-task-34287e43da9d5b36.md
+vault contents after source change: # changed reply, # first reply
+ledger lines after source change: 2

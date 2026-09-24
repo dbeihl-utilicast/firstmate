@@ -1,0 +1,1 @@
+fm-vault-copy.sh catch-up: 15 remote second mates, 10,500 status lines, 15 vault files copied in 2.17s
