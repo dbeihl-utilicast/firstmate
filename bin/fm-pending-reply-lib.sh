@@ -1611,7 +1611,7 @@ fm_pending_reply_prune_resolved() {  # <state-dir> <now> <corr_id>...
   local STATE FM_WAKE_QUEUE FM_WAKE_QUEUE_LOCK
   shift 2
   STATE=$state
-  # shellcheck source=bin/fm-wake-lib.sh
+  # shellcheck source=/dev/null
   . "$_FM_PENDING_REPLY_LIB_DIR/fm-wake-lib.sh"
   dir=$(fm_pending_reply_dir "$state")
   for name in "$@"; do
