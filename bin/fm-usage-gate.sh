@@ -6,7 +6,8 @@
 # Usage:
 #   fm-usage-gate.sh select --kind <ship|scout|secondmate>
 #                           (--harness <h> [--model <m>] [--effort <e>] | --config-pin)
-#                           [--tie-break <strict|declared>] [--snapshot <file>]
+#                           [--list <rule-id|default>] [--tie-break <strict|declared>]
+#                           [--snapshot <file>]
 #   fm-usage-gate.sh sweep [--relaunch] [--snapshot <file>]
 #
 # select   Read ONE quota-axi --json snapshot (or --snapshot <file>) and answer
@@ -16,6 +17,7 @@
 #              current: <harness>:<model> provider=.. scope=.. remaining=..% ... -> <verdict>
 #              candidate: <harness>:<model> ... -> eligible | eligible, unranked: .. | not eligible: ..
 #              reason: <why none>
+#              list: <rule-id|default>        (declared-order, declared profile only)
 #              profile: --harness <h> [--model <m>] [--effort <e>]     (replace only)
 #          keep     the profile is not exhausted, or its quota cannot be measured
 #                   (uncertainty stays launchable and is disclosed, never assumed
@@ -52,6 +54,9 @@
 #                         same `<harness> [<model>] [<effort>]` form. Only harnesses
 #                         verified for a secondmate with one quota provider family
 #                         can be selected.
+#          In declared-order mode --list pins the order to that crew-dispatch
+#          array when it lists the profile (a relaunch passes the recorded
+#          dispatch_list); a profile no declared order lists is checked alone.
 #          --config-pin takes the secondmate profile the way bin/fm-spawn.sh would
 #          resolve it (bin/fm-harness.sh secondmate, secondmate-model,
 #          secondmate-effort) instead of --harness/--model/--effort.
@@ -157,25 +162,29 @@ DISCOVER_JQ='
   def profiles($v): if ($v | type) == "array" then $v elif ($v | type) == "object" then [$v] else [] end;
   def same($a; $b): $a.harness == $b.harness and (($a.model // "") == ($b.model // ""));
   def dedupe: reduce .[] as $x ([]; if any(.[]; same(.; $x)) then . else . + [$x] end);
-  ([(.rules // [])[] | profiles(.use)] + [profiles(.default // null)]) as $arrays
-  | ($arrays | map(select(any(.[]; same(.; $p))))) as $with
+  ([(.rules // []) | to_entries[] | {id: (.value.id // "rule_\(.key + 1)"), use: profiles(.value.use)}]
+    + [{id: "default", use: profiles(.default // null)}]) as $named
+  | ($named | map(select(any(.use[]; same(.; $p))))) as $named_with
+  | ($named_with | map(.use)) as $with
+  | ($named_with | map(select(.id == $list)) | first) as $pinned
   | if ($with | length) == 0 then {decl: null, alts: [], ordered: [], mode: (.dispatch.selector // "quota-array-dispatch")}
     else
-      ($with | map(select(any(.[]; same(.; $p) and ((.effort // "") == ($p.effort // "")))))) as $exact
-      | (if ($exact | length) > 0 then $exact[0] else $with[0] end) as $src
-      | {decl: ($src | map(select(same(.; $p))) | first), mode: (.dispatch.selector // "quota-array-dispatch"),
-         ordered: [$src[] | select(. as $s | all($with[]; any(.[]; same(.; $s))))],
+      ($named_with | map(select(any(.use[]; same(.; $p) and ((.effort // "") == ($p.effort // "")))))) as $exact
+      | (if $pinned != null then $pinned elif ($exact | length) > 0 then $exact[0] else $named_with[0] end) as $named_src
+      | $named_src.use as $src
+      | {decl: ($src | map(select(same(.; $p))) | first), mode: (.dispatch.selector // "quota-array-dispatch"), list: $named_src.id,
+         ordered: (if $pinned != null then $src else [$src[] | select(. as $s | all($with[]; any(.[]; same(.; $s))))] end),
          alts: ([$src[] | select(same(.; $p) | not)
                   | select(. as $s | all($with[]; any(.[]; same(.; $s))))] | dedupe)}
     end'
 
-discover_dispatch() {  # <profile-json>
+discover_dispatch() {  # <profile-json> <list-id>
   local file="$CONFIG/crew-dispatch.json"
   if [ ! -e "$file" ] && [ ! -L "$file" ]; then
     printf '%s\n' '{"decl":null,"alts":[],"ordered":[],"mode":"quota-array-dispatch"}'
     return 0
   fi
-  jq -c --argjson p "$1" "$DISCOVER_JQ" "$file" 2>/dev/null \
+  jq -c --argjson p "$1" --arg list "$2" "$DISCOVER_JQ" "$file" 2>/dev/null \
     || die "config/crew-dispatch.json is not readable JSON with rules and default profile arrays: $file"
 }
 
@@ -226,10 +235,12 @@ CORE_JQ='
   | if $mode == "declared-order" then
       ($ordered | map(quota_evaluate($q; $pmap; .))) as $cands
       | quota_choose_declared($cands) as $pick
-      | if $pick.status != "clear" then {status: "none", current: $now, candidates: $cands, reason: $pick.reason}
+      | (if $list != "" then {list: $list} else {} end) as $named
+      | if $pick.status != "clear" then {status: "none", current: $now, candidates: $cands,
+          reason: (if $undeclared then "\($p.harness):\($p.model // "-") is not in any declared order, and its own usage is not verified" else $pick.reason end)}
         elif $pick.chosen.profile.harness == $p.harness and (($pick.chosen.profile.model // "") == ($p.model // "")) and (($pick.chosen.profile.effort // "") == ($p.effort // ""))
-          then {status: "keep", current: $now, candidates: $cands}
-        else {status: "replace", current: $now, candidates: $cands, chosen: $pick.chosen} end
+          then {status: "keep", current: $now, candidates: $cands} + $named
+        else {status: "replace", current: $now, candidates: $cands, chosen: $pick.chosen} + $named end
     elif ($now.veto // "") != "exhausted" then {status: "keep", current: $now, candidates: []}
     else
       ($alts | map(quota_evaluate($q; $pmap; .))) as $cands
@@ -262,6 +273,7 @@ RENDER_JQ='
   (.candidates[]? | line("candidate"; .)),
   (if .note then "  note: \(.note | flat)" else empty end),
   (if .reason then "  reason: \(.reason | flat)" else empty end),
+  (if .list then "  list: \(.list | flat)" else empty end),
   (if .chosen then "  profile: --harness \(.chosen.profile.harness | shell_arg)"
       + (if .chosen.profile.model then " --model \(.chosen.profile.model | shell_arg)" else "" end)
       + (if .chosen.profile.effort then " --effort \(.chosen.profile.effort | shell_arg)" else "" end) else empty end)'
@@ -269,8 +281,8 @@ RENDER_JQ='
 # select_profile <kind> <harness> <model> <effort>: SEL_JSON is the verdict object.
 SEL_JSON=
 TIE_BREAK=strict
-select_profile() {
-  local kind=$1 harness=$2 model=$3 effort=$4 p disc alts ordered mode disc_err=
+select_profile() {  # <kind> <harness> <model> <effort> [<declared-list-id>]
+  local kind=$1 harness=$2 model=$3 effort=$4 list_pin=${5:-} p disc alts ordered mode list undeclared=false disc_err=
   p=$(jq -nc --arg h "$harness" --arg m "$model" --arg e "$effort" \
     '{harness: $h} + (if $m != "" then {model: $m} else {} end) + (if $e != "" then {effort: $e} else {} end)')
   mode=$(jq -r '.dispatch.selector // "quota-array-dispatch"' "$CONFIG/crew-dispatch.json" 2>/dev/null || printf 'quota-array-dispatch')
@@ -283,13 +295,18 @@ select_profile() {
   # so a healthy profile is never blocked by a config error it does not need.
   case "$kind" in
     secondmate) disc=$(discover_secondmate "$p" 2>&1) || disc_err=$disc ;;
-    *) disc=$(discover_dispatch "$p" 2>&1) || disc_err=$disc ;;
+    *) disc=$(discover_dispatch "$p" "$list_pin" 2>&1) || disc_err=$disc ;;
   esac
   [ -z "$disc_err" ] || disc='{"decl":null,"alts":[]}'
   alts=$(jq -c '.alts' <<< "$disc")
   [ "$kind" != secondmate ] || alts=$(filter_secondmate_alts "$alts")
   ordered=$(jq -c '.ordered // []' <<< "$disc")
   [ "$kind" != secondmate ] || ordered=$(filter_secondmate_alts "$ordered")
+  list=$(jq -r '.list // ""' <<< "$disc")
+  if [ "$ordered" = '[]' ]; then
+    ordered="[$p]"
+    undeclared=true
+  fi
   if [ "$kind" = secondmate ] && [ "$mode" = declared-order ]; then
     ordered=$(jq -c 'map(if (.harness == "pi" or .harness == "pi-signed") then
       . + {provider: ((.model // "" | split("/") | first) as $prefix |
@@ -305,6 +322,7 @@ select_profile() {
   fi
   SEL_JSON=$(jq -nc --argjson q "$QSNAP" --argjson pmap "$PMAP" --argjson p "$p" \
     --argjson decl "$(jq -c '.decl' <<< "$disc")" --argjson alts "$alts" --argjson ordered "$ordered" --arg mode "$mode" --arg tie "$TIE_BREAK" \
+    --arg list "$list" --argjson undeclared "$undeclared" \
     "$FM_QUOTA_ROW_JQ$FM_QUOTA_EVAL_JQ$CORE_JQ") || die "usage-gate could not evaluate the snapshot"
   if [ -n "$disc_err" ] && [ "$(jq -r '.status' <<< "$SEL_JSON")" != keep ]; then
     printf '%s\n' "$disc_err" >&2
@@ -313,7 +331,7 @@ select_profile() {
 }
 
 cmd_select() {
-  local kind='' harness='' model='' effort='' snapshot='' config_pin=0 have_profile=0
+  local kind='' harness='' model='' effort='' snapshot='' config_pin=0 have_profile=0 list=
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --kind)       [ "$#" -ge 2 ] || die "--kind needs a value"; kind=$2; shift 2 ;;
@@ -322,6 +340,7 @@ cmd_select() {
       --effort)     [ "$#" -ge 2 ] || die "--effort needs a value"; effort=$2; shift 2 ;;
       --snapshot)   [ "$#" -ge 2 ] || die "--snapshot needs a file"; snapshot=$2; shift 2 ;;
       --config-pin) config_pin=1; shift ;;
+      --list)       [ "$#" -ge 2 ] || die "--list needs a declared list id"; list=$2; shift 2 ;;
       --tie-break)  [ "$#" -ge 2 ] || die "--tie-break needs strict or declared"; TIE_BREAK=$2; shift 2 ;;
       *) die "unknown option: $1" ;;
     esac
@@ -339,7 +358,7 @@ cmd_select() {
   model=$(normal_axis "$model")
   effort=$(normal_axis "$effort")
   load_snapshot "$snapshot"
-  select_profile "$kind" "$harness" "$model" "$effort"
+  select_profile "$kind" "$harness" "$model" "$effort" "$list"
   jq -r "$RENDER_JQ" <<< "$SEL_JSON"
   [ "$(jq -r '.status' <<< "$SEL_JSON")" != none ]
 }
@@ -391,7 +410,7 @@ cmd_sweep() {
     model=$(normal_axis "$(fm_meta_get "$meta" model)")
     effort=$(normal_axis "$(fm_meta_get "$meta" effort)")
     checked=$((checked + 1))
-    select_profile "$kind" "$harness" "$model" "$effort"
+    select_profile "$kind" "$harness" "$model" "$effort" "$(fm_meta_get "$meta" dispatch_list)"
     status=$(jq -r '.status' <<< "$SEL_JSON")
     [ "$status" != keep ] || continue
     [ "$(jq -r '.current.veto // ""' <<< "$SEL_JSON")" = exhausted ] || continue

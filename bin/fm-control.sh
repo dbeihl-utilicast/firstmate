@@ -769,15 +769,18 @@ check_target_profile() {
 # select_usable_target: the pre-stop usage check (bin/fm-usage-gate.sh owns the
 # verdict). An exhausted target moves to the eligible declared alternate.
 select_usable_target() {
-  local out rc=0 status current want token
+  local out rc=0 status current want token list
+  list=$(fm_meta_get "$META" dispatch_list)
   out=$("$SCRIPT_DIR/fm-usage-gate.sh" select --kind "$KIND" --harness "$TARGET_HARNESS" \
-    --model "$TARGET_MODEL" --effort "$TARGET_EFFORT" --tie-break declared 2>&1) || rc=$?
+    --model "$TARGET_MODEL" --effort "$TARGET_EFFORT" ${list:+--list "$list"} --tie-break declared 2>&1) || rc=$?
   [ "$rc" -le 1 ] || die "the usage gate could not check task $ID's target profile: $(printf '%s\n' "$out" | sed -n '/./{s/^error: //;p;q;}')"
   status=$(printf '%s\n' "$out" | sed -n 's/^  status: //p')
   [ "$status" != keep ] || return 0
   current=$(printf '%s\n' "$out" | sed -n 's/^  current: //p')
   if [ "$status" != replace ]; then
     printf '%s\n' "$out" | sed -n 's/^  candidate: /candidate: /p' >&2
+    [[ "$current" == *'-> not eligible: runway exhausted_now'* || "$current" == *'-> not eligible: 0% remaining'* ]] \
+      || die "the usage gate found no launchable profile for task $ID's target ($current): $(printf '%s\n' "$out" | sed -n 's/^  reason: //p'); nothing was changed (FM_USAGE_GATE=off overrides this check)"
     die "task $ID's target profile is out of quota ($current) and the usage gate found no eligible alternate ($(printf '%s\n' "$out" | sed -n 's/^  reason: //p')); nothing was changed (FM_USAGE_GATE=off overrides this check)"
   fi
   TARGET_MODEL=default

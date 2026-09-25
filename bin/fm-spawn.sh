@@ -1178,7 +1178,7 @@ CONFIG_INHERIT_LOCK_HELD=0
 preserve_relaunch_meta() {
   awk -F= '
     BEGIN {
-      split("window endpoint_task_id worktree project harness kind mode yolo tasktmp model effort busy_gen spawn_gen summary_visibility cleanup_recovery spawn_owner_pid spawn_owner_identity traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx", keys, " ")
+      split("window endpoint_task_id worktree project harness kind mode yolo tasktmp model effort dispatch_list busy_gen spawn_gen summary_visibility cleanup_recovery spawn_owner_pid spawn_owner_identity traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx", keys, " ")
       for (i in keys) owned[keys[i]] = 1
     }
     !($1 in owned)
@@ -1202,6 +1202,7 @@ spawn_task_record_write() {  # <path> <early|final> <provisional|recovery|ready>
     echo "tasktmp=$TASK_TMP"
     echo "model=${MODEL:-default}"
     echo "effort=${EFFORT:-default}"
+    [ -z "${DISPATCH_LIST:-}" ] || echo "dispatch_list=$DISPATCH_LIST"
     [ -z "${BUSY_GEN:-}" ] || echo "busy_gen=$BUSY_GEN"
     echo "spawn_gen=$SPAWN_GEN"
     case "$visibility" in
@@ -2118,6 +2119,7 @@ spawn_copy_claim_refusal() {  # <worktree> <recover|fresh>
 # validation teardown uses, so a malformed, ambiguous, or foreign record
 # refuses here exactly as it refuses there.
 RELAUNCH_PRIOR_HARNESS=
+DISPATCH_LIST=
 if [ "$RELAUNCH" -eq 1 ]; then
   [ "${#POS[@]}" -eq 1 ] || {
     echo "error: --relaunch takes the task id only; its project or home comes from the task's own record" >&2
@@ -2178,6 +2180,7 @@ if [ "$RELAUNCH" -eq 1 ]; then
       ;;
   esac
   RELAUNCH_PRIOR_HARNESS=$(fm_meta_get "$RELAUNCH_META" harness)
+  DISPATCH_LIST=$(fm_meta_get "$RELAUNCH_META" dispatch_list)
   KIND=$(fm_meta_get "$RELAUNCH_META" kind)
   [ -n "$KIND" ] || KIND=ship
   # A Herdr secondmate whose pane is proven gone is stood back up by its own
@@ -2292,13 +2295,15 @@ USAGE_GATE_OUT=
 USAGE_GATE_STATUS=keep
 USAGE_GATE_CHECKED=0
 usage_gate_select() {
-  local rc=0
-  USAGE_GATE_OUT=$("$SCRIPT_DIR/fm-usage-gate.sh" select --kind "$KIND" "$@" 2>&1) || rc=$?
+  local rc=0 list
+  USAGE_GATE_OUT=$("$SCRIPT_DIR/fm-usage-gate.sh" select --kind "$KIND" ${DISPATCH_LIST:+--list "$DISPATCH_LIST"} "$@" 2>&1) || rc=$?
   [ "$rc" -le 1 ] || {
     echo "error: the usage gate could not check the launch profile: $(printf '%s\n' "$USAGE_GATE_OUT" | sed -n '/./{s/^error: //;p;q;}')" >&2
     exit 1
   }
   USAGE_GATE_STATUS=$(printf '%s\n' "$USAGE_GATE_OUT" | sed -n 's/^  status: //p')
+  list=$(printf '%s\n' "$USAGE_GATE_OUT" | sed -n 's/^  list: //p')
+  [ -z "$list" ] || DISPATCH_LIST=$list
   USAGE_GATE_CHECKED=1
 }
 
@@ -2308,6 +2313,9 @@ usage_gate_refuse() {
   current=$(printf '%s\n' "$USAGE_GATE_OUT" | sed -n 's/^  current: //p')
   if [ -n "$replacement" ]; then
     echo "error: the requested launch profile is out of quota ($current); rerun this spawn with an eligible declared alternate: $replacement (FM_USAGE_GATE=off overrides this check)" >&2
+  elif [[ "$current" != *'-> not eligible: runway exhausted_now'* && "$current" != *'-> not eligible: 0% remaining'* ]]; then
+    printf '%s\n' "$USAGE_GATE_OUT" | sed -n 's/^  candidate: /candidate: /p' >&2
+    echo "error: the usage gate found no launchable profile for the requested launch profile ($current): $(printf '%s\n' "$USAGE_GATE_OUT" | sed -n 's/^  reason: //p') (FM_USAGE_GATE=off overrides this check)" >&2
   else
     printf '%s\n' "$USAGE_GATE_OUT" | sed -n 's/^  candidate: /candidate: /p' >&2
     echo "error: the requested launch profile is out of quota ($current) and the usage gate found no eligible alternate ($(printf '%s\n' "$USAGE_GATE_OUT" | sed -n 's/^  reason: //p')) (FM_USAGE_GATE=off overrides this check)" >&2

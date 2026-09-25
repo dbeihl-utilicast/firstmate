@@ -829,6 +829,9 @@ With the existing selector, a secondmate's exhaustion alternates are the other l
 A candidate below its own declared `floor` is skipped, while the current profile's floor never makes it exhausted.
 With the existing selector, candidates are ranked by `spendPriority` exactly as the resolver ranks them, and a genuine tie is reported with every tied candidate for the attended caller to choose.
 With `declared-order`, the gate tests the full list in order on every launch and relaunch and selects the first candidate with verified usage, even if the requested profile still has usage.
+A launch records the list it was selected from as `dispatch_list=<rule id|default>` in `state/<id>.meta`, and `fm-control.sh relaunch` reuses that whole list, so a lane on a Pi fallback returns to the list's first Claude profile once Claude has usage again.
+A record without `dispatch_list` keeps the older order: only the profiles every array listing the current profile also lists.
+A profile no declared order lists, such as an explicit override or an empty `config/secondmate-harness`, is checked alone and launches only if its own usage is verified; its refusal says it is not in any declared order.
 The launch owners and the sweep pass `--tie-break declared`, which takes the first tied candidate in declared order, because a stalled lane is worse than an equal-quota pick.
 
 The launch owners enforce it:

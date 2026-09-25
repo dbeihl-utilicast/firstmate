@@ -124,6 +124,35 @@ assert_contains "$GATE_OUT" "profile: --harness 'claude' --model 'sonnet'" "a se
 rm -f "$CONFIG/secondmate-harness"
 pass "declared order selects the first profile with measured usage and reports every failure"
 
+write_dispatch '{"schema_version":2,"dispatch":{"selector":"declared-order"},"rules":[{"id":"deep","when":"deep work","use":[{"harness":"claude","model":"opus"},{"harness":"pi","model":"openai-codex/gpt-5.6-sol","provider":"codex"},{"harness":"pi","model":"xai/grok-4.6","provider":"grok"}]}],"default":[{"harness":"claude","model":"sonnet"},{"harness":"pi","model":"openai-codex/gpt-5.6-sol","provider":"codex"},{"harness":"pi","model":"xai/grok-4.6","provider":"grok"}]}'
+run_gate select --kind ship --harness claude --model opus --snapshot "$Q_DECLARED_CLAUDE_OUT"
+assert_contains "$GATE_OUT" "list: deep" "a launch names the declared list it was selected from"
+run_gate select --kind ship --harness pi --model openai-codex/gpt-5.6-sol --list deep --snapshot "$Q_DECLARED"
+expect_code 0 "$GATE_RC" "a recorded list selects"
+assert_contains "$GATE_OUT" "profile: --harness 'claude' --model 'opus'" "a lane on a shared Pi fallback returns to its list's Claude profile"
+run_gate select --kind ship --harness pi --model openai-codex/gpt-5.6-sol --snapshot "$Q_DECLARED"
+assert_contains "$GATE_OUT" "status: keep" "a record without a list keeps the intersection order"
+pass "a recorded declared list returns a shared Pi fallback to that list's Claude profile"
+
+write_dispatch "$DECLARED"
+run_gate select --kind ship --harness codex --model gpt-5.6-terra --snapshot "$Q_DECLARED"
+expect_code 0 "$GATE_RC" "an undeclared override with usage launches"
+assert_contains "$GATE_OUT" "status: keep" "an undeclared override is checked alone"
+Q_CODEX_OUT_DECLARED="$TMP_ROOT/q-codex-out-declared.json"
+snapshot "$Q_CODEX_OUT_DECLARED" 'claude|all_models|60|through_reset|0.1' 'codex|all_models|0|exhausted_now|-1'
+run_gate select --kind ship --harness codex --model gpt-5.6-terra --snapshot "$Q_CODEX_OUT_DECLARED"
+expect_code 1 "$GATE_RC" "an undeclared override without usage is refused"
+assert_contains "$GATE_OUT" "is not in any declared order" "the refusal names the missing declaration"
+printf '%s\n' '# no profiles' > "$CONFIG/secondmate-harness"
+run_gate select --kind secondmate --harness claude --model sonnet --snapshot "$Q_DECLARED"
+expect_code 0 "$GATE_RC" "an empty secondmate order checks the pin alone"
+assert_contains "$GATE_OUT" "status: keep" "the pin with usage launches"
+run_gate select --kind secondmate --harness claude --model sonnet --snapshot "$Q_DECLARED_CLAUDE_OUT"
+expect_code 1 "$GATE_RC" "the pin without usage is refused"
+assert_contains "$GATE_OUT" "claude:sonnet is not in any declared order" "the refusal names the missing declaration"
+rm -f "$CONFIG/secondmate-harness"
+pass "a profile no declared order lists is usage-checked on its own"
+
 # --- healthy profile is kept ---------------------------------------------------
 write_dispatch "$DISPATCH_PAIR"
 run_gate select --kind ship --harness claude --model sonnet --snapshot "$Q_HEALTHY"
