@@ -81,6 +81,7 @@ SID=$(remote_env "$ROOT/bin/fm-procevent-remote-reply.sh" source-id ios)
 remote_env "$ROOT/bin/fm-procevent-remote-reply.sh" arm ios >/dev/null \
   || fail "remote reply source could not be armed"
 ln -s /bin/bash "$FAKEBIN/claude"
+# shellcheck disable=SC2016 # $FM_HOME and $$ expand in the fake Claude process.
 FM_HOME="$PARENT" "$FAKEBIN/claude" -c '
   printf "%s\n" "$$" > "$FM_HOME/state/.lock"
   while :; do sleep 1; done
