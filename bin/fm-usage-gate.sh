@@ -6,6 +6,7 @@
 #   fm-usage-gate.sh select --kind <ship|scout|secondmate>
 #                           (--harness <h> [--model <m>] [--effort <e>] | --config-pin)
 #                           [--tie-break <strict|declared>] [--snapshot <file>]
+#   fm-usage-gate.sh sweep [--relaunch] [--snapshot <file>]
 #
 # select   Read ONE quota-axi --json snapshot (or --snapshot <file>) and answer
 #          whether the profile can be launched. Output (stdout):
@@ -51,6 +52,20 @@
 #          --config-pin takes the secondmate profile the way bin/fm-spawn.sh would
 #          resolve it (bin/fm-harness.sh secondmate, secondmate-model,
 #          secondmate-effort) instead of --harness/--model/--effort.
+#
+# sweep    Run select (tie-break declared) for every live local lane's recorded
+#          profile. Output (stdout), one line per non-kept lane, then a summary:
+#            usage-gate sweep:
+#              exhausted: <id> <kind> <h>:<m> -> <h>:<m> (<reason>)
+#              held: <id> <kind> <h>:<m> exhausted; state <state> via <source>
+#              unresolved: <id> <kind> <h>:<m>: <why none>
+#              relaunched: <id> on <h>:<m>                       (--relaunch)
+#              unreached: <id>: <fm-control.sh error line>       (--relaunch)
+#              summary: N checked, N exhausted (N actionable, N held), N relaunched, N failed
+#          --relaunch moves each actionable lane through fm-control.sh relaunch.
+#          Exit 0 nothing to act on or all relaunched, 1 actionable lanes found
+#          without --relaunch, 3 an unresolved or unreached lane, 4 quota-axi
+#          unavailable. docs/configuration.md "Usage gate" owns which lanes are held.
 #
 # Environment:
 #   FM_USAGE_GATE=off         skip the check; every profile is kept
