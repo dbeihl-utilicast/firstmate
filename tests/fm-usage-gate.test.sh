@@ -101,10 +101,12 @@ snapshot "$Q_DECLARED" 'claude|all_models|60|through_reset|0.1' 'codex|all_model
 write_dispatch "$DECLARED"
 run_gate select --kind ship --harness pi --model openai-codex/gpt-5.6-sol --snapshot "$Q_DECLARED"
 assert_contains "$GATE_OUT" "profile: --harness 'claude' --model 'sonnet'" "declared order chooses Claude even when Pi was requested"
+assert_not_contains "$GATE_OUT" "out_of_quota:" "a healthy profile reordered by the declared order is not out of quota"
 Q_DECLARED_CLAUDE_OUT="$TMP_ROOT/q-declared-claude-out.json"
 snapshot "$Q_DECLARED_CLAUDE_OUT" 'claude|all_models|0|exhausted_now|-1' 'codex|all_models|80|through_reset|0.2' 'grok|all_models|90|through_reset|0.9'
 run_gate select --kind ship --harness claude --model sonnet --snapshot "$Q_DECLARED_CLAUDE_OUT"
 assert_contains "$GATE_OUT" "profile: --harness 'pi' --model 'openai-codex/gpt-5.6-sol'" "declared order chooses Pi Codex before higher-priority Grok"
+assert_contains "$GATE_OUT" "out_of_quota: yes" "an exhausted declared profile is marked out of quota"
 Q_DECLARED_TWO_OUT="$TMP_ROOT/q-declared-two-out.json"
 snapshot "$Q_DECLARED_TWO_OUT" 'claude|all_models|0|exhausted_now|-1' 'codex|all_models|0|exhausted_now|-1' 'grok|all_models|90|through_reset|0.9'
 run_gate select --kind ship --harness claude --model sonnet --snapshot "$Q_DECLARED_TWO_OUT"
@@ -144,7 +146,7 @@ snapshot "$Q_CODEX_OUT_DECLARED" 'claude|all_models|60|through_reset|0.1' 'codex
 run_gate select --kind ship --harness codex --model gpt-5.6-terra --snapshot "$Q_CODEX_OUT_DECLARED"
 expect_code 1 "$GATE_RC" "an undeclared override without usage is refused"
 assert_contains "$GATE_OUT" "is not in any declared order" "the refusal names the missing declaration"
-assert_contains "$GATE_OUT" "runway exhausted_now" "the refusal names the measured usage evidence"
+assert_contains "$GATE_OUT" "reason: codex:gpt-5.6-terra is not in any declared order, and its own usage is not launchable: runway exhausted_now" "the refusal reason names the measured usage evidence"
 assert_not_contains "$GATE_OUT" "out_of_quota:" "an undeclared profile is never reported out of quota"
 printf '%s\n' '# no profiles' > "$CONFIG/secondmate-harness"
 run_gate select --kind secondmate --harness claude --model sonnet --snapshot "$Q_DECLARED"

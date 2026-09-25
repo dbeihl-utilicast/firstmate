@@ -18,7 +18,7 @@
 #              candidate: <harness>:<model> ... -> eligible | eligible, unranked: .. | not eligible: ..
 #              reason: <why none>
 #              list: <rule-id|default>        (declared-order, declared profile only)
-#              out_of_quota: yes              (none because the declared profile is exhausted)
+#              out_of_quota: yes              (the declared profile itself is exhausted)
 #              profile: --harness <h> [--model <m>] [--effort <e>]     (replace only)
 #          keep     the profile is not exhausted, or its quota cannot be measured
 #                   (uncertainty stays launchable and is disclosed, never assumed
@@ -277,7 +277,7 @@ RENDER_JQ='
   (if .note then "  note: \(.note | flat)" else empty end),
   (if .reason then "  reason: \(.reason | flat)" else empty end),
   (if .list then "  list: \(.list | flat)" else empty end),
-  (if .status == "none" and .current.veto == "exhausted" and ((.undeclared // false) | not) then "  out_of_quota: yes" else empty end),
+  (if .current.veto == "exhausted" and ((.undeclared // false) | not) then "  out_of_quota: yes" else empty end),
   (if .chosen then "  profile: --harness \(.chosen.profile.harness | shell_arg)"
       + (if .chosen.profile.model then " --model \(.chosen.profile.model | shell_arg)" else "" end)
       + (if .chosen.profile.effort then " --effort \(.chosen.profile.effort | shell_arg)" else "" end) else empty end)'

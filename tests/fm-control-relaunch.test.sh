@@ -811,7 +811,7 @@ test_relaunch_refuses_an_undeclared_target_without_saying_out_of_quota() {
   out=$(FM_USAGE_GATE=on run_control "$dir" rl70 relaunch --note "continue"); rc=$?
   expect_code 1 "$rc" "an undeclared target without verified usage is refused"$'\n'"$out"
   assert_contains "$out" "not in any declared order" "the refusal names the missing declaration"
-  assert_contains "$out" "runway exhausted_now" "the refusal names the measured usage evidence"
+  assert_contains "$out" "not in any declared order, and its own usage is not launchable: runway exhausted_now" "the refusal reason names the measured usage evidence"
   assert_not_contains "$out" "out of quota" "an undeclared target is not called out of quota"
   [ "$(meta_field "$dir" rl70 harness)" = codex ] || fail "the original agent should remain recorded"
   pass "fm-control relaunch refuses an undeclared target without calling it out of quota"
