@@ -829,12 +829,15 @@ assert_grep "remote launch returned Herdr session 'default', expected 'fm-remote
 cmp -s "$TMP_ROOT/parent-ios-before-nonherdr.meta" "$PARENT/state/ios.meta" \
   || fail "parent rewrote its endpoint metadata after a default-session route refusal"
 
+cp "$PARENT/state/ios.meta" "$TMP_ROOT/parent-ios-before-mismatched-profile.meta"
 set +e
 FM_FAKE_SSH_MODE=launch-mismatched-profile remote_env "$ROOT/bin/fm-spawn.sh" ios --secondmate \
   --harness codex --model gpt-5.6-sol --effort high \
   > "$TMP_ROOT/spawn-mismatched-profile.out" 2>&1
 mismatched_profile_rc=$?
 set -e
+cmp -s "$TMP_ROOT/parent-ios-before-mismatched-profile.meta" "$PARENT/state/ios.meta" \
+  || fail "parent rewrote its record after a launch that returned the wrong profile"
 [ "$mismatched_profile_rc" -ne 0 ] || fail "parent accepted a remote route on the wrong explicit profile"
 assert_grep "returned harness 'grok', model 'xai/grok-4.6', effort 'high'; requested harness 'codex', model 'gpt-5.6-sol', effort 'high'" \
   "$TMP_ROOT/spawn-mismatched-profile.out" \

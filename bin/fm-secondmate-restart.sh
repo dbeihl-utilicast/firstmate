@@ -49,7 +49,9 @@
 # inheritance lock, pushes current config, and passes host readiness. It then
 # runs that same control plane on its host over bin/fm-on.sh, through the
 # host-local fm-remote-secondmate-control.sh relaunch verb. The profile and
-# outcome report remain computed here in the primary for both placements.
+# outcome report remain computed here in the primary for both placements, and
+# once the host reports the relaunch a remote mate's primary record is updated to
+# the profile that host actually launched, so the next plain restart keeps it.
 #
 # Nothing here forces, stashes, or discards anything. bin/fm-control.sh owns the
 # restart transaction, its checkpoint, its journal, and its rollback; a refusal
@@ -74,7 +76,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
 usage() {
-  sed -n '2,65{s/^# \{0,1\}//;p;}' "$0"
+  sed -n '2,67{s/^# \{0,1\}//;p;}' "$0"
 }
 
 case "${1:-}" in
@@ -100,6 +102,10 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 # shellcheck source=bin/fm-remote-readiness-lib.sh
 . "$SCRIPT_DIR/fm-remote-readiness-lib.sh"
+# shellcheck source=bin/fm-tasks-axi-lib.sh
+. "$SCRIPT_DIR/fm-tasks-axi-lib.sh"
+# shellcheck source=bin/fm-backlog-transition-lib.sh
+. "$SCRIPT_DIR/fm-backlog-transition-lib.sh"
 
 PERSIST_WAIT=${FM_SECONDMATE_PERSIST_WAIT:-900}
 PERSIST_POLL=${FM_SECONDMATE_PERSIST_POLL:-5}
@@ -207,7 +213,7 @@ report_unreached() {  # <id> <reason>
 }
 
 restart_mate() {  # <array-index>
-  local i=$1 id restart_out restart_rc restart_reason ran_on
+  local i=$1 id restart_out restart_rc restart_reason ran_on record_err
   local remote_lock remote_generation remote_rc
   id=${IDS[$i]}
   if [ "${PLACEMENT[i]}" = remote ]; then
@@ -252,9 +258,14 @@ restart_mate() {  # <array-index>
     restart_rc=$?
   fi
   if [ "$restart_rc" -eq 0 ]; then
-    ran_on=$(printf '%s\n' "$restart_out" | sed -n 's/^relaunched .* harness=\([^ ]*\).*/\1/p' | tail -1)
-    [ -n "$ran_on" ] || ran_on=${HARNESS[i]}
+    fm_secondmate_restart_launched_profile "$restart_out" "${HARNESS[i]}" "${MODEL[i]}" "${EFFORT[i]}"
+    ran_on=$FM_SECONDMATE_RESTART_LAUNCHED_HARNESS
     if [ "${PLACEMENT[i]}" = remote ]; then
+      if ! record_err=$(fm_secondmate_restart_record_profile "$STATE" "$id" "$ran_on" \
+        "$FM_SECONDMATE_RESTART_LAUNCHED_MODEL" "$FM_SECONDMATE_RESTART_LAUNCHED_EFFORT" 2>&1); then
+        report_unreached "$id" "restarted on ${HOST[i]} ($ran_on), but its record could not be updated to that profile ($(first_reported_line "$record_err")); the next plain restart would relaunch the previous profile"
+        return
+      fi
       printf 'restarted: %s on %s (%s)\n' "$id" "${HOST[i]}" "$ran_on"
     else
       printf 'restarted: %s (%s)\n' "$id" "$ran_on"
