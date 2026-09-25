@@ -321,6 +321,7 @@ cmd_select() {
 # banners and warnings precede a refusal's own words.
 first_reported_line() {  # <text>
   local err
+  # shellcheck disable=SC2016  # $ is the sed last-line address.
   err=$(printf '%s\n' "$1" | sed -n '/^error: /h;${x;p;}')
   [ -n "$err" ] || err=$(printf '%s\n' "$1" | sed -n '/./{p;q;}')
   printf '%s\n' "$err" | sed 's/^error: //;s/[[:space:]]\{1,\}/ /g'
@@ -380,7 +381,7 @@ cmd_sweep() {
         verb=$(status_line_verb "$(status_current_line "$STATE/$id.status" "$kind")")
         case "$verb" in
           done|needs-decision|blocked|failed|"${FM_CLASSIFY_PAUSED_VERB:-$FM_CLASSIFY_PAUSED_VERB_DEFAULT}")
-            state=$verb; source=status-log ;;
+            state=$verb; source='status-log' ;;
         esac
       fi
       if [ "$state" != relaunchable ]; then
