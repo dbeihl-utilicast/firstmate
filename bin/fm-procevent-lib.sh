@@ -113,9 +113,10 @@ fm_procevent_any_registered() {
 # The bound is a lease on the OWNING STATE ROOT. Owner-presence operations
 # refresh it, an attached public start keeps it fresh while its caller remains
 # attached, and the watcher's reconcile cycle keeps it fresh in a live home.
-# A guard proves the runner's owner is still there by reading that lease from
-# the physical state root recorded in the claim. After two consecutive checks
-# cannot prove both the root identity and a fresh lease, it stops the runner's
+# A guard proves the runner's owner is still there by reading that lease, or a
+# live verified primary session lock, from the physical state root recorded in
+# the claim. After two consecutive checks cannot prove the root identity and
+# either owner evidence, it stops the runner's
 # process group. The lease is keyed by state root, so another home's live runner
 # is untouched: that home refreshes its own lease. Nothing here keys on a script
 # name, a command line, or a process name, all of which are shared across homes.
