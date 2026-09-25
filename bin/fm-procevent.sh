@@ -243,6 +243,8 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 . "$SCRIPT_DIR/fm-task-inbox-lib.sh"
 # shellcheck source=bin/fm-backend.sh
 . "$SCRIPT_DIR/fm-backend.sh"
+# shellcheck source=bin/fm-session-lock-lib.sh
+. "$SCRIPT_DIR/fm-session-lock-lib.sh"
 
 die() { printf 'error: %s\n' "$1" >&2; exit 1; }
 usage() { sed -n '2,/^set -u$/p' "${BASH_SOURCE[0]}" | sed '$d; s/^# \{0,1\}//'; exit 2; }
@@ -1057,9 +1059,17 @@ cmd_start() {
   # broken only by KILL. On contention, leave the generation-bound claim for
   # the stopper or subsequent reconciliation to reclaim.
   release_start_claim() {
+    local successor=0 current_identity released=0 attempt locked=0
     extension_lifecycle_lock_release 2>/dev/null || true
     [ -z "$STAGED_OUTPUT" ] || rm -f -- "$STAGED_OUTPUT"
-    fm_procevent_source_lock_try_acquire "$CLAIM_ID" 2>/dev/null || return 0
+    for ((attempt = 0; attempt < 20; attempt++)); do
+      if fm_procevent_source_lock_try_acquire "$CLAIM_ID" 2>/dev/null; then
+        locked=1
+        break
+      fi
+      sleep 0.05
+    done
+    [ "$locked" -eq 1 ] || return 0
     if fm_procevent_claim_load_locked "$CLAIM_ID" 2>/dev/null \
       && [ "$FM_PROCEVENT_CLAIM_HOME" = "$CLAIM_HOME" ] \
       && [ "$FM_PROCEVENT_CLAIM_PID" = "$CLAIM_PID" ] \
@@ -1068,8 +1078,19 @@ cmd_start() {
       fm_procevent_source_lock_release "$CLAIM_ID" 2>/dev/null || true
       return 0
     fi
-    fm_procevent_claim_release_locked "$CLAIM_ID" "$CLAIM_HOME" "$CLAIM_PID" "$CLAIM_TOKEN" 2>/dev/null || true
+    if [ -f "$(source_file "$CLAIM_ID")" ] \
+      && [ ! -L "$(source_file "$CLAIM_ID")" ] \
+      && current_identity=$(fm_pr_file_identity "$(source_file "$CLAIM_ID")" 2>/dev/null) \
+      && [ "$current_identity" != "$CLAIM_REG_IDENTITY" ]; then
+      successor=1
+    fi
+    fm_procevent_claim_release_locked "$CLAIM_ID" "$CLAIM_HOME" "$CLAIM_PID" "$CLAIM_TOKEN" 2>/dev/null \
+      && released=1
     fm_procevent_source_lock_release "$CLAIM_ID" 2>/dev/null || true
+    if [ "$released" -eq 1 ] && [ "$successor" -eq 1 ]; then
+      fm_session_lock_inspect "$STATE"
+      [ "$FM_LOCK_INSPECT_STATE" != held ] || detach_runner "$CLAIM_ID" || true
+    fi
   }
   trap release_start_claim EXIT
   # The inherited marker keeps the runner and its ordinary children from
@@ -1463,7 +1484,10 @@ cmd_owner_watchdog() {  # <source-id> <runner-pid> <runner-identity> <ready-file
       || IFS=$'\t' read -r _ current_device current_inode _ _ <<< "$state_identity"
     if [ "$current_device" = "$state_device" ] \
       && [ "$current_inode" = "$state_inode" ] \
-      && fm_procevent_owner_alive "$STATE" "$lease"; then
+      && { fm_procevent_owner_alive "$STATE" "$lease" \
+        || { fm_session_lock_inspect "$STATE" \
+          && [ "$FM_LOCK_INSPECT_STATE" = held ] \
+          && fm_procevent_owner_lease_touch "$STATE"; }; }; then
       misses=0
       continue
     fi

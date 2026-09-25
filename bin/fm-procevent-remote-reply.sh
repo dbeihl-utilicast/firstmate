@@ -3,6 +3,7 @@
 #
 # Usage:
 #   fm-procevent-remote-reply.sh arm <secondmate-id>
+#   fm-procevent-remote-reply.sh source <secondmate-id>
 #   fm-procevent-remote-reply.sh handle <secondmate-id> <sequence> <result-file>
 #   fm-procevent-remote-reply.sh autohandle <source-id> <sequence> <result-file>
 #   fm-procevent-remote-reply.sh classify <result-file>
@@ -12,7 +13,8 @@
 #   fm-procevent-remote-reply.sh retire <secondmate-id>
 #
 # `arm` registers one blocking, non-destructive delta source for the remote
-# home's state/parent-replies.status log. The process-event runner owns blocking,
+# home's state/parent-replies.status log. With a live primary session, the source
+# repeats quiet windows while holding its claim. The process-event runner owns blocking,
 # capture, publication, and one machine-wide source owner. Each captured delta is
 # terminal for that exact registration; `handle` validates and idempotently
 # ingests it, acknowledges the captured generation, then registers the next
@@ -89,6 +91,8 @@ DOCUMENT_LOCAL_FAILURE=2
 . "$SCRIPT_DIR/fm-secondmate-registry-lib.sh"
 # shellcheck source=bin/fm-pending-reply-lib.sh
 . "$SCRIPT_DIR/fm-pending-reply-lib.sh"
+# shellcheck source=bin/fm-session-lock-lib.sh
+. "$SCRIPT_DIR/fm-session-lock-lib.sh"
 
 die() { printf 'error: %s\n' "$1" >&2; exit 1; }
 usage() { sed -n '2,60p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
@@ -253,7 +257,7 @@ cmd_arm() {
 # correlated report is judged only against a channel known to have caught up.
 WINDOW_CLOSED_EMPTY=75
 
-cmd_source() {
+cmd_source_once() {
   local id=${1:-} started rc=0
   validate_id "$id"
   read_cursor "$id"
@@ -265,6 +269,30 @@ cmd_source() {
   fi
   return "$rc"
 }
+
+cmd_source() (
+  local id=${1:-} output rc
+  validate_id "$id"
+  output=$(umask 077; mktemp "$STATE/.remote-reply-source.XXXXXX") \
+    || die "cannot stage remote reply source output"
+  trap 'rm -f -- "$output"' EXIT
+  while :; do
+    : > "$output" || die "cannot reset remote reply source output"
+    rc=0
+    cmd_source_once "$id" > "$output" || rc=$?
+    if [ -s "$output" ]; then
+      cat "$output" || die "cannot forward remote reply source output"
+      return "$rc"
+    fi
+    fm_session_lock_inspect "$STATE"
+    [ "$FM_LOCK_INSPECT_STATE" = held ] || return "$rc"
+    if [ "$rc" -eq "$WINDOW_CLOSED_EMPTY" ]; then
+      sleep 1
+    else
+      sleep 15
+    fi
+  done
+)
 
 safe_doc_path() {
   case "$1" in
