@@ -241,9 +241,11 @@ PENDING_REPLY_REMOTE_OBSERVE_TIMEOUT=$((WATCHER_STALE_GRACE / 2))
 
 # Liveness beacon for fm-guard.sh: a fresh mtime means this watcher has made
 # progress. Only this process writes it, so a helper cannot make a wedged poll
-# look healthy. docs/turnend-guard.md owns the full contract.
+# look healthy. A live watcher's progress also refreshes the process-event home
+# lease between reconciliations. docs/turnend-guard.md owns the beacon contract.
 touch_watcher_beat() {
   touch "$STATE/.last-watcher-beat"
+  [ ! -d "$STATE/procevent" ] || fm_procevent_owner_lease_touch "$STATE" 2>/dev/null || true
 }
 
 # Remote pending-reply observations can be sequential. Refresh after each one

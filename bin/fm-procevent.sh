@@ -205,10 +205,10 @@
 # state root's lease on a bounded cadence and stops the runner's whole process
 # group once that lease can no longer be proved fresh. Owner-presence operations
 # refresh the lease, an attached public start keeps it fresh while its caller
-# remains attached, and the watcher's reconcile cycle keeps it fresh in a live
-# home. A runner exports the inherited FM_PROCEVENT_IN_RUNNER marker and every
-# refresh is skipped under it, so a runner and its ordinary children do not
-# certify their own owner. That rule is CONFUSED-AGENT-GRADE, the grade
+# remains attached, and watcher progress keeps it fresh between reconciliations
+# in a live home. A runner exports the inherited FM_PROCEVENT_IN_RUNNER marker
+# and every refresh is skipped under it, so a runner and its ordinary children
+# do not certify their own owner. That rule is CONFUSED-AGENT-GRADE, the grade
 # bin/fm-lease-lib.sh documents: a source that DELIBERATELY strips the marker
 # can still refresh, and adversarial-grade unforgeability is out of scope (see
 # docs/configuration.md). Scope is the owning state root and one runner
