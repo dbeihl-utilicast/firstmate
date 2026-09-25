@@ -248,6 +248,8 @@ Local secondmates retain their generation-specific local pointer contract; remot
 
 Restart a live remote second mate from the primary with `FM_HOME=<primary-home> bin/fm-secondmate-restart.sh <secondmate-id>` so inherited configuration lands and readiness passes before the host-local [control plane](agent-control.md) relaunches it.
 That path preserves the mate's recorded harness, model, and effort by default; pass `--harness`, `--model`, or `--effort` there to change the named mate deliberately without changing the fleet-wide default.
+When the host reports the relaunch, the primary rewrites only `harness`, `model`, and `effort` in its own `state/<id>.meta` to the profile that launch line names, including an alternate the host's usage gate chose, so the next plain restart keeps what is running.
+A relaunch that fails leaves the record untouched, and a restart whose record cannot be updated is reported as unreached.
 The raw `bin/fm-on.sh <secondmate-id> fm-remote-secondmate-control.sh relaunch ...` verb skips primary-owned inheritance and readiness; it is the restart owner's final implementation step, not an operator recovery command.
 The primary passes `<harness> <model|default|-> <effort|default|->` explicitly from the mate's recorded profile, using `default` when an axis is absent, because `config/secondmate-harness` is not inherited into a second mate's home and the file on that host belongs to a different home; letting the far side re-resolve it would silently move the mate onto another runtime.
 SSH exit 255 leaves completion unknown and the route preserved, exactly as every other verb here.

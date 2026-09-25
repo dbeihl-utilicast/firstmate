@@ -232,7 +232,7 @@ Respawn re-resolves the secondmate harness from current config, uses the same gu
 If the secondmate is already running and only inherited local material changed, prefer `bin/fm-config-push.sh` over respawning.
 To move a live LOCAL secondmate onto another harness, model, or effort, use `FM_HOME=<this-firstmate-home> bin/fm-secondmate-restart.sh --harness <harness> --model <model|default> --effort <effort|default> <id>` so its open records are persisted before the guarded replacement ([`docs/agent-control.md`](../../../docs/agent-control.md)).
 That plane refuses a remotely placed secondmate by name, because its agent runs on another host where none of the plane's postconditions can be read.
-Move a REMOTE one through the same primary-owned gated path with explicit profile flags; without those flags the command persists its open records, re-inherits current configuration, verifies host readiness, preserves its recorded profile, and relaunches on its configured host ([`docs/remote-secondmates.md`](../../../docs/remote-secondmates.md)).
+Move a REMOTE one through the same primary-owned gated path with explicit profile flags; without those flags the command persists its open records, re-inherits current configuration, verifies host readiness, preserves its recorded profile, relaunches on its configured host, and records the profile that host launched ([`docs/remote-secondmates.md`](../../../docs/remote-secondmates.md)).
 A successful update restarts every live mate of both placements on its own, including one already on the target commit; the `/updatefirstmate` skill owns that pass, and `bin/fm-secondmate-restart.sh` owns its persist gate and failure vocabulary.
 
 Do not reconstruct a secondmate's whole tree from the main home.

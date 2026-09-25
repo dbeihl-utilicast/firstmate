@@ -107,3 +107,62 @@ fm_secondmate_restart_capable() {  # <meta-file>
   FM_SECONDMATE_RESTART_EFFORT=$(fm_meta_get "$meta" effort)
   return 0
 }
+
+# The profile a relaunch actually started, from the `relaunched <id> harness=.. model=.. effort=..`
+# line bin/fm-control.sh prints once the new agent is alive; a missing field falls back to the request.
+FM_SECONDMATE_RESTART_LAUNCHED_HARNESS=""
+FM_SECONDMATE_RESTART_LAUNCHED_MODEL=""
+FM_SECONDMATE_RESTART_LAUNCHED_EFFORT=""
+_fm_secondmate_restart_line_field() {  # <line> <key> <fallback>
+  local value
+  value=$(printf '%s\n' "$1" | awk -v key="$2" '
+    { for (i = 3; i <= NF; i++) if (index($i, key "=") == 1) { print substr($i, length(key) + 2); exit } }')
+  printf '%s' "${value:-$3}"
+}
+fm_secondmate_restart_launched_profile() {  # <relaunch-output> <harness> <model> <effort>
+  local line
+  line=$(printf '%s\n' "$1" | grep '^relaunched ' | tail -1 || true)
+  FM_SECONDMATE_RESTART_LAUNCHED_HARNESS=$(_fm_secondmate_restart_line_field "$line" harness "$2")
+  FM_SECONDMATE_RESTART_LAUNCHED_MODEL=$(_fm_secondmate_restart_line_field "$line" model "$3")
+  FM_SECONDMATE_RESTART_LAUNCHED_EFFORT=$(_fm_secondmate_restart_line_field "$line" effort "$4")
+}
+
+# Point a remote mate's primary record at the profile its host launched; call it after a successful
+# relaunch only. Callers source fm-wake-lib.sh, fm-tasks-axi-lib.sh and fm-backlog-transition-lib.sh.
+_fm_secondmate_restart_axis() {  # an absent axis and the literal default are one value
+  case "$1" in ''|-) printf 'default' ;; *) printf '%s' "$1" ;; esac
+}
+fm_secondmate_restart_record_profile() {  # <state-dir> <id> <harness> <model> <effort>
+  local state=$1 id=$2 harness=$3 model=$4 effort=$5 meta lock tmp rc=0 value
+  for value in "$harness" "$model" "$effort"; do
+    case "$value" in
+      ''|*[[:space:]]*|*[[:cntrl:]]*)
+        echo "error: '$value' is not a value a task record can carry for harness, model, or effort" >&2
+        return 1
+        ;;
+    esac
+  done
+  meta="$state/$id.meta"
+  lock=$(fm_meta_lock_path "$meta") || return 1
+  fm_lock_acquire_wait "$lock"
+  model=$(_fm_secondmate_restart_axis "$model")
+  effort=$(_fm_secondmate_restart_axis "$effort")
+  if [ "$(fm_meta_get "$meta" harness)" = "$harness" ] \
+    && [ "$(_fm_secondmate_restart_axis "$(fm_meta_get "$meta" model)")" = "$model" ] \
+    && [ "$(_fm_secondmate_restart_axis "$(fm_meta_get "$meta" effort)")" = "$effort" ]; then
+    fm_lock_release "$lock"
+    return 0
+  fi
+  tmp="$state/.$id.meta.restart.${BASHPID:-$$}"
+  if awk -F= '$1 != "harness" && $1 != "model" && $1 != "effort"' "$meta" > "$tmp" \
+    && printf 'harness=%s\nmodel=%s\neffort=%s\n' "$harness" "$model" "$effort" >> "$tmp" \
+    && fm_backlog_atomic_transition publish "$tmp" "$meta" "task record" "$state"; then
+    :
+  else
+    rm -f -- "$tmp"
+    echo "error: ${FM_BACKLOG_TRANSITION_ERROR:-the task record could not be staged}" >&2
+    rc=1
+  fi
+  fm_lock_release "$lock"
+  return "$rc"
+}

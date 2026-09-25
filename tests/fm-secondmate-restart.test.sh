@@ -583,8 +583,23 @@ case "${rargs[1]:-}" in
         /bin/sleep 2
         : > "$FM_FAKE_DIR/remote-relaunch-end"
         ;;
+      relaunch-fail)
+        printf 'error: the replacement agent for %s could not be launched on %s\n' "${rargs[2]}" "${rargs[3]}" >&2
+        exit 1
+        ;;
+      relaunch-record-lost)
+        rm -f "$FM_FAKE_RECORD"
+        mkdir "$FM_FAKE_RECORD"
+        ;;
     esac
-    printf 'relaunched %s\n' "${rargs[2]}"
+    # The host-local control plane reports the profile it ACTUALLY launched, which
+    # is the requested one unless its own usage gate moved the mate elsewhere.
+    launched=("${rargs[3]:-}" "${rargs[4]:-default}" "${rargs[5]:-default}")
+    if [ -n "${FM_FAKE_HOST_LAUNCHES:-}" ]; then
+      read -r -a launched <<< "$FM_FAKE_HOST_LAUNCHES"
+    fi
+    printf 'relaunched %s harness=%s from=%s model=%s effort=%s backend=herdr endpoint=fm-remote:2ndmate-%s worktree=/srv/%s\n' \
+      "${rargs[2]}" "${launched[0]}" "${rargs[3]:-}" "${launched[1]}" "${launched[2]}" "${rargs[2]}" "${rargs[2]}"
     ;;
 esac
 exit 0
@@ -593,7 +608,22 @@ SH
   : > "$dir/ssh.log"
   export FM_FAKE_SSH_LOG="$dir/ssh.log"
   export FM_FAKE_SSH_MODE="$mode"
+  export FM_FAKE_RECORD="$dir/home/state/$id.meta"
   export FM_TEST_SSH_BIN="$fb/fake-ssh"
+}
+
+record_field() {  # <meta> <key>
+  grep "^$2=" "$1" | tail -1 | cut -d= -f2-
+}
+
+set_record_profile() {  # <meta> <harness> <model> <effort>
+  sed -e "s|^harness=.*|harness=$2|" -e "s|^model=.*|model=$3|" -e "s|^effort=.*|effort=$4|" \
+    "$1" > "$1.new"
+  mv "$1.new" "$1"
+}
+
+last_relaunch_line() {  # <case-dir>
+  grep '^fm-remote-secondmate-control.sh relaunch' "$1/ssh.log" | tail -1
 }
 
 test_remote_mate_restarts_over_the_transport_hop() {
@@ -631,6 +661,106 @@ test_remote_mate_restarts_over_the_transport_hop() {
      -lt "$(grep -n '^fm-remote-secondmate-control.sh relaunch' "$dir/ssh.log" | head -1 | cut -d: -f1)" ] \
     || fail "the remote mate was relaunched before post-inheritance readiness"$'\n'"$(cat "$dir/ssh.log")"
   pass "T6 a remote mate restarts through the host-local control plane over the fm-on hop"
+}
+
+# --- T6e: the primary's record follows the profile the host actually launched --
+# A restart that changed a remote mate's profile used to leave state/<id>.meta on
+# the old one, so the NEXT plain restart silently moved the mate back.
+test_remote_restart_records_the_explicit_profile_it_launched() {
+  local dir out rc meta before_route
+  dir=$(new_case remote-explicit-profile)
+  setup_remote_case "$dir" sm2 ok
+  meta="$dir/home/state/sm2.meta"
+  set_record_profile "$meta" pi xai/grok-4.6 high
+  export FM_FAKE_ANSWER_STATUS="$dir/home/state/sm2.status"
+
+  out=$(run_restart "$dir" --harness pi --model openai-codex/gpt-5.6-terra --effort high sm2); rc=$?
+
+  expect_code 0 "$rc" "an explicit remote profile restart should succeed"$'\n'"$out"
+  assert_contains "$out" "restarted: sm2 on remote-mac (pi)" "the restart should report the launched runtime"
+  [ "$(record_field "$meta" harness)" = pi ] || fail "the record lost the launched harness: $(cat "$meta")"
+  [ "$(record_field "$meta" model)" = openai-codex/gpt-5.6-terra ] \
+    || fail "the record kept a stale model after the restart changed it: $(cat "$meta")"
+  [ "$(record_field "$meta" effort)" = high ] || fail "the record lost the launched effort: $(cat "$meta")"
+  before_route=$(grep -v -e '^harness=' -e '^model=' -e '^effort=' "$meta")
+  [ "$(printf '%s\n' "$before_route" | grep -c -e '^remote_host=remote-mac$' -e '^remote_target=fm-remote:2ndmate-sm2$' -e '^kind=secondmate$' -e '^home=')" -eq 4 ] \
+    || fail "the profile update dropped the route or identity lines: $(cat "$meta")"
+
+  out=$(run_restart "$dir" sm2); rc=$?
+  unset FM_FAKE_ANSWER_STATUS
+
+  expect_code 0 "$rc" "a plain restart after the profile change should succeed"$'\n'"$out"
+  [ "$(last_relaunch_line "$dir")" = "fm-remote-secondmate-control.sh relaunch sm2 pi openai-codex/gpt-5.6-terra high" ] \
+    || fail "a plain restart reverted the mate to a stale profile: $(last_relaunch_line "$dir")"
+  pass "T6e a remote restart records the profile it launched, and a plain restart keeps it"
+}
+
+test_remote_restart_records_the_alternate_the_host_launched() {
+  local dir out rc meta
+  dir=$(new_case remote-host-alternate)
+  setup_remote_case "$dir" sm2 ok
+  meta="$dir/home/state/sm2.meta"
+  set_record_profile "$meta" pi openai-codex/gpt-5.6-terra high
+  export FM_FAKE_ANSWER_STATUS="$dir/home/state/sm2.status"
+  # The host's usage gate found the requested model exhausted and launched the
+  # declared alternate, which the host reports on its own launch line.
+  export FM_FAKE_HOST_LAUNCHES="claude claude-opus-5-5 default"
+
+  out=$(run_restart "$dir" sm2); rc=$?
+  unset FM_FAKE_HOST_LAUNCHES
+
+  expect_code 0 "$rc" "a restart the host moved to an alternate should still succeed"$'\n'"$out"
+  [ "$(last_relaunch_line "$dir")" = "fm-remote-secondmate-control.sh relaunch sm2 pi openai-codex/gpt-5.6-terra high" ] \
+    || fail "the restart did not ask for the recorded profile: $(last_relaunch_line "$dir")"
+  assert_contains "$out" "restarted: sm2 on remote-mac (claude)" "the restart should report what the host launched"
+  [ "$(record_field "$meta" harness)" = claude ] || fail "the record kept the harness the host did not launch: $(cat "$meta")"
+  [ "$(record_field "$meta" model)" = claude-opus-5-5 ] || fail "the record kept the model the host did not launch: $(cat "$meta")"
+  [ "$(record_field "$meta" effort)" = default ] || fail "the record kept the effort the host did not launch: $(cat "$meta")"
+
+  out=$(run_restart "$dir" sm2); rc=$?
+  unset FM_FAKE_ANSWER_STATUS
+
+  expect_code 0 "$rc" "a plain restart after the alternate should succeed"$'\n'"$out"
+  [ "$(last_relaunch_line "$dir")" = "fm-remote-secondmate-control.sh relaunch sm2 claude claude-opus-5-5 default" ] \
+    || fail "a plain restart reverted the mate off the profile it was running: $(last_relaunch_line "$dir")"
+  pass "T6f a remote restart records the alternate its host launched"
+}
+
+test_failed_remote_restart_leaves_the_record_untouched() {
+  local dir out rc meta
+  dir=$(new_case remote-relaunch-fail)
+  setup_remote_case "$dir" sm2 relaunch-fail
+  meta="$dir/home/state/sm2.meta"
+  set_record_profile "$meta" pi xai/grok-4.6 high
+  cp "$meta" "$dir/meta.before"
+  export FM_FAKE_ANSWER_STATUS="$dir/home/state/sm2.status"
+
+  out=$(run_restart "$dir" --harness claude --model claude-opus-5-5 --effort default sm2); rc=$?
+  unset FM_FAKE_ANSWER_STATUS
+
+  expect_code 3 "$rc" "a failed remote relaunch must not be reported as a reload"$'\n'"$out"
+  assert_contains "$out" "unreached: sm2:" "the failed relaunch must be reported as unknown"
+  cmp -s "$dir/meta.before" "$meta" \
+    || fail "a failed launch rewrote the record: $(cat "$meta")"
+  pass "T6g a failed remote relaunch leaves the recorded profile untouched"
+}
+
+test_remote_restart_reports_a_record_it_could_not_update() {
+  local dir out rc
+  dir=$(new_case remote-record-lost)
+  setup_remote_case "$dir" sm2 relaunch-record-lost
+  export FM_FAKE_ANSWER_STATUS="$dir/home/state/sm2.status"
+
+  out=$(run_restart "$dir" --harness claude --model claude-opus-5-5 --effort default sm2); rc=$?
+  unset FM_FAKE_ANSWER_STATUS
+
+  expect_code 3 "$rc" "a restart whose record could not follow must not read as clean"$'\n'"$out"
+  assert_contains "$out" "unreached: sm2: restarted on remote-mac (claude), but its record could not be updated" \
+    "the report must say the agent restarted and the record is stale"
+  assert_not_contains "$out" "restarted: sm2" "a stale record must not be reported as a clean reload"
+  [ -z "$(find "$dir/home/state" -maxdepth 1 -name '.sm2.meta.*' -print)" ] \
+    || fail "a failed record update left its staging file behind"
+  pass "T6h a record that cannot follow the launch is reported, not swallowed"
 }
 
 test_remote_restart_refuses_when_post_inherit_readiness_fails() {
@@ -1060,6 +1190,10 @@ test_local_restart_preserves_the_recorded_profile_and_reports_what_ran
 test_explicit_restart_profile_changes_one_mate
 test_native_ultra_restart_keeps_local_and_remote_profiles
 test_remote_mate_restarts_over_the_transport_hop
+test_remote_restart_records_the_explicit_profile_it_launched
+test_remote_restart_records_the_alternate_the_host_launched
+test_failed_remote_restart_leaves_the_record_untouched
+test_remote_restart_reports_a_record_it_could_not_update
 test_remote_restart_refuses_when_post_inherit_readiness_fails
 test_remote_restart_preserves_repair_failure_diagnostics
 test_remote_restart_serializes_config_push_through_relaunch
