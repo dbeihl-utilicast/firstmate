@@ -838,6 +838,7 @@ The launch owners enforce it:
 
 - `bin/fm-spawn.sh` launches a new lane whose explicit or `config/secondmate-harness` profile is out of quota on the eligible declared alternate instead, and says so on stderr.
   With no eligible alternate, or for a profile it resolves any other way, it refuses before any endpoint or task record exists.
+  In declared-order mode it also takes the gate's earlier selection when the requested profile still has usage, and a profile it resolves any other way, such as `config/crew-harness`, is refused with the selected profile to rerun on.
 - `bin/fm-control.sh relaunch` moves an exhausted target onto the eligible declared alternate before the running agent is stopped, and refuses before the stop when none is eligible, so a launch that cannot help never costs the agent; its launch half does not re-check after the stop.
   `bin/fm-secondmate-restart.sh` reaches the same refusal through the control plane and reports it as unreached.
 - `bin/fm-usage-gate.sh sweep` detects live lanes whose recorded profile is exhausted and, with `--relaunch`, moves them onto an eligible alternate through `fm-control.sh relaunch` with a progress note.
