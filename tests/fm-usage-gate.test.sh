@@ -154,9 +154,51 @@ expect_code 0 "$GATE_RC" "an empty secondmate order checks the pin alone"
 assert_contains "$GATE_OUT" "status: keep" "the pin with usage launches"
 run_gate select --kind secondmate --harness claude --model sonnet --snapshot "$Q_DECLARED_CLAUDE_OUT"
 expect_code 1 "$GATE_RC" "the pin without usage is refused"
-assert_contains "$GATE_OUT" "claude:sonnet is not in any declared order" "the refusal names the missing declaration"
+assert_contains "$GATE_OUT" "claude:sonnet is not in the secondmate-harness order" "the refusal names the missing declaration"
 rm -f "$CONFIG/secondmate-harness"
 pass "a profile no declared order lists is usage-checked on its own"
+
+# --- a secondmate pin is judged against the secondmate-harness order, never crew-dispatch ---
+Q_CLAUDE_UNMEASURED="$TMP_ROOT/q-claude-unmeasured.json"
+jq -n '{generatedAt: "2030-01-01T00:00:00Z", schemaVersion: 5, providers: [
+  {provider: "claude", state: {status: "fresh"}, quotaSemantics: {status: "unknown", effectiveAvailability: []}},
+  {provider: "codex", state: {status: "fresh"}, quotaSemantics: {status: "known", effectiveAvailability: [
+    {scope: "all_models", status: "known", effectivePercentRemaining: 0, runway: {status: "exhausted_now"}, selection: {spendPriority: -1}}]}}]}' > "$Q_CLAUDE_UNMEASURED"
+write_dispatch "$DECLARED"
+printf '%s\n' 'claude claude-opus-5-5 high' > "$CONFIG/secondmate-harness"
+run_gate select --kind secondmate --config-pin --snapshot "$Q_DECLARED"
+expect_code 0 "$GATE_RC" "a secondmate pin listed only in secondmate-harness launches"
+assert_contains "$GATE_OUT" "status: keep" "the pin is judged against the secondmate-harness order"
+assert_not_contains "$GATE_OUT" "not in any declared order" "crew-dispatch not listing the pin never makes it undeclared"
+rm -f "$CONFIG/secondmate-harness"
+run_gate select --kind secondmate --harness claude --model claude-opus-5-5 --effort high --snapshot "$Q_DECLARED_CLAUDE_OUT"
+expect_code 1 "$GATE_RC" "an exhausted pin in a home with no secondmate-harness is refused"
+assert_contains "$GATE_OUT" "claude:claude-opus-5-5 is not in the secondmate-harness order" "the refusal names the secondmate order, the one that applies to a secondmate"
+assert_not_contains "$GATE_OUT" "any declared order" "the refusal never cites the crew-dispatch declaration"
+pass "a secondmate profile is judged against the secondmate-harness order"
+
+# --- an unmeasured provider stays launchable in declared-order mode ------------------------------
+run_gate select --kind secondmate --harness claude --model claude-opus-5-5 --effort high --snapshot "$Q_CLAUDE_UNMEASURED"
+expect_code 0 "$GATE_RC" "an unmeasured pin with no verified alternate launches"
+assert_contains "$GATE_OUT" "status: keep" "the unmeasured pin is kept"
+assert_contains "$GATE_OUT" "eligible, unranked: provider claude unmeasured (unknown)" "the uncertainty is disclosed"
+printf '%s\n' 'claude claude-opus-5-5 high' > "$CONFIG/secondmate-harness"
+run_gate select --kind secondmate --config-pin --snapshot "$Q_CLAUDE_UNMEASURED"
+expect_code 0 "$GATE_RC" "an unmeasured secondmate-harness pin launches"
+assert_contains "$GATE_OUT" "status: keep" "a declared pin on an unmeasured provider is kept"
+rm -f "$CONFIG/secondmate-harness"
+run_gate select --kind ship --harness claude --model sonnet --snapshot "$Q_CLAUDE_UNMEASURED"
+expect_code 0 "$GATE_RC" "an unmeasured declared crew profile launches"
+assert_contains "$GATE_OUT" "status: keep" "a declared crew profile on an unmeasured provider is kept"
+Q_CLAUDE_UNMEASURED_CODEX_OK="$TMP_ROOT/q-claude-unmeasured-codex-ok.json"
+jq '(.providers[] | select(.provider == "codex").quotaSemantics.effectiveAvailability) = [
+  {scope: "all_models", status: "known", effectivePercentRemaining: 80, runway: {status: "through_reset"}, selection: {spendPriority: 0.2}}]' "$Q_CLAUDE_UNMEASURED" > "$Q_CLAUDE_UNMEASURED_CODEX_OK"
+run_gate select --kind ship --harness claude --model sonnet --snapshot "$Q_CLAUDE_UNMEASURED_CODEX_OK"
+assert_contains "$GATE_OUT" "profile: --harness 'pi' --model 'openai-codex/gpt-5.6-sol'" "a verified declared profile still wins over an unmeasured one"
+run_gate select --kind secondmate --harness claude --model claude-opus-5-5 --effort high --snapshot "$Q_DECLARED_CLAUDE_OUT"
+expect_code 1 "$GATE_RC" "a known-exhausted pin is still refused"
+assert_not_contains "$GATE_OUT" "status: keep" "exhaustion is never treated as uncertainty"
+pass "an unmeasured provider stays launchable while exhaustion is still refused"
 
 # --- healthy profile is kept ---------------------------------------------------
 write_dispatch "$DISPATCH_PAIR"
