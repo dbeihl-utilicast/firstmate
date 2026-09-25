@@ -1,0 +1,55 @@
+=== snapshot: live quota-axi rewritten with claude-out ===
+$ fm-usage-gate.sh select --kind ship --harness claude --model sonnet
+usage-gate:
+  status: replace
+  current: claude:sonnet  provider=claude  scope=all_models  remaining=0%  spendPriority=-  runway=exhausted_now  -> not eligible: runway exhausted_now at all_models
+  candidate: claude:sonnet  provider=claude  scope=all_models  remaining=0%  spendPriority=-  runway=exhausted_now  -> not eligible: runway exhausted_now at all_models
+  candidate: pi:openai-codex/gpt-5.6-sol  provider=codex  scope=all_models  remaining=50%  spendPriority=-2.3764  runway=through_reset  -> eligible
+  candidate: pi:xai/grok-4.6  provider=grok  scope=all_products  remaining=50%  spendPriority=-1.4616  runway=through_reset  -> eligible
+  list: default
+  out_of_quota: yes
+  profile: --harness 'pi' --model 'openai-codex/gpt-5.6-sol'
+exit=0
+
+=== snapshot: live quota-axi rewritten with cc-out ===
+$ fm-usage-gate.sh select --kind ship --harness claude --model sonnet
+usage-gate:
+  status: replace
+  current: claude:sonnet  provider=claude  scope=all_models  remaining=0%  spendPriority=-  runway=exhausted_now  -> not eligible: runway exhausted_now at all_models
+  candidate: claude:sonnet  provider=claude  scope=all_models  remaining=0%  spendPriority=-  runway=exhausted_now  -> not eligible: runway exhausted_now at all_models
+  candidate: pi:openai-codex/gpt-5.6-sol  provider=codex  scope=all_models  remaining=0%  spendPriority=-  runway=exhausted_now  -> not eligible: runway exhausted_now at all_models
+  candidate: pi:xai/grok-4.6  provider=grok  scope=all_products  remaining=50%  spendPriority=-1.4616  runway=through_reset  -> eligible
+  list: default
+  out_of_quota: yes
+  profile: --harness 'pi' --model 'xai/grok-4.6'
+exit=0
+
+=== snapshot: live quota-axi rewritten with all-out ===
+$ fm-usage-gate.sh select --kind ship --harness claude --model sonnet
+usage-gate:
+  status: none
+  current: claude:sonnet  provider=claude  scope=all_models  remaining=0%  spendPriority=-  runway=exhausted_now  -> not eligible: runway exhausted_now at all_models
+  candidate: claude:sonnet  provider=claude  scope=all_models  remaining=0%  spendPriority=-  runway=exhausted_now  -> not eligible: runway exhausted_now at all_models
+  candidate: pi:openai-codex/gpt-5.6-sol  provider=codex  scope=all_models  remaining=0%  spendPriority=-  runway=exhausted_now  -> not eligible: runway exhausted_now at all_models
+  candidate: pi:xai/grok-4.6  provider=grok  scope=all_products  remaining=0%  spendPriority=-  runway=exhausted_now  -> not eligible: runway exhausted_now at all_products
+  reason: no declared profile has verified usage
+  out_of_quota: yes
+exit=1
+
+=== adversarial: undeclared explicit override codex:gpt-5.6-terra, codex exhausted ===
+usage-gate:
+  status: none
+  current: codex:gpt-5.6-terra  provider=codex  scope=all_models  remaining=0%  spendPriority=-  runway=exhausted_now  -> not eligible: runway exhausted_now at all_models
+  candidate: codex:gpt-5.6-terra  provider=codex  scope=all_models  remaining=0%  spendPriority=-  runway=exhausted_now  -> not eligible: runway exhausted_now at all_models
+  reason: codex:gpt-5.6-terra is not in any declared order, and its own usage is not launchable: runway exhausted_now at all_models
+exit=1
+
+=== adversarial: quota-axi missing from PATH in declared-order mode ===
+usage-gate:
+  status: none
+  current: claude:sonnet  -> not eligible: quota-axi is missing
+  candidate: claude:sonnet  -> not eligible: quota-axi is missing
+  candidate: pi:openai-codex/gpt-5.6-sol  -> not eligible: quota-axi is missing
+  candidate: pi:xai/grok-4.6  -> not eligible: quota-axi is missing
+  reason: usage could not be checked: quota-axi is missing
+exit=1

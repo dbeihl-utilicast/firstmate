@@ -1,0 +1,8 @@
+$ fm-dispatch-resolve.sh data/t1/brief.md --project demo   (rule use: pi anthropic/claude-sonnet-5)
+dispatch-resolve: off (TYPESAFE_API_KEY absent from the environment and /tmp/nm-fmhome.qVIg/.env)
+exit=0
+
+$ fm-dispatch-resolve.sh data/t1/brief.md --project demo   (rule use: pi openrouter/anthropic/claude-sonnet-5)
+dispatch-resolve: off (TYPESAFE_API_KEY absent from the environment and /tmp/nm-fmhome.qVIg/.env)
+exit=0
+

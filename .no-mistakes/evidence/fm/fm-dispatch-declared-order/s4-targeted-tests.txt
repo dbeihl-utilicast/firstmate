@@ -1,0 +1,37 @@
+### fm-usage-gate
+exit=0
+ok - declared order selects the first profile with measured usage and reports every failure
+ok - a recorded declared list returns a shared Pi fallback to that list's Claude profile
+ok - a profile no declared order lists is usage-checked on its own
+ok - an exhausted profile is replaced by the best eligible declared sibling
+ok - an exhausted profile with no declared alternate is reported as none
+ok - an alternate below its declared floor is not selected
+ok - a spendPriority tie is reported by default and broken by declared order only on request
+ok - a declared provider binds a multi-provider harness to its quota row
+ok - the live read, its failures, and the off switch
+ok - the recovery sweep leaves healthy lanes running under declared order
+### fm-control-relaunch
+exit=0
+ok - fm-control relaunch: an unreadable composer fails safe before the exit command is typed
+ok - fm-control relaunch: an exhausted target moves onto the eligible declared replacement
+ok - fm-control relaunch uses the lane's recorded declared list
+ok - fm-control relaunch refuses an undeclared target without calling it out of quota
+ok - fm-control relaunch refuses Claude inside Pi before stopping the agent
+ok - fm-control relaunch: wiring cleanup failure refuses replacement arming
+ok - fm-control relaunch: checkpoint inspection failures refuse before stopping
+ok - fm-control relaunch: a launch failure after the stop keeps the prior record and reports the real state
+ok - fm-control relaunch: post-publication failure keeps the new durable record
+ok - fm-control relaunch: failed journal replacement preserves durable phase
+ok - fm-control relaunch: unreadable and untraversable child state fails checkpoint
+### fm-secondmate-restart
+exit=0
+ok - a secondmate restart uses the same declared usage order
+ok - T6b a remote restart does not relaunch when post-inheritance readiness fails
+ok - T11 post-stop restart failure is never misreported as a nudge
+### fm-dispatch-resolve
+exit=0
+ok - typed dispatch uses the same declared order as the usage gate
+ok - escalate: a rule declared approval: captain never yields a profile
+ok - declared provider and profile floor evidence are applied in code
+ok - quota evidence comes from one quota-axi --json read, and its failure is an error outcome
+ok - API, transport, and response failures are error outcomes with exit 0

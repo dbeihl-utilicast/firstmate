@@ -1,0 +1,41 @@
+ok - allowlist=absent preserves the operational floor and filters only when opted in
+ok - allowlist=missing-config preserves the operational floor and filters only when opted in
+ok - allowlist=enabled preserves the operational floor and filters only when opted in
+ok - allowlist=empty preserves the operational floor and filters only when opted in
+ok - invalid allowlist names refuse before launch or task publication
+ok - inaccessible config with present allowlist refuses before launch or task publication
+ok - inaccessible config with absent allowlist refuses before launch or task publication
+ok - inaccessible ancestor with present allowlist refuses before launch or task publication
+ok - inaccessible ancestor with absent allowlist refuses before launch or task publication
+ok - secondmate launch inherits the allowlist for subsequent worker launches
+ok - local inheritance preserves the allowlist on source errors and mirrors proven absence
+ok - remote inheritance preserves the allowlist on source errors and mirrors proven absence
+=== claude-healthy-pi-requested: crew-harness='claude' claude=through_reset codex=80% through_reset; fm-spawn claude-healthy-pi-requested-z9 <project> --harness pi --model openai-codex/gpt-5.6-sol ===
+usage gate: selecting claude sonnet from the declared usage order
+spawned claude-healthy-pi-requested-z9 harness=claude kind=ship mode=no-mistakes yolo=off window=firstmate:fm-claude-healthy-pi-requested-z9 worktree=/tmp/fm-spawn-dispatch-profile.4tORJP/claude-healthy-pi-requested/wt
+exit=0
+  meta: harness=claude
+  meta: model=sonnet
+  meta: effort=default
+  meta: dispatch_list=default
+  launched: export COMPACT_ADVISER_DISABLE=1; env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI -u ANTIGRAVITY_AGENT -u ATLASSIAN_AGENT_TYPE -u ROVODEV_CLI -u FM_OMP_H
+
+=== claude-out-claude-requested: crew-harness='claude' claude=exhausted_now codex=80% through_reset; fm-spawn claude-out-claude-requested-z9 <project> --harness claude --model sonnet ===
+usage gate: the requested ship profile is out of quota (claude:sonnet  provider=claude  scope=all_models  remaining=0%  spendPriority=-  runway=exhausted_now  -> not eligible: runway exhausted_now at all_models); launching on pi openai-codex/gpt-5.6-sol instead
+spawned claude-out-claude-requested-z9 harness=pi kind=ship mode=no-mistakes yolo=off window=firstmate:fm-claude-out-claude-requested-z9 worktree=/tmp/fm-spawn-dispatch-profile.4tORJP/claude-out-claude-requested/wt
+exit=0
+  meta: harness=pi
+  meta: model=openai-codex/gpt-5.6-sol
+  meta: effort=default
+  meta: dispatch_list=default
+  launched: export COMPACT_ADVISER_DISABLE=1; env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI -u ANTIGRAVITY_AGENT -u ATLASSIAN_AGENT_TYPE -u ROVODEV_CLI -u FM_OMP_H
+
+=== pi-claude-model-adversarial: crew-harness='claude' claude=through_reset codex=80% through_reset; fm-spawn pi-claude-model-adversarial-z9 <project> --harness pi --model anthropic/claude-sonnet-5 ===
+candidate: pi:anthropic/claude-sonnet-5  -> not eligible: no provider family for harness pi; declare provider on the profile
+error: the usage gate found no launchable profile for the requested launch profile (pi:anthropic/claude-sonnet-5  -> eligible, unranked: no provider family for harness pi; declare provider on the profile): pi:anthropic/claude-sonnet-5 is not in any declared order, and its own usage is not launchable: no provider family for harness pi; declare provider on the profile (FM_USAGE_GATE=off overrides this check)
+exit=1
+
+=== bare-spawn-crewharness-pi: crew-harness='pi openai-codex/gpt-5.6-sol' claude=through_reset codex=80% through_reset; fm-spawn bare-spawn-crewharness-pi-z9 <project>  ===
+error: config/crew-dispatch.json is active - pass an explicit harness resolved from the dispatch rules (the consultation backstop, so the rules are never silently skipped).
+exit=1
+

@@ -1,0 +1,15 @@
+$ fm-usage-gate.sh select --kind ship --harness pi --model openai-codex/gpt-5.6-sol   (real quota-axi, declared-order default [claude sonnet, pi codex, pi grok])
+usage-gate:
+  status: replace
+  current: pi:openai-codex/gpt-5.6-sol  provider=codex  scope=all_models  remaining=33%  spendPriority=-2.3759  runway=projected_exhaustion  -> eligible
+  candidate: claude:sonnet  provider=claude  scope=all_models  remaining=4%  spendPriority=-2.0354  runway=projected_exhaustion  -> eligible
+  candidate: pi:openai-codex/gpt-5.6-sol  provider=codex  scope=all_models  remaining=33%  spendPriority=-2.3759  runway=projected_exhaustion  -> eligible
+  candidate: pi:xai/grok-4.6  provider=grok  scope=all_products  remaining=0%  spendPriority=-  runway=exhausted_now  -> not eligible: runway exhausted_now at all_products
+  list: default
+  profile: --harness 'claude' --model 'sonnet'
+exit=0
+
+$ quota-axi --json (claude/codex/grok all_models rows)
+{"provider":"claude","avail":[{"scope":"all_models","pct":4,"runway":"projected_exhaustion"},{"scope":"model:fable","pct":4,"runway":"projected_exhaustion"}]}
+{"provider":"codex","avail":[{"scope":"all_models","pct":33,"runway":"projected_exhaustion"}]}
+{"provider":"grok","avail":[{"scope":"all_products","pct":0,"runway":"exhausted_now"},{"scope":"product:grok_build","pct":0,"runway":"exhausted_now"}]}
