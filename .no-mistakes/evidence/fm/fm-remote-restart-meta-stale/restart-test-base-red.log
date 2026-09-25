@@ -1,0 +1,27 @@
+ok - T1 persist is a gate, and asks for open records and task status only
+ok - T2 the mate persists before anything is stopped
+ok - T2b an arrived persist answer is resolved before timeout
+ok - T2c a reply between the preliminary scan and timeout decision wins
+ok - T3 a runtime that cannot prove a restart falls back to the re-read message
+ok - T4 every named mate is accounted for, including one this home does not know
+ok - T4b a captain-stopped mate is skipped, not restarted or nudged
+ok - T4c duplicate arguments are named and counted without restarting twice
+ok - T5 a refused explicit profile leaves the mate running and reports the nudge
+ok - T8 a local restart preserves and reports the mate's recorded runtime
+ok - T8b an explicit restart profile changes one mate without changing the fleet default
+ok - native Ultra survives local restart and the remote restart transport
+ok - T6 a remote mate restarts through the host-local control plane over the fm-on hop
+not ok - the record kept a stale model after the restart changed it: window=remote:sm2
+endpoint_task_id=sm2
+worktree=/tmp/fm-secondmate-restart.YPpcx6/remote-explicit-profile-7125/sm2-home
+project=/tmp/fm-secondmate-restart.YPpcx6/remote-explicit-profile-7125/sm2-home
+harness=pi
+kind=secondmate
+mode=secondmate
+yolo=off
+model=xai/grok-4.6
+effort=high
+home=/tmp/fm-secondmate-restart.YPpcx6/remote-explicit-profile-7125/sm2-home
+remote_host=remote-mac
+remote_backend=herdr
+remote_target=fm-remote:2ndmate-sm2
