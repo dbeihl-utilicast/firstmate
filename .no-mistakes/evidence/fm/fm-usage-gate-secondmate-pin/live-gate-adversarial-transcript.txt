@@ -1,0 +1,86 @@
+== S5 (adversarial): claude KNOWN exhausted, secondmate pin in home without secondmate-harness ==
+### [base] exhausted pin
+$ fm-usage-gate.sh select --kind secondmate --harness claude --model claude-opus-5-5 --effort high --snapshot /home/dbeihl/.no-mistakes/evidence/01M3CNAGTH8EJSJDQHNPWGBQ1N/live-snapshot-claude-exhausted.json
+usage-gate:
+  status: none
+  current: claude:claude-opus-5-5  provider=claude  scope=all_models  remaining=0%  spendPriority=-  runway=exhausted_now  -> not eligible: runway exhausted_now at all_models
+  candidate: claude:claude-opus-5-5  provider=claude  scope=all_models  remaining=0%  spendPriority=-  runway=exhausted_now  -> not eligible: runway exhausted_now at all_models
+  reason: claude:claude-opus-5-5 is not in any declared order, and its own usage is not launchable: runway exhausted_now at all_models
+exit=1
+
+### [target] exhausted pin
+$ fm-usage-gate.sh select --kind secondmate --harness claude --model claude-opus-5-5 --effort high --snapshot /home/dbeihl/.no-mistakes/evidence/01M3CNAGTH8EJSJDQHNPWGBQ1N/live-snapshot-claude-exhausted.json
+usage-gate:
+  status: none
+  current: claude:claude-opus-5-5  provider=claude  scope=all_models  remaining=0%  spendPriority=-  runway=exhausted_now  -> not eligible: runway exhausted_now at all_models
+  candidate: claude:claude-opus-5-5  provider=claude  scope=all_models  remaining=0%  spendPriority=-  runway=exhausted_now  -> not eligible: runway exhausted_now at all_models
+  reason: claude:claude-opus-5-5 is not in the secondmate-harness order, and its own usage is not launchable: runway exhausted_now at all_models
+exit=1
+
+== S6: claude absent from snapshot entirely (not in the quota snapshot) ==
+### [base] absent provider pin
+$ fm-usage-gate.sh select --kind secondmate --harness claude --model claude-opus-5-5 --effort high --snapshot /home/dbeihl/.no-mistakes/evidence/01M3CNAGTH8EJSJDQHNPWGBQ1N/live-snapshot-claude-absent.json
+usage-gate:
+  status: none
+  current: claude:claude-opus-5-5  provider=claude  -> eligible, unranked: provider claude not in the quota snapshot
+  candidate: claude:claude-opus-5-5  provider=claude  -> eligible, unranked: provider claude not in the quota snapshot
+  reason: claude:claude-opus-5-5 is not in any declared order, and its own usage is not launchable: provider claude not in the quota snapshot
+exit=1
+
+### [target] absent provider pin
+$ fm-usage-gate.sh select --kind secondmate --harness claude --model claude-opus-5-5 --effort high --snapshot /home/dbeihl/.no-mistakes/evidence/01M3CNAGTH8EJSJDQHNPWGBQ1N/live-snapshot-claude-absent.json
+usage-gate:
+  status: keep
+  current: claude:claude-opus-5-5  provider=claude  -> eligible, unranked: provider claude not in the quota snapshot
+  candidate: claude:claude-opus-5-5  provider=claude  -> eligible, unranked: provider claude not in the quota snapshot
+exit=0
+
+== S7 (adversarial): declared crew profile with an unverifiable floor, no verified alternate ==
+### [base] floor unverifiable
+$ fm-usage-gate.sh select --kind ship --harness claude --model sonnet --snapshot /tmp/fm-live-q.json
+usage-gate:
+  status: none
+  current: claude:sonnet  provider=claude  scope=all_models  remaining=94%  spendPriority=1.0966  runway=through_reset  -> eligible
+  candidate: claude:sonnet  provider=claude  scope=model:absent  remaining=-%  spendPriority=-  runway=-  -> eligible, unranked: profile floor model:absent is unverifiable: not rankable
+  reason: no declared profile has verified usage
+exit=1
+
+### [target] floor unverifiable
+$ fm-usage-gate.sh select --kind ship --harness claude --model sonnet --snapshot /tmp/fm-live-q.json
+usage-gate:
+  status: none
+  current: claude:sonnet  provider=claude  scope=all_models  remaining=94%  spendPriority=1.0966  runway=through_reset  -> eligible
+  candidate: claude:sonnet  provider=claude  scope=model:absent  remaining=-%  spendPriority=-  runway=-  -> eligible, unranked: profile floor model:absent is unverifiable: not rankable
+  reason: no declared profile has verified usage
+exit=1
+
+== S8 (adversarial): claude unmeasured AND codex exhausted - crew claude:sonnet first in order ==
+### [base] ship claude:sonnet codex out
+$ fm-usage-gate.sh select --kind ship --harness claude --model sonnet --snapshot /home/dbeihl/.no-mistakes/evidence/01M3CNAGTH8EJSJDQHNPWGBQ1N/live-snapshot-claude-unmeasured-codex-exhausted.json
+usage-gate:
+  status: none
+  current: claude:sonnet  provider=claude  -> eligible, unranked: provider claude unmeasured (unknown)
+  candidate: claude:sonnet  provider=claude  -> eligible, unranked: provider claude unmeasured (unknown)
+  candidate: codex:gpt-5.6-sol  provider=codex  scope=all_models  remaining=0%  spendPriority=-  runway=exhausted_now  -> not eligible: runway exhausted_now at all_models
+  candidate: grok:grok-4.6  provider=grok  scope=all_products  remaining=0%  spendPriority=-  runway=exhausted_now  -> not eligible: runway exhausted_now at all_products
+  candidate: cursor:grok-4.6  provider=cursor  scope=all_models  remaining=0%  spendPriority=-  runway=exhausted_now  -> not eligible: runway exhausted_now at all_models
+  candidate: codex:gpt-6-luna  provider=codex  scope=all_models  remaining=0%  spendPriority=-  runway=exhausted_now  -> not eligible: runway exhausted_now at all_models
+  candidate: pi:foundry/grok-4.6  -> not eligible: no provider family for harness pi; declare provider on the profile
+  candidate: codex:gpt-5.6-luna  provider=codex  scope=all_models  remaining=0%  spendPriority=-  runway=exhausted_now  -> not eligible: runway exhausted_now at all_models
+  reason: no declared profile has verified usage
+exit=1
+
+### [target] ship claude:sonnet codex out
+$ fm-usage-gate.sh select --kind ship --harness claude --model sonnet --snapshot /home/dbeihl/.no-mistakes/evidence/01M3CNAGTH8EJSJDQHNPWGBQ1N/live-snapshot-claude-unmeasured-codex-exhausted.json
+usage-gate:
+  status: keep
+  current: claude:sonnet  provider=claude  -> eligible, unranked: provider claude unmeasured (unknown)
+  candidate: claude:sonnet  provider=claude  -> eligible, unranked: provider claude unmeasured (unknown)
+  candidate: codex:gpt-5.6-sol  provider=codex  scope=all_models  remaining=0%  spendPriority=-  runway=exhausted_now  -> not eligible: runway exhausted_now at all_models
+  candidate: grok:grok-4.6  provider=grok  scope=all_products  remaining=0%  spendPriority=-  runway=exhausted_now  -> not eligible: runway exhausted_now at all_products
+  candidate: cursor:grok-4.6  provider=cursor  scope=all_models  remaining=0%  spendPriority=-  runway=exhausted_now  -> not eligible: runway exhausted_now at all_models
+  candidate: codex:gpt-6-luna  provider=codex  scope=all_models  remaining=0%  spendPriority=-  runway=exhausted_now  -> not eligible: runway exhausted_now at all_models
+  candidate: pi:foundry/grok-4.6  -> not eligible: no provider family for harness pi; declare provider on the profile
+  candidate: codex:gpt-5.6-luna  provider=codex  scope=all_models  remaining=0%  spendPriority=-  runway=exhausted_now  -> not eligible: runway exhausted_now at all_models
+exit=0
+

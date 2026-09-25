@@ -1,0 +1,9 @@
+ok - declared order selects the first profile with measured usage and reports every failure
+ok - a recorded declared list returns a shared Pi fallback to that list's Claude profile
+not ok - the refusal names the missing declaration (missing: 'claude:sonnet is not in the secondmate-harness order')
+--- output ---
+usage-gate:
+  status: none
+  current: claude:sonnet  provider=claude  scope=all_models  remaining=0%  spendPriority=-  runway=exhausted_now  -> not eligible: runway exhausted_now at all_models
+  candidate: claude:sonnet  provider=claude  scope=all_models  remaining=0%  spendPriority=-  runway=exhausted_now  -> not eligible: runway exhausted_now at all_models
+  reason: claude:sonnet is not in any declared order, and its own usage is not launchable: runway exhausted_now at all_models
