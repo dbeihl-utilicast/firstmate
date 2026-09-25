@@ -724,6 +724,121 @@ test_harness_switch_does_not_carry_the_old_profile_axes() {
   pass "fm-control relaunch: a harness switch resets model and effort unless they are named too"
 }
 
+# quota_fixture <case-dir> <provider|scope|pct|runway|spendPriority>...
+# Installs a quota-axi on the case's PATH that serves one schema-5 snapshot, and
+# a crew-dispatch file declaring claude sonnet and codex gpt-5.6-terra as
+# interchangeable, so the usage gate has a snapshot to read and an alternate to name.
+quota_fixture() {
+  local dir=$1
+  shift
+  mkdir -p "$dir/home/config"
+  printf '%s\n' "$@" | jq -Rn '
+    [inputs | split("|") | {provider: .[0], scope: .[1], pct: (.[2] | tonumber), runway: .[3], prio: (.[4] | tonumber)}]
+    | group_by(.provider)
+    | {generatedAt: "2030-01-01T00:00:00Z", schemaVersion: 5,
+       providers: map({provider: .[0].provider, state: {status: "fresh"},
+         quotaSemantics: {status: "known", effectiveAvailability: map({
+           scope, status: "known", effectivePercentRemaining: .pct,
+           runway: {status: .runway}, selection: {spendPriority: .prio}})}})}' > "$dir/fake/quota.json"
+  cat > "$dir/fakebin/quota-axi" <<'SH'
+#!/usr/bin/env bash
+case "${1-}" in
+  --version) echo "quota-axi 0.1.37" ;;
+  --json) cat "$FM_FAKE_DIR/quota.json" ;;
+esac
+SH
+  chmod +x "$dir/fakebin/quota-axi"
+  printf '%s\n' '{"schema_version":2,"rules":[],"default":[{"harness":"claude","model":"sonnet"},{"harness":"codex","model":"gpt-5.6-terra"}]}' \
+    > "$dir/home/config/crew-dispatch.json"
+}
+
+test_relaunch_moves_an_exhausted_target_onto_the_declared_replacement() {
+  local dir out rc
+  dir=$(new_case usage-gate rl60)
+  add_ship_task "$dir" rl60 claude
+  sed 's/^model=default$/model=sonnet/' "$dir/home/state/rl60.meta" > "$dir/home/state/rl60.meta.tmp"
+  mv "$dir/home/state/rl60.meta.tmp" "$dir/home/state/rl60.meta"
+  quota_fixture "$dir" 'claude|all_models|0|exhausted_now|-1' 'codex|all_models|80|through_reset|0.5'
+  printf 'codex' > "$dir/fake/becomes"
+  out=$(FM_USAGE_GATE=on run_control "$dir" rl60 relaunch --note "the model ran out"); rc=$?
+  expect_code 0 "$rc" "a relaunch onto an exhausted model must move to the declared replacement"$'\n'"$out"
+  assert_contains "$out" "usage gate" "the substitution should be announced"
+  assert_contains "$out" "runway exhausted_now at all_models" "the announcement should carry the quota evidence"
+  assert_contains "$out" "harness=codex from=claude" "the outcome should name the transition"
+  [ "$(meta_field "$dir" rl60 model)" = gpt-5.6-terra ] || fail "the record should follow the replacement model"
+  pass "fm-control relaunch: an exhausted target moves onto the eligible declared replacement"
+}
+
+test_relaunch_refuses_an_exhausted_target_with_no_alternate_before_stopping_the_agent() {
+  local dir out rc
+  dir=$(new_case usage-gate-none rl64)
+  add_ship_task "$dir" rl64 claude
+  sed 's/^model=default$/model=sonnet/' "$dir/home/state/rl64.meta" > "$dir/home/state/rl64.meta.tmp"
+  mv "$dir/home/state/rl64.meta.tmp" "$dir/home/state/rl64.meta"
+  quota_fixture "$dir" 'claude|all_models|0|exhausted_now|-1' 'codex|all_models|0|exhausted_now|-1'
+  out=$(FM_USAGE_GATE=on run_control "$dir" rl64 relaunch --note "the model ran out"); rc=$?
+  expect_code 1 "$rc" "a relaunch with no eligible alternate must be refused"$'\n'"$out"
+  assert_contains "$out" "no eligible alternate" "the refusal should say why"
+  [ "$(cat "$dir/fake/command")" = claude ] || fail "the refusal must leave the running agent alone"
+  assert_no_grep "/exit" "$dir/fake/literal" "no exit command may be typed for a launch that cannot help"
+  [ "$(meta_field "$dir" rl64 model)" = sonnet ] || fail "the refusal must not touch the task record"
+  [ ! -e "$dir/home/state/rl64.control-relaunch" ] || fail "a pre-stop refusal must not open the transaction journal"
+  pass "fm-control relaunch: an exhausted target with no eligible alternate is refused before the agent is stopped"
+}
+
+test_relaunch_refuses_an_alternate_the_launch_owner_would_refuse_before_stopping_the_agent() {
+  local dir out rc
+  dir=$(new_case usage-gate-ultra rl65)
+  add_ship_task "$dir" rl65 claude
+  sed 's/^model=default$/model=sonnet/' "$dir/home/state/rl65.meta" > "$dir/home/state/rl65.meta.tmp"
+  mv "$dir/home/state/rl65.meta.tmp" "$dir/home/state/rl65.meta"
+  quota_fixture "$dir" 'claude|all_models|0|exhausted_now|-1' 'codex|all_models|80|through_reset|0.5'
+  printf '%s\n' '{"schema_version":2,"rules":[],"default":[{"harness":"claude","model":"sonnet"},{"harness":"codex","model":"gpt-5.6-terra","effort":"ultra"}]}' \
+    > "$dir/home/config/crew-dispatch.json"
+  out=$(FM_USAGE_GATE=on run_control "$dir" rl65 relaunch --note "the model ran out"); rc=$?
+  expect_code 1 "$rc" "an alternate with an unsupported native effort must be refused"$'\n'"$out"
+  assert_contains "$out" "ultra effort requires" "the refusal should carry the launch owner's reason"
+  [ "$(cat "$dir/fake/command")" = claude ] || fail "the refusal must leave the running agent alone"
+  assert_no_grep "/exit" "$dir/fake/literal" "no exit command may be typed for an alternate the launch would refuse"
+  [ "$(meta_field "$dir" rl65 model)" = sonnet ] || fail "the refusal must not touch the task record"
+  [ ! -e "$dir/home/state/rl65.control-relaunch" ] || fail "a pre-stop refusal must not open the transaction journal"
+  pass "fm-control relaunch: the gate's alternate passes the pre-stop profile checks before the agent is stopped"
+}
+
+test_relaunch_onto_the_named_replacement_proceeds() {
+  local dir out rc
+  dir=$(new_case usage-gate-ok rl61)
+  add_ship_task "$dir" rl61 claude
+  sed 's/^model=default$/model=sonnet/' "$dir/home/state/rl61.meta" > "$dir/home/state/rl61.meta.tmp"
+  mv "$dir/home/state/rl61.meta.tmp" "$dir/home/state/rl61.meta"
+  quota_fixture "$dir" 'claude|all_models|0|exhausted_now|-1' 'codex|all_models|80|through_reset|0.5'
+  printf 'codex' > "$dir/fake/becomes"
+  out=$(FM_USAGE_GATE=on run_control "$dir" rl61 relaunch --harness codex --model gpt-5.6-terra --note "the model ran out"); rc=$?
+  expect_code 0 "$rc" "the replacement the gate named must be launchable"$'\n'"$out"
+  assert_contains "$out" "harness=codex from=claude" "the outcome should name the transition"
+  [ "$(meta_field "$dir" rl61 model)" = gpt-5.6-terra ] || fail "the record should follow the replacement model"
+  pass "fm-control relaunch: a relaunch onto the gate's replacement proceeds"
+}
+
+test_relaunch_with_the_gate_off_or_quota_unreadable_still_proceeds() {
+  local dir out rc
+  dir=$(new_case usage-gate-off rl62)
+  add_ship_task "$dir" rl62 claude
+  sed 's/^model=default$/model=sonnet/' "$dir/home/state/rl62.meta" > "$dir/home/state/rl62.meta.tmp"
+  mv "$dir/home/state/rl62.meta.tmp" "$dir/home/state/rl62.meta"
+  quota_fixture "$dir" 'claude|all_models|0|exhausted_now|-1' 'codex|all_models|80|through_reset|0.5'
+  out=$(FM_USAGE_GATE=off run_control "$dir" rl62 relaunch --note "the operator overrides the gate"); rc=$?
+  expect_code 0 "$rc" "FM_USAGE_GATE=off must let a relaunch through"$'\n'"$out"
+  assert_contains "$out" "relaunched rl62 harness=claude" "the relaunch should run on the recorded harness"
+  dir=$(new_case usage-gate-broken rl63)
+  add_ship_task "$dir" rl63 claude
+  quota_fixture "$dir" 'claude|all_models|0|exhausted_now|-1' 'codex|all_models|80|through_reset|0.5'
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$dir/fakebin/quota-axi"
+  out=$(FM_USAGE_GATE=on run_control "$dir" rl63 relaunch --note "quota-axi is down"); rc=$?
+  expect_code 0 "$rc" "an unreadable quota-axi must never block a relaunch"$'\n'"$out"
+  pass "fm-control relaunch: the off switch and an unreadable quota source never block a relaunch"
+}
+
 test_harness_switch_resolves_a_prefixed_recorded_harness() {
   local dir out rc auth
   dir=$(new_case prefixcontrol rl32)
@@ -2715,6 +2830,11 @@ test_relaunch_appends_the_progress_note_to_the_instructions
 test_relaunch_requires_a_note_for_a_ship_task
 test_harness_switch_moves_the_record_and_clears_prior_wiring
 test_harness_switch_does_not_carry_the_old_profile_axes
+test_relaunch_moves_an_exhausted_target_onto_the_declared_replacement
+test_relaunch_refuses_an_exhausted_target_with_no_alternate_before_stopping_the_agent
+test_relaunch_refuses_an_alternate_the_launch_owner_would_refuse_before_stopping_the_agent
+test_relaunch_onto_the_named_replacement_proceeds
+test_relaunch_with_the_gate_off_or_quota_unreadable_still_proceeds
 test_harness_switch_resolves_a_prefixed_recorded_harness
 test_prefixed_recorded_harness_requires_explicit_replacement
 test_relaunch_reuses_a_verified_recorded_harness_without_an_explicit_one

@@ -159,6 +159,9 @@
 #   harness (config/secondmate-harness -> config/crew-harness -> own), so the
 #   secondmate-vs-crewmate split is DURABLE across new and recovery spawns.
 #   In-place relaunches and instruction restarts preserve the recorded profile.
+#   Every launch also runs bin/fm-usage-gate.sh on the resolved profile; one whose
+#   quota is exhausted launches on the eligible declared alternate instead, or is
+#   refused when none is eligible (docs/configuration.md "Usage gate" owns the contract).
 #   A bare adapter name (claude|codex|pi|pi-signed|grok|cursor|qwen|agy|codex-foundry-luna)
 #   overrides it for this spawn (either kind). codex-foundry-luna is codex itself,
 #   repointed at the Azure AI Foundry `gpt-5.6-luna` deployment, named by this
@@ -2281,7 +2284,74 @@ else
   PROJ=${POS[1]}
   ARG3=${POS[2]:-}
 fi
+
+# usage_gate_select <select-args...>: leaves the gate answer in USAGE_GATE_OUT and
+# its status in USAGE_GATE_STATUS (bin/fm-usage-gate.sh owns the verdict).
+USAGE_GATE_OUT=
+USAGE_GATE_STATUS=keep
+USAGE_GATE_CHECKED=0
+usage_gate_select() {
+  local rc=0
+  USAGE_GATE_OUT=$("$SCRIPT_DIR/fm-usage-gate.sh" select --kind "$KIND" "$@" 2>&1) || rc=$?
+  [ "$rc" -le 1 ] || {
+    echo "error: the usage gate could not check the launch profile: $(printf '%s\n' "$USAGE_GATE_OUT" | sed -n '/./{s/^error: //;p;q;}')" >&2
+    exit 1
+  }
+  USAGE_GATE_STATUS=$(printf '%s\n' "$USAGE_GATE_OUT" | sed -n 's/^  status: //p')
+  USAGE_GATE_CHECKED=1
+}
+
+usage_gate_refuse() {
+  local replacement current
+  replacement=$(printf '%s\n' "$USAGE_GATE_OUT" | sed -n 's/^  profile: //p')
+  current=$(printf '%s\n' "$USAGE_GATE_OUT" | sed -n 's/^  current: //p')
+  if [ -n "$replacement" ]; then
+    echo "error: the requested launch profile is out of quota ($current); rerun this spawn with an eligible declared alternate: $replacement (FM_USAGE_GATE=off overrides this check)" >&2
+  else
+    printf '%s\n' "$USAGE_GATE_OUT" | sed -n 's/^  candidate: /candidate: /p' >&2
+    echo "error: the requested launch profile is out of quota ($current) and the usage gate found no eligible alternate ($(printf '%s\n' "$USAGE_GATE_OUT" | sed -n 's/^  reason: //p')) (FM_USAGE_GATE=off overrides this check)" >&2
+  fi
+  exit 1
+}
+
+# A new launch whose profile is out of quota launches on the eligible declared
+# alternate the usage gate selects, explicit profile or config pin alike.
 [ -z "$HARNESS_ARG" ] || ARG3=$HARNESS_ARG
+if [ "$RELAUNCH" -eq 0 ]; then
+  case "$ARG3" in
+    *' '*) ;;
+    '')
+      if [ "$KIND" = secondmate ] && [ "$MODEL_SET" -eq 0 ] && [ "$EFFORT_SET" -eq 0 ]; then
+        usage_gate_select --config-pin --tie-break declared
+      fi
+      ;;
+    *) usage_gate_select --harness "$ARG3" --model "${MODEL:-default}" --effort "${EFFORT:-default}" --tie-break declared ;;
+  esac
+  [ "$USAGE_GATE_STATUS" != none ] || usage_gate_refuse
+  if [ "$USAGE_GATE_STATUS" = replace ]; then
+    MODEL=
+    EFFORT=
+    gate_want=
+    while IFS= read -r gate_token; do
+      case "$gate_want" in
+        harness) HARNESS_ARG=$gate_token ;;
+        model) MODEL=$gate_token ;;
+        effort) EFFORT=$gate_token ;;
+      esac
+      case "$gate_token" in
+        --harness) gate_want=harness ;;
+        --model) gate_want=model ;;
+        --effort) gate_want=effort ;;
+        *) gate_want= ;;
+      esac
+    done < <(printf '%s\n' "$USAGE_GATE_OUT" | sed -n 's/^  profile: //p' | xargs -n1)
+    ARG3=$HARNESS_ARG
+    HARNESS_SET=1
+    MODEL_SET=1
+    EFFORT_SET=1
+    echo "usage gate: the requested $KIND profile is out of quota ($(printf '%s\n' "$USAGE_GATE_OUT" | sed -n 's/^  current: //p')); launching on ${HARNESS_ARG}${MODEL:+ $MODEL}${EFFORT:+ $EFFORT} instead" >&2
+  fi
+fi
 
 shell_quote() {
   printf "'"
@@ -2644,6 +2714,14 @@ if [ "$EFFORT" = ultra ]; then
     echo "error: --effort ultra requires the canonical --harness pi or pi-signed launch so its native flag cannot be omitted" >&2
     exit 1
   }
+fi
+
+# The usage gate is the last deterministic backstop for a profile the early
+# selection did not check: no path launches a lane on a model whose quota is
+# exhausted. A raw launch command names no profile to check.
+if [ "$RAW_LAUNCH" -eq 0 ] && [ "$USAGE_GATE_CHECKED" -eq 0 ]; then
+  usage_gate_select --harness "$HARNESS" --model "${MODEL:-default}" --effort "${EFFORT:-default}"
+  [ "$USAGE_GATE_STATUS" = keep ] || usage_gate_refuse
 fi
 secondmate_registry_value() {
   secondmate_registry_field "$DATA/secondmates.md" "$1" "$2"

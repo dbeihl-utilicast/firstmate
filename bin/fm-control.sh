@@ -70,6 +70,9 @@
 #              inherits the local copy but none of the conversation; a
 #              secondmate reconciles its own home's records at startup, so its
 #              standing charter is never rewritten.
+#              A target profile whose quota is exhausted moves, before the agent
+#              is stopped, to the eligible declared alternate, and is refused
+#              when none is eligible (bin/fm-usage-gate.sh owns the verdict).
 #              Records a durable checkpoint and that note, exits the old agent,
 #              then delegates the launch to its single owner,
 #              bin/fm-spawn.sh --relaunch. A failure before publication keeps
@@ -725,12 +728,6 @@ resolve_relaunch_profile() {
   else
     TARGET_HARNESS=$PRIOR_HARNESS
   fi
-  # The launch owner refuses an adapter that cannot run this task's kind, but it
-  # is only reached after the old agent has been stopped. Asking the same
-  # capability table here keeps that refusal on the pre-stop side of the
-  # transaction, where nothing has changed yet.
-  fm_control_harness_supports_kind "$TARGET_HARNESS" "$KIND" \
-    || die "'$TARGET_HARNESS' is not verified to run a $KIND task, so relaunching $ID onto it would stop the running agent for a launch that must be refused; choose an adapter verified for this kind"
   # A model or effort chosen for the previous harness does not transfer to a
   # different one, so an explicit harness change resets both axes unless the
   # caller names them too.
@@ -748,9 +745,57 @@ resolve_relaunch_profile() {
   else
     TARGET_EFFORT=default
   fi
+  check_target_profile || return 1
+  select_usable_target
+}
+
+# check_target_profile: the launch owner refuses an adapter that cannot run this
+# task's kind, or an unsupported native effort, but it is only reached after the
+# old agent has been stopped. Asking the same owners here keeps those refusals on
+# the pre-stop side of the transaction, where nothing has changed yet.
+check_target_profile() {
+  fm_control_harness_supports_kind "$TARGET_HARNESS" "$KIND" \
+    || die "'$TARGET_HARNESS' is not verified to run a $KIND task, so relaunching $ID onto it would stop the running agent for a launch that must be refused; choose an adapter verified for this kind"
   if [ "$TARGET_EFFORT" = ultra ]; then
     "$SCRIPT_DIR/fm-harness.sh" validate-native-effort "$TARGET_HARNESS" "$TARGET_MODEL" "$TARGET_EFFORT" || return 1
   fi
+  return 0
+}
+
+# select_usable_target: the pre-stop usage check (bin/fm-usage-gate.sh owns the
+# verdict). An exhausted target moves to the eligible declared alternate.
+select_usable_target() {
+  local out rc=0 status current want token
+  out=$("$SCRIPT_DIR/fm-usage-gate.sh" select --kind "$KIND" --harness "$TARGET_HARNESS" \
+    --model "$TARGET_MODEL" --effort "$TARGET_EFFORT" --tie-break declared 2>&1) || rc=$?
+  [ "$rc" -le 1 ] || die "the usage gate could not check task $ID's target profile: $(printf '%s\n' "$out" | sed -n '/./{s/^error: //;p;q;}')"
+  status=$(printf '%s\n' "$out" | sed -n 's/^  status: //p')
+  [ "$status" != keep ] || return 0
+  current=$(printf '%s\n' "$out" | sed -n 's/^  current: //p')
+  if [ "$status" != replace ]; then
+    printf '%s\n' "$out" | sed -n 's/^  candidate: /candidate: /p' >&2
+    die "task $ID's target profile is out of quota ($current) and the usage gate found no eligible alternate ($(printf '%s\n' "$out" | sed -n 's/^  reason: //p')); nothing was changed (FM_USAGE_GATE=off overrides this check)"
+  fi
+  TARGET_MODEL=default
+  TARGET_EFFORT=default
+  want=
+  while IFS= read -r token; do
+    case "$want" in
+      harness) TARGET_HARNESS=$token ;;
+      model) TARGET_MODEL=$token ;;
+      effort) TARGET_EFFORT=$token ;;
+    esac
+    case "$token" in
+      --harness) want=harness ;;
+      --model) want=model ;;
+      --effort) want=effort ;;
+      *) want= ;;
+    esac
+  done < <(printf '%s\n' "$out" | sed -n 's/^  profile: //p' | xargs -n1)
+  fm_control_harness_supported "$TARGET_HARNESS" \
+    || die "the usage gate's alternate '$TARGET_HARNESS' for task $ID is not a verified harness; nothing was changed"
+  check_target_profile || return 1
+  echo "usage gate: task $ID's target profile is out of quota ($current); relaunching on $TARGET_HARNESS:$TARGET_MODEL instead" >&2
 }
 
 # safe_checkpoint: prove, before anything is stopped, that the work a relaunch
@@ -939,7 +984,9 @@ do_relaunch() {
   spawn_args=("$ID" --relaunch --harness "$TARGET_HARNESS")
   [ "$TARGET_MODEL" = default ] || spawn_args+=(--model "$TARGET_MODEL")
   [ "$TARGET_EFFORT" = default ] || spawn_args+=(--effort "$TARGET_EFFORT")
-  if FM_CONTROL_RELAUNCH_TX="$RELAUNCH_TX" \
+  # The usage gate already passed this target before the agent was stopped; the
+  # launch half must not refuse it again after the stop.
+  if FM_CONTROL_RELAUNCH_TX="$RELAUNCH_TX" FM_USAGE_GATE=off \
       "$SCRIPT_DIR/fm-spawn.sh" "${spawn_args[@]}" >/dev/null; then
     RELAUNCH_META_PUBLISHED=1
     # $T was resolved from the record before the launch. When the recorded

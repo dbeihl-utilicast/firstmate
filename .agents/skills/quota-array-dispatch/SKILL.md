@@ -33,6 +33,8 @@ omp has no primary family, so the helper keys an `omp:` candidate on its model p
 Authoritative multi-provider routing stays owned by this skill's intake procedure.
 Use it only when the brief already fixed the candidate order and every candidate's provider is the harness's primary family.
 It does not replace the reasoning-class, runway-feasibility, or authentication gates above.
+Whatever profile intake selects, the launch owners then run `bin/fm-usage-gate.sh` deterministically: `fm-spawn.sh` and `fm-control.sh relaunch` launch an exhausted profile's eligible declared alternate instead, and the watcher's `fm-usage-gate.sh sweep --relaunch` moves a live lane whose model ran out ([usage gate](../../../docs/configuration.md#usage-gate-binfm-usage-gatesh) owns the contract).
+That backstop never replaces this skill's ranking, reasoning-class, or runway gates.
 Firstmate can optionally arm `bin/fm-procevent-quota.sh` for a recurring mid-task check that wakes when the tracked provider drops below its configured threshold or its runway becomes `exhausted_now`.
 The opt-in [typed resolver](../../../docs/configuration.md#typed-dispatch-resolution-env-typesafe_api_key) has its own documented gates.
 It never removes this skill's authority, and its `ambiguous`, `escalate`, and `error` outcomes return here.

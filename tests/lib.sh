@@ -47,6 +47,10 @@ umask 022
 # strips this to verify real refusal.
 export FM_GATE_REFUSE_BYPASS=1
 
+# Launch owners run bin/fm-usage-gate.sh against the operator's real quota-axi;
+# the gate's own suite and the launch-owner gate cases turn it back on.
+export FM_USAGE_GATE=off
+
 # Clear the task-worker marker bin/fm-spawn.sh exports into ship and scout
 # panes. This suite builds git-init fixture repositories whose primary checkout
 # it runs a copied bin/fm-test-run.sh in, and that runner refuses the primary
