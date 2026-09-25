@@ -244,7 +244,7 @@ CORE_JQ='
       ($ordered | map(quota_evaluate($q; $pmap; .))) as $cands
       | quota_choose_declared($cands) as $verified
       | (if $verified.status == "clear" then $verified
-         else ([$cands[] | select(.eligible)] | first) as $open
+         else ([$cands[] | select(.eligible and (.unmeasured // false))] | first) as $open
            | if $open != null then {status: "clear", chosen: $open} else $verified end
          end) as $pick
       | (if $list != "" then {list: $list} else {} end) as $named

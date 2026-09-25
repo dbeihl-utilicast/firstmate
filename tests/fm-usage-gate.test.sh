@@ -200,6 +200,16 @@ expect_code 1 "$GATE_RC" "a known-exhausted pin is still refused"
 assert_not_contains "$GATE_OUT" "status: keep" "exhaustion is never treated as uncertainty"
 pass "an unmeasured provider stays launchable while exhaustion is still refused"
 
+write_dispatch '{"schema_version":2,"dispatch":{"selector":"declared-order"},"rules":[],"default":[
+  {"harness":"claude","model":"sonnet","floor":{"scope":"model:absent","min_percent":10}}]}'
+Q_FLOOR_UNVERIFIABLE="$TMP_ROOT/q-floor-unverifiable.json"
+snapshot "$Q_FLOOR_UNVERIFIABLE" 'claude|all_models|60|through_reset|0.1'
+run_gate select --kind ship --harness claude --model sonnet --snapshot "$Q_FLOOR_UNVERIFIABLE"
+expect_code 1 "$GATE_RC" "a declared profile whose floor is unverifiable is refused"
+assert_not_contains "$GATE_OUT" "status: keep" "an unverifiable floor is never treated as an unmeasured provider"
+assert_contains "$GATE_OUT" "profile floor model:absent is unverifiable" "the unverifiable floor is disclosed"
+pass "a measured provider with an unverifiable floor stays refused in declared-order mode"
+
 # --- healthy profile is kept ---------------------------------------------------
 write_dispatch "$DISPATCH_PAIR"
 run_gate select --kind ship --harness claude --model sonnet --snapshot "$Q_HEALTHY"
