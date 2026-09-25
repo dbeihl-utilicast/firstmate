@@ -1,0 +1,24 @@
+ok - a profile with quota left is kept
+ok - an exhausted profile is replaced by the best eligible declared sibling
+ok - a known zero remaining is exhaustion
+ok - a model window exhausts only its own model
+ok - an exhausted profile with no declared alternate is reported as none
+ok - alternates come only from the array that lists the exhausted profile
+ok - a profile listed in several arrays only falls back to profiles every one of them lists
+ok - an alternate below its declared floor is not selected
+ok - only exhaustion, not a floor shortfall, replaces the current profile
+ok - no eligible alternate is reported as none with every candidate's evidence
+ok - a spendPriority tie is reported by default and broken by declared order only on request
+ok - unmeasured quota keeps the profile launchable and says why
+ok - a declared provider binds a multi-provider harness to its quota row
+ok - the live read, its failures, and the off switch
+ok - malformed input and bad usage exit 2 without selecting around them
+ok - a secondmate pin falls back to the later lines of config/secondmate-harness
+ok - a mate running an alternate can fall back to the pin
+ok - sweep detects exhausted live lanes and touches nothing
+ok - sweep --relaunch replaces exactly the actionable exhausted lanes through fm-control
+ok - a refused relaunch and a lane with no alternate exit 3 with their reasons
+ok - an unavailable quota source is exit 4, and the off switch is a clean no-op
+ok - the watcher sweeps exhausted lanes and relaunches them without being asked
+ok - a watcher sweep that leaves a lane unresolved raises a usage-sweep wake
+# all fm-usage-gate tests passed

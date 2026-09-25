@@ -1,0 +1,4 @@
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+warning: /tmp/fmusagelab.QP48eg/home/data/idle2/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+error: the replacement agent for idle2 did not come up within 90s (endpoint reads 'dead')
+error: idle2 was relaunched on codex but no running agent could be confirmed; its work is preserved at /tmp/fmusagelab.QP48eg/wt-idle2

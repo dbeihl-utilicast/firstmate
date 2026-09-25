@@ -1,0 +1,53 @@
+## Herdr lab fm-lab-usagesweep-2839083-12302 (herdr 0.9.1), FM_HOME=/tmp/fmusagelab.QP48eg/home
+## quota-axi on PATH serves the real host snapshot with claude all_models edited to exhausted_now; crew-dispatch default = [claude:sonnet, codex:gpt-5.6-terra]
+## idle1: live pane, claude-hook busy record idle, no status line. done1: live pane, idle, status log 'done: finished the task'
+$ fm-crew-state.sh idle1 / done1
+state: unknown · source: none · no current-state source available
+state: blocked · source: status-log · done refused: missing recorded PR; unpushed head
+
+$ fm-usage-gate.sh sweep
+usage-gate sweep:
+  held: done1 ship claude:sonnet exhausted; state blocked via status-log
+  exhausted: idle1 ship claude:sonnet -> codex:gpt-5.6-terra (runway exhausted_now at all_models)
+  summary: 2 checked, 2 exhausted (1 actionable, 1 held), 0 relaunched, 0 failed
+exit 1
+
+$ fm-usage-gate.sh sweep --relaunch   (NO_MISTAKES_GATE unset for this throwaway lab home only)
+usage-gate sweep:
+  held: done1 ship claude:sonnet exhausted; state blocked via status-log
+  exhausted: idle1 ship claude:sonnet -> codex:gpt-5.6-terra (runway exhausted_now at all_models)
+  unreached: idle1: refusing fleet lifecycle from inside a no-mistakes gate worktree (/home/dbeihl/.no-mistakes/repos/4962ffbf57ea.git)
+  summary: 2 checked, 2 exhausted (1 actionable, 1 held), 0 relaunched, 1 failed
+exit 3
+
+$ FM_GATE_REFUSE_BYPASS=1 fm-usage-gate.sh sweep --relaunch   (test-harness bypass; NO_MISTAKES_GATE unset; lab home only)
+usage-gate sweep:
+  held: done1 ship claude:sonnet exhausted; state blocked via status-log
+  exhausted: idle1 ship claude:sonnet -> codex:gpt-5.6-terra (runway exhausted_now at all_models)
+  unreached: idle1: ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  summary: 2 checked, 2 exhausted (1 actionable, 1 held), 0 relaunched, 1 failed
+exit 3
+
+$ state/idle1.meta after
+window=fm-lab-usagesweep-2839083-12302:w1:p2
+harness=codex
+model=gpt-5.6-terra
+effort=default
+herdr_pane_id=w1:p2
+$ state/done1.meta after
+harness=claude
+model=sonnet
+effort=default
+
+$ herdr pane read idle1 (w1:p2), last lines
+dbeihl@spark-cd19:/tmp/fmusagelab.QP48eg/wt-idle1$ claude --model sonnet
+FAKE-claude-AGENT args: --model sonnet
+export GOTMPDIR=/tmp/fm-idle1/gotmp
+export COMPACT_ADVISER_DISABLE=1
+export FM_TASK_ID=idle1
+. '/tmp/fm-idle1+bda87dd95427fbf45ad00370f2eee5d2c1d1fd44d102fb226b596da42d75416f/launch.s1790293448.3463288.20759.sh'
+
+$ herdr pane read done1 (w1:p3), last lines
+claude is /tmp/fmusagelab.QP48eg/fakebin/claude
+dbeihl@spark-cd19:/tmp/fmusagelab.QP48eg/wt-done1$ claude --model sonnet
+FAKE-claude-AGENT args: --model sonnet

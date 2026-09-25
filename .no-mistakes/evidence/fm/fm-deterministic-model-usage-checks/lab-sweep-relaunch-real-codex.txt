@@ -1,0 +1,35 @@
+## idle4: live lab pane whose claude:sonnet agent already exited at its limit (pane shell remains, no status line); the pane shell resolves the REAL codex binary
+$ fm-crew-state.sh idle4
+state: unknown · source: pane · harness state unavailable (unknown missing)
+$ FM_GATE_REFUSE_BYPASS=1 fm-usage-gate.sh sweep --relaunch
+usage-gate sweep:
+  held: done1 ship claude:sonnet exhausted; state blocked via status-log
+  exhausted: idle4 ship claude:sonnet -> codex:gpt-5.6-terra (runway exhausted_now at all_models)
+  relaunched: idle4 on codex:gpt-5.6-terra
+  summary: 5 checked, 2 exhausted (1 actionable, 1 held), 1 relaunched, 0 failed
+exit 0
+
+$ state/idle4.meta after
+harness=codex
+model=gpt-5.6-terra
+effort=default
+herdr_pane_id=w1:p6
+$ state/idle4.control-relaunch phase
+phase=complete
+$ herdr pane get idle4
+{"pane_id":"w1:p6","agent":"codex","agent_status":"idle"}
+
+$ herdr pane read idle4 (w1:p6) after relaunch
+dbeihl@spark-cd19:/tmp/fmusagelab.QP48eg/wt-idle4$ export GOTMPDIR=/tmp/fm-idle4/gotmp
+dbeihl@spark-cd19:/tmp/fmusagelab.QP48eg/wt-idle4$ export COMPACT_ADVISER_DISABLE=1
+dbeihl@spark-cd19:/tmp/fmusagelab.QP48eg/wt-idle4$ export FM_TASK_ID=idle4
+dbeihl@spark-cd19:/tmp/fmusagelab.QP48eg/wt-idle4$ . '/tmp/fm-idle4+bda87dd95427fbf45ad00370f2eee5d2c1d1fd44d102fb226b59
+6da42d75416f/launch.s1790293853.711490.15689.sh'
+> You are in /tmp/fmusagelab.QP48eg/wt-idle4
+  Note: You’re in a subdirectory of a Git project. Trusting will apply to the repository root:
+  /tmp/fmusagelab.QP48eg/proj
+  Do you trust the contents of this directory? Working with untrusted contents comes with higher risk of prompt
+  injection. Trusting the directory allows project-local config, hooks, and exec policies to load.
+› 1. Yes, continue
+  2. No, quit
+  Press enter to continue

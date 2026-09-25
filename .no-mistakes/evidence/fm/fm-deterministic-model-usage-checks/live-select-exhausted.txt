@@ -1,0 +1,41 @@
+$ config/crew-dispatch.json
+{"schema_version":2,"rules":[{"when":"big refactor","use":[{"harness":"claude","model":"opus"},{"harness":"codex"}]}],"default":[{"harness":"claude","model":"sonnet"},{"harness":"codex","model":"gpt-5.6-terra"}]}
+
+### 1. ship on exhausted claude:sonnet -> declared codex sibling
+usage-gate:
+  status: replace
+  current: claude:sonnet  provider=claude  scope=all_models  remaining=0%  spendPriority=-  runway=exhausted_now  -> not eligible: runway exhausted_now at all_models
+  candidate: codex:gpt-5.6-terra  provider=codex  scope=all_models  remaining=44%  spendPriority=-3.1481  runway=projected_exhaustion  -> eligible
+  profile: --harness 'codex' --model 'gpt-5.6-terra'
+exit 0
+
+### 2. codex (quota left) is kept
+usage-gate:
+  status: keep
+  current: codex:gpt-5.6-terra  provider=codex  scope=all_models  remaining=44%  spendPriority=-3.1481  runway=projected_exhaustion  -> eligible
+exit 0
+
+### 3. adversarial: exhausted claude:haiku declared nowhere -> none, no invented alternate
+usage-gate:
+  status: none
+  current: claude:haiku  provider=claude  scope=all_models  remaining=0%  spendPriority=-  runway=exhausted_now  -> not eligible: runway exhausted_now at all_models
+  reason: no alternate profile is declared for this harness and model
+exit 1
+
+### 4. secondmate config pin claude sonnet exhausted -> next line of config/secondmate-harness
+usage-gate:
+  status: replace
+  current: claude:sonnet  provider=claude  scope=all_models  remaining=0%  spendPriority=-  runway=exhausted_now  -> not eligible: runway exhausted_now at all_models
+  candidate: codex:gpt-5.6-terra  provider=codex  scope=all_models  remaining=44%  spendPriority=-3.1481  runway=projected_exhaustion  -> eligible
+  profile: --harness 'codex' --model 'gpt-5.6-terra'
+exit 0
+
+### 5. adversarial: malformed crew-dispatch with exhausted profile -> exit 2, not a silent pick
+error: config/crew-dispatch.json is not readable JSON with rules and default profile arrays: /tmp/tmp.f1UP0VLCHN/config/crew-dispatch.json
+exit 2
+
+### 6. malformed config does not block a healthy profile
+usage-gate:
+  status: keep
+  current: codex:-  provider=codex  scope=all_models  remaining=44%  spendPriority=-3.1481  runway=projected_exhaustion  -> eligible
+exit 0

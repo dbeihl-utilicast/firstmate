@@ -1,0 +1,21 @@
+## same lab; quota-axi now serves claude all_models exhausted_now; codex lanes marked stopped
+## idle1: claude:sonnet lane whose agent already exited at its limit (pane shell remains), no status line; relaunch target codex:gpt-5.6-terra; task worktree and brief exist; the pane shell resolves the REAL codex binary
+$ /home/dbeihl/.no-mistakes/worktrees/4962ffbf57ea/01M3AT3XHQK8YT3NF28T6DYVYH/bin/fm-crew-state.sh idle1
+state: unknown · source: pane · harness state unavailable (unknown missing)
+
+$ env FM_GATE_REFUSE_BYPASS=1 /home/dbeihl/.no-mistakes/worktrees/4962ffbf57ea/01M3AT3XHQK8YT3NF28T6DYVYH/bin/fm-usage-gate.sh sweep --relaunch
+usage-gate sweep:
+  exhausted: idle1 ship claude:sonnet -> codex:gpt-5.6-terra (runway exhausted_now at all_models)
+  relaunched: idle1 on codex:gpt-5.6-terra
+  summary: 1 checked, 1 exhausted (1 actionable, 0 held), 1 relaunched, 0 failed
+exit 0
+$ state/idle1.meta after
+harness=codex
+model=gpt-5.6-terra
+effort=default
+herdr_pane_id=w1:p4
+$ state/idle1.control-relaunch
+phase=complete
+$ herdr agent get idle1 after
+{"agent":"codex","status":"idle"}
+$ herdr pane read idle1, last lines

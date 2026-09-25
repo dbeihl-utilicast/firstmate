@@ -1,0 +1,48 @@
+## Herdr lab fm-lab-usager2-75821-14571 (herdr herdr 0.9.1), FM_HOME=/tmp/fmu2/home
+## quota-axi on PATH serves today's real host snapshot with codex all_models edited to exhausted_now (claude untouched)
+## crew-dispatch default = [codex:gpt-5.6-terra, claude:sonnet]; cdone1/cblk1/cidle1 are live codex panes
+
+$ herdr agent get cdone1 (w1:p1)
+{"agent":"codex","status":"idle"}
+$ herdr agent get cblk1 (w1:p2)
+{"agent":"codex","status":"idle"}
+$ herdr agent get cidle1 (w1:p3)
+{"agent":"codex","status":"idle"}
+$ cat state/cdone1.status
+done: finished the task, PR opened
+$ cat state/cblk1.status
+blocked: waiting on the captain for a scope call
+
+$ /home/dbeihl/.no-mistakes/worktrees/4962ffbf57ea/01M3AT3XHQK8YT3NF28T6DYVYH/bin/fm-crew-state.sh cdone1
+state: unknown · source: pane · harness state unavailable (unknown codex-unverified)
+$ /home/dbeihl/.no-mistakes/worktrees/4962ffbf57ea/01M3AT3XHQK8YT3NF28T6DYVYH/bin/fm-crew-state.sh cblk1
+state: unknown · source: pane · harness state unavailable (unknown codex-unverified)
+$ /home/dbeihl/.no-mistakes/worktrees/4962ffbf57ea/01M3AT3XHQK8YT3NF28T6DYVYH/bin/fm-crew-state.sh cidle1
+state: unknown · source: pane · harness state unavailable (unknown codex-unverified)
+
+$ /home/dbeihl/.no-mistakes/worktrees/4962ffbf57ea/01M3AT3XHQK8YT3NF28T6DYVYH/bin/fm-usage-gate.sh sweep
+usage-gate sweep:
+  held: cblk1 ship codex:gpt-5.6-terra exhausted; state blocked via status-log
+  held: cdone1 ship codex:gpt-5.6-terra exhausted; state done via status-log
+  exhausted: cidle1 ship codex:gpt-5.6-terra -> claude:sonnet (runway exhausted_now at all_models)
+  summary: 4 checked, 3 exhausted (1 actionable, 2 held), 0 relaunched, 0 failed
+exit 1
+
+## cidle1 marked stopped so --relaunch only sees the finished and blocked lanes
+
+$ env FM_GATE_REFUSE_BYPASS=1 /home/dbeihl/.no-mistakes/worktrees/4962ffbf57ea/01M3AT3XHQK8YT3NF28T6DYVYH/bin/fm-usage-gate.sh sweep --relaunch
+usage-gate sweep:
+  held: cblk1 ship codex:gpt-5.6-terra exhausted; state blocked via status-log
+  held: cdone1 ship codex:gpt-5.6-terra exhausted; state done via status-log
+  summary: 3 checked, 2 exhausted (0 actionable, 2 held), 0 relaunched, 0 failed
+exit 0
+$ grep harness/model state/cdone1.meta after
+harness=codex
+model=gpt-5.6-terra
+(no cdone1.control-relaunch record: fm-control was never invoked)
+$ grep harness/model state/cblk1.meta after
+harness=codex
+model=gpt-5.6-terra
+(no cblk1.control-relaunch record: fm-control was never invoked)
+$ herdr agent get cdone1 after
+{"agent":"codex","status":"idle"}
