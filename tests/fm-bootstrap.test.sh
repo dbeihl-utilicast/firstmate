@@ -1177,7 +1177,7 @@ unsupported v2 effort is refused^.rules[0].use[0].effort = "max"^exact^CREW_DISP
 native astra cannot claim ordinary class^.rules[0].use[0].harness = "pi" | .rules[0].use[0].model = "codex-native/gpt-6-astra" | .rules[0].use[0].effort = "ultra"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 profile.model_class does not match model: codex-native/gpt-6-astra
 astra cannot claim ordinary class^.rules[0].use[0].model = "gpt-6-astra"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 profile.model_class does not match model: gpt-6-astra
 fable cannot claim ordinary class^.rules[0].use[0].harness = "claude" | .rules[0].use[0].model = "fable"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 profile.model_class does not match model: fable
-qualified fable cannot claim ordinary class^.rules[0].use[0].harness = "pi-signed" | .rules[0].use[0].model = "anthropic/fable"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 profile.model_class does not match model: anthropic/fable
+qualified fable cannot run inside Pi^.rules[0].use[0].harness = "pi-signed" | .rules[0].use[0].model = "anthropic/fable"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 Claude models require the Claude Code harness, not Pi
 astra default cannot claim ordinary class^.default[0].model = "gpt-6-astra"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 profile.model_class does not match model: gpt-6-astra
 fable default cannot claim ordinary class^.default[0].harness = "claude" | .default[0].model = "fable"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 profile.model_class does not match model: fable
 astra default is refused^.default[0].model_class = "astra" | .default[0].model = "gpt-6-astra"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 top-tier model class astra cannot appear in default
@@ -1197,7 +1197,10 @@ unknown blocked model class is refused^.constraints[0].blocked_model_classes = [
 astra-only blocked list is accepted^.constraints[0].blocked_model_classes = ["astra"]^empty^
 unknown_model_class other than treat_as_blocked is refused^.constraints[0].unknown_model_class = "allow"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 constraint.unknown_model_class must be treat_as_blocked
 on_no_eligible_candidate other than report is refused^.constraints[0].on_no_eligible_candidate = "fallback"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 constraint.on_no_eligible_candidate must be report
-qualified ordinary model is accepted^.rules[0].use[0].harness = "pi" | .rules[0].use[0].model = "anthropic/claude-sonnet-5"^empty^
+Claude through Pi is refused^.rules[0].use[0].harness = "pi" | .rules[0].use[0].model = "anthropic/claude-sonnet-5"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 Claude models require the Claude Code harness, not Pi
+Nested Claude through Pi is refused^.rules[0].use[0].harness = "pi" | .rules[0].use[0].model = "openrouter/anthropic/claude-sonnet-5"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 Claude models require the Claude Code harness, not Pi
+Claude alias through pi-signed is refused^.rules[0].use[0].harness = "pi-signed" | .rules[0].use[0].model = "claude-sonnet-5"^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 Claude models require the Claude Code harness, not Pi
+declared order is accepted^.dispatch.selector = "declared-order"^empty^
 array reasoning mode is refused^.rules[0].reasoning = {"mode":["fixed"]}^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 rule reasoning.mode must be one of generic, fixed
 empty array reasoning mode is refused^.rules[0].reasoning = {"mode":[]}^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 rule reasoning.mode must be one of generic, fixed
 array reasoning target is refused^.rules[0].reasoning = {"mode":"fixed","target":["high"],"dispatch_reason_required":true}^exact^CREW_DISPATCH: invalid config/crew-dispatch.json - v2 rule reasoning.target must be one of low, medium, high, xhigh, max

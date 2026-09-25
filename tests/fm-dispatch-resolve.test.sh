@@ -285,6 +285,21 @@ assert_not_contains "$body" 'spendPriority' "quota never leaves the machine"
 assert_not_contains "$body" 'cursor-grok' "use profiles never leave the machine"
 pass "clear: one rule Choice request, key on the fd header only, spendPriority argmax over every candidate"
 
+# --- declared order uses usage, not spendPriority ---------------------------
+jq '.dispatch.selector = "declared-order" | .rules[3].use = [
+  {id:"claude",harness:"claude",model:"sonnet",model_class:"ordinary"},
+  {id:"pi-codex",harness:"pi",model:"openai-codex/gpt-5.6-sol",provider:"codex",model_class:"ordinary"},
+  {id:"pi-grok",harness:"pi",model:"xai/grok-4.6",provider:"grok",model_class:"ordinary"}]' "$BASE_RULES" > "$RULES"
+write_response "$RESPONSE" rule_4 0.9
+TYPESAFE_API_KEY=$KEY run code out err "$BRIEF" --project pager
+assert_contains "$out" "profile: --harness 'claude' --model 'sonnet'" "first eligible profile wins despite lower spendPriority"
+jq '(.providers[] | select(.provider == "claude") | .quotaSemantics.effectiveAvailability[] | select(.scope == "all_models") | .effectivePercentRemaining) = 0 |
+  (.providers[] | select(.provider == "claude") | .quotaSemantics.effectiveAvailability[] | select(.scope == "all_models") | .runway.status) = "exhausted_now"' "$QUOTA" > "$TMP_ROOT/declared-claude-out.json"
+TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$TMP_ROOT/declared-claude-out.json" run code out err "$BRIEF" --project pager
+assert_contains "$out" "profile: --harness 'pi' --model 'openai-codex/gpt-5.6-sol'" "Pi Codex follows exhausted Claude"
+cp "$BASE_RULES" "$RULES"
+pass "typed dispatch uses the same declared order as the usage gate"
+
 # --- rules are snapshotted and line output is injection-safe -------------------
 MUTATED_RULES="$TMP_ROOT/mutated-rules.json"
 jq '.rules[3].use = {"harness":"claude","model":"opus"}' "$BASE_RULES" > "$MUTATED_RULES"
@@ -820,7 +835,7 @@ for bad in \
   '{"rules":[{"when":"x","use":{"harness":"qwen","model":"qwen3-coder"}}]}|use profiles whose harness lacks one authoritative provider family require provider: qwen' \
   '{"rules":[{"when":"x","use":{"harness":"codex-foundry-luna","model":"gpt-5.6-luna"}}]}|use profiles whose harness lacks one authoritative provider family require provider: codex-foundry-luna' \
   '{"rules":[{"when":"x","use":{"harness":"codex-foundry-luna","model":"gpt-5.6-luna","effort":"max","provider":"codex"}}]}|each use profile effort must be supported by its harness and model' \
-  '{"rules":[{"when":"x","use":{"harness":"codex"}}],"default":{"harness":"pi","model":"anthropic/claude-sonnet-5"}}|default profiles whose harness lacks one authoritative provider family require provider: pi'; do
+  '{"rules":[{"when":"x","use":{"harness":"codex"}}],"default":{"harness":"pi","model":"google/gemini-3.8-flash-high"}}|default profiles whose harness lacks one authoritative provider family require provider: pi'; do
   # Every case but the schema-version ones is otherwise V2, so its own defect is what refuses it.
   printf '%s\n' "${bad%%|*}" | jq 'if has("schema_version") then . else {schema_version: 2} + . end' > "$RULES"
   TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"

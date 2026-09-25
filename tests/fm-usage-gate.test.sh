@@ -95,6 +95,69 @@ snapshot "$Q_MIXED" \
   'codex|all_models|80|through_reset|0.5' \
   'grok|all_models|90|through_reset|0.9'
 
+DECLARED='{"schema_version":2,"dispatch":{"selector":"declared-order"},"rules":[],"default":[{"harness":"claude","model":"sonnet"},{"harness":"pi","model":"openai-codex/gpt-5.6-sol","provider":"codex"},{"harness":"pi","model":"xai/grok-4.6","provider":"grok"}]}'
+Q_DECLARED="$TMP_ROOT/q-declared.json"
+snapshot "$Q_DECLARED" 'claude|all_models|60|through_reset|0.1' 'codex|all_models|80|through_reset|0.2' 'grok|all_models|90|through_reset|0.9'
+write_dispatch "$DECLARED"
+run_gate select --kind ship --harness pi --model openai-codex/gpt-5.6-sol --snapshot "$Q_DECLARED"
+assert_contains "$GATE_OUT" "profile: --harness 'claude' --model 'sonnet'" "declared order chooses Claude even when Pi was requested"
+assert_not_contains "$GATE_OUT" "out_of_quota:" "a healthy profile reordered by the declared order is not out of quota"
+Q_DECLARED_CLAUDE_OUT="$TMP_ROOT/q-declared-claude-out.json"
+snapshot "$Q_DECLARED_CLAUDE_OUT" 'claude|all_models|0|exhausted_now|-1' 'codex|all_models|80|through_reset|0.2' 'grok|all_models|90|through_reset|0.9'
+run_gate select --kind ship --harness claude --model sonnet --snapshot "$Q_DECLARED_CLAUDE_OUT"
+assert_contains "$GATE_OUT" "profile: --harness 'pi' --model 'openai-codex/gpt-5.6-sol'" "declared order chooses Pi Codex before higher-priority Grok"
+assert_contains "$GATE_OUT" "out_of_quota: yes" "an exhausted declared profile is marked out of quota"
+Q_DECLARED_TWO_OUT="$TMP_ROOT/q-declared-two-out.json"
+snapshot "$Q_DECLARED_TWO_OUT" 'claude|all_models|0|exhausted_now|-1' 'codex|all_models|0|exhausted_now|-1' 'grok|all_models|90|through_reset|0.9'
+run_gate select --kind ship --harness claude --model sonnet --snapshot "$Q_DECLARED_TWO_OUT"
+assert_contains "$GATE_OUT" "profile: --harness 'pi' --model 'xai/grok-4.6'" "declared order chooses Pi Grok after Codex is exhausted"
+Q_DECLARED_ALL_OUT="$TMP_ROOT/q-declared-all-out.json"
+snapshot "$Q_DECLARED_ALL_OUT" 'claude|all_models|0|exhausted_now|-1' 'codex|all_models|0|exhausted_now|-1' 'grok|all_models|0|exhausted_now|-1'
+run_gate select --kind ship --harness claude --model sonnet --snapshot "$Q_DECLARED_ALL_OUT"
+expect_code 1 "$GATE_RC" "all declared profiles exhausted"
+assert_contains "$GATE_OUT" "candidate: pi:openai-codex/gpt-5.6-sol" "the Codex failure is reported"
+assert_contains "$GATE_OUT" "candidate: pi:xai/grok-4.6" "the Grok failure is reported"
+printf '%s\n' 'claude sonnet' 'pi openai-codex/gpt-5.6-sol' 'pi xai/grok-4.6' > "$CONFIG/secondmate-harness"
+run_gate select --kind secondmate --harness claude --model sonnet --snapshot "$Q_DECLARED_CLAUDE_OUT"
+assert_contains "$GATE_OUT" "profile: --harness 'pi' --model 'openai-codex/gpt-5.6-sol'" "a secondmate uses the same declared order"
+printf '%s\n' 'claude sonnet' 'codex gpt-5.6-terra' > "$CONFIG/secondmate-harness"
+run_gate select --kind secondmate --harness codex --model gpt-5.6-terra --snapshot "$Q_DECLARED"
+assert_contains "$GATE_OUT" "profile: --harness 'claude' --model 'sonnet'" "a secondmate on a healthy later profile returns to Claude"
+rm -f "$CONFIG/secondmate-harness"
+pass "declared order selects the first profile with measured usage and reports every failure"
+
+write_dispatch '{"schema_version":2,"dispatch":{"selector":"declared-order"},"rules":[{"id":"deep","when":"deep work","use":[{"harness":"claude","model":"opus"},{"harness":"pi","model":"openai-codex/gpt-5.6-sol","provider":"codex"},{"harness":"pi","model":"xai/grok-4.6","provider":"grok"}]}],"default":[{"harness":"claude","model":"sonnet"},{"harness":"pi","model":"openai-codex/gpt-5.6-sol","provider":"codex"},{"harness":"pi","model":"xai/grok-4.6","provider":"grok"}]}'
+run_gate select --kind ship --harness claude --model opus --snapshot "$Q_DECLARED_CLAUDE_OUT"
+assert_contains "$GATE_OUT" "list: deep" "a launch names the declared list it was selected from"
+run_gate select --kind ship --harness pi --model openai-codex/gpt-5.6-sol --list deep --snapshot "$Q_DECLARED"
+expect_code 0 "$GATE_RC" "a recorded list selects"
+assert_contains "$GATE_OUT" "profile: --harness 'claude' --model 'opus'" "a lane on a shared Pi fallback returns to its list's Claude profile"
+run_gate select --kind ship --harness pi --model openai-codex/gpt-5.6-sol --snapshot "$Q_DECLARED"
+assert_contains "$GATE_OUT" "status: keep" "a record without a list keeps the intersection order"
+assert_not_contains "$GATE_OUT" "list:" "a profile shared by several lists names no list it cannot know"
+pass "a recorded declared list returns a shared Pi fallback to that list's Claude profile"
+
+write_dispatch "$DECLARED"
+run_gate select --kind ship --harness codex --model gpt-5.6-terra --snapshot "$Q_DECLARED"
+expect_code 0 "$GATE_RC" "an undeclared override with usage launches"
+assert_contains "$GATE_OUT" "status: keep" "an undeclared override is checked alone"
+Q_CODEX_OUT_DECLARED="$TMP_ROOT/q-codex-out-declared.json"
+snapshot "$Q_CODEX_OUT_DECLARED" 'claude|all_models|60|through_reset|0.1' 'codex|all_models|0|exhausted_now|-1'
+run_gate select --kind ship --harness codex --model gpt-5.6-terra --snapshot "$Q_CODEX_OUT_DECLARED"
+expect_code 1 "$GATE_RC" "an undeclared override without usage is refused"
+assert_contains "$GATE_OUT" "is not in any declared order" "the refusal names the missing declaration"
+assert_contains "$GATE_OUT" "reason: codex:gpt-5.6-terra is not in any declared order, and its own usage is not launchable: runway exhausted_now" "the refusal reason names the measured usage evidence"
+assert_not_contains "$GATE_OUT" "out_of_quota:" "an undeclared profile is never reported out of quota"
+printf '%s\n' '# no profiles' > "$CONFIG/secondmate-harness"
+run_gate select --kind secondmate --harness claude --model sonnet --snapshot "$Q_DECLARED"
+expect_code 0 "$GATE_RC" "an empty secondmate order checks the pin alone"
+assert_contains "$GATE_OUT" "status: keep" "the pin with usage launches"
+run_gate select --kind secondmate --harness claude --model sonnet --snapshot "$Q_DECLARED_CLAUDE_OUT"
+expect_code 1 "$GATE_RC" "the pin without usage is refused"
+assert_contains "$GATE_OUT" "claude:sonnet is not in any declared order" "the refusal names the missing declaration"
+rm -f "$CONFIG/secondmate-harness"
+pass "a profile no declared order lists is usage-checked on its own"
+
 # --- healthy profile is kept ---------------------------------------------------
 write_dispatch "$DISPATCH_PAIR"
 run_gate select --kind ship --harness claude --model sonnet --snapshot "$Q_HEALTHY"
@@ -423,6 +486,14 @@ snapshot "$Q_SWEEP" \
   'codex|all_models|80|through_reset|0.5' \
   'grok|all_models|90|through_reset|0.9'
 
+write_dispatch "$DECLARED"
+lane p2 ship pi openai-codex/gpt-5.6-sol
+run_sweep --snapshot "$Q_DECLARED"
+expect_code 0 "$GATE_RC" "a healthy running Pi lane needs no recovery"
+assert_not_contains "$GATE_OUT" 'exhausted: p2' "the recovery sweep only moves exhausted lanes"
+write_dispatch "$DISPATCH_MIXED"
+pass "the recovery sweep leaves healthy lanes running under declared order"
+
 # --- detect: read-only, exit 1 while an actionable exhausted lane exists -------------
 run_sweep --snapshot "$Q_SWEEP"
 expect_code 1 "$GATE_RC" "sweep detect with exhausted lanes"
@@ -542,5 +613,3 @@ assert_no_grep "^u9 relaunch" "$STUBS/control.log" "a lane with no eligible alte
 pass "a watcher sweep that leaves a lane unresolved raises a usage-sweep wake"
 
 echo "# all fm-usage-gate tests passed"
-
-

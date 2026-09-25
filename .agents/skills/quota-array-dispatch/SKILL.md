@@ -4,7 +4,7 @@ description: >-
   Agent-only decision procedure for resolving a matched crew-dispatch profile
   array from quota-axi's default TOON, ranking by spendPriority after three
   orthogonal gates.
-  Load when a dispatch rule or default resolves to a profile array, including a single candidate.
+  Load when a dispatch rule or default resolves to a profile array, including a single candidate, and dispatch.selector is quota-array-dispatch.
 user-invocable: false
 metadata:
   internal: true

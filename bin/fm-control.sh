@@ -754,6 +754,10 @@ resolve_relaunch_profile() {
 # old agent has been stopped. Asking the same owners here keeps those refusals on
 # the pre-stop side of the transaction, where nothing has changed yet.
 check_target_profile() {
+  case "$TARGET_HARNESS:$TARGET_MODEL" in
+    pi:anthropic/*|pi:claude*|pi:*/anthropic/*|pi:*/claude*|pi-signed:anthropic/*|pi-signed:claude*|pi-signed:*/anthropic/*|pi-signed:*/claude*)
+      die "Claude models require the Claude Code harness, not Pi; task $ID was not stopped" ;;
+  esac
   fm_control_harness_supports_kind "$TARGET_HARNESS" "$KIND" \
     || die "'$TARGET_HARNESS' is not verified to run a $KIND task, so relaunching $ID onto it would stop the running agent for a launch that must be refused; choose an adapter verified for this kind"
   if [ "$TARGET_EFFORT" = ultra ]; then
@@ -765,15 +769,18 @@ check_target_profile() {
 # select_usable_target: the pre-stop usage check (bin/fm-usage-gate.sh owns the
 # verdict). An exhausted target moves to the eligible declared alternate.
 select_usable_target() {
-  local out rc=0 status current want token
+  local out rc=0 status current want token list
+  list=$(fm_meta_get "$META" dispatch_list)
   out=$("$SCRIPT_DIR/fm-usage-gate.sh" select --kind "$KIND" --harness "$TARGET_HARNESS" \
-    --model "$TARGET_MODEL" --effort "$TARGET_EFFORT" --tie-break declared 2>&1) || rc=$?
+    --model "$TARGET_MODEL" --effort "$TARGET_EFFORT" ${list:+--list "$list"} --tie-break declared 2>&1) || rc=$?
   [ "$rc" -le 1 ] || die "the usage gate could not check task $ID's target profile: $(printf '%s\n' "$out" | sed -n '/./{s/^error: //;p;q;}')"
   status=$(printf '%s\n' "$out" | sed -n 's/^  status: //p')
   [ "$status" != keep ] || return 0
   current=$(printf '%s\n' "$out" | sed -n 's/^  current: //p')
   if [ "$status" != replace ]; then
     printf '%s\n' "$out" | sed -n 's/^  candidate: /candidate: /p' >&2
+    printf '%s\n' "$out" | grep -qx '  out_of_quota: yes' \
+      || die "the usage gate found no launchable profile for task $ID's target ($current): $(printf '%s\n' "$out" | sed -n 's/^  reason: //p'); nothing was changed (FM_USAGE_GATE=off overrides this check)"
     die "task $ID's target profile is out of quota ($current) and the usage gate found no eligible alternate ($(printf '%s\n' "$out" | sed -n 's/^  reason: //p')); nothing was changed (FM_USAGE_GATE=off overrides this check)"
   fi
   TARGET_MODEL=default
@@ -795,7 +802,11 @@ select_usable_target() {
   fm_control_harness_supported "$TARGET_HARNESS" \
     || die "the usage gate's alternate '$TARGET_HARNESS' for task $ID is not a verified harness; nothing was changed"
   check_target_profile || return 1
-  echo "usage gate: task $ID's target profile is out of quota ($current); relaunching on $TARGET_HARNESS:$TARGET_MODEL instead" >&2
+  if [[ "$current" == *' -> eligible' ]]; then
+    echo "usage gate: task $ID is selecting $TARGET_HARNESS:$TARGET_MODEL from the declared usage order" >&2
+  else
+    echo "usage gate: task $ID's target profile is out of quota ($current); relaunching on $TARGET_HARNESS:$TARGET_MODEL instead" >&2
+  fi
 }
 
 # safe_checkpoint: prove, before anything is stopped, that the work a relaunch

@@ -131,6 +131,12 @@ FM_QUOTA_EVAL_JQ='
            else {} end)
       end
     end;
+  def quota_choose_declared($cands):
+    ([$cands[] | select(.eligible and ((.unknown // false) | not)
+      and ((.bounds // []) | length > 0)
+      and all(.bounds[]; .status == "known" and (.pct | type) == "number" and .pct > 0))]) as $usable |
+    if ($usable | length) > 0 then {status: "clear", chosen: $usable[0]}
+    else {status: "escalate", reason: "no declared profile has verified usage"} end;
 '
 
 fm_quota_axi_compatible() {

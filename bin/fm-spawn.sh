@@ -159,9 +159,10 @@
 #   harness (config/secondmate-harness -> config/crew-harness -> own), so the
 #   secondmate-vs-crewmate split is DURABLE across new and recovery spawns.
 #   In-place relaunches and instruction restarts preserve the recorded profile.
-#   Every launch also runs bin/fm-usage-gate.sh on the resolved profile; one whose
+#   Every concrete-profile launch also runs bin/fm-usage-gate.sh; one whose
 #   quota is exhausted launches on the eligible declared alternate instead, or is
 #   refused when none is eligible (docs/configuration.md "Usage gate" owns the contract).
+#   Declared-order mode refuses raw commands because they name no checkable model.
 #   A bare adapter name (claude|codex|pi|pi-signed|grok|cursor|qwen|agy|codex-foundry-luna)
 #   overrides it for this spawn (either kind). codex-foundry-luna is codex itself,
 #   repointed at the Azure AI Foundry `gpt-5.6-luna` deployment, named by this
@@ -1177,7 +1178,7 @@ CONFIG_INHERIT_LOCK_HELD=0
 preserve_relaunch_meta() {
   awk -F= '
     BEGIN {
-      split("window endpoint_task_id worktree project harness kind mode yolo tasktmp model effort busy_gen spawn_gen summary_visibility cleanup_recovery spawn_owner_pid spawn_owner_identity traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx", keys, " ")
+      split("window endpoint_task_id worktree project harness kind mode yolo tasktmp model effort dispatch_list busy_gen spawn_gen summary_visibility cleanup_recovery spawn_owner_pid spawn_owner_identity traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx", keys, " ")
       for (i in keys) owned[keys[i]] = 1
     }
     !($1 in owned)
@@ -1201,6 +1202,7 @@ spawn_task_record_write() {  # <path> <early|final> <provisional|recovery|ready>
     echo "tasktmp=$TASK_TMP"
     echo "model=${MODEL:-default}"
     echo "effort=${EFFORT:-default}"
+    [ -z "${DISPATCH_LIST:-}" ] || echo "dispatch_list=$DISPATCH_LIST"
     [ -z "${BUSY_GEN:-}" ] || echo "busy_gen=$BUSY_GEN"
     echo "spawn_gen=$SPAWN_GEN"
     case "$visibility" in
@@ -2117,6 +2119,7 @@ spawn_copy_claim_refusal() {  # <worktree> <recover|fresh>
 # validation teardown uses, so a malformed, ambiguous, or foreign record
 # refuses here exactly as it refuses there.
 RELAUNCH_PRIOR_HARNESS=
+DISPATCH_LIST=
 if [ "$RELAUNCH" -eq 1 ]; then
   [ "${#POS[@]}" -eq 1 ] || {
     echo "error: --relaunch takes the task id only; its project or home comes from the task's own record" >&2
@@ -2177,6 +2180,7 @@ if [ "$RELAUNCH" -eq 1 ]; then
       ;;
   esac
   RELAUNCH_PRIOR_HARNESS=$(fm_meta_get "$RELAUNCH_META" harness)
+  DISPATCH_LIST=$(fm_meta_get "$RELAUNCH_META" dispatch_list)
   KIND=$(fm_meta_get "$RELAUNCH_META" kind)
   [ -n "$KIND" ] || KIND=ship
   # A Herdr secondmate whose pane is proven gone is stood back up by its own
@@ -2291,13 +2295,15 @@ USAGE_GATE_OUT=
 USAGE_GATE_STATUS=keep
 USAGE_GATE_CHECKED=0
 usage_gate_select() {
-  local rc=0
-  USAGE_GATE_OUT=$("$SCRIPT_DIR/fm-usage-gate.sh" select --kind "$KIND" "$@" 2>&1) || rc=$?
+  local rc=0 list
+  USAGE_GATE_OUT=$("$SCRIPT_DIR/fm-usage-gate.sh" select --kind "$KIND" ${DISPATCH_LIST:+--list "$DISPATCH_LIST"} "$@" 2>&1) || rc=$?
   [ "$rc" -le 1 ] || {
     echo "error: the usage gate could not check the launch profile: $(printf '%s\n' "$USAGE_GATE_OUT" | sed -n '/./{s/^error: //;p;q;}')" >&2
     exit 1
   }
   USAGE_GATE_STATUS=$(printf '%s\n' "$USAGE_GATE_OUT" | sed -n 's/^  status: //p')
+  list=$(printf '%s\n' "$USAGE_GATE_OUT" | sed -n 's/^  list: //p')
+  [ -z "$list" ] || DISPATCH_LIST=$list
   USAGE_GATE_CHECKED=1
 }
 
@@ -2305,8 +2311,13 @@ usage_gate_refuse() {
   local replacement current
   replacement=$(printf '%s\n' "$USAGE_GATE_OUT" | sed -n 's/^  profile: //p')
   current=$(printf '%s\n' "$USAGE_GATE_OUT" | sed -n 's/^  current: //p')
-  if [ -n "$replacement" ]; then
+  if [ -n "$replacement" ] && ! printf '%s\n' "$USAGE_GATE_OUT" | grep -qx '  out_of_quota: yes'; then
+    echo "error: the declared usage order selects another profile over the requested launch profile ($current); rerun this spawn with: $replacement (FM_USAGE_GATE=off overrides this check)" >&2
+  elif [ -n "$replacement" ]; then
     echo "error: the requested launch profile is out of quota ($current); rerun this spawn with an eligible declared alternate: $replacement (FM_USAGE_GATE=off overrides this check)" >&2
+  elif ! printf '%s\n' "$USAGE_GATE_OUT" | grep -qx '  out_of_quota: yes'; then
+    printf '%s\n' "$USAGE_GATE_OUT" | sed -n 's/^  candidate: /candidate: /p' >&2
+    echo "error: the usage gate found no launchable profile for the requested launch profile ($current): $(printf '%s\n' "$USAGE_GATE_OUT" | sed -n 's/^  reason: //p') (FM_USAGE_GATE=off overrides this check)" >&2
   else
     printf '%s\n' "$USAGE_GATE_OUT" | sed -n 's/^  candidate: /candidate: /p' >&2
     echo "error: the requested launch profile is out of quota ($current) and the usage gate found no eligible alternate ($(printf '%s\n' "$USAGE_GATE_OUT" | sed -n 's/^  reason: //p')) (FM_USAGE_GATE=off overrides this check)" >&2
@@ -2349,7 +2360,11 @@ if [ "$RELAUNCH" -eq 0 ]; then
     HARNESS_SET=1
     MODEL_SET=1
     EFFORT_SET=1
-    echo "usage gate: the requested $KIND profile is out of quota ($(printf '%s\n' "$USAGE_GATE_OUT" | sed -n 's/^  current: //p')); launching on ${HARNESS_ARG}${MODEL:+ $MODEL}${EFFORT:+ $EFFORT} instead" >&2
+    if printf '%s\n' "$USAGE_GATE_OUT" | grep -q '^  current: .* -> eligible$'; then
+      echo "usage gate: selecting ${HARNESS_ARG}${MODEL:+ $MODEL}${EFFORT:+ $EFFORT} from the declared usage order" >&2
+    else
+      echo "usage gate: the requested $KIND profile is out of quota ($(printf '%s\n' "$USAGE_GATE_OUT" | sed -n 's/^  current: //p')); launching on ${HARNESS_ARG}${MODEL:+ $MODEL}${EFFORT:+ $EFFORT} instead" >&2
+    fi
   fi
 fi
 
@@ -2708,6 +2723,15 @@ if [ "$KIND" = secondmate ] && [ -z "$ARG3" ]; then
 fi
 # Ultra is an explicit native capability, never a Pi thinking-level alias.
 # Validate the fully resolved profile before worktree or endpoint provisioning.
+if [ "$RAW_LAUNCH" -eq 1 ] && [ "$(jq -r '.dispatch.selector // "quota-array-dispatch"' "$CONFIG/crew-dispatch.json" 2>/dev/null)" = declared-order ]; then
+  echo "error: declared-order dispatch needs a concrete --harness and --model profile; a raw launch command has no model to check" >&2
+  exit 1
+fi
+case "$HARNESS:$MODEL" in
+  pi:anthropic/*|pi:claude*|pi:*/anthropic/*|pi:*/claude*|pi-signed:anthropic/*|pi-signed:claude*|pi-signed:*/anthropic/*|pi-signed:*/claude*)
+    echo "error: Claude models require the Claude Code harness, not Pi" >&2
+    exit 1 ;;
+esac
 if [ "$EFFORT" = ultra ]; then
   "$SCRIPT_DIR/fm-harness.sh" validate-native-effort "$HARNESS" "$MODEL" "$EFFORT" || exit 1
   [ "$RAW_LAUNCH" = 0 ] || {

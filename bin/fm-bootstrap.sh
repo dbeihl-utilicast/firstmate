@@ -1296,6 +1296,9 @@ crew_dispatch_validate() {
         else . end
       | . as $profile
       | if (verified($profile.harness) | not) then v2_fail("unverified harness: " + $profile.harness)
+        elif (($profile.harness == "pi" or $profile.harness == "pi-signed") and
+              ($profile.model | split("/") | any(.[]; . == "anthropic" or startswith("claude"))))
+        then v2_fail("Claude models require the Claude Code harness, not Pi")
         elif $profile.model_class != ($profile.model | v2_model_class($ordinary))
         then v2_fail("profile.model_class does not match model: " + $profile.model)
         elif (($profile | has("effort")) and (effort_ok($profile.harness; $profile.model; $profile.effort) | not))
@@ -1402,8 +1405,8 @@ crew_dispatch_validate() {
       | v2_boolean("dispatch"; "higher_reasoning_requires_reason")
       | v2_string("dispatch"; "history_ref")
       | . as $dispatch
-      | if $dispatch.selector != "quota-array-dispatch"
-        then v2_fail("dispatch.selector must be quota-array-dispatch")
+      | if ($dispatch.selector != "quota-array-dispatch" and $dispatch.selector != "declared-order")
+        then v2_fail("dispatch.selector must be quota-array-dispatch or declared-order")
         elif $dispatch.higher_reasoning_requires_reason != true
         then v2_fail("dispatch.higher_reasoning_requires_reason must be true")
         elif $dispatch.history_ref != "data/crew-dispatch-history.md"
