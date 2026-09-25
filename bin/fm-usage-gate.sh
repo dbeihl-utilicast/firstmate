@@ -29,7 +29,10 @@
 #          none     the profile is exhausted and no alternate is eligible: no
 #                   alternate is declared, none passed its gates, nothing could be
 #                   ranked, or a genuine spendPriority tie. In declared-order
-#                   mode, none also means no profile has verified usage.
+#                   mode, none also means no profile has verified usage and none is
+#                   launchable on uncertainty alone. There an unmeasured profile
+#                   (its provider has no reading) is disclosed and launches only
+#                   when no declared profile has verified usage, first in order.
 #          A tie is reported (every tied candidate is printed) so an attended
 #          caller chooses, exactly as quota-array-dispatch requires. --tie-break
 #          declared is for an unattended caller with nobody to choose, where a
@@ -57,7 +60,10 @@
 #                         can be selected.
 #          In declared-order mode --list pins the order to that crew-dispatch
 #          array when it lists the profile (a relaunch passes the recorded
-#          dispatch_list); a profile no declared order lists is checked alone.
+#          dispatch_list); a profile no declared order lists is checked alone. A
+#          secondmate is judged against config/secondmate-harness only, so a
+#          home without that file (a remote secondmate home never inherits it)
+#          checks the profile it is given alone, and a refusal names that order.
 #          --config-pin takes the secondmate profile the way bin/fm-spawn.sh would
 #          resolve it (bin/fm-harness.sh secondmate, secondmate-model,
 #          secondmate-effort) instead of --harness/--model/--effort.
@@ -236,11 +242,15 @@ CORE_JQ='
      | if (.eligible | not) and ((.veto // "") == "") then . + {eligible: true, unranked: true} else . end) as $now
   | if $mode == "declared-order" then
       ($ordered | map(quota_evaluate($q; $pmap; .))) as $cands
-      | quota_choose_declared($cands) as $pick
+      | quota_choose_declared($cands) as $verified
+      | (if $verified.status == "clear" then $verified
+         else ([$cands[] | select(.eligible and (.unmeasured // false))] | first) as $open
+           | if $open != null then {status: "clear", chosen: $open} else $verified end
+         end) as $pick
       | (if $list != "" then {list: $list} else {} end) as $named
       | if $pick.status != "clear" then {status: "none", current: $now, candidates: $cands,
           undeclared: $undeclared,
-          reason: (if $undeclared then "\($p.harness):\($p.model // "-") is not in any declared order, and its own usage is not launchable: \($cands[0].reason // "no verified usage")" else $pick.reason end)}
+          reason: (if $undeclared then "\($p.harness):\($p.model // "-") is not in \(if $kind == "secondmate" then "the secondmate-harness order" else "any declared order" end), and its own usage is not launchable: \($cands[0].reason // "no verified usage")" else $pick.reason end)}
         elif $pick.chosen.profile.harness == $p.harness and (($pick.chosen.profile.model // "") == ($p.model // "")) and (($pick.chosen.profile.effort // "") == ($p.effort // ""))
           then {status: "keep", current: $now, candidates: $cands} + $named
         else {status: "replace", current: $now, candidates: $cands, chosen: $pick.chosen} + $named end
@@ -326,7 +336,7 @@ select_profile() {  # <kind> <harness> <model> <effort> [<declared-list-id>]
   fi
   SEL_JSON=$(jq -nc --argjson q "$QSNAP" --argjson pmap "$PMAP" --argjson p "$p" \
     --argjson decl "$(jq -c '.decl' <<< "$disc")" --argjson alts "$alts" --argjson ordered "$ordered" --arg mode "$mode" --arg tie "$TIE_BREAK" \
-    --arg list "$list" --argjson undeclared "$undeclared" \
+    --arg list "$list" --arg kind "$kind" --argjson undeclared "$undeclared" \
     "$FM_QUOTA_ROW_JQ$FM_QUOTA_EVAL_JQ$CORE_JQ") || die "usage-gate could not evaluate the snapshot"
   if [ -n "$disc_err" ] && [ "$(jq -r '.status' <<< "$SEL_JSON")" != keep ]; then
     printf '%s\n' "$disc_err" >&2

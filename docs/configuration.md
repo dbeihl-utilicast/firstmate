@@ -756,7 +756,7 @@ A profile whose `model_class` appears in a constraint's `blocked_model_classes` 
 Codex `max` is valid when the profile selects `gpt-5.6-luna`, whose installed catalog entry supports that reasoning level.
 Every profile array, including a one-candidate array, is a quota-aware choice.
 The existing `quota-array-dispatch` selector ranks eligible profiles by `spendPriority`.
-The `declared-order` selector takes the first profile whose applicable quota rows are known and positive, without using `spendPriority`; unknown or unavailable usage cannot authorize that profile.
+The `declared-order` selector takes the first profile whose applicable quota rows are known and positive, without using `spendPriority`; unknown or unavailable usage cannot authorize that profile, apart from the unmeasured-provider fallback described under the [usage gate](#usage-gate-binfm-usage-gatesh).
 In declared-order mode, the usage gate applies that order to fresh spawns, relaunches, and secondmate restarts, including when the requested profile still has usage.
 A raw launch command has no model to check and is refused in declared-order mode.
 For a secondmate, the order comes from the lines of `config/secondmate-harness`, and the selector comes from `config/crew-dispatch.json` in that home.
@@ -831,7 +831,9 @@ With the existing selector, candidates are ranked by `spendPriority` exactly as 
 With `declared-order`, the gate tests the full list in order on every launch and relaunch and selects the first candidate with verified usage, even if the requested profile still has usage.
 A launch whose profile only one array lists records that list as `dispatch_list=<rule id|default>` in `state/<id>.meta`, and `fm-control.sh relaunch` reuses that whole list, so a lane on a Pi fallback returns to the list's first Claude profile once Claude has usage again.
 A record without `dispatch_list`, including a launch on a profile several arrays share, keeps the older order: only the profiles every array listing the current profile also lists.
-A profile no declared order lists, such as an explicit override or an empty `config/secondmate-harness`, is checked alone and launches only if its own usage is verified; its refusal says it is not in any declared order.
+A profile no declared order lists, such as an explicit override or an empty `config/secondmate-harness`, is checked alone; its refusal says it is not in any declared order, or not in the secondmate-harness order for a secondmate, which is only ever judged against that file and never against `config/crew-dispatch.json`.
+Because a secondmate home does not inherit `config/secondmate-harness`, a remote secondmate relaunch checks the profile the primary passed alone.
+A profile whose provider quota-axi cannot measure stays launchable and disclosed as unmeasured, but only when no declared profile has verified usage; a known-exhausted profile is still refused.
 The launch owners and the sweep pass `--tie-break declared`, which takes the first tied candidate in declared order, because a stalled lane is worse than an equal-quota pick.
 
 The launch owners enforce it:

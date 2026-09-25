@@ -77,7 +77,7 @@ FM_QUOTA_EVAL_JQ='
     (quota_provider_of($pmap; $c)) as $p | (quota_lane($c.harness; $c.model)) as $lane |
     if $p == null then {profile: $c, eligible: false, reason: "no provider family for harness \($c.harness); declare provider on the profile"}
     elif quota_row($q; $p; $lane) == null then
-      {profile: $c, provider: $p, eligible: true, unranked: true,
+      {profile: $c, provider: $p, eligible: true, unranked: true, unmeasured: true,
        reason: (if any($q.providers[]; .provider == $p)
                 then "provider \($p) has no quota row for account \(if $lane == "" then "default" else $lane end)"
                 else "provider \($p) not in the quota snapshot" end)}
@@ -99,7 +99,7 @@ FM_QUOTA_EVAL_JQ='
         {profile: $c, provider: $p, bounds: $bounds, scope: ($floor_row.scope // $c.floor.scope), pct: ($floor_row.effectivePercentRemaining // null), runway: ($floor_row.runway.status // null), eligible: false, veto: "floor", reason: "profile floor \($c.floor.scope) below \($c.floor.min_percent)%"}
       elif (quota_measured($q; $p; $lane) | not) then
         ($rows | first) as $row |
-        {profile: $c, provider: $p, bounds: $bounds, scope: ($row.scope // null), pct: ($row.effectivePercentRemaining // null), runway: ($row.runway.status // null), eligible: true, unranked: true, unknown: true, reason: "provider \($p) unmeasured (\(quota_row($q; $p; $lane).quotaSemantics.status))"}
+        {profile: $c, provider: $p, bounds: $bounds, scope: ($row.scope // null), pct: ($row.effectivePercentRemaining // null), runway: ($row.runway.status // null), eligible: true, unranked: true, unknown: true, unmeasured: true, reason: "provider \($p) unmeasured (\(quota_row($q; $p; $lane).quotaSemantics.status))"}
       elif ($rows | length) == 0 then
         {profile: $c, provider: $p, bounds: $bounds, eligible: true, unranked: true, unknown: true, reason: "no applicable quota row for provider \($p)"}
       elif $profile_floor_state == "unknown" then
