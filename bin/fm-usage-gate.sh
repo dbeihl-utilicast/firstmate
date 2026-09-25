@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # fm-usage-gate.sh - the deterministic usage check for a launch profile, and the
-# replacement it selects when that profile's model is exhausted.
+# replacement it selects when the declared usage order selects another profile
+# or that profile's model is exhausted.
 #
 # Usage:
 #   fm-usage-gate.sh select --kind <ship|scout|secondmate>
@@ -18,12 +19,14 @@
 #              profile: --harness <h> [--model <m>] [--effort <e>]     (replace only)
 #          keep     the profile is not exhausted, or its quota cannot be measured
 #                   (uncertainty stays launchable and is disclosed, never assumed
-#                   exhausted).
+#                   exhausted), except in declared-order mode, where keep means
+#                   this profile is first with verified positive usage.
 #          replace  the profile is exhausted and exactly one best declared alternate
 #                   is eligible; pass the profile line to the launch.
 #          none     the profile is exhausted and no alternate is eligible: no
 #                   alternate is declared, none passed its gates, nothing could be
-#                   ranked, or a genuine spendPriority tie.
+#                   ranked, or a genuine spendPriority tie. In declared-order
+#                   mode, none also means no profile has verified usage.
 #          A tie is reported (every tied candidate is printed) so an attended
 #          caller chooses, exactly as quota-array-dispatch requires. --tie-break
 #          declared is for an unattended caller with nobody to choose, where a
@@ -71,8 +74,8 @@
 #   FM_USAGE_GATE=off         skip the check; every profile is kept
 #   FM_USAGE_GATE_TIMEOUT     seconds bound on the quota-axi call (20)
 #
-# Authority: this tool never replaces firstmate's judgment or quota-array-dispatch
-# at intake; it is the mechanism behind them, called by the launch owners
+# Authority: the declared-order mode selects mechanically, while legacy mode
+# preserves firstmate's quota-array-dispatch intake judgment; launch owners call it
 # (bin/fm-spawn.sh, bin/fm-control.sh) so an exhausted model is never launched.
 set -u
 
@@ -156,11 +159,12 @@ DISCOVER_JQ='
   def dedupe: reduce .[] as $x ([]; if any(.[]; same(.; $x)) then . else . + [$x] end);
   ([(.rules // [])[] | profiles(.use)] + [profiles(.default // null)]) as $arrays
   | ($arrays | map(select(any(.[]; same(.; $p))))) as $with
-  | if ($with | length) == 0 then {decl: null, alts: []}
+  | if ($with | length) == 0 then {decl: null, alts: [], ordered: [], mode: (.dispatch.selector // "quota-array-dispatch")}
     else
       ($with | map(select(any(.[]; same(.; $p) and ((.effort // "") == ($p.effort // "")))))) as $exact
       | (if ($exact | length) > 0 then $exact[0] else $with[0] end) as $src
-      | {decl: ($src | map(select(same(.; $p))) | first),
+      | {decl: ($src | map(select(same(.; $p))) | first), mode: (.dispatch.selector // "quota-array-dispatch"),
+         ordered: [$src[] | select(. as $s | all($with[]; any(.[]; same(.; $s))))],
          alts: ([$src[] | select(same(.; $p) | not)
                   | select(. as $s | all($with[]; any(.[]; same(.; $s))))] | dedupe)}
     end'
@@ -168,7 +172,7 @@ DISCOVER_JQ='
 discover_dispatch() {  # <profile-json>
   local file="$CONFIG/crew-dispatch.json"
   if [ ! -e "$file" ] && [ ! -L "$file" ]; then
-    printf '%s\n' '{"decl":null,"alts":[]}'
+    printf '%s\n' '{"decl":null,"alts":[],"ordered":[],"mode":"quota-array-dispatch"}'
     return 0
   fi
   jq -c --argjson p "$1" "$DISCOVER_JQ" "$file" 2>/dev/null \
@@ -179,7 +183,7 @@ discover_dispatch() {  # <profile-json>
 discover_secondmate() {  # <profile-json>
   local file="$CONFIG/secondmate-harness" line harness model effort rest lines='' first=1
   if [ ! -e "$file" ] && [ ! -L "$file" ]; then
-    printf '%s\n' '{"decl":null,"alts":[]}'
+    printf '%s\n' '{"decl":null,"alts":[],"ordered":[],"mode":"quota-array-dispatch"}'
     return 0
   fi
   [ -r "$file" ] || die "config/secondmate-harness is not readable: $file"
@@ -190,7 +194,7 @@ discover_secondmate() {  # <profile-json>
     lines+="$harness"$'\t'"${model:-}"$'\t'"${effort:-}"$'\n'
     first=0
   done < "$file"
-  [ "$first" -eq 0 ] || { printf '%s\n' '{"decl":null,"alts":[]}'; return 0; }
+  [ "$first" -eq 0 ] || { printf '%s\n' '{"decl":null,"alts":[],"ordered":[]}'; return 0; }
   printf '%s' "$lines" | jq -Rsc --argjson p "$1" '
     def same($a; $b): $a.harness == $b.harness and (($a.model // "") == ($b.model // ""));
     def dedupe: reduce .[] as $x ([]; if any(.[]; same(.; $x)) then . else . + [$x] end);
@@ -198,7 +202,7 @@ discover_secondmate() {  # <profile-json>
       | map({harness: .[0]}
             + (if (.[1] // "") != "" and .[1] != "default" then {model: .[1]} else {} end)
             + (if (.[2] // "") != "" and .[2] != "default" then {effort: .[2]} else {} end))) as $lines
-    | {decl: null, alts: ($lines | map(select(same(.; $p) | not)) | dedupe)}'
+    | {decl: null, ordered: $lines, alts: ($lines | map(select(same(.; $p) | not)) | dedupe)}'
 }
 
 # Keep only alternates that can actually run a secondmate.
@@ -219,7 +223,14 @@ CORE_JQ='
   ($p + (if $decl != null and ($decl.provider // null) != null then {provider: $decl.provider} else {} end)) as $cur
   | (quota_evaluate($q; $pmap; ($cur | del(.floor)))
      | if (.eligible | not) and ((.veto // "") == "") then . + {eligible: true, unranked: true} else . end) as $now
-  | if ($now.veto // "") != "exhausted" then {status: "keep", current: $now, candidates: []}
+  | if $mode == "declared-order" then
+      ($ordered | map(quota_evaluate($q; $pmap; .))) as $cands
+      | quota_choose_declared($cands) as $pick
+      | if $pick.status != "clear" then {status: "none", current: $now, candidates: $cands, reason: $pick.reason}
+        elif $pick.chosen.profile.harness == $p.harness and (($pick.chosen.profile.model // "") == ($p.model // "")) and (($pick.chosen.profile.effort // "") == ($p.effort // ""))
+          then {status: "keep", current: $now, candidates: $cands}
+        else {status: "replace", current: $now, candidates: $cands, chosen: $pick.chosen} end
+    elif ($now.veto // "") != "exhausted" then {status: "keep", current: $now, candidates: []}
     else
       ($alts | map(quota_evaluate($q; $pmap; .))) as $cands
       | quota_choose($cands) as $pick
@@ -259,10 +270,11 @@ RENDER_JQ='
 SEL_JSON=
 TIE_BREAK=strict
 select_profile() {
-  local kind=$1 harness=$2 model=$3 effort=$4 p disc alts disc_err=
+  local kind=$1 harness=$2 model=$3 effort=$4 p disc alts ordered mode disc_err=
   p=$(jq -nc --arg h "$harness" --arg m "$model" --arg e "$effort" \
     '{harness: $h} + (if $m != "" then {model: $m} else {} end) + (if $e != "" then {effort: $e} else {} end)')
-  if [ -z "$QSNAP" ]; then
+  mode=$(jq -r '.dispatch.selector // "quota-array-dispatch"' "$CONFIG/crew-dispatch.json" 2>/dev/null || printf 'quota-array-dispatch')
+  if [ -z "$QSNAP" ] && { [ "$mode" != declared-order ] || [ "${FM_USAGE_GATE:-}" = off ]; }; then
     SEL_JSON=$(jq -nc --argjson p "$p" --arg why "$QSNAP_WHY" \
       '{status: "keep", current: {profile: $p, eligible: true, unranked: true, reason: $why}, candidates: []}')
     return 0
@@ -276,8 +288,23 @@ select_profile() {
   [ -z "$disc_err" ] || disc='{"decl":null,"alts":[]}'
   alts=$(jq -c '.alts' <<< "$disc")
   [ "$kind" != secondmate ] || alts=$(filter_secondmate_alts "$alts")
+  ordered=$(jq -c '.ordered // []' <<< "$disc")
+  [ "$kind" != secondmate ] || ordered=$(filter_secondmate_alts "$ordered")
+  if [ "$kind" = secondmate ] && [ "$mode" = declared-order ]; then
+    ordered=$(jq -c 'map(if (.harness == "pi" or .harness == "pi-signed") then
+      . + {provider: ((.model // "" | split("/") | first) as $prefix |
+        if $prefix == "openai-codex" or $prefix == "codex-native" then "codex"
+        elif $prefix == "xai" then "grok"
+        elif $prefix == "foundry" then "foundry"
+        else "" end)} else . end)' <<< "$ordered")
+  fi
+  if [ "$mode" = declared-order ] && [ -z "$QSNAP" ]; then
+    SEL_JSON=$(jq -nc --argjson p "$p" --argjson ordered "$ordered" --arg why "$QSNAP_WHY" \
+      '{status:"none",current:{profile:$p,eligible:false,reason:$why},candidates:($ordered | map({profile:.,eligible:false,reason:$why})),reason:("usage could not be checked: " + $why)}')
+    return 0
+  fi
   SEL_JSON=$(jq -nc --argjson q "$QSNAP" --argjson pmap "$PMAP" --argjson p "$p" \
-    --argjson decl "$(jq -c '.decl' <<< "$disc")" --argjson alts "$alts" --arg tie "$TIE_BREAK" \
+    --argjson decl "$(jq -c '.decl' <<< "$disc")" --argjson alts "$alts" --argjson ordered "$ordered" --arg mode "$mode" --arg tie "$TIE_BREAK" \
     "$FM_QUOTA_ROW_JQ$FM_QUOTA_EVAL_JQ$CORE_JQ") || die "usage-gate could not evaluate the snapshot"
   if [ -n "$disc_err" ] && [ "$(jq -r '.status' <<< "$SEL_JSON")" != keep ]; then
     printf '%s\n' "$disc_err" >&2
@@ -367,6 +394,7 @@ cmd_sweep() {
     select_profile "$kind" "$harness" "$model" "$effort"
     status=$(jq -r '.status' <<< "$SEL_JSON")
     [ "$status" != keep ] || continue
+    [ "$(jq -r '.current.veto // ""' <<< "$SEL_JSON")" = exhausted ] || continue
     reason=$(jq -r '.current.reason' <<< "$SEL_JSON")
     if [ "$kind" != secondmate ]; then
       line=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CREW_STATE_NO_FORGE=1 \

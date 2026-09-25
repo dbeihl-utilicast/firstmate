@@ -159,9 +159,10 @@
 #   harness (config/secondmate-harness -> config/crew-harness -> own), so the
 #   secondmate-vs-crewmate split is DURABLE across new and recovery spawns.
 #   In-place relaunches and instruction restarts preserve the recorded profile.
-#   Every launch also runs bin/fm-usage-gate.sh on the resolved profile; one whose
+#   Every concrete-profile launch also runs bin/fm-usage-gate.sh; one whose
 #   quota is exhausted launches on the eligible declared alternate instead, or is
 #   refused when none is eligible (docs/configuration.md "Usage gate" owns the contract).
+#   Declared-order mode refuses raw commands because they name no checkable model.
 #   A bare adapter name (claude|codex|pi|pi-signed|grok|cursor|qwen|agy|codex-foundry-luna)
 #   overrides it for this spawn (either kind). codex-foundry-luna is codex itself,
 #   repointed at the Azure AI Foundry `gpt-5.6-luna` deployment, named by this
@@ -2349,7 +2350,11 @@ if [ "$RELAUNCH" -eq 0 ]; then
     HARNESS_SET=1
     MODEL_SET=1
     EFFORT_SET=1
-    echo "usage gate: the requested $KIND profile is out of quota ($(printf '%s\n' "$USAGE_GATE_OUT" | sed -n 's/^  current: //p')); launching on ${HARNESS_ARG}${MODEL:+ $MODEL}${EFFORT:+ $EFFORT} instead" >&2
+    if printf '%s\n' "$USAGE_GATE_OUT" | grep -q '^  current: .* -> eligible$'; then
+      echo "usage gate: selecting ${HARNESS_ARG}${MODEL:+ $MODEL}${EFFORT:+ $EFFORT} from the declared usage order" >&2
+    else
+      echo "usage gate: the requested $KIND profile is out of quota ($(printf '%s\n' "$USAGE_GATE_OUT" | sed -n 's/^  current: //p')); launching on ${HARNESS_ARG}${MODEL:+ $MODEL}${EFFORT:+ $EFFORT} instead" >&2
+    fi
   fi
 fi
 
@@ -2708,6 +2713,15 @@ if [ "$KIND" = secondmate ] && [ -z "$ARG3" ]; then
 fi
 # Ultra is an explicit native capability, never a Pi thinking-level alias.
 # Validate the fully resolved profile before worktree or endpoint provisioning.
+if [ "$RAW_LAUNCH" -eq 1 ] && [ "$(jq -r '.dispatch.selector // "quota-array-dispatch"' "$CONFIG/crew-dispatch.json" 2>/dev/null)" = declared-order ]; then
+  echo "error: declared-order dispatch needs a concrete --harness and --model profile; a raw launch command has no model to check" >&2
+  exit 1
+fi
+case "$HARNESS:$MODEL" in
+  pi:anthropic/*|pi:claude*|pi:*/anthropic/*|pi:*/claude*|pi-signed:anthropic/*|pi-signed:claude*|pi-signed:*/anthropic/*|pi-signed:*/claude*)
+    echo "error: Claude models require the Claude Code harness, not Pi" >&2
+    exit 1 ;;
+esac
 if [ "$EFFORT" = ultra ]; then
   "$SCRIPT_DIR/fm-harness.sh" validate-native-effort "$HARNESS" "$MODEL" "$EFFORT" || exit 1
   [ "$RAW_LAUNCH" = 0 ] || {

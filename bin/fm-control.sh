@@ -754,6 +754,10 @@ resolve_relaunch_profile() {
 # old agent has been stopped. Asking the same owners here keeps those refusals on
 # the pre-stop side of the transaction, where nothing has changed yet.
 check_target_profile() {
+  case "$TARGET_HARNESS:$TARGET_MODEL" in
+    pi:anthropic/*|pi:claude*|pi:*/anthropic/*|pi:*/claude*|pi-signed:anthropic/*|pi-signed:claude*|pi-signed:*/anthropic/*|pi-signed:*/claude*)
+      die "Claude models require the Claude Code harness, not Pi; task $ID was not stopped" ;;
+  esac
   fm_control_harness_supports_kind "$TARGET_HARNESS" "$KIND" \
     || die "'$TARGET_HARNESS' is not verified to run a $KIND task, so relaunching $ID onto it would stop the running agent for a launch that must be refused; choose an adapter verified for this kind"
   if [ "$TARGET_EFFORT" = ultra ]; then
@@ -795,7 +799,11 @@ select_usable_target() {
   fm_control_harness_supported "$TARGET_HARNESS" \
     || die "the usage gate's alternate '$TARGET_HARNESS' for task $ID is not a verified harness; nothing was changed"
   check_target_profile || return 1
-  echo "usage gate: task $ID's target profile is out of quota ($current); relaunching on $TARGET_HARNESS:$TARGET_MODEL instead" >&2
+  if [[ "$current" == *' -> eligible' ]]; then
+    echo "usage gate: task $ID is selecting $TARGET_HARNESS:$TARGET_MODEL from the declared usage order" >&2
+  else
+    echo "usage gate: task $ID's target profile is out of quota ($current); relaunching on $TARGET_HARNESS:$TARGET_MODEL instead" >&2
+  fi
 }
 
 # safe_checkpoint: prove, before anything is stopped, that the work a relaunch

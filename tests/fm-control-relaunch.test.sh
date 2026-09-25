@@ -769,6 +769,21 @@ test_relaunch_moves_an_exhausted_target_onto_the_declared_replacement() {
   pass "fm-control relaunch: an exhausted target moves onto the eligible declared replacement"
 }
 
+test_relaunch_uses_declared_order_before_stopping() {
+  local dir out rc
+  dir=$(new_case declared-order rl68)
+  add_ship_task "$dir" rl68 codex
+  sed 's/^model=default$/model=gpt-5.6-terra/' "$dir/home/state/rl68.meta" > "$dir/home/state/rl68.meta.tmp"
+  mv "$dir/home/state/rl68.meta.tmp" "$dir/home/state/rl68.meta"
+  quota_fixture "$dir" 'claude|all_models|50|through_reset|0.1' 'codex|all_models|80|through_reset|0.9'
+  printf '%s\n' '{"schema_version":2,"dispatch":{"selector":"declared-order"},"rules":[],"default":[{"harness":"claude","model":"sonnet"},{"harness":"codex","model":"gpt-5.6-terra"}]}' > "$dir/home/config/crew-dispatch.json"
+  printf 'claude' > "$dir/fake/becomes"
+  out=$(FM_USAGE_GATE=on run_control "$dir" rl68 relaunch --note "continue"); rc=$?
+  expect_code 0 "$rc" "declared order should choose Claude despite Codex usage"$'\n'"$out"
+  assert_contains "$out" 'harness=claude from=codex' "the relaunch selected Claude first"
+  pass "fm-control relaunch selects the first profile with usage"
+}
+
 test_relaunch_refuses_an_exhausted_target_with_no_alternate_before_stopping_the_agent() {
   local dir out rc
   dir=$(new_case usage-gate-none rl64)
@@ -784,6 +799,17 @@ test_relaunch_refuses_an_exhausted_target_with_no_alternate_before_stopping_the_
   [ "$(meta_field "$dir" rl64 model)" = sonnet ] || fail "the refusal must not touch the task record"
   [ ! -e "$dir/home/state/rl64.control-relaunch" ] || fail "a pre-stop refusal must not open the transaction journal"
   pass "fm-control relaunch: an exhausted target with no eligible alternate is refused before the agent is stopped"
+}
+
+test_relaunch_refuses_claude_inside_pi_before_stopping() {
+  local dir out rc
+  dir=$(new_case pi-claude-refusal rl67)
+  add_ship_task "$dir" rl67 claude
+  out=$(FM_USAGE_GATE=off run_control "$dir" rl67 relaunch --harness pi --model anthropic/claude-sonnet-5 --note "change model"); rc=$?
+  expect_code 1 "$rc" "Claude inside Pi must be refused before a relaunch"
+  assert_contains "$out" "Claude models require the Claude Code harness" "the refusal should name the plan boundary"
+  [ "$(meta_field "$dir" rl67 harness)" = claude ] || fail "the original agent should remain recorded"
+  pass "fm-control relaunch refuses Claude inside Pi before stopping the agent"
 }
 
 test_relaunch_refuses_an_alternate_the_launch_owner_would_refuse_before_stopping_the_agent() {
@@ -2831,7 +2857,9 @@ test_relaunch_requires_a_note_for_a_ship_task
 test_harness_switch_moves_the_record_and_clears_prior_wiring
 test_harness_switch_does_not_carry_the_old_profile_axes
 test_relaunch_moves_an_exhausted_target_onto_the_declared_replacement
+test_relaunch_uses_declared_order_before_stopping
 test_relaunch_refuses_an_exhausted_target_with_no_alternate_before_stopping_the_agent
+test_relaunch_refuses_claude_inside_pi_before_stopping
 test_relaunch_refuses_an_alternate_the_launch_owner_would_refuse_before_stopping_the_agent
 test_relaunch_onto_the_named_replacement_proceeds
 test_relaunch_with_the_gate_off_or_quota_unreadable_still_proceeds

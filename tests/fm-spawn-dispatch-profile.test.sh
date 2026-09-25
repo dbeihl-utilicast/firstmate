@@ -166,6 +166,24 @@ test_no_profile_keeps_claude_profile_defaults() {
   pass "no --model/--effort records defaults and types the claude launch instructions"
 }
 
+test_pi_refuses_claude_models_before_launch() {
+  local rec id out status harness model
+  for harness in pi pi-signed; do
+    for model in anthropic/claude-sonnet-5 claude-sonnet-5 openrouter/anthropic/claude-sonnet-5; do
+      id="pi-claude-refusal-${harness}-${model//\//-}"
+      rec=$(make_spawn_case "$id" "$harness" "$id")
+      read_case_record "$rec"
+      out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --harness "$harness" --model "$model" 2>&1)
+      status=$?
+      expect_code 1 "$status" "$harness must refuse $model"
+      assert_contains "$out" "Claude models require the Claude Code harness" "$harness refusal should explain the plan boundary"
+      assert_absent "$HOME_DIR/state/$id.meta" "refused launch wrote task metadata"
+      [ ! -s "$LAUNCH_LOG" ] || fail "refused launch reached the agent endpoint"
+    done
+  done
+  pass "Pi refuses Claude models before a fresh launch"
+}
+
 test_non_cursor_launch_clears_inherited_cursor_markers() {
   local rec id out status launch
   id=profile-claude-cursor-markers-z1b
@@ -439,6 +457,19 @@ test_active_dispatch_profile_allows_raw_launch_command() {
   # captain's own command.
   [ "$launch" = "export COMPACT_ADVISER_DISABLE=1; custom-agent --flag" ] || fail "raw launch command changed"$'\n'"actual: $launch"
   pass "active crew-dispatch profile allows the raw launch-command escape hatch"
+}
+
+test_declared_order_refuses_raw_launch_without_a_model() {
+  local rec id out status
+  id=profile-raw-declared-z16
+  rec=$(make_spawn_case profile-raw-declared claude "$id")
+  read_case_record "$rec"
+  printf '%s\n' '{"schema_version":2,"dispatch":{"selector":"declared-order"},"rules":[],"default":[{"harness":"claude","model":"sonnet"}]}' > "$HOME_DIR/config/crew-dispatch.json"
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" 'custom-agent --flag' 2>&1); status=$?
+  expect_code 1 "$status" "raw launch cannot prove model usage"$'\n'"$out"
+  assert_contains "$out" 'raw launch command has no model to check' "the refusal explains why"
+  assert_absent "$HOME_DIR/state/$id.meta" "refused raw launch wrote task metadata"
+  pass "declared order refuses a raw launch whose model cannot be checked"
 }
 
 test_claude_threads_model_and_effort() {
@@ -1118,6 +1149,19 @@ test_exhausted_model_launches_the_spawn_on_the_declared_replacement() {
   assert_meta_profile "$HOME_DIR/state/$id.meta" codex gpt-5.6-terra default
   assert_grep "codex" "$LAUNCH_LOG" "the launch command must run the replacement harness"
   pass "an exhausted model launches the spawn on the eligible declared replacement, dropping the old profile's effort"
+}
+
+test_fresh_spawn_uses_declared_order() {
+  local rec id out status dispatch
+  id=profile-declared-order-z35
+  rec=$(make_spawn_case profile-declared-order pi "$id")
+  read_case_record "$rec"
+  dispatch='{"schema_version":2,"dispatch":{"selector":"declared-order"},"rules":[],"default":[{"harness":"claude","model":"sonnet"},{"harness":"pi","model":"openai-codex/gpt-5.6-sol","provider":"codex"}]}'
+  usage_gate_fixture "$FAKEBIN_DIR" "$HOME_DIR" through_reset "$dispatch"
+  out=$(FM_USAGE_GATE=on run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --harness pi --model openai-codex/gpt-5.6-sol 2>&1); status=$?
+  expect_code 0 "$status" "fresh spawn should take the first profile with usage"$'\n'"$out"
+  assert_meta_profile "$HOME_DIR/state/$id.meta" claude sonnet default
+  pass "a fresh spawn uses the declared order before starting its agent"
 }
 
 test_exhausted_model_without_an_alternate_refuses_the_spawn() {
@@ -1837,6 +1881,7 @@ test_non_claude_harness_ignores_claude_permission_mode() {
 }
 
 test_worker_launch_delivers_role_scope
+test_pi_refuses_claude_models_before_launch
 test_no_profile_keeps_claude_profile_defaults
 test_non_cursor_launch_clears_inherited_cursor_markers
 test_non_agy_launch_clears_an_inherited_antigravity_marker
@@ -1849,6 +1894,7 @@ test_active_dispatch_profile_requires_explicit_harness_for_scout
 test_active_dispatch_profile_allows_explicit_harness
 test_active_dispatch_profile_allows_positional_harness
 test_active_dispatch_profile_allows_raw_launch_command
+test_declared_order_refuses_raw_launch_without_a_model
 test_claude_threads_model_and_effort
 test_codex_threads_model_and_effort
 test_codex_threads_model_and_max_effort
@@ -1878,6 +1924,7 @@ test_pi_signed_threads_shared_pi_profile_and_preserves_identity
 test_pi_signed_missing_binary_refuses_before_endpoint_or_metadata
 test_pi_signed_persistent_secondmate_uses_pi_extensions_and_identity
 test_exhausted_model_launches_the_spawn_on_the_declared_replacement
+test_fresh_spawn_uses_declared_order
 test_exhausted_model_without_an_alternate_refuses_the_spawn
 test_usage_gate_off_or_healthy_quota_does_not_block_a_spawn
 test_secondmate_pin_falls_back_to_a_declared_alternate

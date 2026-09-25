@@ -749,6 +749,35 @@ test_local_restart_preserves_the_recorded_profile_and_reports_what_ran() {
   pass "T8 a local restart preserves and reports the mate's recorded runtime"
 }
 
+test_local_restart_uses_declared_order() {
+  local dir out rc
+  dir=$(new_case declared-order)
+  add_local_mate "$dir" sm1 codex
+  printf '/config/\n' > "$dir/sm1-home/.gitignore"
+  arm_answer "$dir" sm1
+  sed 's/^model=default$/model=gpt-5.6-sol/' "$dir/home/state/sm1.meta" > "$dir/home/state/sm1.meta.new"
+  mv "$dir/home/state/sm1.meta.new" "$dir/home/state/sm1.meta"
+  printf '%s\n' 'claude sonnet' 'codex gpt-5.6-sol' > "$dir/home/config/secondmate-harness"
+  printf '%s\n' '{"schema_version":2,"dispatch":{"selector":"declared-order"},"rules":[],"default":[]}' > "$dir/home/config/crew-dispatch.json"
+  cat > "$dir/fakebin/quota-axi" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}" in
+  --version) echo 'quota-axi 0.1.37' ;;
+  --json) printf '%s\n' '{"schemaVersion":5,"generatedAt":"2030-01-01T00:00:00Z","providers":[{"provider":"claude","quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":50,"runway":{"status":"through_reset"},"selection":{"spendPriority":0.1}}]}},{"provider":"codex","quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":80,"runway":{"status":"through_reset"},"selection":{"spendPriority":0.9}}]}}]}' ;;
+esac
+SH
+  chmod +x "$dir/fakebin/quota-axi"
+  printf 'claude' > "$dir/fake/becomes"
+  local selected
+  selected=$(PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" FM_USAGE_GATE=on "$ROOT/bin/fm-usage-gate.sh" select --kind secondmate --harness codex --model gpt-5.6-sol)
+  assert_contains "$selected" "profile: --harness 'claude' --model 'sonnet'" "the parent home usage order selects Claude"
+  out=$(FM_USAGE_GATE=on FM_SKIP_SECONDMATE_SYNC=1 run_restart "$dir" sm1); rc=$?
+  expect_code 0 "$rc" "secondmate restart should select Claude first"$'\n'"$out"
+  assert_contains "$out" 'restarted: sm1 (claude)' "the restart reports the selected harness"
+  assert_grep 'harness=claude' "$dir/home/state/sm1.meta" "the restarted mate records the selected harness"
+  pass "a secondmate restart uses the same declared usage order"
+}
+
 test_explicit_restart_profile_changes_one_mate() {
   local dir out rc
   dir=$(new_case explicit-profile)
@@ -1057,6 +1086,7 @@ test_stopped_mate_is_skipped
 test_duplicate_argument_is_explicitly_accounted_for
 test_refused_restart_falls_back_without_claiming_a_reload
 test_local_restart_preserves_the_recorded_profile_and_reports_what_ran
+test_local_restart_uses_declared_order
 test_explicit_restart_profile_changes_one_mate
 test_native_ultra_restart_keeps_local_and_remote_profiles
 test_remote_mate_restarts_over_the_transport_hop

@@ -25,7 +25,7 @@
 #   (schema 5 or 6; each candidate binds to one row through quota_row in
 #   bin/fm-quota-axi-lib.sh, so a Pi lane such as openai-codex-work/...
 #   reads its own account's row and an expanded provider with no row for the
-#   candidate is unmeasured, never blocked), and the spendPriority argmax over
+#   candidate is unmeasured, never blocked), and the configured selector over
 #   the eligible candidates. The model never
 #   sees quota, catalogs, approvals, `decision_refs`, or `use`. With no rules, it returns
 #   a non-clear result so firstmate keeps using the existing intake.
@@ -163,6 +163,7 @@ rules_err=$(jq -r --argjson verified_harnesses "$VERIFIED_HARNESSES" --arg provi
     | ($keys | length) != ($keys | unique | length);
   if type != "object" then "top-level value must be an object"
   elif .schema_version != 2 then "schema_version must be 2 (bin/fm-bootstrap.sh owns the V2 schema)"
+  elif (.dispatch.selector // "quota-array-dispatch") != "quota-array-dispatch" and .dispatch.selector != "declared-order" then "dispatch.selector must be quota-array-dispatch or declared-order"
   elif has("rules") and (.rules | type) != "array" then "rules must be an array"
   elif any((.rules // [])[]; type != "object") then "each rule must be an object"
   elif any((.rules // [])[]; (.when | type) != "string" or (.when | length) == 0) then "each rule needs non-empty when"
@@ -170,11 +171,13 @@ rules_err=$(jq -r --argjson verified_harnesses "$VERIFIED_HARNESSES" --arg provi
   elif any((.rules // [])[]; has("approval") and .approval != "captain") then "approval must be \"captain\" when present"
   elif any((.rules // [])[]; has("floor") and floor_bad(.floor; true)) then "rule floor needs scope, min_percent 0..100, and provider matching ^[a-z0-9]+(-[a-z0-9]+)*\\z"
   elif any((.rules // [])[] | profiles(.use)[]; profile_bad(.)) then "each use profile needs harness; model, effort, and floor must be well formed, and provider must match ^[a-z0-9]+(-[a-z0-9]+)*\\z when present"
+  elif any((.rules // [])[] | profiles(.use)[]; (.harness == "pi" or .harness == "pi-signed") and (.model // "" | split("/") | any(.[]; . == "anthropic" or startswith("claude")))) then "Claude models require the Claude Code harness, not Pi"
   elif any((.rules // [])[]; duplicate_profiles(profiles(.use))) then "each rule use must not contain duplicate harness, model, and effort profiles"
   elif any((.rules // [])[] | profiles(.use)[]; (verified(.harness) | not)) then "each use profile must name a verified harness"
   elif any((.rules // [])[] | profiles(.use)[]; (effort_ok(.harness; .model; .effort) | not)) then "each use profile effort must be supported by its harness and model"
   elif has("default") and (profiles(.default) | length) == 0 then "default must be a profile object or non-empty profile array"
   elif has("default") and any(profiles(.default)[]; profile_bad(.)) then "each default profile needs harness; model, effort, and floor must be well formed, and provider must match ^[a-z0-9]+(-[a-z0-9]+)*\\z when present"
+  elif has("default") and any(profiles(.default)[]; (.harness == "pi" or .harness == "pi-signed") and (.model // "" | split("/") | any(.[]; . == "anthropic" or startswith("claude")))) then "Claude models require the Claude Code harness, not Pi"
   elif has("default") and duplicate_profiles(profiles(.default)) then "default must not contain duplicate harness, model, and effort profiles"
   elif has("default") and any(profiles(.default)[]; (verified(.harness) | not)) then "each default profile must name a verified harness"
   elif has("default") and any(profiles(.default)[]; (effort_ok(.harness; .model; .effort) | not)) then "each default profile effort must be supported by its harness and model"
@@ -311,7 +314,9 @@ RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg non
   elif ($sel.use | length) == 0 then $ev + {status: "escalate", reason: "no profiles configured for \($sel.source)", note: $sel.note, candidates: []}
   else
     ($sel.use | map(evaluate(.))) as $cands |
-    $ev + {note: $sel.note, candidates: $cands} + quota_choose($cands)
+    $ev + {note: $sel.note, candidates: $cands} +
+      (if ($cfg.dispatch.selector // "quota-array-dispatch") == "declared-order"
+       then quota_choose_declared($cands) else quota_choose($cands) end)
   end') || emit_error "resolution failed"
 
 TEXT=$(jq -r '
