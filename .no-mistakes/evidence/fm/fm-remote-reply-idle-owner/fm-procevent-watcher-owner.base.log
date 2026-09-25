@@ -1,0 +1,3 @@
+not ok - live source lost its owner during watcher work: SOURCE                       ADAPTER      OWNER      PENDING
+needs-owner                  lavish       none       0
+still-owned                  lavish       none       0

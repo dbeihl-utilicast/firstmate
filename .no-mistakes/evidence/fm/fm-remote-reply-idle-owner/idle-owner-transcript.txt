@@ -1,0 +1,38 @@
+=== TARGET e534d2c (harness) ===
+mode=harness  fm-lock status: lock: held by live harness pid 3895571
+t=0s   owner=live   (lease=3s, check=1s, no watcher, no firstmate turn)
+t=3s  owner=live
+t=6s  owner=live
+t=9s  owner=live
+t=12s  owner=live
+after remote reply: owner=live  mirrored=1
+primary session ended
+t=+7s after session end owner=none
+=== TARGET e534d2c (nonharness) ===
+mode=nonharness  fm-lock status: lock: stale (pid 3968357 dead or not a harness)
+t=0s   owner=live   (lease=3s, check=1s, no watcher, no firstmate turn)
+t=3s  owner=none
+t=6s  owner=none
+t=9s  owner=none
+t=12s  owner=none
+after remote reply: owner=none  mirrored=0
+primary session ended
+t=+7s after session end owner=none
+=== TARGET e534d2c (deadpid) ===
+mode=deadpid  fm-lock status: lock: stale (pid 4021467 dead or not a harness)
+t=0s   owner=live   (lease=3s, check=1s, no watcher, no firstmate turn)
+t=3s  owner=none
+t=6s  owner=none
+t=9s  owner=none
+t=12s  owner=none
+after remote reply: owner=none  mirrored=0
+=== BASE 8329244 (harness) ===
+mode=harness  fm-lock status: lock: held by live harness pid 4097942
+t=0s   owner=live   (lease=3s, check=1s, no watcher, no firstmate turn)
+t=3s  owner=none
+t=6s  owner=none
+t=9s  owner=none
+t=12s  owner=none
+after remote reply: owner=none  mirrored=0
+primary session ended
+t=+7s after session end owner=none
