@@ -756,7 +756,7 @@ A profile whose `model_class` appears in a constraint's `blocked_model_classes` 
 Codex `max` is valid when the profile selects `gpt-5.6-luna`, whose installed catalog entry supports that reasoning level.
 Every profile array, including a one-candidate array, is a quota-aware choice.
 The existing `quota-array-dispatch` selector ranks eligible profiles by `spendPriority`.
-The `declared-order` selector takes the first profile whose applicable quota rows are known and positive, without using `spendPriority`; unknown or unavailable usage cannot authorize that profile.
+The `declared-order` selector takes the first profile whose applicable quota rows are known and positive, without using `spendPriority`; unknown or unavailable usage cannot authorize that profile, apart from the unmeasured-provider fallback described under the [usage gate](#usage-gate-binfm-usage-gatesh).
 In declared-order mode, the usage gate applies that order to fresh spawns, relaunches, and secondmate restarts, including when the requested profile still has usage.
 A raw launch command has no model to check and is refused in declared-order mode.
 For a secondmate, the order comes from the lines of `config/secondmate-harness`, and the selector comes from `config/crew-dispatch.json` in that home.
