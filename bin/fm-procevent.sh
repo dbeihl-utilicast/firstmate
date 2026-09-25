@@ -205,10 +205,11 @@
 # state root's lease on a bounded cadence and stops the runner's whole process
 # group once that lease can no longer be proved fresh. Owner-presence operations
 # refresh the lease, an attached public start keeps it fresh while its caller
-# remains attached, and watcher progress keeps it fresh between reconciliations
-# in a live home. A runner exports the inherited FM_PROCEVENT_IN_RUNNER marker
-# and every refresh is skipped under it, so a runner and its ordinary children
-# do not certify their own owner. That rule is CONFUSED-AGENT-GRADE, the grade
+# remains attached, the watcher's reconcile cycle keeps it fresh in a live home,
+# and the owner guard refreshes it from a live verified primary session lock.
+# A runner exports the inherited FM_PROCEVENT_IN_RUNNER marker and every
+# refresh is skipped under it, so a runner and its ordinary children do not
+# certify their own owner. That rule is CONFUSED-AGENT-GRADE, the grade
 # bin/fm-lease-lib.sh documents: a source that DELIBERATELY strips the marker
 # can still refresh, and adversarial-grade unforgeability is out of scope (see
 # docs/configuration.md). Scope is the owning state root and one runner
@@ -1054,10 +1055,10 @@ cmd_start() {
   CLAIM_STATE_DEVICE=$FM_PROCEVENT_CLAIM_STATE_DEVICE
   CLAIM_STATE_INODE=$FM_PROCEVENT_CLAIM_STATE_INODE
   STAGED_OUTPUT=
-  # Exit cleanup must not wait for the source lock: retire and reconcile hold it
-  # while waiting for this runner, so blocking here creates a circular wait
-  # broken only by KILL. On contention, leave the generation-bound claim for
-  # the stopper or subsequent reconciliation to reclaim.
+  # Exit cleanup waits at most one second for the source lock: retire and
+  # reconcile hold it while waiting for this runner, so an unbounded wait creates
+  # a circular wait broken only by KILL. On contention, leave the generation-bound
+  # claim for the stopper or subsequent reconciliation to reclaim.
   release_start_claim() {
     local successor=0 current_identity released=0 attempt locked=0
     extension_lifecycle_lock_release 2>/dev/null || true
@@ -1464,8 +1465,14 @@ cmd_owner_watchdog() {  # <source-id> <runner-pid> <runner-identity> <ready-file
   IFS=$'\t' read -r _ current_device current_inode _ _ <<< "$state_identity"
   [ "$current_device" = "$state_device" ] && [ "$current_inode" = "$state_inode" ] \
     || die "owning state root identity changed before owner guard initialization"
-  fm_procevent_owner_alive "$STATE" "$lease" \
-    || die "owning home lease is not fresh at owner guard initialization"
+  owner_evidence() {
+    fm_procevent_owner_alive "$STATE" "$lease" \
+      || { fm_session_lock_inspect "$STATE" \
+        && [ "$FM_LOCK_INSPECT_STATE" = held ] \
+        && fm_procevent_owner_lease_touch "$STATE"; }
+  }
+  owner_evidence \
+    || die "owning home has neither a fresh lease nor a live primary session at owner guard initialization"
   printf 'ready\n' > "$ready" || die "cannot confirm owner guard initialization"
   trap - EXIT
   while :; do
@@ -1484,10 +1491,7 @@ cmd_owner_watchdog() {  # <source-id> <runner-pid> <runner-identity> <ready-file
       || IFS=$'\t' read -r _ current_device current_inode _ _ <<< "$state_identity"
     if [ "$current_device" = "$state_device" ] \
       && [ "$current_inode" = "$state_inode" ] \
-      && { fm_procevent_owner_alive "$STATE" "$lease" \
-        || { fm_session_lock_inspect "$STATE" \
-          && [ "$FM_LOCK_INSPECT_STATE" = held ] \
-          && fm_procevent_owner_lease_touch "$STATE"; }; }; then
+      && owner_evidence 2>/dev/null; then
       misses=0
       continue
     fi

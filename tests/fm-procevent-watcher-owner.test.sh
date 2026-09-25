@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# A live watcher keeps registered source ownership through a slow cycle and
-# restores an unowned source without a firstmate turn.
+# A live primary session keeps registered source ownership through a slow
+# watcher cycle, and the watcher restores an unowned source without a turn.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -27,11 +27,28 @@ pe() {
 }
 
 watch_pid=
+session_pid=
 cleanup_watch() {
   [ -z "$watch_pid" ] || { kill "$watch_pid" 2>/dev/null || true; wait "$watch_pid" 2>/dev/null || true; }
+  [ -z "$session_pid" ] || { kill "$session_pid" 2>/dev/null || true; wait "$session_pid" 2>/dev/null || true; }
   fm_test_cleanup
 }
 trap cleanup_watch EXIT
+
+FAKEBIN=$(fm_fakebin "$LAB/fake")
+ln -s /bin/bash "$FAKEBIN/claude"
+# shellcheck disable=SC2016
+FM_LOCK_FILE="$STATE/.lock" "$FAKEBIN/claude" -c '
+  printf "%s\n" "$$" > "$FM_LOCK_FILE"
+  while :; do sleep 1; done
+' &
+session_pid=$!
+for _ in $(seq 1 100); do
+  [ -s "$STATE/.lock" ] && break
+  sleep 0.1
+done
+assert_contains "$(FM_HOME="$HOME_DIR" "$ROOT/bin/fm-lock.sh" status)" "held by live harness" \
+  "primary session was not recognized as live"
 
 pe register lavish still-owned -- "$LAB/source.sh" "$LAB/still-owned-starts" >/dev/null \
   || fail "could not register the live source"
