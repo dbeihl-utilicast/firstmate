@@ -18,6 +18,7 @@
 #              candidate: <harness>:<model> ... -> eligible | eligible, unranked: .. | not eligible: ..
 #              reason: <why none>
 #              list: <rule-id|default>        (declared-order, declared profile only)
+#              out_of_quota: yes              (none because the declared profile is exhausted)
 #              profile: --harness <h> [--model <m>] [--effort <e>]     (replace only)
 #          keep     the profile is not exhausted, or its quota cannot be measured
 #                   (uncertainty stays launchable and is disclosed, never assumed
@@ -172,7 +173,8 @@ DISCOVER_JQ='
       ($named_with | map(select(any(.use[]; same(.; $p) and ((.effort // "") == ($p.effort // "")))))) as $exact
       | (if $pinned != null then $pinned elif ($exact | length) > 0 then $exact[0] else $named_with[0] end) as $named_src
       | $named_src.use as $src
-      | {decl: ($src | map(select(same(.; $p))) | first), mode: (.dispatch.selector // "quota-array-dispatch"), list: $named_src.id,
+      | {decl: ($src | map(select(same(.; $p))) | first), mode: (.dispatch.selector // "quota-array-dispatch"),
+         list: (if $pinned != null or ($named_with | length) == 1 then $named_src.id else null end),
          ordered: (if $pinned != null then $src else [$src[] | select(. as $s | all($with[]; any(.[]; same(.; $s))))] end),
          alts: ([$src[] | select(same(.; $p) | not)
                   | select(. as $s | all($with[]; any(.[]; same(.; $s))))] | dedupe)}
@@ -237,7 +239,8 @@ CORE_JQ='
       | quota_choose_declared($cands) as $pick
       | (if $list != "" then {list: $list} else {} end) as $named
       | if $pick.status != "clear" then {status: "none", current: $now, candidates: $cands,
-          reason: (if $undeclared then "\($p.harness):\($p.model // "-") is not in any declared order, and its own usage is not verified" else $pick.reason end)}
+          undeclared: $undeclared,
+          reason: (if $undeclared then "\($p.harness):\($p.model // "-") is not in any declared order, and its own usage is not launchable: \($cands[0].reason // "no verified usage")" else $pick.reason end)}
         elif $pick.chosen.profile.harness == $p.harness and (($pick.chosen.profile.model // "") == ($p.model // "")) and (($pick.chosen.profile.effort // "") == ($p.effort // ""))
           then {status: "keep", current: $now, candidates: $cands} + $named
         else {status: "replace", current: $now, candidates: $cands, chosen: $pick.chosen} + $named end
@@ -274,6 +277,7 @@ RENDER_JQ='
   (if .note then "  note: \(.note | flat)" else empty end),
   (if .reason then "  reason: \(.reason | flat)" else empty end),
   (if .list then "  list: \(.list | flat)" else empty end),
+  (if .status == "none" and .current.veto == "exhausted" and ((.undeclared // false) | not) then "  out_of_quota: yes" else empty end),
   (if .chosen then "  profile: --harness \(.chosen.profile.harness | shell_arg)"
       + (if .chosen.profile.model then " --model \(.chosen.profile.model | shell_arg)" else "" end)
       + (if .chosen.profile.effort then " --effort \(.chosen.profile.effort | shell_arg)" else "" end) else empty end)'

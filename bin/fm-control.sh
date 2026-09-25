@@ -779,7 +779,7 @@ select_usable_target() {
   current=$(printf '%s\n' "$out" | sed -n 's/^  current: //p')
   if [ "$status" != replace ]; then
     printf '%s\n' "$out" | sed -n 's/^  candidate: /candidate: /p' >&2
-    [[ "$current" == *'-> not eligible: runway exhausted_now'* || "$current" == *'-> not eligible: 0% remaining'* ]] \
+    printf '%s\n' "$out" | grep -qx '  out_of_quota: yes' \
       || die "the usage gate found no launchable profile for task $ID's target ($current): $(printf '%s\n' "$out" | sed -n 's/^  reason: //p'); nothing was changed (FM_USAGE_GATE=off overrides this check)"
     die "task $ID's target profile is out of quota ($current) and the usage gate found no eligible alternate ($(printf '%s\n' "$out" | sed -n 's/^  reason: //p')); nothing was changed (FM_USAGE_GATE=off overrides this check)"
   fi

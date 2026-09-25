@@ -2313,7 +2313,7 @@ usage_gate_refuse() {
   current=$(printf '%s\n' "$USAGE_GATE_OUT" | sed -n 's/^  current: //p')
   if [ -n "$replacement" ]; then
     echo "error: the requested launch profile is out of quota ($current); rerun this spawn with an eligible declared alternate: $replacement (FM_USAGE_GATE=off overrides this check)" >&2
-  elif [[ "$current" != *'-> not eligible: runway exhausted_now'* && "$current" != *'-> not eligible: 0% remaining'* ]]; then
+  elif ! printf '%s\n' "$USAGE_GATE_OUT" | grep -qx '  out_of_quota: yes'; then
     printf '%s\n' "$USAGE_GATE_OUT" | sed -n 's/^  candidate: /candidate: /p' >&2
     echo "error: the usage gate found no launchable profile for the requested launch profile ($current): $(printf '%s\n' "$USAGE_GATE_OUT" | sed -n 's/^  reason: //p') (FM_USAGE_GATE=off overrides this check)" >&2
   else
