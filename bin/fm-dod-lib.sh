@@ -186,19 +186,70 @@ fm_brief_marked_captain_words() {  # <task-body>
   '
 }
 
+# Unique issue numbers named in captain-intent text. Quoted, backtick, and
+# fenced-code spans are skipped so examples do not turn into PR requirements.
+# This is shared by the launch contract and PR registration so both make the
+# same no-linked-issue decision.
+fm_intent_issue_numbers() {
+  printf '%s\n' "$1" | awk '
+    function emit(n) {
+      if (n ~ /^[1-9][0-9]*$/ && length(n) <= 9 && !(n in seen)) {
+        seen[n] = 1
+        numbers[++count] = n
+      }
+    }
+    {
+      if ($0 ~ /^[ \t]*```/) { fence = !fence; next }
+      if (fence) next
+      line = $0
+      out = ""
+      nlen = length(line)
+      q = ""
+      for (i = 1; i <= nlen; i++) {
+        c = substr(line, i, 1)
+        if (q == "") {
+          if (c == "\"" || c == "`") { q = c; continue }
+          out = out c
+        } else if (c == q) {
+          q = ""
+        }
+      }
+      s = out
+      while (match(s, /#[1-9][0-9]*/)) {
+        emit(substr(s, RSTART + 1, RLENGTH - 1))
+        s = substr(s, RSTART + RLENGTH)
+      }
+      s = out
+      while (match(s, /github\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/issues\/[1-9][0-9]*/)) {
+        tok = substr(s, RSTART, RLENGTH)
+        sub(/.*\//, "", tok)
+        emit(tok)
+        s = substr(s, RSTART + RLENGTH)
+      }
+    }
+    END {
+      for (i = 1; i <= count; i++) print numbers[i]
+    }
+  ' | LC_ALL=C sort -n -u
+}
+
 fm_brief_intent_overlay() {  # <captain-intent>
+  local intent=$1
   cat <<'EOF'
 
 # Current no-mistakes intent contract
 This section supersedes every earlier brief instruction about constructing `--intent`, but not later clarifications actually supplied by the captain.
-Use everything under `## Captain intent authorized for --intent` through the end of this brief, including any nested subheadings but excluding that heading, plus any later words the captain actually supplied as `--intent`; never include Firstmate specification or other mixed Task content.
+Use everything under `## Captain intent authorized for --intent` through the end of this brief, including any nested subheadings but excluding that heading, plus any later words the captain actually supplied as `--intent`; when that text names no parseable issue, this contract appends the literal `No linked issue` PR-body marker; never include Firstmate specification or other mixed Task content.
 Preserve those words without adding speaker labels or direct address.
 Firstmate-authored constraints, acceptance criteria, implementation details, decisions, and tradeoffs are specification, not captain intent.
 The Definition of done's rule that `--intent` must be self-sufficient still governs the string you pass: resolve any report, decision, or PR the intent below refers to into its substance rather than passing the pointer.
 
 ## Captain intent authorized for --intent
 EOF
-  printf '%s\n' "$1"
+  printf '%s\n' "$intent"
+  if [ -z "$(fm_intent_issue_numbers "$intent")" ]; then
+    printf '\nNo linked issue\n'
+  fi
 }
 
 # Accept the current two-subsection contract only when both bodies have content;

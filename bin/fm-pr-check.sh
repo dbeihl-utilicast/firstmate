@@ -43,53 +43,6 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 # shellcheck source=bin/fm-dod-lib.sh
 . "$SCRIPT_DIR/fm-dod-lib.sh"
 
-# Unique issue numbers named in captain-intent text. Quoted, backtick, and
-# fenced-code spans are skipped so examples such as "Closes #421, #431, #440"
-# or a ```-fenced multi-line sample are not treated as work this PR must
-# close.
-fm_pr_intent_issue_numbers() {
-  printf '%s\n' "$1" | awk '
-    function emit(n) {
-      if (n ~ /^[1-9][0-9]*$/ && length(n) <= 9 && !(n in seen)) {
-        seen[n] = 1
-        numbers[++count] = n
-      }
-    }
-    {
-      if ($0 ~ /^[ \t]*```/) { fence = !fence; next }
-      if (fence) next
-      line = $0
-      out = ""
-      nlen = length(line)
-      q = ""
-      for (i = 1; i <= nlen; i++) {
-        c = substr(line, i, 1)
-        if (q == "") {
-          if (c == "\"" || c == "`") { q = c; continue }
-          out = out c
-        } else if (c == q) {
-          q = ""
-        }
-      }
-      s = out
-      while (match(s, /#[1-9][0-9]*/)) {
-        emit(substr(s, RSTART + 1, RLENGTH - 1))
-        s = substr(s, RSTART + RLENGTH)
-      }
-      s = out
-      while (match(s, /github\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/issues\/[1-9][0-9]*/)) {
-        tok = substr(s, RSTART, RLENGTH)
-        sub(/.*\//, "", tok)
-        emit(tok)
-        s = substr(s, RSTART + RLENGTH)
-      }
-    }
-    END {
-      for (i = 1; i <= count; i++) print numbers[i]
-    }
-  ' | LC_ALL=C sort -n -u
-}
-
 # Return 0 when stdin closes issue <n> with its own GitHub keyword.
 # Inner match() calls clobber RSTART/RLENGTH, so the keyword span is saved
 # and used to advance; otherwise a failed owner/repo or URL match loops.
@@ -169,7 +122,7 @@ if [ -f "$BRIEF" ] && [ ! -L "$BRIEF" ] && [ -r "$BRIEF" ]; then
   intent=$(fm_brief_task_heading_body "$BRIEF" "## Captain's intent" || true)
   fm_brief_task_heading_present "$BRIEF" "## Captain's intent" && intent_recorded=1
 fi
-issues=$(fm_pr_intent_issue_numbers "$intent")
+issues=$(fm_intent_issue_numbers "$intent")
 if [ "$PROVIDER" = github ] && { [ -n "$issues" ] || [ "$intent_recorded" = 1 ]; }; then
   body_rc=0
   PR_BODY=
