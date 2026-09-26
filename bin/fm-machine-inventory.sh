@@ -204,7 +204,7 @@ scan_load() {
   load=$(load15 || true)
   case "$cores" in ''|*[!0-9]*) finding 'NOT CHECKED: fifteen-minute load (online CPU core count unavailable)'; return ;; esac
   case "$load" in ''|*[!0-9.]*|*.*.*) finding 'NOT CHECKED: fifteen-minute load average unavailable'; return ;; esac
-  if awk -v load="$load" -v cores="$cores" 'BEGIN { exit !(load > cores) }'; then
+  if awk -v avg="$load" -v cores="$cores" 'BEGIN { exit !(avg > cores) }'; then
     finding "LOAD: fifteen-minute=$load cores=$cores"
   fi
 }
