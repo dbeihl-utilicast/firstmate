@@ -1,0 +1,7 @@
+# FM_HOME config
+{"repositories":{"kunchenguid/firstmate":{"integration_branch":"develop","reviewer_team":"kunchenguid/no-such-team","assignees":["DBEIHL"],"required_checks":["CI gate"]},"dbeihl-utilicast/firstmate":{"integration_branch":"main","reviewer_team":"Utilicast-LLC/devs","assignees":[],"required_checks":[]}}}
+$ fm-pr-dressing-audit.sh dbeihl-utilicast/firstmate
+https://github.com/dbeihl-utilicast/firstmate/pull/108: reviewer team missing: Utilicast-LLC/devs
+https://github.com/dbeihl-utilicast/firstmate/pull/109: reviewer team missing: Utilicast-LLC/devs
+$ grep /5222: (config assignees ["KunChenGuid"], API login "kunchenguid")
+https://github.com/kunchenguid/firstmate/pull/5222: reviewer team missing: kunchenguid/no-such-team

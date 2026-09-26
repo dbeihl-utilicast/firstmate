@@ -1,0 +1,7 @@
+ok - the partial-failure fixture and live-case violation shape are reported across pages
+ok - a compliant pull request is silent
+ok - remaining configured violations are reported
+ok - pending checks, superseded failures, unknown mergeability, team reviews, and release pull requests are silent
+ok - a repository with a numeric name is audited
+ok - unreadable pull request data stops the audit instead of reporting nothing
+ok - help states what the audit does not check
