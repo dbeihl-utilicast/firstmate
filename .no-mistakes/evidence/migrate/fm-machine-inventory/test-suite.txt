@@ -1,0 +1,9 @@
+ok - healthy complete inventory is silent
+ok - old whole-host listener names its age and owner
+ok - non-root listener scan narrows its claim to the caller
+ok - load, containers, simulators, and agent processes report violations
+ok - discovered simulator device sets are scanned or reported unreadable
+ok - incomplete listener scan narrows the claim visibly
+ok - lsof warning keeps measured listeners and names the possible gap
+ok - every bounded query reports its timeout as NOT CHECKED
+ok - interrupted scan prints collected findings, names unfinished scans, and exits with the signal status

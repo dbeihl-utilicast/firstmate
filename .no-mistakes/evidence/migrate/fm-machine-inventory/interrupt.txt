@@ -1,0 +1,51 @@
+$ bin/fm-machine-inventory.sh  # SIGINT after 3s
+LISTENER: protocol=TCP pid=1364 age=06-05:54:42 command=ControlCenter endpoint=*:5000
+LISTENER: protocol=TCP pid=1364 age=06-05:54:42 command=ControlCenter endpoint=*:7000
+LISTENER: protocol=TCP pid=13973 age=05-19:00:56 command=node endpoint=127.0.0.1:9224
+LISTENER: protocol=TCP pid=1729 age=06-05:46:12 command=redis-server endpoint=127.0.0.1:6379
+LISTENER: protocol=TCP pid=1729 age=06-05:46:12 command=redis-server endpoint=[::1]:6379
+LISTENER: protocol=TCP pid=28102 age=06-03:47:57 command=steam_osx endpoint=127.0.0.1:49808
+LISTENER: protocol=TCP pid=28102 age=06-03:47:57 command=steam_osx endpoint=127.0.0.1:49810
+LISTENER: protocol=TCP pid=28102 age=06-03:47:57 command=steam_osx endpoint=127.0.0.1:57343
+LISTENER: protocol=TCP pid=31776 age=06-03:43:11 command=Synology Image Assistant endpoint=127.0.0.1:49937
+LISTENER: protocol=TCP pid=34222 age=02-01:15:34 command=com.docker.backend endpoint=*:13100
+LISTENER: protocol=TCP pid=34222 age=02-01:15:34 command=com.docker.backend endpoint=*:5173
+LISTENER: protocol=TCP pid=34222 age=02-01:15:34 command=com.docker.backend endpoint=*:5174
+LISTENER: protocol=TCP pid=34222 age=02-01:15:34 command=com.docker.backend endpoint=*:5175
+LISTENER: protocol=TCP pid=34222 age=02-01:15:34 command=com.docker.backend endpoint=*:5432
+LISTENER: protocol=TCP pid=34222 age=02-01:15:34 command=com.docker.backend endpoint=*:5433
+LISTENER: protocol=TCP pid=34222 age=02-01:15:34 command=com.docker.backend endpoint=*:5434
+LISTENER: protocol=TCP pid=34222 age=02-01:15:34 command=com.docker.backend endpoint=*:8000
+LISTENER: protocol=TCP pid=34222 age=02-01:15:34 command=com.docker.backend endpoint=*:8001
+LISTENER: protocol=TCP pid=34222 age=02-01:15:34 command=com.docker.backend endpoint=*:8002
+LISTENER: protocol=TCP pid=34878 age=05-19:20:37 command=OpenUsage endpoint=127.0.0.1:6736
+LISTENER: protocol=TCP pid=56245 age=06-02:26:27 command=nvsync-arm64 endpoint=127.0.0.1:11002
+LISTENER: protocol=TCP pid=56245 age=06-02:26:27 command=nvsync-arm64 endpoint=127.0.0.1:51072
+LISTENER: protocol=TCP pid=56245 age=06-02:26:27 command=nvsync-arm64 endpoint=[::1]:11002
+LISTENER: protocol=TCP pid=56245 age=06-02:26:27 command=nvsync-arm64 endpoint=[::1]:51072
+LISTENER: protocol=TCP pid=58732 age=06-01:02:45 command=nvsync-arm64 endpoint=*:53549
+LISTENER: protocol=TCP pid=979 age=06-05:55:37 command=rapportd endpoint=*:49307
+LISTENER: protocol=TCP pid=979 age=06-05:55:37 command=rapportd endpoint=*:55861
+LISTENER: protocol=TCP pid=979 age=06-05:55:37 command=rapportd endpoint=*:55862
+LISTENER: protocol=TCP pid=98327 age=02-00:45:49 command=node endpoint=100.90.74.112:4387
+LISTENER: protocol=TCP pid=98327 age=02-00:45:49 command=node endpoint=127.0.0.1:4387
+LISTENER: protocol=UDP pid=28102 age=06-03:47:57 command=steam_osx endpoint=*:56188
+LISTENER: protocol=UDP pid=58732 age=06-01:02:45 command=nvsync-arm64 endpoint=*:52697
+LISTENER: protocol=UDP pid=58732 age=06-01:02:45 command=nvsync-arm64 endpoint=*:57472
+LISTENER: protocol=UDP pid=974 age=06-05:55:37 command=identityservicesd endpoint=*:16393
+LISTENER: protocol=UDP pid=974 age=06-05:55:37 command=identityservicesd endpoint=*:16394
+LISTENER: protocol=UDP pid=974 age=06-05:55:37 command=identityservicesd endpoint=*:52627
+LISTENER: protocol=UDP pid=974 age=06-05:55:37 command=identityservicesd endpoint=*:61674
+LISTENER: protocol=UDP pid=979 age=06-05:55:37 command=rapportd endpoint=*:3722
+LISTENER: protocol=UDP pid=994 age=06-05:55:37 command=replicatord endpoint=*:61242
+LISTENER: protocol=UDP pid=996 age=06-05:55:37 command=sharingd endpoint=*:49458
+LOAD: fifteen-minute=20.88 cores=10
+NOT CHECKED: TCP network sockets owned by other users (not run as root)
+NOT CHECKED: TCP network sockets possibly omitted by lsof warning (lsof: WARNING: can't stat() smbfs file system /Volumes/.timemachine/DSNAS._smb._tcp.local./85040CD5-059E-4940-83CB-9A3006319CE0/Backups)
+NOT CHECKED: UDP network sockets owned by other users (not run as root)
+NOT CHECKED: UDP network sockets possibly omitted by lsof warning (lsof: WARNING: can't stat() smbfs file system /Volumes/.timemachine/DSNAS._smb._tcp.local./85040CD5-059E-4940-83CB-9A3006319CE0/Backups)
+NOT CHECKED: agent processes scan (interrupted)
+NOT CHECKED: simulators scan (interrupted)
+exit= 130
+$ pgrep -x lsof  # after interrupt
+no lsof left

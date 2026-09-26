@@ -1,0 +1,55 @@
+$ bin/fm-machine-inventory.sh
+AGENT: pid=26431 age=01-04:54:36 command=claude
+AGENT: pid=30083 age=01-04:54:34 command=claude
+AGENT: pid=41160 age=01-04:54:28 command=claude
+AGENT: pid=4204 age=01-04:54:46 command=claude
+AGENT: pid=59420 age=05-17:55:40 command=claude
+AGENT: pid=7603 age=01-04:53:40 command=claude
+AGENT: pid=85549 age=03-20:19:50 command=claude
+LISTENER: protocol=TCP pid=1364 age=06-05:54:06 command=ControlCenter endpoint=*:5000
+LISTENER: protocol=TCP pid=1364 age=06-05:54:06 command=ControlCenter endpoint=*:7000
+LISTENER: protocol=TCP pid=13973 age=05-19:00:20 command=node endpoint=127.0.0.1:9224
+LISTENER: protocol=TCP pid=1729 age=06-05:45:36 command=redis-server endpoint=127.0.0.1:6379
+LISTENER: protocol=TCP pid=1729 age=06-05:45:36 command=redis-server endpoint=[::1]:6379
+LISTENER: protocol=TCP pid=28102 age=06-03:47:21 command=steam_osx endpoint=127.0.0.1:49808
+LISTENER: protocol=TCP pid=28102 age=06-03:47:21 command=steam_osx endpoint=127.0.0.1:49810
+LISTENER: protocol=TCP pid=28102 age=06-03:47:21 command=steam_osx endpoint=127.0.0.1:57343
+LISTENER: protocol=TCP pid=31776 age=06-03:42:35 command=Synology Image Assistant endpoint=127.0.0.1:49937
+LISTENER: protocol=TCP pid=34222 age=02-01:14:58 command=com.docker.backend endpoint=*:13100
+LISTENER: protocol=TCP pid=34222 age=02-01:14:58 command=com.docker.backend endpoint=*:5173
+LISTENER: protocol=TCP pid=34222 age=02-01:14:58 command=com.docker.backend endpoint=*:5174
+LISTENER: protocol=TCP pid=34222 age=02-01:14:58 command=com.docker.backend endpoint=*:5175
+LISTENER: protocol=TCP pid=34222 age=02-01:14:58 command=com.docker.backend endpoint=*:5432
+LISTENER: protocol=TCP pid=34222 age=02-01:14:58 command=com.docker.backend endpoint=*:5433
+LISTENER: protocol=TCP pid=34222 age=02-01:14:58 command=com.docker.backend endpoint=*:5434
+LISTENER: protocol=TCP pid=34222 age=02-01:14:58 command=com.docker.backend endpoint=*:8000
+LISTENER: protocol=TCP pid=34222 age=02-01:14:58 command=com.docker.backend endpoint=*:8001
+LISTENER: protocol=TCP pid=34222 age=02-01:14:58 command=com.docker.backend endpoint=*:8002
+LISTENER: protocol=TCP pid=34878 age=05-19:20:01 command=OpenUsage endpoint=127.0.0.1:6736
+LISTENER: protocol=TCP pid=56245 age=06-02:25:51 command=nvsync-arm64 endpoint=127.0.0.1:11002
+LISTENER: protocol=TCP pid=56245 age=06-02:25:51 command=nvsync-arm64 endpoint=127.0.0.1:51072
+LISTENER: protocol=TCP pid=56245 age=06-02:25:51 command=nvsync-arm64 endpoint=[::1]:11002
+LISTENER: protocol=TCP pid=56245 age=06-02:25:51 command=nvsync-arm64 endpoint=[::1]:51072
+LISTENER: protocol=TCP pid=58732 age=06-01:02:09 command=nvsync-arm64 endpoint=*:53549
+LISTENER: protocol=TCP pid=979 age=06-05:55:01 command=rapportd endpoint=*:49307
+LISTENER: protocol=TCP pid=979 age=06-05:55:01 command=rapportd endpoint=*:55861
+LISTENER: protocol=TCP pid=979 age=06-05:55:01 command=rapportd endpoint=*:55862
+LISTENER: protocol=TCP pid=98327 age=02-00:45:13 command=node endpoint=100.90.74.112:4387
+LISTENER: protocol=TCP pid=98327 age=02-00:45:13 command=node endpoint=127.0.0.1:4387
+LISTENER: protocol=UDP pid=28102 age=06-03:47:21 command=steam_osx endpoint=*:56188
+LISTENER: protocol=UDP pid=58732 age=06-01:02:09 command=nvsync-arm64 endpoint=*:52697
+LISTENER: protocol=UDP pid=58732 age=06-01:02:09 command=nvsync-arm64 endpoint=*:57472
+LISTENER: protocol=UDP pid=974 age=06-05:55:01 command=identityservicesd endpoint=*:16393
+LISTENER: protocol=UDP pid=974 age=06-05:55:01 command=identityservicesd endpoint=*:16394
+LISTENER: protocol=UDP pid=974 age=06-05:55:01 command=identityservicesd endpoint=*:52627
+LISTENER: protocol=UDP pid=974 age=06-05:55:01 command=identityservicesd endpoint=*:61674
+LISTENER: protocol=UDP pid=979 age=06-05:55:01 command=rapportd endpoint=*:3722
+LISTENER: protocol=UDP pid=994 age=06-05:55:01 command=replicatord endpoint=*:61242
+LISTENER: protocol=UDP pid=996 age=06-05:55:01 command=sharingd endpoint=*:49458
+LOAD: fifteen-minute=21.55 cores=10
+NOT CHECKED: TCP network sockets owned by other users (not run as root)
+NOT CHECKED: TCP network sockets possibly omitted by lsof warning (lsof: WARNING: can't stat() smbfs file system /Volumes/.timemachine/DSNAS._smb._tcp.local./85040CD5-059E-4940-83CB-9A3006319CE0/Backups)
+NOT CHECKED: UDP network sockets owned by other users (not run as root)
+NOT CHECKED: UDP network sockets possibly omitted by lsof warning (lsof: WARNING: can't stat() smbfs file system /Volumes/.timemachine/DSNAS._smb._tcp.local./85040CD5-059E-4940-83CB-9A3006319CE0/Backups)
+bin/fm-machine-inventory.sh  6.40s user 13.23s system 77% cpu 25.165 total
+exit=1

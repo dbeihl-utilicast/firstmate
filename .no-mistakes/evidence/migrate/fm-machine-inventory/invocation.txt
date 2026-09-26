@@ -1,0 +1,10 @@
+$ bin/fm-machine-inventory.sh --help | head -5
+#!/usr/bin/env bash
+# fm-machine-inventory.sh - report host-wide resource leaks that need a human
+# owner, and remain silent only when every requested measurement is available
+# and below its threshold.
+#
+exit=
+$ bin/fm-machine-inventory.sh --bogus >/dev/null
+exit=2
+help exit=0
