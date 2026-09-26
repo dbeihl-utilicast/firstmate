@@ -1,0 +1,42 @@
+=== case nli-plain (authorized) ===
+--- captain intent:
+Stop requiring an extra round trip before a PR registers as ready.
+--- authorized --intent from launch-brief.md:
+Stop requiring an extra round trip before a PR registers as ready.
+
+No linked issue
+--- fm-pr-check.sh rc=0
+armed: state/nli-plain.check.sh
+pr=https://github.com/o/r/pull/7
+
+=== case nli-stripped (stripped) ===
+--- captain intent:
+Stop requiring an extra round trip before a PR registers as ready.
+--- authorized --intent from launch-brief.md:
+Stop requiring an extra round trip before a PR registers as ready.
+
+No linked issue
+--- fm-pr-check.sh rc=1
+error: captain's intent names no issue, and the PR body does not say so deliberately (add a literal 'No linked issue' line)
+(no pr= recorded)
+
+=== case nli-quoted (authorized) ===
+--- captain intent:
+Keep examples like "Closes #421" and `#9` out of scope.
+--- authorized --intent from launch-brief.md:
+Keep examples like "Closes #421" and `#9` out of scope.
+
+No linked issue
+--- fm-pr-check.sh rc=0
+armed: state/nli-quoted.check.sh
+pr=https://github.com/o/r/pull/7
+
+=== case issue-named (authorized) ===
+--- captain intent:
+Fix the delivery contract regression in #73.
+--- authorized --intent from launch-brief.md:
+Fix the delivery contract regression in #73.
+--- fm-pr-check.sh rc=1
+error: PR body does not close issues named in captain's intent: #73 (each named issue needs its own closing keyword, e.g. Closes #N)
+(no pr= recorded)
+
