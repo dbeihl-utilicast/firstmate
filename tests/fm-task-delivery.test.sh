@@ -865,7 +865,16 @@ EOF
   out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --mode no-mistakes --yolo off)
   assert_present "$home/data/$id/launch-brief.md" "plain intent was not serialized"
   authorized=$(awk '$0 == "## Captain intent authorized for --intent" { emit=1; next } emit { print }' "$home/data/$id/launch-brief.md")
-  [ "$authorized" = "$words" ] || fail "authorized --intent must contain exactly the request, without headings, address, or contract prose: $authorized"
+  expected=$(printf '%s\n\nNo linked issue' "$words")
+  [ "$authorized" = "$expected" ] || fail "no-issue no-mistakes intent must add the literal PR-body marker: $authorized"
+
+  id='intent-named-issue'
+  words='Fix the delivery contract regression in #73.'
+  write_brief "$home" "$id" no-mistakes
+  printf '# Task\n## Captain'"'"'s intent\n%s\n\n## Firstmate spec\nKeep the linked issue intact.\n\n# Definition of done\nDelivery contract: mode=no-mistakes\n' "$words" > "$home/data/$id/brief.md"
+  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --mode no-mistakes --yolo off)
+  authorized=$(awk '$0 == "## Captain intent authorized for --intent" { emit=1; next } emit { print }' "$home/data/$id/launch-brief.md")
+  [ "$authorized" = "$words" ] || fail "issue-bearing no-mistakes intent must not add the no-issue marker: $authorized"
 
   # The request itself may discuss an address spelling. It is data, not an
   # invitation to scrub the user's words or synthesize a different request.
@@ -876,7 +885,8 @@ EOF
   out=$(run_spawn "$home" "$fakebin" intent-literal "$proj" claude --mode no-mistakes --yolo off)
   assert_not_contains "$out" "operator-address line" "labels mentioned mid-line were refused as address"
   authorized=$(awk '$0 == "## Captain intent authorized for --intent" { emit=1; next } emit { print }' "$home/data/intent-literal/launch-brief.md")
-  [ "$authorized" = "$words" ] || fail "literal words in the request were scrubbed"
+  expected=$(printf '%s\n\nNo linked issue' "$words")
+  [ "$authorized" = "$expected" ] || fail "literal words in the request were changed or the no-issue marker was omitted"
 
   # A body line that opens with operator address is refused, never rewritten.
   for marker in 'Captain:' "Captain's words:" "Captain's ask:" "Captain's intent:" 'Captain,'; do
@@ -921,7 +931,8 @@ EOF
     assert_present "$home/data/$id/launch-brief.md" "$marker: provenance was not accepted"
     authorized=$(awk '$0 == "## Captain intent authorized for --intent" { emit=1; next } emit { print }' "$home/data/$id/launch-brief.md")
     words=$(printf '%s\n' 'Keep the original request intact.' 'Preserve its provenance.')
-    [ "$authorized" = "$words" ] || fail "$marker: legacy intent changed words or included provenance/build prose"
+    expected=$(printf '%s\n\nNo linked issue' "$words")
+    [ "$authorized" = "$expected" ] || fail "$marker: legacy intent changed words or omitted the no-issue marker"
   done
   pass "fm-spawn/fm-promote: authorized intent preserves exact words and refuses operator-address lines"
 }
