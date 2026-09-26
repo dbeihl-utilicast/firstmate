@@ -1,0 +1,10 @@
+$ fm-ci-test-evidence.sh --pr https://github.com/pytest-dev/pluggy/pull/743 --required-job test (ubuntu-py312) --required-job test (ubuntu-py313)
+exit=0
+
+$ fm-ci-test-evidence.sh --pr https://github.com/pytest-dev/pluggy/pull/743 --required-job downstream (${{ matrix.recipe }})
+test evidence violation: downstream (${{ matrix.recipe }}) executed=0 skipped=unknown deselected=unknown (job skipped before producing a test log)
+exit=1
+
+$ fm-ci-test-evidence.sh --pr https://github.com/pytest-dev/pluggy/pull/743 --required-job test (ubuntu-benchmark)
+exit=0
+

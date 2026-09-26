@@ -1,0 +1,21 @@
+$ fm-ci-test-evidence.sh --run https://github.com/pallets/click/actions/runs/34238094844 --required-job 3.12
+test evidence violation: 3.12 executed=2059 skipped=24 deselected=31000
+exit=1
+
+$ fm-ci-test-evidence.sh --run https://github.com/pallets/click/actions/runs/34238094844 --required-job 3.12 --required-job typing
+test evidence violation: 3.12 executed=2059 skipped=24 deselected=31000
+not measured: required job typing log contained no pytest, Jest, Vitest, or Playwright test summary
+exit=1
+
+$ fm-ci-test-evidence.sh --run https://github.com/pallets/click/actions/runs/34238094844 --required-job No such job
+absent: required job No such job was not present in https://github.com/pallets/click/actions/runs/34238094844
+exit=1
+
+# CI mode, gh-axi hidden from PATH
+$ CI=true PATH=/usr/bin:/bin fm-ci-test-evidence.sh --run https://github.com/pallets/click/actions/runs/34238094844 --required-job 3.12
+unverified: GitHub Actions evidence could not be read because gh-axi is unavailable
+exit=1
+
+$ PATH=/usr/bin:/bin fm-ci-test-evidence.sh (local)
+not checked: GitHub Actions evidence could not be read because gh-axi is unavailable
+exit=0

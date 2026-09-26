@@ -1,0 +1,17 @@
+$ fm-ci-test-evidence.sh --run https://github.com/pallets/markupsafe/actions/runs/30578640122 --required-job 3.12 --required-job 3.14
+test evidence violation: 3.12 executed=79 skipped=1 deselected=0
+test evidence violation: 3.14 executed=79 skipped=1 deselected=0
+exit=1
+
+$ fm-ci-test-evidence.sh --pr https://github.com/pallets/markupsafe/pull/ --required-job 3.12
+error: invalid GitHub pull request URL
+exit=2
+
+$ fm-ci-test-evidence.sh --pr https://github.com/pallets/click/pull/99999999 --required-job 3.12
+not checked: pull request https://github.com/pallets/click/pull/99999999 could not be read
+exit=0
+
+# same unreadable PR in CI mode
+$ CI=true ...
+unverified: pull request https://github.com/pallets/click/pull/99999999 could not be read
+exit=1

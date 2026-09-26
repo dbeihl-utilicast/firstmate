@@ -1,0 +1,8 @@
+ok - positive single-run PR is silent with pytest, Jest, and Vitest executed tests and zero skipped/deselected
+ok - go-easy-homie PR 481 rejects its five skipped jobs
+ok - most recent skipped execution of a required job stays red
+ok - each required job uses its most recent execution across runs for the head commit
+ok - skipped, deselected, errored, and unmeasured logs fail despite green conclusions without leaking full logs
+ok - absent required job fails rather than trusting other green checks
+ok - unreadable log keeps earlier violations locally and fails closed in CI
+ok - unavailable evidence is usable locally and fail-closed in CI
