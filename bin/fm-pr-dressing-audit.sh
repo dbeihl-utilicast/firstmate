@@ -91,12 +91,12 @@ printf '%s' "$pull_requests" | jq -r --argjson rules "$rules" '
       else empty end
     ),
     (
-      if ([ $pr.reviewRequests.nodes[]?.requestedReviewer | select(.__typename == "Team") | .combinedSlug ] + [ $pr.reviews.nodes[]?.onBehalfOf.nodes[].combinedSlug ] | index($rules.reviewer_team)) == null then
+      if ([ $pr.reviewRequests.nodes[]?.requestedReviewer | select(.__typename == "Team") | .combinedSlug ] + [ $pr.reviews.nodes[]?.onBehalfOf.nodes[].combinedSlug ] | map(ascii_downcase) | index($rules.reviewer_team | ascii_downcase)) == null then
         "\($url): reviewer team missing: \($rules.reviewer_team)"
       else empty end
     ),
     (
-      [ $rules.assignees[] | select(. as $login | ([ $pr.assignees.nodes[]?.login ] | index($login)) == null) ]
+      [ $rules.assignees[] | select(ascii_downcase as $login | ([ $pr.assignees.nodes[]?.login | ascii_downcase ] | index($login)) == null) ]
       | if length > 0 then "\($url): assignees missing: \(join(", "))" else empty end
     ),
     (
