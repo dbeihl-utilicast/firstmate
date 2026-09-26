@@ -1,0 +1,39 @@
+$ fm-alert-count.py origin/main local-nanoid-fix   # live Utilicast-LLC/time-and-expense-system alerts
+VERIFIED BRANCH REMEDIATION COUNT: 1 (#22 nanoid (package-lock.json))
+DEFAULT-BRANCH CAVEAT: 1 verified branch remediation(s) close none now. Dependabot advisories attach to the default branch and close only after release to it.
+EXCLUDED FROM THE VERIFIED COUNT:
+NOT CHECKED:
+- #26 league/commonmark (composer.lock): unsupported manifest
+- #25 league/commonmark (composer.lock): unsupported manifest
+- #24 league/commonmark (composer.lock): unsupported manifest
+- #23 league/commonmark (composer.lock): unsupported manifest
+- #20 league/commonmark (composer.lock): unsupported manifest
+- #19 league/commonmark (composer.lock): unsupported manifest
+- #18 league/commonmark (composer.lock): unsupported manifest
+- #17 league/commonmark (composer.lock): unsupported manifest
+- #16 league/commonmark (composer.lock): unsupported manifest
+- #15 league/commonmark (composer.lock): unsupported manifest
+- #14 guzzlehttp/guzzle (composer.lock): unsupported manifest
+- #13 guzzlehttp/guzzle (composer.lock): unsupported manifest
+exit=1
+
+$ fm-alert-count.py origin/main local-no-fix   # live Utilicast-LLC/time-and-expense-system alerts
+VERIFIED BRANCH REMEDIATION COUNT: 0 (none)
+DEFAULT-BRANCH CAVEAT: 0 verified branch remediation(s) close none now. Dependabot advisories attach to the default branch and close only after release to it.
+EXCLUDED FROM THE VERIFIED COUNT:
+- #22 nanoid (package-lock.json): local-no-fix does not reach a patched version
+NOT CHECKED:
+- #26 league/commonmark (composer.lock): unsupported manifest
+- #25 league/commonmark (composer.lock): unsupported manifest
+- #24 league/commonmark (composer.lock): unsupported manifest
+- #23 league/commonmark (composer.lock): unsupported manifest
+- #20 league/commonmark (composer.lock): unsupported manifest
+- #19 league/commonmark (composer.lock): unsupported manifest
+- #18 league/commonmark (composer.lock): unsupported manifest
+- #17 league/commonmark (composer.lock): unsupported manifest
+- #16 league/commonmark (composer.lock): unsupported manifest
+- #15 league/commonmark (composer.lock): unsupported manifest
+- #14 guzzlehttp/guzzle (composer.lock): unsupported manifest
+- #13 guzzlehttp/guzzle (composer.lock): unsupported manifest
+exit=1
+

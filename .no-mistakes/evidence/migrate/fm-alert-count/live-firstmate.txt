@@ -1,0 +1,4 @@
+$ bin/fm-alert-count.py 7f9177cf HEAD   # origin=dbeihl-utilicast/firstmate, live gh-axi as dbeihl-utilicast
+NOT CHECKED: gh-axi api: error: Insufficient permissions for this action
+code: FORBIDDEN
+exit=1
