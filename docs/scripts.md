@@ -77,6 +77,7 @@ The shared no-mistakes gate refusal for fleet lifecycle entrypoints is summarize
 | `fm-review-diff.sh`      | Review a crewmate branch or resolved PR head against the authoritative base          |
 | `fm-agy-print.sh`        | Run one-shot Antigravity print for review or second-reading and gate the JSON envelope |
 | `fm-agy-second-read.sh`  | Produce and validate a structured independent reading of a scout report |
+| `fm-ci-test-evidence.sh` | Verify a PR's or CI run's required test jobs from their own log test counts rather than green conclusions |
 | `fm-marker-lib.sh`       | Compatibility entry point for the from-firstmate carrier owned by `fm-operational-input.sh` |
 | `fm-task-inbox-lib.sh`   | Single owner of durable steering-inbox records, acknowledgement, doorbells, and the delivery-attempt ladder |
 | `fm-inbox-take.sh`       | Claim the next steering-inbox record, print its body, then move it into `handled/` |
